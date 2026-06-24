@@ -89,12 +89,15 @@ Planning prompt behavior:
 
 This is the first version of “predictive coding”: prompt the model to predict useful investigations and parallelizable work. Indexing is deferred.
 
-## Phase 4: Live realtime Doubleword provider
+## Phase 4: Live-shaped realtime Doubleword stubs
 
-- Register Doubleword realtime provider.
-- Use OpenAI-compatible endpoint.
-- Keep the stub path available for tests.
-- Verify model IDs, tool support, streaming, usage reporting, and pricing metadata.
+Status: realtime stubs expose the first live-shaped model IDs and pricing metadata; live endpoints remain deferred.
+
+- Register Doubleword realtime-shaped stub models for `glm-5-2` ($1.05/$3.30 per MTok in/out) and `deepseek-v4-flash` ($0.10/$0.20 per MTok in/out).
+- Use pricing metadata from `https://doubleword.ai/pricing` for stub cost estimates.
+- Keep the stub path available for tests; no live API key or network required.
+- Verify model IDs, fixture streaming, usage reporting, and pricing metadata.
+- Defer OpenAI-compatible live endpoint registration until after stub/trace confidence.
 
 ## Phase 5: Live async Doubleword provider
 

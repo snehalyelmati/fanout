@@ -15,6 +15,7 @@ Planning prompt:
 /dw-plan <task>
 ```
 
+Realtime stubs expose `glm-5-2` and `deepseek-v4-flash` with offline cost estimates.
 Normal runs also get lightweight think-ahead batching instructions.
 
 Docs:

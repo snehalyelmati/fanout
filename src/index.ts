@@ -17,7 +17,9 @@ import {
 
 const REALTIME_PROVIDER = "doubleword-realtime-stub";
 const ASYNC_PROVIDER = "doubleword-async-stub";
-const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+type ModelCost = Model<Api>["cost"];
+
+const ZERO_COST: ModelCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 const RUN_ID = process.env.DOUBLEWORD_RUN_ID ?? `${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`;
 const BATCHING_DISCIPLINE_MARKER = "## Think-ahead batching";
 const BATCHING_DISCIPLINE = `${BATCHING_DISCIPLINE_MARKER}
@@ -105,16 +107,24 @@ function textFrom(value: unknown): string {
 		.join("\n");
 }
 
-function usageFor(context: Context, outputText: string): Usage {
+function usageFor(model: Model<Api>, context: Context, outputText: string): Usage {
 	const input = countTokens([context.systemPrompt ?? "", ...context.messages.map((message) => textFrom(message.content))].join("\n"));
 	const output = countTokens(outputText);
+	const cost = {
+		input: (model.cost.input / 1_000_000) * input,
+		output: (model.cost.output / 1_000_000) * output,
+		cacheRead: 0,
+		cacheWrite: 0,
+		total: 0,
+	};
+	cost.total = cost.input + cost.output;
 	return {
 		input,
 		output,
 		cacheRead: 0,
 		cacheWrite: 0,
 		totalTokens: input + output,
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		cost,
 	};
 }
 
@@ -186,7 +196,7 @@ function streamStub(tier: "realtime" | "async", model: Model<Api>, context: Cont
 			writeJsonl("provider_ttft", { tier, provider: model.provider, model: model.id, responseId, turnIndex, ttftMs: durationMs(started) });
 
 			stream.push({ type: "text_end", contentIndex, content: FIXTURE_TEXT, partial: output });
-			output.usage = usageFor(context, FIXTURE_TEXT);
+			output.usage = usageFor(model, context, FIXTURE_TEXT);
 			stream.push({ type: "done", reason: "stop", message: output });
 			writeJsonl("provider_end", {
 				tier,
@@ -219,15 +229,20 @@ function streamAsyncStub(model: Model<Api>, context: Context, options?: SimpleSt
 	return streamStub("async", model, context, options);
 }
 
-const stubModel = (id: string, name: string) => ({
+const stubModel = (id: string, name: string, cost: ModelCost = ZERO_COST) => ({
 	id,
 	name,
 	reasoning: false,
 	input: ["text" as const],
-	cost: ZERO_COST,
+	cost,
 	contextWindow: 128000,
 	maxTokens: 4096,
 });
+
+const REALTIME_STUB_MODELS = [
+	stubModel("glm-5-2", "GLM-5.2-FP8", { input: 1.05, output: 3.3, cacheRead: 0, cacheWrite: 0 }),
+	stubModel("deepseek-v4-flash", "DeepSeek-V4-Flash", { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 }),
+];
 
 export default function (pi: ExtensionAPI) {
 	let agentStarted: number | undefined;
@@ -241,7 +256,7 @@ export default function (pi: ExtensionAPI) {
 		baseUrl: "http://localhost/doubleword-realtime-stub",
 		apiKey: "doubleword-stub",
 		api: "doubleword-realtime-stub-api",
-		models: [stubModel(REALTIME_PROVIDER, "Doubleword realtime stub")],
+		models: REALTIME_STUB_MODELS,
 		streamSimple: streamRealtimeStub,
 	});
 
