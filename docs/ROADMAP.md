@@ -45,7 +45,7 @@ Build provider stubs without hitting Doubleword live endpoints.
 
 ## Phase 2: Observability test environment
 
-Status: initial JSONL hooks are in place for provider, TTFT, async polling, usage/cost, errors/abort, and tool timings. Field assertions and trace benchmarks remain pending.
+Status: initial JSONL hooks are in place for provider, TTFT, async polling, usage/cost, errors/abort, and tool timings. A tiny observability smoke asserts core JSONL events/fields; trace benchmarks remain pending.
 
 Capture per-run JSONL spans for:
 
