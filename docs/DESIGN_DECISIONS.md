@@ -99,3 +99,9 @@ Reason: Phase 6 needs these metrics to judge whether prompt-only batching reduce
 Decision: Expose `glm-5-2` and `deepseek-v4-flash` as realtime stub model IDs with Doubleword pricing metadata before wiring live endpoints.
 
 Reason: This validates Pi model registration, model selection, usage accounting, cost estimates, and observability without API keys, live cost, or endpoint-shape assumptions.
+
+### Live async uses direct Responses polling first
+
+Decision: Add an opt-in `doubleword-async` provider that submits Responses API requests with `service_tier: "flex"` and `background: true`, then polls `/responses/{id}` directly.
+
+Reason: Direct polling preserves queue/status/poll observability and avoids adding Autobatcher or custom orchestration before benchmarks justify it.

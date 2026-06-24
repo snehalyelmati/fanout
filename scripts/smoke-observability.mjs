@@ -76,8 +76,8 @@ try {
       has(events, "provider_end", (event) => realtimeCostMatches(event, model, inputRate, outputRate)),
     ]),
     ["async.cost.zero", has(events, "provider_end", (event) => event.provider === "doubleword-async-stub" && event.usage?.cost?.total === 0)],
-    ["async_submit", has(events, "async_submit")],
-    ["async_poll", has(events, "async_poll", (event) => typeof event.durationMs === "number")],
+    ["async_submit", has(events, "async_submit", (event) => event.provider === "doubleword-async-stub" && event.turnIndex === 0 && event.serviceTierRequested === "flex")],
+    ["async_poll", has(events, "async_poll", (event) => event.provider === "doubleword-async-stub" && event.turnIndex === 0 && event.serviceTierRequested === "flex" && typeof event.durationMs === "number")],
   ];
   const missing = checks.filter(([, ok]) => !ok).map(([name]) => name);
   if (missing.length) throw new Error(`Missing observability fields/events: ${missing.join(", ")}\n${readFileSync(logFile, "utf8")}`);

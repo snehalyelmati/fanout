@@ -16,6 +16,7 @@ Planning prompt:
 ```
 
 Realtime stubs expose `glm-5-2` and `deepseek-v4-flash` with offline cost estimates.
+`doubleword-async` is an opt-in live Responses API polling provider gated by `DOUBLEWORD_API_KEY`.
 Normal runs also get lightweight think-ahead batching instructions.
 
 Docs:

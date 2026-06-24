@@ -9,6 +9,8 @@
     "check": "node scripts/check-models.mjs",
     "smoke:realtime": "pi -e . --model doubleword-realtime-stub/glm-5-2 -p 'Say hello' && pi -e . --model doubleword-realtime-stub/deepseek-v4-flash -p 'Say hello'",
     "smoke:async": "pi -e . --model doubleword-async-stub/doubleword-async-stub -p 'Say hello'",
+    "smoke:live:async": "node scripts/smoke-live-async.mjs",
+    "smoke:live:async:mock": "node scripts/smoke-live-async-mock.mjs",
     "smoke:observability": "node scripts/smoke-observability.mjs",
     "smoke:planning": "node scripts/smoke-planning.mjs"
   },

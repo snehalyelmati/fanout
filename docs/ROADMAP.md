@@ -101,13 +101,16 @@ Status: realtime stubs expose the first live-shaped model IDs and pricing metada
 
 ## Phase 5: Live async Doubleword provider
 
-- Implement custom polling provider path if required.
-- Use Responses API with `service_tier: "flex"` and background polling.
-- Translate completed responses into Pi assistant events.
-- Handle no-streaming UX clearly.
-- Track response ID, queue time, poll time, usage, and errors.
+Status: opt-in `doubleword-async` provider path is wired for Responses API background polling; normal validation remains offline and keyless.
 
-Key limitation to validate: async responses may not stream; Pi may only receive content/tool calls after completion.
+- Register live-shaped async models for `glm-5-2` and `deepseek-v4-flash` under `doubleword-async`.
+- Use Responses API at `https://api.doubleword.ai/v1` with `service_tier: "flex"` and `background: true`.
+- Poll `GET /v1/responses/{id}` while status is `queued` or `in_progress`.
+- Translate completed text responses into Pi assistant events after completion; no streaming before completion is assumed.
+- Track response ID, status transitions, requested/actual service tier, poll time, usage, and errors.
+- Keep live smoke opt-in with `DOUBLEWORD_API_KEY`; no live network in default checks.
+
+Key limitation to validate live: async responses may not stream; Pi may only receive content/tool calls after completion. Tool-call translation remains pending until live Responses output shape is confirmed.
 
 ## Phase 6: Stub/trace benchmarks
 
