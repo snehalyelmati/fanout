@@ -26,6 +26,8 @@ The workflow should preserve developer velocity where possible by using async on
 
 ## Phase 1: Provider stubs
 
+Status: initial Pi extension skeleton complete with realtime and async stub providers.
+
 Build provider stubs without hitting Doubleword live endpoints.
 
 ### Realtime stub
@@ -42,6 +44,8 @@ Build provider stubs without hitting Doubleword live endpoints.
 - Fixture-backed final text/tool-call responses.
 
 ## Phase 2: Observability test environment
+
+Status: initial JSONL hooks are in place for provider, TTFT, async polling, usage/cost, errors/abort, and tool timings. Field assertions and trace benchmarks remain pending.
 
 Capture per-run JSONL spans for:
 

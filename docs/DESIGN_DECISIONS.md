@@ -63,3 +63,15 @@ Reason: Batch latency does not fit one active Pi turn. It is better for trace re
 Decision: Keep code, docs, fixtures, and sampled traces in this directory.
 
 Reason: The workspace should be self-contained for extension development and benchmarking.
+
+### Stub providers use custom streamSimple
+
+Decision: Register `doubleword-realtime-stub` and `doubleword-async-stub` with custom `streamSimple` implementations instead of proxying a live-compatible API shape immediately.
+
+Reason: The custom stream path validates Pi provider mechanics, event ordering, async polling simulation, and observability before any live Doubleword endpoint assumptions.
+
+### Observability writes are best-effort
+
+Decision: JSONL observability writes must not throw through provider streaming.
+
+Reason: Logging failures should not mask provider errors, aborts, or successful stub responses.

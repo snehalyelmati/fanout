@@ -1,0 +1,20 @@
+{
+  "name": "doubleword-pi",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "keywords": ["pi-package"],
+  "scripts": {
+    "build": "echo 'nothing to build'",
+    "check": "pi -e . --list-models >/dev/null",
+    "smoke:realtime": "pi -e . --model doubleword-realtime-stub/doubleword-realtime-stub -p 'Say hello'",
+    "smoke:async": "pi -e . --model doubleword-async-stub/doubleword-async-stub -p 'Say hello'"
+  },
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}
