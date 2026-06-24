@@ -45,7 +45,7 @@ Build provider stubs without hitting Doubleword live endpoints.
 
 ## Phase 2: Observability test environment
 
-Status: initial JSONL hooks are in place for provider, TTFT, async polling, usage/cost, errors/abort, and tool timings. A tiny observability smoke asserts core JSONL events/fields; trace benchmarks remain pending.
+Status: initial JSONL hooks are in place for provider, TTFT, async polling, usage/cost, errors/abort, tool timings, agent turn count, and tool batch size per turn. A tiny observability smoke asserts core JSONL events/fields; trace benchmarks remain pending.
 
 Capture per-run JSONL spans for:
 
@@ -58,6 +58,7 @@ Capture per-run JSONL spans for:
 - poll count and poll duration
 - tool execution timings
 - turn and agent timings
+- agent turn count and per-turn tool batch size
 - token usage
 - cost estimate
 - errors/abort state
@@ -72,15 +73,19 @@ runs/<run-id>/jobs/*.json
 
 ## Phase 3: Pi-native planning workflow
 
+Status: initial `/dw-plan` prompt template, always-on batching discipline, and smoke checks are in place.
+
 Start with prompt/template workflow, not a custom DAG executor.
 
-Candidate planning prompt behavior:
+Planning prompt behavior:
 
-- Investigate before editing.
+- Plan only: no edits, patches, codegen, migrations, or mutating commands.
+- Investigate before asking when facts are discoverable from the repo/environment.
 - Identify what must be read, grepped, tested, or clarified.
-- Identify what can be parallelized within normal Pi tool calls.
-- Request all likely-needed local evidence in the same model turn.
-- Produce a concise plan before execution.
+- Batch independent reads, greps, git inspection, and checks in the same model turn when possible.
+- Inject a lighter always-on batching discipline into normal execution so each turn looks ahead before using tools.
+- Ask as many questions as needed until the ask is clear and execution has no material doubts.
+- Produce a concise `<proposed_plan>` before execution when decision-complete; otherwise ask the next needed questions.
 
 This is the first version of “predictive coding”: prompt the model to predict useful investigations and parallelizable work. Indexing is deferred.
 
@@ -125,8 +130,8 @@ datasets/fixtures/
 
 Benchmark questions:
 
-- How many model turns does the workflow need?
-- How many local tool calls are batched into each turn?
+- How many model turns does the workflow need? Use `agent_end.turnCount` and `turn_*` events.
+- How many local tool calls are batched into each turn? Use `turn_end.toolCallCount`.
 - Does async TTFT multiply wall-clock time or get amortized?
 - What is cost vs realtime?
 - Does planning-first reduce retries and wasted turns?

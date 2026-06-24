@@ -75,3 +75,21 @@ Reason: The custom stream path validates Pi provider mechanics, event ordering, 
 Decision: JSONL observability writes must not throw through provider streaming.
 
 Reason: Logging failures should not mask provider errors, aborts, or successful stub responses.
+
+### Planning workflow ships as a prompt template first
+
+Decision: Phase 3 starts with a `/dw-plan` prompt template instead of extension-enforced plan mode or a custom executor.
+
+Reason: Prompt templates are Pi-native and cheap to test. The prompt can require non-mutating exploration, clarification until execution is clear, and a decision-complete proposed plan while deferring DAGs, subagents, indexing, and live provider routing.
+
+### Normal execution gets batching discipline through the system prompt
+
+Decision: Inject a lightweight think-ahead batching instruction with `before_agent_start` for every normal Pi run.
+
+Reason: This keeps the normal Pi loop while nudging each turn to batch independent reads, greps, inspections, and checks before adding any custom orchestration.
+
+### Turn count and tool batch size are logged now
+
+Decision: Record `agent_start`, `agent_end`, `turn_start`, and `turn_end` JSONL events, including total turns per agent run and tool calls per turn.
+
+Reason: Phase 6 needs these metrics to judge whether prompt-only batching reduces expensive provider turns enough before building orchestration.

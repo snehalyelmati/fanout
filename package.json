@@ -9,10 +9,12 @@
     "check": "pi -e . --list-models >/dev/null",
     "smoke:realtime": "pi -e . --model doubleword-realtime-stub/doubleword-realtime-stub -p 'Say hello'",
     "smoke:async": "pi -e . --model doubleword-async-stub/doubleword-async-stub -p 'Say hello'",
-    "smoke:observability": "node scripts/smoke-observability.mjs"
+    "smoke:observability": "node scripts/smoke-observability.mjs",
+    "smoke:planning": "node scripts/smoke-planning.mjs"
   },
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": ["./src/index.ts"],
+    "prompts": ["./prompts/dw-plan.md"]
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

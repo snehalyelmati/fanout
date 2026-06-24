@@ -17,8 +17,17 @@ function run(model) {
   }
 }
 
+function byEvent(events, name) {
+  return events.filter((event) => event.event === name);
+}
+
 function has(events, name, predicate = () => true) {
-  return events.some((event) => event.event === name && predicate(event));
+  return byEvent(events, name).some(predicate);
+}
+
+function allEvents(events, name, count, predicate) {
+  const matches = byEvent(events, name);
+  return matches.length === count && matches.every(predicate);
 }
 
 try {
@@ -31,11 +40,19 @@ try {
     .filter(Boolean)
     .map((line) => JSON.parse(line));
 
+  const providers = ["doubleword-realtime-stub", "doubleword-async-stub"];
   const checks = [
+    ["agent_end.no_tools", allEvents(events, "agent_end", 2, (event) => event.turnCount === 1 && event.toolCallCount === 0)],
+    ["turn_start", has(events, "turn_start", (event) => typeof event.turnIndex === "number")],
+    ["turn_end.no_tools", allEvents(events, "turn_end", 2, (event) => event.toolCallCount === 0)],
     ["provider_start", has(events, "provider_start")],
-    ["provider_ttft", has(events, "provider_ttft", (event) => typeof event.ttftMs === "number")],
-    ["provider_end", has(events, "provider_end", (event) => typeof event.durationMs === "number")],
-    ["usage.cost.total", has(events, "provider_end", (event) => typeof event.usage?.cost?.total === "number")],
+    ...providers.flatMap((provider) => [
+      [`${provider}.provider_start.turnIndex`, has(events, "provider_start", (event) => event.provider === provider && event.turnIndex === 0)],
+      [`${provider}.batchingDiscipline`, has(events, "provider_start", (event) => event.provider === provider && event.batchingDiscipline === true)],
+      [`${provider}.provider_ttft`, has(events, "provider_ttft", (event) => event.provider === provider && typeof event.ttftMs === "number")],
+      [`${provider}.provider_end`, has(events, "provider_end", (event) => event.provider === provider && typeof event.durationMs === "number")],
+      [`${provider}.usage.cost.total`, has(events, "provider_end", (event) => event.provider === provider && typeof event.usage?.cost?.total === "number")],
+    ]),
     ["async_submit", has(events, "async_submit")],
     ["async_poll", has(events, "async_poll", (event) => typeof event.durationMs === "number")],
   ];

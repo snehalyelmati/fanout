@@ -9,6 +9,14 @@ Current focus:
 3. Keep workflows Pi-native: planning prompts first, custom orchestration later only if needed.
 4. Benchmark with traces/stubs before live endpoints.
 
+Planning prompt:
+
+```text
+/dw-plan <task>
+```
+
+Normal runs also get lightweight think-ahead batching instructions.
+
 Docs:
 
 - [`docs/ROADMAP.md`](docs/ROADMAP.md)

@@ -19,8 +19,23 @@ const REALTIME_PROVIDER = "doubleword-realtime-stub";
 const ASYNC_PROVIDER = "doubleword-async-stub";
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 const RUN_ID = process.env.DOUBLEWORD_RUN_ID ?? `${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`;
+const BATCHING_DISCIPLINE_MARKER = "## Think-ahead batching";
+const BATCHING_DISCIPLINE = `${BATCHING_DISCIPLINE_MARKER}
+
+Before using tools, identify all independent evidence needed for the next decision.
+
+Batch independent actions in the same assistant turn:
+- read related files together
+- grep related symbols and callers together
+- inspect configs, manifests, tests, docs, and git history together
+- run independent read-only checks together
+
+Do not spend another model turn just to request an obvious sibling file, caller search, manifest, or nearby test. If one read-only shell command can safely gather related facts, prefer it.
+
+Take another tool turn only when previous results reveal a real dependency, ambiguity, or new branch of investigation.`;
 
 let cwd = process.cwd();
+let activeTurnIndex: number | undefined;
 
 function readFixtureText(): string {
 	try {
@@ -142,11 +157,20 @@ function streamStub(tier: "realtime" | "async", model: Model<Api>, context: Cont
 
 	(async () => {
 		const started = performance.now();
+		const turnIndex = activeTurnIndex;
 		const responseId = `stub-${randomUUID()}`;
 		const output = emptyMessage(model, responseId);
 
 		try {
-			writeJsonl("provider_start", { tier, provider: model.provider, model: model.id, api: model.api, responseId });
+			writeJsonl("provider_start", {
+				tier,
+				provider: model.provider,
+				model: model.id,
+				api: model.api,
+				responseId,
+				turnIndex,
+				batchingDiscipline: Boolean(context.systemPrompt?.includes(BATCHING_DISCIPLINE_MARKER)),
+			});
 			stream.push({ type: "start", partial: output });
 
 			if (tier === "async") await simulateAsyncPolls(responseId, options);
@@ -159,7 +183,7 @@ function streamStub(tier: "realtime" | "async", model: Model<Api>, context: Cont
 			const block = output.content[contentIndex];
 			if (block.type === "text") block.text += FIXTURE_TEXT;
 			stream.push({ type: "text_delta", contentIndex, delta: FIXTURE_TEXT, partial: output });
-			writeJsonl("provider_ttft", { tier, provider: model.provider, model: model.id, responseId, ttftMs: durationMs(started) });
+			writeJsonl("provider_ttft", { tier, provider: model.provider, model: model.id, responseId, turnIndex, ttftMs: durationMs(started) });
 
 			stream.push({ type: "text_end", contentIndex, content: FIXTURE_TEXT, partial: output });
 			output.usage = usageFor(context, FIXTURE_TEXT);
@@ -169,6 +193,7 @@ function streamStub(tier: "realtime" | "async", model: Model<Api>, context: Cont
 				provider: model.provider,
 				model: model.id,
 				responseId,
+				turnIndex,
 				durationMs: durationMs(started),
 				usage: output.usage,
 			});
@@ -177,7 +202,7 @@ function streamStub(tier: "realtime" | "async", model: Model<Api>, context: Cont
 			const reason = options?.signal?.aborted ? "aborted" : "error";
 			output.stopReason = reason;
 			output.errorMessage = error instanceof Error ? error.message : String(error);
-			writeJsonl("provider_error", { tier, provider: model.provider, model: model.id, responseId, reason, durationMs: durationMs(started), error: output.errorMessage });
+			writeJsonl("provider_error", { tier, provider: model.provider, model: model.id, responseId, turnIndex, reason, durationMs: durationMs(started), error: output.errorMessage });
 			stream.push({ type: "error", reason, error: output });
 			stream.end();
 		}
@@ -205,7 +230,11 @@ const stubModel = (id: string, name: string) => ({
 });
 
 export default function (pi: ExtensionAPI) {
-	const toolStarts = new Map<string, number>();
+	let agentStarted: number | undefined;
+	let agentTurnCount = 0;
+	let agentToolCallCount = 0;
+	const turnStats = new Map<number, { started: number; toolCallCount: number }>();
+	const toolStarts = new Map<string, { started: number; turnIndex?: number }>();
 
 	pi.registerProvider(REALTIME_PROVIDER, {
 		name: "Doubleword Realtime Stub",
@@ -230,9 +259,52 @@ export default function (pi: ExtensionAPI) {
 		writeJsonl("session_start", { cwd, mode: ctx.mode }, cwd);
 	});
 
+	pi.on("before_agent_start", (event) => ({
+		systemPrompt: event.systemPrompt.includes(BATCHING_DISCIPLINE_MARKER) ? event.systemPrompt : `${event.systemPrompt}\n\n${BATCHING_DISCIPLINE}`,
+	}));
+
+	pi.on("agent_start", (_event, ctx) => {
+		agentStarted = performance.now();
+		agentTurnCount = 0;
+		agentToolCallCount = 0;
+		writeJsonl("agent_start", {}, ctx.cwd);
+	});
+
+	pi.on("agent_end", (_event, ctx) => {
+		writeJsonl("agent_end", {
+			durationMs: agentStarted === undefined ? undefined : durationMs(agentStarted),
+			turnCount: agentTurnCount,
+			toolCallCount: agentToolCallCount,
+		}, ctx.cwd);
+		agentStarted = undefined;
+	});
+
+	pi.on("turn_start", (event, ctx) => {
+		activeTurnIndex = event.turnIndex;
+		agentTurnCount++;
+		turnStats.set(event.turnIndex, { started: performance.now(), toolCallCount: 0 });
+		writeJsonl("turn_start", { turnIndex: event.turnIndex }, ctx.cwd);
+	});
+
+	pi.on("turn_end", (event, ctx) => {
+		const stats = turnStats.get(event.turnIndex);
+		turnStats.delete(event.turnIndex);
+		writeJsonl("turn_end", {
+			turnIndex: event.turnIndex,
+			durationMs: stats === undefined ? undefined : durationMs(stats.started),
+			toolCallCount: stats?.toolCallCount ?? 0,
+			toolResultCount: Array.isArray(event.toolResults) ? event.toolResults.length : undefined,
+		}, ctx.cwd);
+		if (activeTurnIndex === event.turnIndex) activeTurnIndex = undefined;
+	});
+
 	pi.on("tool_execution_start", (event, ctx) => {
-		toolStarts.set(event.toolCallId, performance.now());
-		writeJsonl("tool_start", { toolCallId: event.toolCallId, toolName: event.toolName }, ctx.cwd);
+		const turnIndex = activeTurnIndex;
+		const stats = turnIndex === undefined ? undefined : turnStats.get(turnIndex);
+		if (stats) stats.toolCallCount++;
+		agentToolCallCount++;
+		toolStarts.set(event.toolCallId, { started: performance.now(), turnIndex });
+		writeJsonl("tool_start", { toolCallId: event.toolCallId, toolName: event.toolName, turnIndex }, ctx.cwd);
 	});
 
 	pi.on("tool_execution_end", (event, ctx) => {
@@ -243,8 +315,9 @@ export default function (pi: ExtensionAPI) {
 			{
 				toolCallId: event.toolCallId,
 				toolName: event.toolName,
+				turnIndex: started?.turnIndex,
 				isError: event.isError,
-				durationMs: started === undefined ? undefined : durationMs(started),
+				durationMs: started === undefined ? undefined : durationMs(started.started),
 			},
 			ctx.cwd,
 		);
