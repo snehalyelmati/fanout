@@ -12,7 +12,9 @@
     "smoke:live:async": "node scripts/smoke-live-async.mjs",
     "smoke:live:async:mock": "node scripts/smoke-live-async-mock.mjs",
     "smoke:observability": "node scripts/smoke-observability.mjs",
-    "smoke:planning": "node scripts/smoke-planning.mjs"
+    "smoke:planning": "node scripts/smoke-planning.mjs",
+    "benchmark:traces": "node scripts/benchmark-traces.mjs",
+    "smoke:benchmarks": "node scripts/smoke-benchmarks.mjs"
   },
   "pi": {
     "extensions": ["./src/index.ts"],

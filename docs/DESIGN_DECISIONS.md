@@ -105,3 +105,9 @@ Reason: This validates Pi model registration, model selection, usage accounting,
 Decision: Add an opt-in `doubleword-async` provider that submits Responses API requests with `service_tier: "flex"` and `background: true`, then polls `/responses/{id}` directly.
 
 Reason: Direct polling preserves queue/status/poll observability and avoids adding Autobatcher or custom orchestration before benchmarks justify it.
+
+### Phase 6 starts as trace summarization
+
+Decision: Start stub/trace benchmarking with an offline JSONL summarizer over existing observability events, not a trace replay engine or dataset downloader.
+
+Reason: The first benchmark question is whether the current Pi-native loop batches enough work and what async latency/cost looks like. Existing events can answer that before adding replay/orchestration code.

@@ -114,7 +114,14 @@ Key limitation to validate live: async responses may not stream; Pi may only rec
 
 ## Phase 6: Stub/trace benchmarks
 
-Use local traces before live cost.
+Status: initial offline trace summarizer and smoke fixture are in place. It reads local `observability.jsonl` files and produces `runs/phase6/summary.json` plus `summary.md`; no live calls or replay engine.
+
+Run:
+
+```bash
+rtk npm run benchmark:traces -- datasets/fixtures/phase6-observability.jsonl
+rtk npm run smoke:benchmarks
+```
 
 Candidate datasets:
 
@@ -134,13 +141,15 @@ datasets/traces/
 datasets/fixtures/
 ```
 
-Benchmark questions:
+Current benchmark questions answered by the summarizer:
 
 - How many model turns does the workflow need? Use `agent_end.turnCount` and `turn_*` events.
 - How many local tool calls are batched into each turn? Use `turn_end.toolCallCount`.
-- Does async TTFT multiply wall-clock time or get amortized?
-- What is cost vs realtime?
-- Does planning-first reduce retries and wasted turns?
+- Does async TTFT multiply wall-clock time or get amortized? Use async provider duration, TTFT, poll count, and poll duration totals.
+- What is cost vs realtime? Use provider usage/cost totals and per-tier summaries.
+- Does planning-first reduce retries and wasted turns? Compare summaries from plain runs vs `/dw-plan` runs.
+
+Deferred until the summaries prove they are needed: external dataset downloader, trace replay engine, DAG executor, subagents, and indexing.
 
 ## Phase 7: Live endpoint benchmarks
 

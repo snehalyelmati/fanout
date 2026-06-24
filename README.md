@@ -9,6 +9,13 @@ Current focus:
 3. Keep workflows Pi-native: planning prompts first, custom orchestration later only if needed.
 4. Benchmark with traces/stubs before live endpoints.
 
+Phase 6 offline trace summary:
+
+```text
+rtk npm run benchmark:traces -- datasets/fixtures/phase6-observability.jsonl
+rtk npm run smoke:benchmarks
+```
+
 Planning prompt:
 
 ```text
