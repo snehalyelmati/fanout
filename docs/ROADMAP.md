@@ -93,7 +93,7 @@ This is the first version of “predictive coding”: prompt the model to predic
 
 Status: realtime stubs expose the first live-shaped model IDs and pricing metadata; live endpoints remain deferred.
 
-- Register Doubleword realtime-shaped stub models for `glm-5-2` ($1.05/$3.30 per MTok in/out) and `deepseek-v4-flash` ($0.10/$0.20 per MTok in/out).
+- Register Doubleword realtime-shaped stub models for `glm-5-2` ($1.40/$4.40 per MTok in/out) and `deepseek-v4-flash` ($0.14/$0.28 per MTok in/out).
 - Use pricing metadata from `https://doubleword.ai/pricing` for stub cost estimates.
 - Keep the stub path available for tests; no live API key or network required.
 - Verify model IDs, fixture streaming, usage reporting, and pricing metadata.
@@ -103,7 +103,7 @@ Status: realtime stubs expose the first live-shaped model IDs and pricing metada
 
 Status: opt-in `doubleword-async` provider path is wired for Responses API background polling; normal validation remains offline and keyless.
 
-- Register live-shaped async models for `glm-5-2` and `deepseek-v4-flash` under `doubleword-async`.
+- Register live-shaped async models for `glm-5-2` (tier 2/flex $1.05/$3.30 per MTok in/out) and `deepseek-v4-flash` (tier 2/flex $0.10/$0.20 per MTok in/out) under `doubleword-async`.
 - Use Responses API at `https://api.doubleword.ai/v1` with `service_tier: "flex"` and `background: true`.
 - Poll `GET /v1/responses/{id}` while status is `queued` or `in_progress`.
 - Translate completed text responses into Pi assistant events after completion; no streaming before completion is assumed.
@@ -114,12 +114,15 @@ Key limitation to validate live: async responses may not stream; Pi may only rec
 
 ## Phase 6: Stub/trace benchmarks
 
-Status: initial offline trace summarizer and smoke fixture are in place. It reads local `observability.jsonl` files and produces `runs/phase6/summary.json` plus `summary.md`; no live calls or replay engine.
+Status: initial offline trace summarizer and smoke fixtures are in place. It reads local `observability.jsonl` files and raw Pi session JSONL traces, then produces `runs/phase6/summary.json` plus `summary.md`; no live calls or replay engine.
 
 Run:
 
 ```bash
 rtk npm run benchmark:traces -- datasets/fixtures/phase6-observability.jsonl
+rtk npm run benchmark:traces -- datasets/fixtures/pi-session-trace.jsonl --model glm-5-2
+# after placing ignored external samples under datasets/traces/pi-mono-sample:
+rtk npm run benchmark:traces -- datasets/traces/pi-mono-sample --model glm-5-2
 rtk npm run smoke:benchmarks
 ```
 
@@ -146,7 +149,7 @@ Current benchmark questions answered by the summarizer:
 - How many model turns does the workflow need? Use `agent_end.turnCount` and `turn_*` events.
 - How many local tool calls are batched into each turn? Use `turn_end.toolCallCount`.
 - Does async TTFT multiply wall-clock time or get amortized? Use async provider duration, TTFT, poll count, and poll duration totals.
-- What is cost vs realtime? Use provider usage/cost totals and per-tier summaries.
+- What is cost vs realtime? Use provider usage/cost totals plus the `glm-5-2` tier comparison table.
 - Does planning-first reduce retries and wasted turns? Compare summaries from plain runs vs `/dw-plan` runs.
 
 Deferred until the summaries prove they are needed: external dataset downloader, trace replay engine, DAG executor, subagents, and indexing.

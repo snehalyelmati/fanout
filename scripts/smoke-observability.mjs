@@ -6,8 +6,8 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "doubleword-pi-"));
 const logFile = join(dir, "observability.jsonl");
 const realtimeModels = [
-  { model: "glm-5-2", inputRate: 1.05, outputRate: 3.3 },
-  { model: "deepseek-v4-flash", inputRate: 0.1, outputRate: 0.2 },
+  { model: "glm-5-2", inputRate: 1.4, outputRate: 4.4 },
+  { model: "deepseek-v4-flash", inputRate: 0.14, outputRate: 0.28 },
 ];
 
 function run(provider, model = provider) {

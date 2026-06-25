@@ -426,13 +426,15 @@ const stubModel = (id: string, name: string, cost: ModelCost = ZERO_COST) => ({
 	maxTokens: 4096,
 });
 
-const LIVE_SHAPED_MODELS = [
+const REALTIME_STUB_MODELS = [
+	stubModel("glm-5-2", "GLM-5.2-FP8", { input: 1.4, output: 4.4, cacheRead: 0, cacheWrite: 0 }),
+	stubModel("deepseek-v4-flash", "DeepSeek-V4-Flash", { input: 0.14, output: 0.28, cacheRead: 0, cacheWrite: 0 }),
+];
+
+const LIVE_ASYNC_MODELS = [
 	stubModel("glm-5-2", "GLM-5.2-FP8", { input: 1.05, output: 3.3, cacheRead: 0, cacheWrite: 0 }),
 	stubModel("deepseek-v4-flash", "DeepSeek-V4-Flash", { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 }),
 ];
-
-const REALTIME_STUB_MODELS = LIVE_SHAPED_MODELS;
-const LIVE_ASYNC_MODELS = LIVE_SHAPED_MODELS;
 
 export default function (pi: ExtensionAPI) {
 	let agentStarted: number | undefined;
