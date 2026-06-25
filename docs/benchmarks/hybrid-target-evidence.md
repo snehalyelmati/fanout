@@ -60,3 +60,11 @@ Linear mandatory critical-path work is not counted as a tier2 success even when 
 - Background completion remains reported and can be much larger than active TAT.
 - Mandatory tier2 output needs tier1 review, validation, synthesis, or acceptance evidence before a pass is claimed.
 - Synthetic passes demonstrate simulator semantics and workflow-shape feasibility under fixture assumptions only.
+
+## Relationship to Planned Parallel RPE
+
+The hybrid fixture passes do not prove that realistic multi-turn Pi traces have enough safe off-critical-path work for generic tier2 DAG routing. They also do not justify duplicate feature implementations as a default strategy. Duplicate implementations can waste tier2 budget by repeating investigation, editing the same files, creating merge conflicts, and requiring the same tier1 review bottleneck.
+
+The useful tier2 paths from the combined evidence are RPE background execution and sharded RPE. The proposed Planned Parallel RPE workflow should keep tier1 responsible for planning, active-boundary decisions, conflict-aware scheduling, and final review. Tier2 work should run only in isolated background executors with declared file ownership, cancellation rules for speculative pre-confirm work, and parallel reviewer handoffs.
+
+Before runtime implementation, run a prefix-based trace evaluation over `pi-mono`: reveal only the planning prefix, ask GPT-5.5 to predict safe independent work units, file ownership, dependencies, cancellation rules, and review requirements, then compare those predictions with the full trace suffix. Report that as trace-derived evaluation evidence, separate from this synthetic simulator evidence and separate from any future live runtime TAT measurement.

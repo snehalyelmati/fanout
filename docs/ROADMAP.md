@@ -159,27 +159,30 @@ Current benchmark questions answered by the summarizer and `docs/BENCHMARKS.md`:
 
 Deferred until the summaries prove they are needed: external dataset downloader, trace replay engine, strict DAG executor, subagents, and indexing.
 
-## Phase 7: Tier-aware workflow prototypes
+## Phase 7: Planned Parallel RPE prototypes
 
 Status: design docs first; prototype deferred until the workflow contracts are explicit.
 
 Trace-backed direction:
 
 - Generic interactive DAG tier2 routing is weak: manual semantic review found only ~1.5% tier2 savings in 10 traces.
+- One-turn synthetic hybrid fixtures prove simulator accounting, but they are insufficient evidence for realistic multi-turn Pi traces.
 - Tier1 semantic batching is valuable: manual estimates show ~25% savings from fewer turns/context, independent of Doubleword.
 - Research-plan-execute background routing is promising: 5 RPE traces saved ~22% when research+plan stayed tier1 and execute moved to tier2, but sequential completion became 14-28h.
+- Speculative duplicate implementations are usually wasteful unless the scheduler proves independence, file ownership, budget, and cancellation constraints up front.
 
 Design target: two narrower opt-in workflows, documented in [`docs/OPTIMISTIC_DAG_WORKFLOW.md`](OPTIMISTIC_DAG_WORKFLOW.md):
 
 1. `semantic-batching-tier1`: realtime/tier1 workflow that reduces turns, redundant checks, and context bloat.
-2. `rpe-background-execute`: tier1 research+plan, user-approved execution packet, tier2 background execution, tier1 final review/synthesis.
+2. `planned-parallel-rpe`: tier1 planner, conflict-aware scheduler, isolated tier2 background executors, parallel reviewers, cancellation for speculative pre-confirm work, file ownership constraints, and tier1 final review/synthesis.
 
 Next work:
 
-- Define the RPE execution packet: accepted plan, files, constraints, validation contract, budget, stop rules, and expected handoff.
-- Add observability fields for active planning time, background completion time, late outputs, retries, and acceptance failures.
-- Prototype portfolio-mode execution with concurrency and dollar caps.
-- Keep strict/generic DAG execution deferred until semantic reviews show real off-critical model branches outside RPE.
+- Run a retrospective prefix-based `pi-mono` trace evaluation to test whether GPT-5.5 can predict safe independent work units, file ownership, dependencies, cancellation rules, and review needs from partial trace context.
+- Define the RPE execution packet: accepted plan, owned/read-only files, constraints, validation contract, budget, stop rules, cancellation rules, and expected handoff.
+- Add observability fields for active planning time, background completion time, late outputs, retries, cancellation, rejected speculative work, review latency, and acceptance failures.
+- Prototype RPE background execution and sharded RPE only if prefix-evaluation evidence supports safe decomposition.
+- Keep strict/generic DAG execution and default duplicate implementations deferred until trace-derived evidence shows real off-critical model branches outside RPE.
 
 ## Phase 8: Live endpoint benchmarks
 

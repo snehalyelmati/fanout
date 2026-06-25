@@ -299,6 +299,37 @@ Active/background interpretation:
 
 Detailed supporting notes: [`docs/benchmarks/hybrid-target-evidence.md`](benchmarks/hybrid-target-evidence.md).
 
+## D8 - Planned Parallel RPE direction
+
+Date: 2026-06-25
+
+Purpose: record the post-mission workflow direction after comparing simulator evidence with observed multi-turn Pi trace reviews.
+
+Evidence status:
+
+- **Simulator evidence**: one-turn synthetic hybrid fixtures prove parser, scheduler, active/background accounting, target statuses, speculative waste, and infeasibility semantics.
+- **Observed trace evidence**: manual multi-turn `pi-mono` reviews show generic interactive tier2 DAG routing is weak, with about 1.5% semantic tier2 savings in the reviewed sample.
+- **Trace-backed RPE evidence**: five RPE-shaped traces show about 22% provider cost savings when research+plan stays tier1 and execution moves to tier2, but blocking completion grows to hours.
+- **Future runtime work**: no live runtime TAT improvement is claimed yet. Planned Parallel RPE remains a design and evaluation direction.
+
+Revised direction:
+
+1. Do not build a generic tier2 DAG router for arbitrary middle turns.
+2. Do not default to speculative duplicate feature implementations. They often repeat investigation, contend for the same files, create merge/review overhead, and waste tier2 budget unless independence is proven.
+3. Focus tier2 work on **RPE background execution** and **sharded RPE**.
+4. Use a **Planned Parallel RPE** workflow: tier1 planner, conflict-aware scheduler, isolated background executors, parallel reviewers, cancellation for speculative pre-confirm work, file ownership constraints, and final tier1 review/synthesis.
+
+The next benchmark/evaluation step is retrospective and prefix-based:
+
+```text
+pi-mono trace prefix
+  -> GPT-5.5 predicts safe work units, file ownership, dependencies, cancellation, review needs
+  -> compare against full trace suffix
+  -> score independence, conflict risk, validation preservation, and active-boundary correctness
+```
+
+This evaluation should decide whether GPT-5.5 can reliably identify safe independent work units from partial Pi trace context before any runtime scheduler or background executor is built.
+
 ## Running experiment ledger
 
 Add one row per meaningful workflow or routing change.
@@ -314,6 +345,7 @@ Add one row per meaningful workflow or routing change.
 | D5 | 2026-06-25 | Hybrid policy simulation engine | committed synthetic fixtures | GLM tier1/tier2 policy matrix | per policy | active + background reported separately | Emits schedules, target statuses, concurrency/budget/deadline/fallback/speculative evidence |
 | D6 | 2026-06-25 | Hybrid policy hardening | committed synthetic fixtures | speculative portfolio + structural infeasibility | per policy | active + background reported separately | Rejects invalid fastest speculative branches by completion time and detects linear mandatory infeasibility from graph structure |
 | D7 | 2026-06-25 | Hybrid target evidence workflow | existing fixtures plus synthetic hybrid workflows | GLM tier1/tier2 policy matrix | per policy | active + background reported separately | Mixed run preserves observed/synthetic source labels; synthetic eligible workflows pass <=3x active TAT while linear mandatory classes are infeasible |
+| D8 | 2026-06-25 | Planned Parallel RPE direction | simulator docs + manual Pi trace reviews | design/evaluation only | n/a | no runtime TAT claim | Generic tier2 DAG and duplicate implementations deferred; next step is prefix-based safe-work-unit evaluation |
 
 ## Candidate improvements to test next
 
@@ -321,18 +353,24 @@ Add one row per meaningful workflow or routing change.
    - Better batching, complete root-cause inspection, fewer redundant checks, and less tool-output bloat.
    - Measure this as `semantic-batching-tier1`, not as Doubleword savings.
 
-2. **Prototype RPE background execution**
+2. **Run prefix-based Planned Parallel RPE evaluation**
+   - Reveal only trace prefixes and ask GPT-5.5 to predict safe independent RPE work units.
+   - Compare predictions against full `pi-mono` trace suffixes for file ownership conflicts, hidden dependencies, validation needs, and cancellation points.
+   - Keep this separate from synthetic simulator passes and future live runtime measurements.
+
+3. **Prototype RPE background execution after trace-derived evidence**
    - Tier1 research+plan creates an execution packet and validation contract.
    - Tier2 executes in background with budget/concurrency caps.
    - Tier1 reviews/synthesizes completed output before acceptance.
 
-3. **Measure portfolio-mode concurrency**
+4. **Measure sharded RPE concurrency only after safe-unit evidence**
    - Estimate N independent RPE execute jobs launched together.
-   - Report active planning time, background completion time, total cost, failures, and late outputs.
+   - Report active planning time, background completion time, total cost, failures, late outputs, canceled speculative work, reviewer time, and file conflicts.
 
-4. **Keep generic DAG tier2 routing deferred**
+5. **Keep generic DAG tier2 routing deferred**
    - Manual semantic review found only ~1.5% tier2 savings in normal interactive traces.
    - Do not route critical edit/tool loops to tier2.
+   - Do not use duplicate implementations unless the scheduler proves independent ownership and bounded waste.
 
 ## Reproduction notes
 

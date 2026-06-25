@@ -81,11 +81,24 @@ Readout:
 4. **RPE background execution is promising for cost.** Research+plan on tier1 and execute on tier2 saved ~22% in the 5-trace RPE sample.
 5. **RPE is only usable asynchronously.** Blocking completion is hours, so product UX must be portfolio/background: plan now, execute in background, review later.
 
+## Post-mission direction
+
+The revised tier2 direction is narrower than the earlier optimistic-DAG framing. Generic tier2 DAG routing is not compelling for realistic multi-turn Pi traces because most assistant/model turns consume tool results, make edits, validate, commit, or answer the user on the active path. One-turn synthetic workflow fixtures are still useful for proving parser, scheduling, active/background, and target-status invariants, but they do not prove that a live agent can identify safe independent work from partial trace context.
+
+Speculative duplicate implementations are also a weak default. They often duplicate research, compete for the same files, create merge conflicts, and still require tier1 review before acceptance. That means duplicate execution can spend tier2 budget without reducing the user's active wait. Speculation should be limited to explicitly independent RPE shards or pre-confirm work that can be canceled and counted as waste.
+
+The two useful tier2 paths are:
+
+1. **RPE background execution**: tier1 researches and plans, then tier2 executes approved background work after an explicit next-actionable boundary.
+2. **Sharded RPE**: tier1 decomposes independent execution units, a scheduler enforces file ownership and dependency constraints, and tier2 runs isolated shards in parallel for later review.
+
+The next evidence step is a retrospective prefix evaluation over `pi-mono` traces. Reveal only the trace prefix available at a planning point, ask GPT-5.5 to predict safe independent work units, file ownership, dependencies, cancellation rules, and review requirements, then compare those predictions to the full trace suffix. This should be reported as trace-derived evaluation evidence, separate from synthetic simulator evidence and separate from any future live runtime TAT claims.
+
 ## Product implication
 
-Do not build a generic DAG executor to route arbitrary middle turns to tier2.
+Do not build a generic DAG executor to route arbitrary middle turns to tier2. Do not launch duplicate feature implementations by default.
 
 Prefer two narrower workflows:
 
 1. **Tier1 semantic batching workflow**: improve planning prompts and tool batching to reduce turns, redundant checks, and context bloat while staying realtime.
-2. **RPE background execution workflow**: tier1 research/plan produces an approved execution packet; tier2 executes in background with checkpoints, budgets, and final tier1 review/synthesis.
+2. **Planned Parallel RPE workflow**: tier1 research/plan produces approved execution packets; a conflict-aware scheduler launches isolated tier2 background executors or shards with budgets, cancellation rules, file ownership constraints, and final tier1 review/synthesis.
