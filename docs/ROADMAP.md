@@ -115,13 +115,14 @@ Key limitation to validate live: async responses may not stream; Pi may only rec
 
 ## Phase 6: Stub/trace benchmarks
 
-Status: initial offline trace summarizer and smoke fixtures are in place. It reads local `observability.jsonl` files and raw Pi session JSONL traces, then produces `runs/phase6/summary.json` plus `summary.md`; no live calls or replay engine. Manual semantic subagent reviews now supersede the coarse optimistic-DAG heuristic. Results are tracked in `docs/BENCHMARKS.md` and [`docs/benchmarks/semantic-dag-and-rpe.md`](benchmarks/semantic-dag-and-rpe.md).
+Status: initial offline trace summarizer and smoke fixtures are in place. It reads local `observability.jsonl` files, raw Pi session JSONL traces, and versioned synthetic hybrid workflow JSONL fixtures, then produces `runs/phase6/summary.json` plus `summary.md`; no live calls or replay engine. Manual semantic subagent reviews now supersede the coarse optimistic-DAG heuristic. Results are tracked in `docs/BENCHMARKS.md` and [`docs/benchmarks/semantic-dag-and-rpe.md`](benchmarks/semantic-dag-and-rpe.md).
 
 Run:
 
 ```bash
 rtk npm run benchmark:traces -- datasets/fixtures/phase6-observability.jsonl
 rtk npm run benchmark:traces -- datasets/fixtures/pi-session-trace.jsonl --model glm-5-2
+rtk npm run benchmark:traces -- datasets/fixtures --model glm-5-2 --out runs/mission-hybrid-benchmark
 # after placing ignored external samples under datasets/traces/pi-mono-sample:
 rtk npm run benchmark:traces -- datasets/traces/pi-mono-sample --model glm-5-2
 rtk npm run smoke:benchmarks

@@ -5,6 +5,8 @@ import { join } from "node:path";
 
 const fixture = "datasets/fixtures/phase6-observability.jsonl";
 const piSessionFixture = "datasets/fixtures/pi-session-trace.jsonl";
+const hybridFixture = "datasets/fixtures/hybrid-workflows.jsonl";
+const hybridOutOfOrderFixture = "datasets/fixtures/hybrid-workflows-out-of-order.jsonl";
 const dir = mkdtempSync(join(tmpdir(), "doubleword-pi-bench-"));
 const out = join(dir, "phase6");
 
@@ -12,10 +14,11 @@ function fail(message) {
   throw new Error(`${message}\noutput: ${out}`);
 }
 
-function run(args, expectedStatus = 0) {
+function run(args, expectedStatus = 0, env = {}) {
   const result = spawnSync(process.execPath, ["scripts/benchmark-traces.mjs", ...args], {
     cwd: process.cwd(),
     encoding: "utf8",
+    env: { ...process.env, ...env },
   });
   if (result.status !== expectedStatus) {
     throw new Error(`benchmark command expected status ${expectedStatus}, got ${result.status}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
@@ -71,6 +74,95 @@ try {
   if (piTrace.comparison.doublewordTier2.cost !== 0.0000708) fail(`unexpected tier2 GLM comparison cost: ${piTrace.comparison.doublewordTier2.cost}`);
   if (piTrace.comparison.normalRealtime.durationMs !== 2000) fail(`expected 2000ms pi-session duration proxy, got ${piTrace.comparison.normalRealtime.durationMs}`);
   if (piTrace.comparison.doublewordTier2.durationMs !== 200) fail(`expected 200ms tier2 simulated duration, got ${piTrace.comparison.doublewordTier2.durationMs}`);
+
+  const hybridOut = join(dir, "hybrid-out");
+  run([hybridFixture, "--out", hybridOut], 0, { DOUBLEWORD_API_KEY: "", DOUBLEWORD_BASE_URL: "" });
+  const hybridSummary = JSON.parse(readFileSync(join(hybridOut, "summary.json"), "utf8"));
+  const hybridMd = readFileSync(join(hybridOut, "summary.md"), "utf8");
+  const requiredScenarios = [
+    "linear-critical-path",
+    "wide-fanout",
+    "serial-rpe",
+    "sharded-rpe",
+    "speculative-branch-race",
+    "deadline-miss",
+    "budget-constrained-routing",
+    "conflict-stale-output",
+    "validation-failure-fallback",
+  ];
+  if (hybridSummary.workflowCount !== 9) fail(`expected 9 hybrid workflows, got ${hybridSummary.workflowCount}`);
+  if (hybridSummary.hybrid.requiredScenarioCoverage.missing.length) fail(`missing hybrid scenarios: ${hybridSummary.hybrid.requiredScenarioCoverage.missing.join(", ")}`);
+  for (const scenario of requiredScenarios) {
+    if (!hybridSummary.hybrid.requiredScenarioCoverage.present.includes(scenario)) fail(`hybrid summary missing scenario ${scenario}`);
+    if (!hybridMd.includes(scenario)) fail(`hybrid markdown missing scenario ${scenario}`);
+  }
+  const wide = hybridSummary.traces.find((trace) => trace.traceId === "hybrid-wide-fanout");
+  if (!wide || wide.format !== "hybrid-workflow") fail("wide fanout hybrid workflow was not detected");
+  if (wide.provenance.sourceType !== "synthetic" || wide.provenance.synthetic !== true) fail(`hybrid provenance was not preserved: ${JSON.stringify(wide?.provenance)}`);
+  if (wide.graph.backgroundNodeCount !== 3) fail(`expected wide fanout background node count 3, got ${wide.graph.backgroundNodeCount}`);
+  if (!wide.nodes.some((node) => node.active === "background" && node.mandatory === false && node.deadlineMs === 6000 && node.outcome.late === true)) fail("wide fanout optional deadline metadata was not preserved");
+  const branchRace = hybridSummary.traces.find((trace) => trace.workflow.scenarioId === "speculative-branch-race");
+  if (!branchRace.nodes.some((node) => node.branchId && node.portfolioGroup)) fail("branch/portfolio metadata was not preserved");
+  const conflict = hybridSummary.traces.find((trace) => trace.workflow.scenarioId === "conflict-stale-output");
+  if (!conflict.nodes.some((node) => node.conflictGroup && node.staleOf)) fail("conflict/stale metadata was not preserved");
+  const fallback = hybridSummary.traces.find((trace) => trace.workflow.scenarioId === "validation-failure-fallback");
+  if (!fallback.nodes.some((node) => node.fallbackTo) || !fallback.nodes.some((node) => node.reviewOf || node.validationOf)) fail("fallback/review metadata was not preserved");
+
+  const outOfOrderOut = join(dir, "hybrid-out-of-order");
+  run([hybridOutOfOrderFixture, "--out", outOfOrderOut]);
+  const outOfOrderTrace = JSON.parse(readFileSync(join(outOfOrderOut, "summary.json"), "utf8")).traces[0];
+  const orderedIds = outOfOrderTrace.nodes.map((node) => node.nodeId).join(",");
+  if (orderedIds !== "prompt,research-a,research-b,synthesis") fail(`out-of-order DAG was not normalized topologically: ${orderedIds}`);
+  if (outOfOrderTrace.graph.criticalPathMs !== 2400) fail(`unexpected out-of-order critical path: ${outOfOrderTrace.graph.criticalPathMs}`);
+  const sortedHybrid = join(dir, "hybrid-sorted-dag.jsonl");
+  const sortedRows = readFileSync(hybridOutOfOrderFixture, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line))
+    .sort((a, b) => {
+      const rank = (row) => row.kind === "workflow" ? "0" : `1-${row.nodeId}`;
+      return rank(a).localeCompare(rank(b));
+    });
+  writeFileSync(sortedHybrid, sortedRows.map((row) => JSON.stringify(row)).join("\n"));
+  const sortedOut = join(dir, "hybrid-sorted");
+  run([sortedHybrid, "--out", sortedOut]);
+  const sortedTrace = JSON.parse(readFileSync(join(sortedOut, "summary.json"), "utf8")).traces[0];
+  if (JSON.stringify(outOfOrderTrace.graph) !== JSON.stringify(sortedTrace.graph)) fail("out-of-order DAG graph metrics differed from sorted fixture metrics");
+  if (JSON.stringify(outOfOrderTrace.nodes.map((node) => node.nodeId)) !== JSON.stringify(sortedTrace.nodes.map((node) => node.nodeId))) fail("out-of-order DAG node order differed from sorted fixture normalization");
+
+  const mixedOut2 = join(dir, "mixed-legacy-hybrid");
+  run([fixture, piSessionFixture, hybridFixture, "--out", mixedOut2]);
+  const mixedLegacyHybrid = JSON.parse(readFileSync(join(mixedOut2, "summary.json"), "utf8"));
+  const formats = new Set(mixedLegacyHybrid.traces.map((trace) => trace.format));
+  if (!formats.has("observability") || !formats.has("pi-session") || !formats.has("hybrid-workflow")) fail(`mixed run did not preserve formats: ${[...formats].join(", ")}`);
+  if (!mixedLegacyHybrid.traces.every((trace) => trace.source)) fail("mixed run did not preserve source paths");
+
+  const invalidJsonl = join(dir, "invalid-json.jsonl");
+  writeFileSync(invalidJsonl, "{\"schema\":\"doubleword.hybrid-workflow\"\n");
+  const malformed = run([invalidJsonl, "--out", join(dir, "invalid-json-out")], 1);
+  if (!malformed.stderr.includes(`${invalidJsonl}:1`) || !malformed.stderr.includes("invalid JSONL")) fail("malformed JSONL error did not include source path, line, and parse reason");
+
+  const validWorkflow = { schema: "doubleword.hybrid-workflow", version: 1, kind: "workflow", workflowId: "invalid", scenarioId: "linear-critical-path", sourceType: "synthetic", targetActiveTatRatio: 3, budgetUsd: 0.1, deadlineOrigin: "workflow-start", tier2Concurrency: 1, activeBoundaryNodeId: "a" };
+  const validNode = { schema: "doubleword.hybrid-workflow", version: 1, kind: "node", workflowId: "invalid", nodeId: "a", dependencies: [], phase: "plan", tierEligibility: ["tier1"], userBlocking: true, mandatory: true, durationsMs: { tier1: 1, tier2: 0 }, cost: { inputTokens: 1, outputTokens: 1 }, active: "active" };
+  const invalidCases = [
+    { name: "missing-field", rows: [validWorkflow, { ...validNode, nodeId: undefined }], expect: "field nodeId" },
+    { name: "unsupported-version", rows: [{ ...validWorkflow, version: 99 }, validNode], expect: "field version" },
+    { name: "node-less", rows: [validWorkflow], expect: "field nodes" },
+    { name: "unknown-kind", rows: [{ ...validWorkflow, kind: "metadata" }], expect: "field kind" },
+    { name: "duplicate-node", rows: [validWorkflow, validNode, validNode], expect: "duplicate node id" },
+    { name: "self-dependency", rows: [validWorkflow, { ...validNode, dependencies: ["a"] }], expect: "self dependency" },
+    { name: "missing-dependency", rows: [validWorkflow, { ...validNode, dependencies: ["missing"] }], expect: "missing dependency" },
+    { name: "cycle", rows: [validWorkflow, { ...validNode, nodeId: "a", dependencies: ["b"] }, { ...validNode, nodeId: "b", dependencies: ["a"] }], expect: "dependency cycle" },
+    { name: "cross-workflow", rows: [validWorkflow, { ...validNode, dependencies: ["other:a"] }], expect: "cross-workflow dependency" },
+  ];
+  for (const item of invalidCases) {
+    const file = join(dir, `${item.name}.jsonl`);
+    writeFileSync(file, item.rows.map((row) => JSON.stringify(row)).join("\n"));
+    const result = run([file, "--out", join(dir, `${item.name}-out`)], 1);
+    if (!result.stderr.includes(file) || !result.stderr.includes("workflow invalid") || !result.stderr.includes(item.expect)) {
+      fail(`${item.name} diagnostic was not source-aware and field-specific:\n${result.stderr}`);
+    }
+  }
 
   const noJsonl = run([join(dir, "missing"), "--out", join(dir, "missing-out")], 1);
   if (!noJsonl.stderr.includes("no JSONL files found")) fail("missing input did not fail with no JSONL message");

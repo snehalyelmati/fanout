@@ -267,6 +267,237 @@ function summarizePiSession(rows, source) {
   };
 }
 
+const HYBRID_SCHEMA = "doubleword.hybrid-workflow";
+const HYBRID_VERSION = 1;
+const REQUIRED_SCENARIOS = [
+  "linear-critical-path",
+  "wide-fanout",
+  "serial-rpe",
+  "sharded-rpe",
+  "speculative-branch-race",
+  "deadline-miss",
+  "budget-constrained-routing",
+  "conflict-stale-output",
+  "validation-failure-fallback",
+];
+
+function hybridContext(row, field) {
+  const workflow = typeof row.workflowId === "string" ? ` workflow ${row.workflowId}` : "";
+  const node = typeof row.nodeId === "string" ? ` node ${row.nodeId}` : "";
+  return `${row.sourceFile}:${row.sourceLine}:${workflow}${node}${field ? ` field ${field}` : ""}`;
+}
+
+function hybridError(row, field, message) {
+  throw new Error(`${hybridContext(row, field)}: ${message}`);
+}
+
+function requireString(row, field) {
+  if (typeof row[field] !== "string" || !row[field].trim()) hybridError(row, field, "must be a non-empty string");
+  return row[field];
+}
+
+function requireBoolean(row, field) {
+  if (typeof row[field] !== "boolean") hybridError(row, field, "must be a boolean");
+  return row[field];
+}
+
+function requireNumber(row, field, { positive = false } = {}) {
+  if (typeof row[field] !== "number" || !Number.isFinite(row[field]) || row[field] < 0 || (positive && row[field] <= 0)) {
+    hybridError(row, field, `must be a ${positive ? "positive" : "non-negative"} finite number`);
+  }
+  return row[field];
+}
+
+function requireStringArray(row, field) {
+  if (!Array.isArray(row[field]) || row[field].some((item) => typeof item !== "string" || !item.trim())) {
+    hybridError(row, field, "must be an array of non-empty strings");
+  }
+  return row[field];
+}
+
+function validateHybridBase(row) {
+  if (row.schema !== HYBRID_SCHEMA) hybridError(row, "schema", `must be ${HYBRID_SCHEMA}`);
+  if (row.version !== HYBRID_VERSION) hybridError(row, "version", `unsupported hybrid workflow schema version ${row.version}`);
+  if (row.kind !== "workflow" && row.kind !== "node") hybridError(row, "kind", "must be workflow or node");
+  requireString(row, "workflowId");
+}
+
+function normalizeWorkflowRow(row) {
+  validateHybridBase(row);
+  if (row.kind !== "workflow") hybridError(row, "kind", "expected workflow metadata row");
+  const workflow = {
+    workflowId: requireString(row, "workflowId"),
+    scenarioId: requireString(row, "scenarioId"),
+    sourceType: requireString(row, "sourceType"),
+    targetActiveTatRatio: requireNumber(row, "targetActiveTatRatio", { positive: true }),
+    budgetUsd: row.budgetUsd === undefined ? null : requireNumber(row, "budgetUsd", { positive: true }),
+    deadlineOrigin: requireString(row, "deadlineOrigin"),
+    tier2Concurrency: requireNumber(row, "tier2Concurrency", { positive: true }),
+    activeBoundaryNodeId: requireString(row, "activeBoundaryNodeId"),
+    metadata: row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata) ? row.metadata : {},
+    sourceLine: row.sourceLine,
+  };
+  if (!["synthetic", "observed", "trace-derived"].includes(workflow.sourceType)) hybridError(row, "sourceType", "must be synthetic, observed, or trace-derived");
+  return workflow;
+}
+
+function normalizeHybridNode(row) {
+  validateHybridBase(row);
+  if (row.kind !== "node") hybridError(row, "kind", "expected node row");
+  const node = {
+    workflowId: requireString(row, "workflowId"),
+    nodeId: requireString(row, "nodeId"),
+    dependencies: requireStringArray(row, "dependencies"),
+    phase: requireString(row, "phase"),
+    tierEligibility: requireStringArray(row, "tierEligibility"),
+    userBlocking: requireBoolean(row, "userBlocking"),
+    mandatory: requireBoolean(row, "mandatory"),
+    active: row.active === undefined ? (row.userBlocking ? "active" : "background") : requireString(row, "active"),
+    durationsMs: row.durationsMs,
+    cost: row.cost,
+    deadlineMs: row.deadlineMs === undefined ? null : requireNumber(row, "deadlineMs"),
+    outcome: row.outcome ?? {},
+    groupId: row.groupId ?? null,
+    shardId: row.shardId ?? null,
+    branchId: row.branchId ?? null,
+    portfolioGroup: row.portfolioGroup ?? null,
+    conflictGroup: row.conflictGroup ?? null,
+    staleOf: row.staleOf ?? null,
+    fallbackTo: row.fallbackTo ?? null,
+    reviewOf: row.reviewOf ?? null,
+    validationOf: row.validationOf ?? null,
+    sourceLine: row.sourceLine,
+  };
+  if (!["active", "background"].includes(node.active)) hybridError(row, "active", "must be active or background");
+  if (!node.tierEligibility.every((tier) => tier === "tier1" || tier === "tier2")) hybridError(row, "tierEligibility", "must only include tier1 or tier2");
+  if (!node.durationsMs || typeof node.durationsMs !== "object" || Array.isArray(node.durationsMs)) hybridError(row, "durationsMs", "must be an object");
+  for (const tier of ["tier1", "tier2"]) {
+    if (typeof node.durationsMs[tier] !== "number" || !Number.isFinite(node.durationsMs[tier]) || node.durationsMs[tier] < 0) {
+      hybridError(row, `durationsMs.${tier}`, "must be a non-negative finite number");
+    }
+  }
+  if (!node.cost || typeof node.cost !== "object" || Array.isArray(node.cost)) hybridError(row, "cost", "must be an object");
+  for (const field of ["inputTokens", "outputTokens"]) {
+    if (typeof node.cost[field] !== "number" || !Number.isFinite(node.cost[field]) || node.cost[field] < 0) {
+      hybridError(row, `cost.${field}`, "must be a non-negative finite number");
+    }
+  }
+  for (const field of ["groupId", "shardId", "branchId", "portfolioGroup", "conflictGroup", "staleOf", "fallbackTo", "reviewOf", "validationOf"]) {
+    if (node[field] !== null && (typeof node[field] !== "string" || !node[field].trim())) hybridError(row, field, "must be a non-empty string when present");
+  }
+  if (!node.outcome || typeof node.outcome !== "object" || Array.isArray(node.outcome)) hybridError(row, "outcome", "must be an object when present");
+  return node;
+}
+
+function topologicalHybridNodes(workflow, nodes, source) {
+  const byId = new Map();
+  for (const node of nodes) {
+    if (byId.has(node.nodeId)) throw new Error(`${source}:${node.sourceLine}: workflow ${workflow.workflowId} node ${node.nodeId} field nodeId: duplicate node id`);
+    byId.set(node.nodeId, node);
+  }
+  if (!byId.size) throw new Error(`${source}:${workflow.sourceLine}: workflow ${workflow.workflowId} field nodes: workflow must contain at least one node`);
+  if (!byId.has(workflow.activeBoundaryNodeId)) throw new Error(`${source}:${workflow.sourceLine}: workflow ${workflow.workflowId} field activeBoundaryNodeId: missing boundary node ${workflow.activeBoundaryNodeId}`);
+
+  for (const node of nodes) {
+    for (const dependency of node.dependencies) {
+      if (dependency.includes(":")) throw new Error(`${source}:${node.sourceLine}: workflow ${workflow.workflowId} node ${node.nodeId} field dependencies: cross-workflow dependency ${dependency} is not supported`);
+      if (dependency === node.nodeId) throw new Error(`${source}:${node.sourceLine}: workflow ${workflow.workflowId} node ${node.nodeId} field dependencies: self dependency is not allowed`);
+      if (!byId.has(dependency)) throw new Error(`${source}:${node.sourceLine}: workflow ${workflow.workflowId} node ${node.nodeId} field dependencies: missing dependency ${dependency}`);
+    }
+  }
+
+  const sorted = [];
+  const temporary = new Set();
+  const permanent = new Set();
+  function visit(node) {
+    if (permanent.has(node.nodeId)) return;
+    if (temporary.has(node.nodeId)) throw new Error(`${source}:${node.sourceLine}: workflow ${workflow.workflowId} node ${node.nodeId} field dependencies: dependency cycle detected`);
+    temporary.add(node.nodeId);
+    for (const dependency of [...node.dependencies].sort()) visit(byId.get(dependency));
+    temporary.delete(node.nodeId);
+    permanent.add(node.nodeId);
+    sorted.push(node);
+  }
+  for (const node of [...nodes].sort((a, b) => a.nodeId.localeCompare(b.nodeId))) visit(node);
+  return sorted;
+}
+
+function hybridGraphMetrics(workflow, nodes) {
+  const completion = {};
+  let edgeCount = 0;
+  let activeNodeCount = 0;
+  let backgroundNodeCount = 0;
+  for (const node of nodes) {
+    edgeCount += node.dependencies.length;
+    if (node.active === "background" || !node.userBlocking) backgroundNodeCount++;
+    else activeNodeCount++;
+    const start = node.dependencies.length ? Math.max(...node.dependencies.map((id) => completion[id] ?? 0)) : 0;
+    completion[node.nodeId] = start + node.durationsMs.tier1;
+  }
+  const criticalPathMs = Math.max(...Object.values(completion), 0);
+  return {
+    nodeCount: nodes.length,
+    edgeCount,
+    activeNodeCount,
+    backgroundNodeCount,
+    criticalPathMs,
+    activeBoundaryNodeId: workflow.activeBoundaryNodeId,
+    activeBoundaryTier1Ms: completion[workflow.activeBoundaryNodeId] ?? 0,
+  };
+}
+
+function summarizeHybridWorkflow(rows, source) {
+  const workflowRows = rows.filter((row) => row.kind === "workflow");
+  if (workflowRows.length !== 1) {
+    const row = rows[0];
+    throw new Error(`${row.sourceFile}:${row.sourceLine}: workflow ${row.workflowId ?? basename(source)} field kind: expected exactly one workflow metadata row`);
+  }
+  const workflow = normalizeWorkflowRow(workflowRows[0]);
+  const nodes = rows.filter((row) => row.kind === "node").map(normalizeHybridNode);
+  const orderedNodes = topologicalHybridNodes(workflow, nodes, source);
+  const usage = emptyUsage();
+  for (const node of orderedNodes) addUsage(usage, { input: node.cost.inputTokens, output: node.cost.outputTokens });
+  finalizeUsage(usage);
+  const outcomeCounts = {};
+  for (const node of orderedNodes) {
+    for (const [key, value] of Object.entries(node.outcome)) {
+      if (value === true) outcomeCounts[key] = (outcomeCounts[key] ?? 0) + 1;
+    }
+  }
+
+  return {
+    format: "hybrid-workflow",
+    traceId: workflow.workflowId,
+    source,
+    events: rows.length,
+    agents: 0,
+    turnCount: orderedNodes.length,
+    toolCallCount: 0,
+    avgToolCallsPerTurn: 0,
+    turnToolCallCount: stat([]),
+    provider: {
+      calls: 0,
+      completed: 0,
+      errors: 0,
+      ttftMs: stat([]),
+      durationMs: stat([]),
+      byTier: {},
+    },
+    async: { submits: 0, pollCount: 0, pollDurationMs: stat([]), statuses: {} },
+    usage,
+    provenance: {
+      sourceType: workflow.sourceType,
+      synthetic: workflow.sourceType === "synthetic",
+      schema: HYBRID_SCHEMA,
+      version: HYBRID_VERSION,
+    },
+    workflow,
+    graph: hybridGraphMetrics(workflow, orderedNodes),
+    nodes: orderedNodes,
+    outcomeCounts,
+  };
+}
+
 function combineStats(stats) {
   const clean = stats.filter((item) => item.count > 0);
   if (!clean.length) return { count: 0, total: 0, avg: 0, min: 0, max: 0 };
@@ -329,6 +560,7 @@ function combineSummaries(traceId, summaries, source) {
 }
 
 function rowFormat(row) {
+  if (row.schema === HYBRID_SCHEMA || row.kind === "workflow" || row.kind === "node") return "hybrid-workflow";
   if (typeof row.event === "string") return "observability";
   if (typeof row.type === "string") return "pi-session";
   return "unknown";
@@ -338,7 +570,7 @@ function groupByTrace(rows) {
   const groups = new Map();
   for (const row of rows) {
     const format = rowFormat(row);
-    const runId = format === "observability" ? row.runId ?? `unknown-${basename(row.sourceFile)}` : basename(row.sourceFile).replace(/\.jsonl$/, "");
+    const runId = format === "observability" ? row.runId ?? `unknown-${basename(row.sourceFile)}` : format === "hybrid-workflow" ? row.workflowId ?? basename(row.sourceFile).replace(/\.jsonl$/, "") : basename(row.sourceFile).replace(/\.jsonl$/, "");
     const key = `${format}\0${row.sourceFile}\0${runId}`;
     if (!groups.has(key)) groups.set(key, { format, runId, source: row.sourceFile, rows: [] });
     groups.get(key).rows.push(row);
@@ -349,6 +581,7 @@ function groupByTrace(rows) {
 function summarizeGroup(group) {
   if (group.format === "observability") return summarizeObservability(String(group.runId), group.rows, group.source);
   if (group.format === "pi-session") return summarizePiSession(group.rows, group.source);
+  if (group.format === "hybrid-workflow") return summarizeHybridWorkflow(group.rows, group.source);
   throw new Error(`${group.source}: unsupported JSONL trace shape`);
 }
 
@@ -490,6 +723,33 @@ function markdown(summary) {
     lines.push(`| ${trace.traceId} | ${trace.format} | ${trace.turnCount} | ${trace.toolCallCount} | ${trace.avgToolCallsPerTurn} | ${trace.provider.calls} | ${trace.provider.ttftMs.avg} | ${trace.async.pollCount} | $${trace.usage.cost.total} |`);
   }
 
+  const hybridTraces = summary.traces.filter((trace) => trace.format === "hybrid-workflow");
+  if (hybridTraces.length) {
+    lines.push(
+      "",
+      "## Hybrid workflow fixtures",
+      "",
+      "Synthetic hybrid workflow inputs are fixture assumptions, not observed trace evidence.",
+      "",
+      "| Workflow | Scenario | Source type | Nodes | Edges | Active nodes | Background nodes | Critical path | Active boundary | Metadata |",
+      "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+    );
+    for (const trace of hybridTraces) {
+      const metadata = [
+        trace.nodes.some((node) => node.mandatory === false) ? "optional" : "",
+        trace.nodes.some((node) => node.deadlineMs !== null) ? "deadline" : "",
+        trace.nodes.some((node) => node.shardId) ? "shard" : "",
+        trace.nodes.some((node) => node.branchId) ? "branch" : "",
+        trace.nodes.some((node) => node.portfolioGroup) ? "portfolio" : "",
+        trace.nodes.some((node) => node.conflictGroup || node.staleOf) ? "conflict/stale" : "",
+        trace.nodes.some((node) => node.fallbackTo) ? "fallback" : "",
+        trace.nodes.some((node) => node.reviewOf || node.validationOf) ? "review/validation" : "",
+      ].filter(Boolean).join(", ") || "none";
+      lines.push(`| ${trace.traceId} | ${trace.workflow.scenarioId} | ${trace.provenance.sourceType} | ${trace.graph.nodeCount} | ${trace.graph.edgeCount} | ${trace.graph.activeNodeCount} | ${trace.graph.backgroundNodeCount} | ${formatDuration(trace.graph.criticalPathMs)} | ${trace.graph.activeBoundaryNodeId} | ${metadata} |`);
+    }
+    lines.push("", `Required scenario coverage: ${summary.hybrid.requiredScenarioCoverage.present.join(", ")}.`);
+  }
+
   return `${lines.join("\n")}\n`;
 }
 
@@ -500,12 +760,24 @@ const rows = files.flatMap(readRows);
 if (rows.length === 0) throw new Error(`no events found in JSONL input: ${files.length ? files.join(", ") : options.paths.join(", ")}`);
 const traces = groupByTrace(rows).map(summarizeGroup).map((summary) => addComparison(summary, options));
 const totals = addCombinedComparison(combineSummaries("all", traces, files.length === 1 ? files[0] : `${files.length} files`), traces, options);
+const hybridTraces = traces.filter((trace) => trace.format === "hybrid-workflow");
+const hybridScenarioIds = [...new Set(hybridTraces.map((trace) => trace.workflow.scenarioId))].sort();
 const summary = {
   generatedAt: new Date().toISOString(),
   inputs: options.paths,
   files,
   traceCount: traces.length,
+  workflowCount: hybridTraces.length,
   comparison: { model: options.model, tier2MinMs: options.tier2MinMs, tier2MaxMs: options.tier2MaxMs },
+  hybrid: {
+    schema: HYBRID_SCHEMA,
+    version: HYBRID_VERSION,
+    requiredScenarioCoverage: {
+      required: REQUIRED_SCENARIOS,
+      present: hybridScenarioIds,
+      missing: REQUIRED_SCENARIOS.filter((scenario) => !hybridScenarioIds.includes(scenario)),
+    },
+  },
   totals,
   traces,
 };

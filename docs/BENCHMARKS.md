@@ -177,6 +177,41 @@ Purpose: test a narrower workflow where research+plan stays tier1 and approved e
 
 Conclusion: RPE is the first trace-backed shape where tier2 savings are material. It is not suitable for blocking interactive execution; it is a background/portfolio workflow.
 
+## D4 - Hybrid workflow fixture schema
+
+Date: 2026-06-25
+
+Purpose: add a committed local JSONL fixture format for future tier1/tier2 workflow simulation while preserving existing observability and Pi session parsing.
+
+Command:
+
+```bash
+rtk npm run benchmark:traces -- datasets/fixtures --model glm-5-2 --out runs/mission-hybrid-benchmark
+```
+
+Committed fixtures:
+
+- `datasets/fixtures/hybrid-workflows.jsonl`
+- `datasets/fixtures/hybrid-workflows-out-of-order.jsonl`
+
+The hybrid format uses `schema: "doubleword.hybrid-workflow"`, `version: 1`, one `kind: "workflow"` metadata row per workflow, and `kind: "node"` rows for graph nodes. Workflow metadata includes scenario id, source type, target ratio, budget, deadline origin, concurrency cap, and active boundary. Node metadata preserves dependencies, phase, tier eligibility, active/background, mandatory/optional, durations, token cost inputs, deadlines, outcomes, groups, shards, branches, portfolio, conflict, stale, fallback, review, and validation links.
+
+Scenario coverage in `hybrid-workflows.jsonl`:
+
+| Scenario | Source type | Purpose |
+| --- | --- | --- |
+| `linear-critical-path` | synthetic | mandatory linear control |
+| `wide-fanout` | synthetic | optional background fan-out |
+| `serial-rpe` | synthetic | research-plan active boundary with background execution |
+| `sharded-rpe` | synthetic | independent background execute shards |
+| `speculative-branch-race` | synthetic | branch winner plus late loser metadata |
+| `deadline-miss` | synthetic | optional late result |
+| `budget-constrained-routing` | synthetic | budget metadata for routing policies |
+| `conflict-stale-output` | synthetic | conflict and stale output metadata |
+| `validation-failure-fallback` | synthetic | failed tier2 output with tier1 fallback and review |
+
+These fixtures are synthetic assumptions, not observed trace feasibility evidence. They only establish parser, schema, metadata, and graph-validation coverage. Policy results and target claims belong to later simulator work.
+
 ## Running experiment ledger
 
 Add one row per meaningful workflow or routing change.
@@ -188,6 +223,7 @@ Add one row per meaningful workflow or routing change.
 | D1 | 2026-06-25 | Faithful trace-DAG routing check | same | GLM tier1+tier2 combo | $23.0533 | 17.5m | No off-critical model turns; structural optimistic estimate later superseded |
 | D2 | 2026-06-25 | Manual semantic DAG review | 10 Pi traces | GLM semantic tier1+tier2 | $20.4214 effective hybrid | same active path | Only 1.48% semantic tier2 savings; ~24.8% separate DAG/prompt-efficiency opportunity |
 | D3 | 2026-06-25 | Research-plan-execute routing | 5 RPE Pi traces | GLM tier1 research+plan, tier2 execute | $18.0758 | 14.2h-28.2h sequential completion | Saves 22.0%; only viable async/background |
+| D4 | 2026-06-25 | Hybrid workflow fixture schema | committed synthetic fixtures | parser only | n/a | n/a | Covers required workflow shapes and graph validation; no policy claims yet |
 
 ## Candidate improvements to test next
 
