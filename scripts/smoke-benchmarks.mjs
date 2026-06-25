@@ -5,8 +5,10 @@ import { join } from "node:path";
 
 const fixture = "datasets/fixtures/phase6-observability.jsonl";
 const piSessionFixture = "datasets/fixtures/pi-session-trace.jsonl";
+const piMonoSampleFixture = "datasets/traces/pi-mono-sample/2026-01-16T11-12-35-796Z_105b45a9-be31-4997-95c3-c95ab814daf8.jsonl";
 const hybridFixture = "datasets/fixtures/hybrid-workflows.jsonl";
 const hybridOutOfOrderFixture = "datasets/fixtures/hybrid-workflows-out-of-order.jsonl";
+const safeWorkUnitPredictions = "datasets/fixtures/safe-work-unit-predictions.jsonl";
 const dir = mkdtempSync(join(tmpdir(), "doubleword-pi-bench-"));
 const out = join(dir, "phase6");
 
@@ -22,6 +24,18 @@ function run(args, expectedStatus = 0, env = {}) {
   });
   if (result.status !== expectedStatus) {
     throw new Error(`benchmark command expected status ${expectedStatus}, got ${result.status}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+  }
+  return result;
+}
+
+function runSafeEval(args, expectedStatus = 0, env = {}) {
+  const result = spawnSync(process.execPath, ["scripts/eval-safe-work-units.mjs", ...args], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+  });
+  if (result.status !== expectedStatus) {
+    throw new Error(`safe work unit eval expected status ${expectedStatus}, got ${result.status}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
   }
   return result;
 }
@@ -266,6 +280,77 @@ try {
       fail(`${item.name} diagnostic was not source-aware and field-specific:\n${result.stderr}`);
     }
   }
+
+  const safeEvalOut = join(dir, "safe-work-unit-eval");
+  runSafeEval([piMonoSampleFixture, "--predictions", safeWorkUnitPredictions, "--out", safeEvalOut], 0, {
+    DOUBLEWORD_API_KEY: "placeholder-offline-key",
+    DOUBLEWORD_BASE_URL: "https://example.invalid/doubleword",
+  });
+  const safeEvalSummary = JSON.parse(readFileSync(join(safeEvalOut, "summary.json"), "utf8"));
+  const safeEvalMd = readFileSync(join(safeEvalOut, "summary.md"), "utf8");
+  if (safeEvalSummary.reportSchema !== "doubleword.safe-work-unit-eval" || safeEvalSummary.reportVersion !== 1 || safeEvalSummary.offline !== true || safeEvalSummary.deterministic !== true) fail("safe work unit report missing stable offline metadata");
+  if (!safeEvalSummary.evidenceScope.includes("retrospective_trace_derived") || !safeEvalMd.includes("does not prove live runtime TAT improvement")) fail("safe work unit report did not scope evidence as retrospective reliability");
+  if (safeEvalSummary.traceCount !== 1 || safeEvalSummary.predictionCount !== 1) fail(`unexpected safe eval input counts: ${JSON.stringify({ traceCount: safeEvalSummary.traceCount, predictionCount: safeEvalSummary.predictionCount })}`);
+  const safeEval = safeEvalSummary.evaluations[0];
+  if (safeEval.traceId !== "105b45a9-be31-4997-95c3-c95ab814daf8" || safeEval.prefixBoundary.line !== 5 || safeEval.prefixContext.rowCount !== 5 || safeEval.suffixEvidence.rowCount <= 0) fail(`safe eval did not separate prefix/suffix evidence: ${JSON.stringify(safeEval?.prefixBoundary)}`);
+  if (safeEval.predictionSource !== safeWorkUnitPredictions || safeEval.retrospectiveEvidenceSource !== piMonoSampleFixture) fail("safe eval did not preserve prediction and evidence sources");
+  const unitById = new Map(safeEval.unitResults.map((unit) => [unit.unitId, unit]));
+  const expectedVerdicts = {
+    "safe-doc-note": "safe_independent",
+    "shared-package-a": "safe_after_dependency",
+    "shared-package-b": "safe_after_dependency",
+    "hidden-file-dependency": "unsafe",
+    "missing-validation-review": "unsafe",
+    "wrong-active-boundary": "unsafe",
+    "speculative-stale-no-cancel": "unsafe",
+    "unknown-surface": "inconclusive",
+  };
+  for (const [unitId, verdict] of Object.entries(expectedVerdicts)) {
+    if (unitById.get(unitId)?.verdict !== verdict) fail(`expected ${unitId} verdict ${verdict}, got ${JSON.stringify(unitById.get(unitId))}`);
+  }
+  const reasonChecks = {
+    "shared-package-a": "ownership_overlap_with_declared_dependency",
+    "hidden-file-dependency": "hidden_suffix_dependency",
+    "missing-validation-review": "missing_validation",
+    "wrong-active-boundary": "active_boundary_mistake",
+    "speculative-stale-no-cancel": "missing_cancellation_rule",
+    "unknown-surface": "insufficient_evidence",
+  };
+  for (const [unitId, reason] of Object.entries(reasonChecks)) {
+    if (!unitById.get(unitId)?.reasons.some((item) => item.code === reason)) fail(`expected ${unitId} reason ${reason}, got ${JSON.stringify(unitById.get(unitId)?.reasons)}`);
+  }
+  if (safeEvalSummary.metrics.primaryMetric !== "safetyPrecision" || safeEvalSummary.metrics.safetyPrecision !== 1 || safeEvalSummary.metrics.unsafeFalsePositiveCount !== 0 || safeEvalSummary.metrics.recall !== 1) fail(`safe eval primary metrics unexpected: ${JSON.stringify(safeEvalSummary.metrics)}`);
+  for (const verdict of ["safe_independent", "safe_after_dependency", "unsafe", "inconclusive"]) {
+    if (!safeEvalMd.includes(verdict)) fail(`safe eval markdown missing verdict ${verdict}`);
+  }
+  const safeEvalUnlabeledPredictions = join(dir, "safe-work-unit-unlabeled.jsonl");
+  const unlabeledRow = JSON.parse(readFileSync(safeWorkUnitPredictions, "utf8").trim());
+  unlabeledRow.proposedUnits = unlabeledRow.proposedUnits.map(({ label, ...unit }) => unit);
+  writeFileSync(safeEvalUnlabeledPredictions, `${JSON.stringify(unlabeledRow)}\n`);
+  const safeEvalUnlabeledOut = join(dir, "safe-work-unit-unlabeled-out");
+  runSafeEval([piMonoSampleFixture, "--predictions", safeEvalUnlabeledPredictions, "--out", safeEvalUnlabeledOut]);
+  const safeEvalUnlabeled = JSON.parse(readFileSync(join(safeEvalUnlabeledOut, "summary.json"), "utf8"));
+  if (safeEvalUnlabeled.metrics.recallAvailable !== false || safeEvalUnlabeled.metrics.recall !== null || !readFileSync(join(safeEvalUnlabeledOut, "summary.md"), "utf8").includes("| Recall | unavailable |")) fail("unlabeled safe eval did not mark recall unavailable");
+  const safeEvalOutB = join(dir, "safe-work-unit-eval-b");
+  runSafeEval([piMonoSampleFixture, "--predictions", safeWorkUnitPredictions, "--out", safeEvalOutB]);
+  const normalizedSafeA = JSON.stringify({
+    ...safeEvalSummary,
+    traceInputs: ["<trace>"],
+    predictionInput: "<prediction>",
+    evaluations: safeEvalSummary.evaluations.map((evaluation) => ({ ...evaluation, predictionSource: "<prediction>", retrospectiveEvidenceSource: "<trace>" })),
+  }, null, 2);
+  const safeEvalSummaryB = JSON.parse(readFileSync(join(safeEvalOutB, "summary.json"), "utf8"));
+  const normalizedSafeB = JSON.stringify({
+    ...safeEvalSummaryB,
+    traceInputs: ["<trace>"],
+    predictionInput: "<prediction>",
+    evaluations: safeEvalSummaryB.evaluations.map((evaluation) => ({ ...evaluation, predictionSource: "<prediction>", retrospectiveEvidenceSource: "<trace>" })),
+  }, null, 2);
+  if (normalizedSafeA !== normalizedSafeB) fail("safe work unit eval repeated runs differed after normalizing paths");
+  const invalidSafePredictions = join(dir, "invalid-safe-work-unit.jsonl");
+  writeFileSync(invalidSafePredictions, `${JSON.stringify({ ...unlabeledRow, proposedUnits: [{ ...unlabeledRow.proposedUnits[0], ownedFiles: "README.md" }] })}\n`);
+  const invalidSafe = runSafeEval([piMonoSampleFixture, "--predictions", invalidSafePredictions, "--out", join(dir, "invalid-safe-out")], 1);
+  if (!invalidSafe.stderr.includes(`${invalidSafePredictions}:1`) || !invalidSafe.stderr.includes("trace 105b45a9-be31-4997-95c3-c95ab814daf8") || !invalidSafe.stderr.includes("unit safe-doc-note") || !invalidSafe.stderr.includes("field ownedFiles")) fail(`safe work unit invalid artifact diagnostic was not source-aware:\n${invalidSafe.stderr}`);
 
   const noJsonl = run([join(dir, "missing"), "--out", join(dir, "missing-out")], 1);
   if (!noJsonl.stderr.includes("no JSONL files found")) fail("missing input did not fail with no JSONL message");

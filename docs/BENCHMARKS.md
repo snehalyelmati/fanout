@@ -346,6 +346,36 @@ Add one row per meaningful workflow or routing change.
 | D6 | 2026-06-25 | Hybrid policy hardening | committed synthetic fixtures | speculative portfolio + structural infeasibility | per policy | active + background reported separately | Rejects invalid fastest speculative branches by completion time and detects linear mandatory infeasibility from graph structure |
 | D7 | 2026-06-25 | Hybrid target evidence workflow | existing fixtures plus synthetic hybrid workflows | GLM tier1/tier2 policy matrix | per policy | active + background reported separately | Mixed run preserves observed/synthetic source labels; synthetic eligible workflows pass <=3x active TAT while linear mandatory classes are infeasible |
 | D8 | 2026-06-25 | Planned Parallel RPE direction | simulator docs + manual Pi trace reviews | design/evaluation only | n/a | no runtime TAT claim | Generic tier2 DAG and duplicate implementations deferred; next step is prefix-based safe-work-unit evaluation |
+| E1 | 2026-06-25 | Safe work unit prefix evaluation | Pi trace prefix + prediction artifact fixture | offline evaluator | safety precision primary | no runtime TAT claim | Reports safe independent, dependent, unsafe, and inconclusive verdicts from prefix context plus suffix evidence |
+
+## E1 - Safe work unit prefix evaluation
+
+Purpose: evaluate Planned Parallel RPE planner reliability from local trace prefixes before building runtime parallel execution. This is retrospective trace-derived evidence, not runtime TAT evidence.
+
+Command:
+
+```bash
+rtk npm run eval:safe-work-units -- \
+  datasets/traces/pi-mono-sample \
+  --predictions datasets/fixtures/safe-work-unit-predictions.jsonl \
+  --out runs/safe-work-unit-eval
+```
+
+The evaluator is offline and deterministic. It reads structured prediction artifacts rather than calling GPT-5.5, Doubleword, or any live provider. Reports separate prefix-visible context from suffix retrospective evidence and write `summary.json` plus `summary.md`.
+
+Fixture coverage in `datasets/fixtures/safe-work-unit-predictions.jsonl`:
+
+| Case | Expected verdict | Evidence checked |
+| --- | --- | --- |
+| independent docs note | `safe_independent` | Declared ownership, validation, review, cancellation, and no overlap. |
+| shared package edits | `safe_after_dependency` | Overlapping owned file and mutable resource with explicit dependency. |
+| hidden README dependency | `unsafe` | Read-only file appears only in suffix evidence. |
+| missing checks/review | `unsafe` | Mutable source work omits validation and tier1 review. |
+| wrong active boundary | `unsafe` | Background claim conflicts with next-actionable response requirement. |
+| speculative stale work | `unsafe` | Speculative README edit omits cancellation and suffix touches the same file. |
+| unknown surface | `inconclusive` | No declared file or mutable resource surface. |
+
+Primary metric is safety precision. The labeled fixture reports safety precision `1`, unsafe false positives `0`, recall `1`, and all four verdict buckets. When labels are absent, recall is reported as unavailable instead of guessed.
 
 ## Candidate improvements to test next
 
@@ -353,9 +383,9 @@ Add one row per meaningful workflow or routing change.
    - Better batching, complete root-cause inspection, fewer redundant checks, and less tool-output bloat.
    - Measure this as `semantic-batching-tier1`, not as Doubleword savings.
 
-2. **Run prefix-based Planned Parallel RPE evaluation**
-   - Reveal only trace prefixes and ask GPT-5.5 to predict safe independent RPE work units.
-   - Compare predictions against full `pi-mono` trace suffixes for file ownership conflicts, hidden dependencies, validation needs, and cancellation points.
+2. **Expand prefix-based Planned Parallel RPE evaluation**
+   - Add more externally captured prediction artifacts over `pi-mono` trace prefixes.
+   - Compare predictions against full trace suffixes for file ownership conflicts, hidden dependencies, validation needs, and cancellation points.
    - Keep this separate from synthetic simulator passes and future live runtime measurements.
 
 3. **Prototype RPE background execution after trace-derived evidence**

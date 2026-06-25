@@ -161,7 +161,7 @@ Deferred until the summaries prove they are needed: external dataset downloader,
 
 ## Phase 7: Planned Parallel RPE prototypes
 
-Status: design docs first; prototype deferred until the workflow contracts are explicit.
+Status: design docs and the first offline safe-work-unit prefix evaluator are in place; runtime prototype remains deferred until more trace-derived planner reliability evidence exists.
 
 Trace-backed direction:
 
@@ -178,7 +178,7 @@ Design target: two narrower opt-in workflows, documented in [`docs/OPTIMISTIC_DA
 
 Next work:
 
-- Run a retrospective prefix-based `pi-mono` trace evaluation to test whether GPT-5.5 can predict safe independent work units, file ownership, dependencies, cancellation rules, and review needs from partial trace context.
+- Expand the retrospective prefix-based `pi-mono` trace evaluation with externally captured prediction artifacts. The local evaluator command is `rtk npm run eval:safe-work-units -- datasets/traces/pi-mono-sample --predictions datasets/fixtures/safe-work-unit-predictions.jsonl --out runs/safe-work-unit-eval`.
 - Define the RPE execution packet: accepted plan, owned/read-only files, constraints, validation contract, budget, stop rules, cancellation rules, and expected handoff.
 - Add observability fields for active planning time, background completion time, late outputs, retries, cancellation, rejected speculative work, review latency, and acceptance failures.
 - Prototype RPE background execution and sharded RPE only if prefix-evaluation evidence supports safe decomposition.

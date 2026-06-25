@@ -8,6 +8,7 @@ const DEFAULT_TIER2_MIN_MS = 5 * 60 * 1000;
 const DEFAULT_TIER2_MAX_MS = 10 * 60 * 1000;
 const REPORT_SCHEMA = "doubleword.benchmark-summary";
 const REPORT_VERSION = 1;
+const SAFE_WORK_UNIT_PREDICTION_SCHEMA = "doubleword.safe-work-unit-prediction";
 const MODEL_COSTS = {
   "glm-5-2": {
     realtime: { input: 1.4, output: 4.4 },
@@ -1273,7 +1274,7 @@ function markdown(summary) {
 const options = parseArgs(process.argv.slice(2));
 const files = [...new Set(options.paths.flatMap(collectJsonl))];
 if (options.explicitPaths && files.length === 0) throw new Error(`no JSONL files found for input: ${options.paths.join(", ")}`);
-const rows = files.flatMap(readRows);
+const rows = files.flatMap(readRows).filter((row) => row.schema !== SAFE_WORK_UNIT_PREDICTION_SCHEMA);
 if (rows.length === 0) throw new Error(`no events found in JSONL input: ${files.length ? files.join(", ") : options.paths.join(", ")}`);
 const traces = groupByTrace(rows)
   .map(summarizeGroup)

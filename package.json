@@ -14,6 +14,7 @@
     "smoke:observability": "node scripts/smoke-observability.mjs",
     "smoke:planning": "node scripts/smoke-planning.mjs",
     "benchmark:traces": "node scripts/benchmark-traces.mjs",
+    "eval:safe-work-units": "node scripts/eval-safe-work-units.mjs",
     "smoke:benchmarks": "node scripts/smoke-benchmarks.mjs"
   },
   "pi": {
