@@ -115,7 +115,7 @@ Key limitation to validate live: async responses may not stream; Pi may only rec
 
 ## Phase 6: Stub/trace benchmarks
 
-Status: initial offline trace summarizer and smoke fixtures are in place. It reads local `observability.jsonl` files and raw Pi session JSONL traces, then produces `runs/phase6/summary.json` plus `summary.md`; no live calls or replay engine. A trace-DAG check found no off-critical model turns in the B0 sample. The next benchmark focus is an optimistic DAG workflow, with DAG-only effects separated from Doubleword tier savings. Running benchmark results are tracked in `docs/BENCHMARKS.md`.
+Status: initial offline trace summarizer and smoke fixtures are in place. It reads local `observability.jsonl` files and raw Pi session JSONL traces, then produces `runs/phase6/summary.json` plus `summary.md`; no live calls or replay engine. Manual semantic subagent reviews now supersede the coarse optimistic-DAG heuristic. Results are tracked in `docs/BENCHMARKS.md` and [`docs/benchmarks/semantic-dag-and-rpe.md`](benchmarks/semantic-dag-and-rpe.md).
 
 Run:
 
@@ -155,23 +155,31 @@ Current benchmark questions answered by the summarizer and `docs/BENCHMARKS.md`:
 
 Deferred until the summaries prove they are needed: external dataset downloader, trace replay engine, strict DAG executor, subagents, and indexing.
 
-## Phase 7: Optimistic DAG workflow design
+## Phase 7: Tier-aware workflow prototypes
 
-Status: design docs first; prototype deferred until the benchmark matrix is ready.
+Status: design docs first; prototype deferred until the workflow contracts are explicit.
 
-Design target: an opt-in workflow where tier1 plans, applies, validates, and synthesizes while tier2 runs background branches for review, research, summaries, evals, or alternatives. See [`docs/OPTIMISTIC_DAG_WORKFLOW.md`](OPTIMISTIC_DAG_WORKFLOW.md).
+Trace-backed direction:
+
+- Generic interactive DAG tier2 routing is weak: manual semantic review found only ~1.5% tier2 savings in 10 traces.
+- Tier1 semantic batching is valuable: manual estimates show ~25% savings from fewer turns/context, independent of Doubleword.
+- Research-plan-execute background routing is promising: 5 RPE traces saved ~22% when research+plan stayed tier1 and execute moved to tier2, but sequential completion became 14-28h.
+
+Design target: two narrower opt-in workflows, documented in [`docs/OPTIMISTIC_DAG_WORKFLOW.md`](OPTIMISTIC_DAG_WORKFLOW.md):
+
+1. `semantic-batching-tier1`: realtime/tier1 workflow that reduces turns, redundant checks, and context bloat.
+2. `rpe-background-execute`: tier1 research+plan, user-approved execution packet, tier2 background execution, tier1 final review/synthesis.
 
 Next work:
 
-- Run the DAG estimator over more samples for confidence, split by task type.
-- Add a benchmark matrix that separates `sequential-tier1`, `optimistic-dag-tier1`, `optimistic-dag-tier1+tier2`, and `all-tier2`.
-- Optimize the current ~1.8h optimistic completion estimate with branch deadlines, routing thresholds, fewer tier2 branches, and portfolio-mode concurrency.
-- Capture best practices for running multiple independent optimistic DAG tasks in parallel while reporting active developer time separately from background completion time.
-- Start as a prompt/template workflow; build a stricter executor only if the data shows prompt workflows cannot enforce deadlines, budgets, and dependency barriers.
+- Define the RPE execution packet: accepted plan, files, constraints, validation contract, budget, stop rules, and expected handoff.
+- Add observability fields for active planning time, background completion time, late outputs, retries, and acceptance failures.
+- Prototype portfolio-mode execution with concurrency and dollar caps.
+- Keep strict/generic DAG execution deferred until semantic reviews show real off-critical model branches outside RPE.
 
 ## Phase 8: Live endpoint benchmarks
 
-After stubs, traces, and optimistic DAG routing policies:
+After stubs, traces, and RPE routing policies:
 
 - Run small live realtime baseline.
 - Run same tasks through live async.

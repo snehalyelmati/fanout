@@ -4,6 +4,8 @@ Date: 2026-06-25
 
 Purpose: check whether a DAG executor would make Doubleword tier routing materially better on the same three `badlogicgames/pi-mono` baseline traces used for B0.
 
+Status note: this structural/heuristic analysis is retained as a historical D1 artifact. It is superseded for product decisions by manual semantic subagent reviews in [`semantic-dag-and-rpe.md`](semantic-dag-and-rpe.md).
+
 Command:
 
 ```bash
@@ -43,15 +45,15 @@ Pricing uses the same GLM 5.2 tier rates as B0: tier 1/realtime $1.40 input and 
 
 Faithful trace-DAG result: all 181 assistant/model turns are on the critical path. The only trace-backed fan-out is local tool batching, which does not change provider cost and is already cheap relative to tier 2 latency.
 
-The optimistic segment DAG is intentionally generous: first and last assistant turn in each user segment stay tier 1; every middle assistant turn runs as parallel tier 2. Even that turns a 17.5 minute workflow into about 1.8 hours, so tier 2 only helps when the work is truly off the user-visible critical path.
+The optimistic segment DAG is intentionally generous: first and last assistant turn in each user segment stay tier 1; every middle assistant turn runs as parallel tier 2. This was later judged too mechanical: it does not prove those middle turns were feasible background branches with the context available at the time.
 
-This D1 estimate does not yet isolate DAG-only effects from Doubleword tier effects. The next matrix must add `optimistic-dag-tier1` so we can compare:
+Manual semantic review replaced this heuristic. The updated finding is:
 
 ```text
-sequential-tier1 -> optimistic-dag-tier1 -> optimistic-dag-tier1+tier2
+normal interactive semantic tier2 savings: ~1.5%
+separate DAG/prompt-efficiency opportunity: ~25%
+research-plan-execute tier2 savings: ~22%, but only as background execution
 ```
-
-That keeps realtime/tier1 as the fastest baseline and attributes tier2 to cost savings plus latency risk, not speed.
 
 ## By trace
 

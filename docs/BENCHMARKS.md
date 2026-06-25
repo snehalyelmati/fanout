@@ -139,28 +139,43 @@ Detailed notes: [`docs/benchmarks/dag-analysis.md`](benchmarks/dag-analysis.md).
 
 Conclusion: the trace-derived DAG is effectively linear at the model-call level. Tool-call fan-out exists but does not affect provider cost and is already cheap. A faithful DAG executor is not enough; the next work is an optimistic DAG workflow that deliberately creates background branches.
 
-## D2 — Optimistic DAG benchmark matrix, planned
+## D2 — Manual semantic DAG review
 
-Design notes: [`docs/OPTIMISTIC_DAG_WORKFLOW.md`](OPTIMISTIC_DAG_WORKFLOW.md).
+Design notes and detailed results: [`docs/benchmarks/semantic-dag-and-rpe.md`](benchmarks/semantic-dag-and-rpe.md).
 
-Purpose: understand whether an optimistic DAG workflow is worth building and isolate where savings come from.
+Purpose: replace the coarse optimistic-DAG heuristic with subagent line-by-line semantic reviews.
 
-Required comparison matrix:
+Method:
 
-| Scenario | What it isolates | Success signal |
-| --- | --- | --- |
-| `sequential-tier1` | Current fastest active loop baseline | Baseline active time and cost |
-| `optimistic-dag-tier1` | DAG/workflow speedup or overhead without Doubleword discount | Same or lower active time than sequential tier1 |
-| `optimistic-dag-tier1+tier2` | Doubleword cost savings and latency penalty on the same DAG | Lower cost with active time close to `optimistic-dag-tier1` |
-| `all-tier2` | Cost floor | Non-interactive reference only |
+- Subagents read each JSONL trace line-by-line.
+- Every JSONL line is covered in notes.
+- DAG branches are marked tier2-eligible only when semantically off the user-visible critical path or safe to miss a deadline.
+- DAG/prompt-efficiency savings are tracked separately from Doubleword tier savings.
 
-Reporting requirements:
+| Metric | 10-trace manual semantic total |
+| --- | ---: |
+| Baseline tier1 cost | $20.7282 |
+| Semantic tier2 savings | $0.3068 |
+| Semantic tier2 savings pct | 1.48% |
+| Separate DAG/prompt-efficiency estimate | ~$5.1419 |
+| DAG/prompt-efficiency pct | ~24.8% |
 
-- Use more samples than B0, split by task type.
-- Report active developer time separately from background completion time.
-- Report cost deltas from DAG shape separately from Doubleword tier routing.
-- Track branch count, tier2-eligible token share, barrier count/depth, and late/unused branch outputs.
-- Include portfolio-mode estimates: N independent optimistic DAG tasks launched concurrently under a shared budget/concurrency cap.
+Conclusion: generic optimistic DAG tier2 routing is weak for normal interactive traces. Most model turns are critical-path. The larger opportunity is tier1 workflow efficiency: fewer model turns, less context bloat, better batching, and fewer symptom-fix loops.
+
+## D3 — Research-plan-execute tier routing
+
+Purpose: test a narrower workflow where research+plan stays tier1 and approved execution runs on tier2.
+
+| Trace | Execute turns | Tier1 baseline | R+P tier1 + execute tier2 | Savings | Baseline provider time | Hybrid provider completion |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `10-50-40_13d61130` | 21 | $2.4825 | $2.1352 | $0.3473 / 14.0% | 4.7m | 108.6m-3.6h |
+| `11-27-41_7e5bb6ee` | 14 | $0.6010 | $0.4811 | $0.1199 / 20.0% | 2.1m | 71.0m-2.3h |
+| `19-35-54_90c2c1e4` | 102 | $17.4756 | $13.3270 | $4.1486 / 23.7% | 11.6m | 8.5h-17.0h |
+| `20-55-34_e18dee76` | 9 | $0.5259 | $0.4098 | $0.1161 / 22.1% | 78.7s | 45.7m-90.7m |
+| `21-53-12_1375d9e7` | 22 | $2.0820 | $1.7228 | $0.3592 / 17.3% | 3.8m | 111.9m-3.7h |
+| **total, sequential** | **168** | **$23.1670** | **$18.0758** | **$5.0912 / 22.0%** | **23.5m** | **14.2h-28.2h** |
+
+Conclusion: RPE is the first trace-backed shape where tier2 savings are material. It is not suitable for blocking interactive execution; it is a background/portfolio workflow.
 
 ## Running experiment ledger
 
@@ -170,30 +185,28 @@ Add one row per meaningful workflow or routing change.
 | --- | --- | --- | --- | --- | ---: | ---: | --- |
 | B0 | 2026-06-25 | Baseline sequential Pi loop | 3 `badlogicgames/pi-mono` traces | GLM realtime/tier 1 only | $23.0533 | 17.5m | Current baseline |
 | B0-all-tier2 | 2026-06-25 | Same turns, all tier 2 SLA simulation | same | GLM tier 2 all turns | $17.2899 | 23.4h | Not usable interactively |
-| D1 | 2026-06-25 | Faithful trace-DAG routing check | same | GLM tier1+tier2 combo | $23.0533 | 17.5m | No off-critical model turns; DAG not justified yet |
+| D1 | 2026-06-25 | Faithful trace-DAG routing check | same | GLM tier1+tier2 combo | $23.0533 | 17.5m | No off-critical model turns; structural optimistic estimate later superseded |
+| D2 | 2026-06-25 | Manual semantic DAG review | 10 Pi traces | GLM semantic tier1+tier2 | $20.4214 effective hybrid | same active path | Only 1.48% semantic tier2 savings; ~24.8% separate DAG/prompt-efficiency opportunity |
+| D3 | 2026-06-25 | Research-plan-execute routing | 5 RPE Pi traces | GLM tier1 research+plan, tier2 execute | $18.0758 | 14.2h-28.2h sequential completion | Saves 22.0%; only viable async/background |
 
 ## Candidate improvements to test next
 
-1. **Expand sample confidence**
-   - Run D1/D2 metrics over more local samples.
-   - Split by review-only, implementation, merge/release, issue triage, docs, and debugging.
+1. **Improve tier1 workflow efficiency first**
+   - Better batching, complete root-cause inspection, fewer redundant checks, and less tool-output bloat.
+   - Measure this as `semantic-batching-tier1`, not as Doubleword savings.
 
-2. **Separate DAG savings from Doubleword savings**
-   - Add `optimistic-dag-tier1` before claiming any Doubleword effect.
-   - Treat realtime/tier1 as the fastest endpoint baseline; tier2 should be counted as cost savings with latency risk.
+2. **Prototype RPE background execution**
+   - Tier1 research+plan creates an execution packet and validation contract.
+   - Tier2 executes in background with budget/concurrency caps.
+   - Tier1 reviews/synthesizes completed output before acceptance.
 
-3. **Optimize the 1.8h optimistic estimate**
-   - Route fewer branches to tier2: only high-token, low-urgency work.
-   - Add branch deadlines and synthesize with ready outputs instead of blocking on every branch.
-   - Avoid serial tier2 barriers.
+3. **Measure portfolio-mode concurrency**
+   - Estimate N independent RPE execute jobs launched together.
+   - Report active planning time, background completion time, total cost, failures, and late outputs.
 
-4. **Portfolio-mode concurrency**
-   - Estimate multiple independent 1.8h optimistic DAG runs launched together.
-   - Report user active time, background completion time, total cost, and concurrency/budget caps.
-
-5. **Route by task type, not by call duration**
-   - Current trace shows no calls naturally long enough to justify tier 2 while blocking.
-   - Try policies like tier 1 for patching/tool loops, tier 2 for review/eval/report generation.
+4. **Keep generic DAG tier2 routing deferred**
+   - Manual semantic review found only ~1.5% tier2 savings in normal interactive traces.
+   - Do not route critical edit/tool loops to tier2.
 
 ## Reproduction notes
 

@@ -33,5 +33,6 @@ Docs:
 
 - [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)
 - [`docs/OPTIMISTIC_DAG_WORKFLOW.md`](docs/OPTIMISTIC_DAG_WORKFLOW.md)
+- [`docs/benchmarks/semantic-dag-and-rpe.md`](docs/benchmarks/semantic-dag-and-rpe.md)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md)
 - [`docs/DESIGN_DECISIONS.md`](docs/DESIGN_DECISIONS.md)

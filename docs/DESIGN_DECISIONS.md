@@ -135,3 +135,15 @@ Reason: D1 found no off-critical assistant/model turns in the faithful trace DAG
 Decision: Treat optimistic DAG as an opt-in workflow design and benchmark problem before building a strict executor.
 
 Reason: The useful product shape is not faithful replay. It is tier1 planning/synthesis with tier2 background branches, clear deadlines, budget caps, and portfolio-mode concurrency. Benchmarks must separate DAG-only effects from Doubleword tier savings.
+
+### Require semantic trace review for DAG tier claims
+
+Decision: Do not use mechanical first/middle/last trace heuristics as evidence for optimistic DAG savings.
+
+Reason: Manual subagent review showed the heuristic overstated tier2 eligibility. Future DAG/tier claims must account for every JSONL line and mark branches tier2-eligible only when they are semantically off the active path or safe to miss a deadline.
+
+### Split workflow optimization from provider savings
+
+Decision: Treat normal interactive optimization as tier1 semantic batching, and treat Doubleword tier2 as a background execution cost lever.
+
+Reason: Manual semantic review found only ~1.5% tier2 savings in normal interactive traces, but roughly ~25% possible savings from fewer turns/context. Research-plan-execute traces showed ~22% tier2 cost savings only when execution is moved to background, with much longer completion time.
