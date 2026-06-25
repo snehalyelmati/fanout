@@ -205,6 +205,8 @@ Scenario coverage in `hybrid-workflows.jsonl`:
 | `serial-rpe` | synthetic | research-plan active boundary with background execution |
 | `sharded-rpe` | synthetic | independent background execute shards |
 | `speculative-branch-race` | synthetic | branch winner plus late loser metadata |
+| `speculative-invalid-fastest-branch` | synthetic | fastest invalid speculative branch rejected before next valid winner |
+| `renamed-mandatory-critical-path` | synthetic | graph-structural linear mandatory critical path with non-literal scenario id |
 | `deadline-miss` | synthetic | optional late result |
 | `budget-constrained-routing` | synthetic | budget metadata for routing policies |
 | `conflict-stale-output` | synthetic | conflict and stale output metadata |
@@ -235,6 +237,8 @@ Representative synthetic outcomes:
 | `hybrid-serial-rpe` | RPE background | 1.8s | 9.8s | pass | Active response stops at the tier1 plan; execute completes in background. |
 | `hybrid-sharded-rpe` | sharded RPE | 1.6s | 8.1s | pass | Two independent execute shards honor the tier2 concurrency cap. |
 | `hybrid-branch-race` | speculative portfolio | 5.8s | 9.7s | pass | Fast valid branch wins, slow loser cost is counted as speculative waste. |
+| `hybrid-invalid-fastest-branch` | speculative portfolio | 6.1s | 7.6s | pass | Failed fastest and stale slowest branches are rejected and counted as speculative waste; the next valid branch wins. |
+| `hybrid-structural-linear-mandatory` | all tier2 blocking | 9.8s | 9.8s | infeasible | Mandatory tier2 work on a linear active critical path is detected structurally, not by scenario id. |
 | `hybrid-budget-routing` | budget-constrained routing | 1.9s | 1.9s | fail | Cost exceeds the configured synthetic budget. |
 
 These are fixture-policy results only. They prove simulator semantics and target accounting over synthetic assumptions; they do not claim observed real-trace feasibility.
@@ -252,6 +256,7 @@ Add one row per meaningful workflow or routing change.
 | D3 | 2026-06-25 | Research-plan-execute routing | 5 RPE Pi traces | GLM tier1 research+plan, tier2 execute | $18.0758 | 14.2h-28.2h sequential completion | Saves 22.0%; only viable async/background |
 | D4 | 2026-06-25 | Hybrid workflow fixture schema | committed synthetic fixtures | parser only | n/a | n/a | Covers required workflow shapes and graph validation; no policy claims yet |
 | D5 | 2026-06-25 | Hybrid policy simulation engine | committed synthetic fixtures | GLM tier1/tier2 policy matrix | per policy | active + background reported separately | Emits schedules, target statuses, concurrency/budget/deadline/fallback/speculative evidence |
+| D6 | 2026-06-25 | Hybrid policy hardening | committed synthetic fixtures | speculative portfolio + structural infeasibility | per policy | active + background reported separately | Rejects invalid fastest speculative branches by completion time and detects linear mandatory infeasibility from graph structure |
 
 ## Candidate improvements to test next
 

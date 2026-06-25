@@ -624,9 +624,60 @@ function peakTier2Concurrency(schedule) {
   return peak;
 }
 
+function activeBoundaryAncestorIds(workflow, nodes) {
+  const byId = new Map(nodes.map((node) => [node.nodeId, node]));
+  const ancestors = new Set();
+  function visit(nodeId) {
+    if (ancestors.has(nodeId)) return;
+    const node = byId.get(nodeId);
+    if (!node) return;
+    ancestors.add(nodeId);
+    for (const dependency of node.dependencies) visit(dependency);
+  }
+  visit(workflow.activeBoundaryNodeId);
+  return ancestors;
+}
+
+function hasLinearMandatoryActiveCriticalPath(workflow, nodes, schedule) {
+  const ancestorIds = activeBoundaryAncestorIds(workflow, nodes);
+  const activeCriticalNodes = nodes.filter((node) => {
+    if (!ancestorIds.has(node.nodeId)) return false;
+    if (!node.mandatory || node.active !== "active" || !node.userBlocking) return false;
+    return true;
+  });
+  if (!activeCriticalNodes.length) return false;
+  if (activeCriticalNodes.some((node) => node.portfolioGroup || node.branchId || node.shardId || node.groupId)) return false;
+
+  const activeCriticalIds = new Set(activeCriticalNodes.map((node) => node.nodeId));
+  const scheduledById = new Map(schedule.map((node) => [node.nodeId, node]));
+  const mandatoryTier2CriticalNodes = activeCriticalNodes.filter((node) => scheduledById.get(node.nodeId)?.assignedTier === "tier2");
+  if (!mandatoryTier2CriticalNodes.length) return false;
+  if (mandatoryTier2CriticalNodes.some((node) => node.fallbackTo)) return false;
+
+  const activeDependencyCounts = new Map(activeCriticalNodes.map((node) => [
+    node.nodeId,
+    node.dependencies.filter((dependency) => activeCriticalIds.has(dependency)).length,
+  ]));
+  const activeChildCounts = new Map(activeCriticalNodes.map((node) => [node.nodeId, 0]));
+  for (const node of activeCriticalNodes) {
+    for (const dependency of node.dependencies.filter((item) => activeCriticalIds.has(item))) {
+      activeChildCounts.set(dependency, (activeChildCounts.get(dependency) ?? 0) + 1);
+    }
+  }
+
+  const dependencyCounts = [...activeDependencyCounts.values()];
+  return dependencyCounts.every((count) => count <= 1)
+    && [...activeChildCounts.values()].every((count) => count <= 1)
+    && dependencyCounts.some((count) => count === 0)
+    && activeCriticalIds.has(workflow.activeBoundaryNodeId);
+}
+
 function speculativePortfolioEvidence(schedule, nodes, model) {
   const groups = {};
-  for (const node of schedule.filter((item) => item.portfolioGroup)) {
+  const portfolioNodes = schedule
+    .filter((item) => item.portfolioGroup)
+    .sort((a, b) => a.endMs - b.endMs || a.startMs - b.startMs || a.nodeId.localeCompare(b.nodeId));
+  for (const node of portfolioNodes) {
     groups[node.portfolioGroup] ??= { acceptedBranchId: null, acceptedNodeId: null, rejectedNodeIds: [], loserNodeIds: [], wastedSpeculativeCost: 0 };
     const original = nodes.find((candidate) => candidate.nodeId === node.nodeId);
     if (node.accepted && !node.failed && !node.stale && !node.conflict && !groups[node.portfolioGroup].acceptedNodeId) {
@@ -676,17 +727,24 @@ function simulateHybridPolicy(policyId, workflow, nodes, graph, model, baseline)
     return false;
   });
   const activeMandatoryTier2 = schedule.some((item) => item.activePath && item.mandatory && item.assignedTier === "tier2");
+  const structurallyLinearMandatoryTier2 = activeMandatoryTier2 && hasLinearMandatoryActiveCriticalPath(workflow, nodes, schedule);
+  const missingPortfolioWinners = policyId === "speculative_portfolio"
+    ? Object.entries(portfolioEvidence).filter(([, group]) => !group.acceptedNodeId).map(([groupId]) => groupId)
+    : [];
   const targetMs = tier1BaselineTatMs * workflow.targetActiveTatRatio;
   let targetStatus = "pass";
   let infeasibleReason = "";
   if (policyId === "all_tier1_baseline") {
     targetStatus = "pass";
-  } else if (workflow.scenarioId === "linear-critical-path" && activeMandatoryTier2) {
+  } else if (structurallyLinearMandatoryTier2) {
     targetStatus = "infeasible";
     infeasibleReason = "mandatory tier2 work is on the active linear critical path";
   } else if (budgetExceeded && policyId === "budget_constrained_routing") {
     targetStatus = "fail";
     infeasibleReason = `cost ${costTotal} exceeds budget ${workflow.budgetUsd}`;
+  } else if (missingPortfolioWinners.length) {
+    targetStatus = "fail";
+    infeasibleReason = `speculative portfolio groups without valid winners: ${missingPortfolioWinners.join(", ")}`;
   } else if (unresolvedMandatory.length) {
     targetStatus = "fail";
     infeasibleReason = `mandatory unresolved nodes: ${unresolvedMandatory.map((node) => node.nodeId).join(", ")}`;

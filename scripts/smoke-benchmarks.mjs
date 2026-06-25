@@ -108,7 +108,7 @@ try {
     "conflict-stale-output",
     "validation-failure-fallback",
   ];
-  if (hybridSummary.workflowCount !== 9) fail(`expected 9 hybrid workflows, got ${hybridSummary.workflowCount}`);
+  if (hybridSummary.workflowCount !== 11) fail(`expected 11 hybrid workflows, got ${hybridSummary.workflowCount}`);
   if (hybridSummary.reportSchema !== "doubleword.benchmark-summary" || hybridSummary.reportVersion !== 1 || hybridSummary.schemaVersion !== 1) fail("hybrid report was missing stable top-level schema fields");
   if (!Array.isArray(hybridSummary.inputFiles) || hybridSummary.inputFiles.length !== 1 || !hybridSummary.inputFiles[0].formats.includes("hybrid-workflow")) fail("hybrid report was missing input file provenance");
   if (hybridSummary.policyResultCount !== hybridSummary.hybrid.policyResultCount) fail("top-level policy result count did not match hybrid count");
@@ -182,6 +182,14 @@ try {
   if (sharded.tier2CallCount !== 2 || sharded.tier2Concurrency !== 2 || sharded.backgroundCompletionMs !== 8100) fail(`sharded RPE did not run independent shards concurrently: ${JSON.stringify(sharded)}`);
   const speculative = policyFor(branchRace, "speculative_portfolio");
   if (speculative.acceptedResultCount < 3 || speculative.lateResultCount !== 1 || speculative.wastedSpeculativeCost <= 0 || speculative.portfolio["portfolio-a"].acceptedBranchId !== "fast") fail(`speculative portfolio evidence unexpected: ${JSON.stringify(speculative)}`);
+  const invalidFastestTrace = hybridSummary.traces.find((trace) => trace.workflow.scenarioId === "speculative-invalid-fastest-branch");
+  const invalidFastestPolicy = policyFor(invalidFastestTrace, "speculative_portfolio");
+  const invalidFastestPortfolio = invalidFastestPolicy.portfolio["portfolio-invalid-fastest"];
+  if (invalidFastestPolicy.targetStatus !== "pass" || invalidFastestPortfolio.acceptedBranchId !== "valid-slower" || !invalidFastestPortfolio.rejectedNodeIds.includes("branch-invalid-fast") || !invalidFastestPortfolio.rejectedNodeIds.includes("branch-stale-slowest") || invalidFastestPolicy.validationFailureCount !== 1 || invalidFastestPolicy.wastedSpeculativeCost <= 0) {
+    fail(`invalid fastest speculative branch was not rejected before accepting the next valid branch: ${JSON.stringify(invalidFastestPolicy)}`);
+  }
+  const structuralLinear = policyFor(hybridSummary.traces.find((trace) => trace.workflow.scenarioId === "renamed-mandatory-critical-path"), "all_tier2_blocking");
+  if (structuralLinear.targetStatus !== "infeasible" || !structuralLinear.infeasibleReason.includes("linear critical path")) fail(`structural mandatory tier2 path was not marked infeasible: ${JSON.stringify(structuralLinear)}`);
   const budgetPolicy = policyFor(hybridSummary.traces.find((trace) => trace.workflow.scenarioId === "budget-constrained-routing"), "budget_constrained_routing");
   if (budgetPolicy.targetStatus !== "fail" || !budgetPolicy.budgetExceeded || budgetPolicy.costTotal <= budgetPolicy.budgetUsd) fail(`budget policy did not enforce budget failure: ${JSON.stringify(budgetPolicy)}`);
   const fallbackPolicy = policyFor(fallback, "critical_path_slack");
