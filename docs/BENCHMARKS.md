@@ -112,6 +112,56 @@ Tier 2 can still reduce cost if used for work that does not block the active loo
 - batch replay/eval jobs;
 - parallel branches where the user is not waiting on every branch sequentially.
 
+## D1 — Trace-DAG routing check
+
+Date: 2026-06-25
+
+Purpose: check whether turning the same B0 traces into a DAG creates enough off-critical-path model work to justify a DAG executor or tier1+tier2 routing.
+
+Command:
+
+```bash
+rtk node scripts/dag-trace-analysis.mjs \
+  datasets/traces/pi-mono-sample/2026-01-16T03-18-40-694Z_89afd3da-1fa3-45f9-87ad-a023f92372ee.jsonl \
+  datasets/traces/pi-mono-sample/2026-01-16T11-12-35-796Z_105b45a9-be31-4997-95c3-c95ab814daf8.jsonl \
+  datasets/traces/pi-mono-sample/2026-01-16T02-37-34-075Z_4293a326-81ca-4327-b450-85275e1ca645.jsonl \
+  --out runs/dag-analysis
+```
+
+Detailed notes: [`docs/benchmarks/dag-analysis.md`](benchmarks/dag-analysis.md).
+
+| Strategy | Cost | Provider turnaround | Notes |
+| --- | ---: | ---: | --- |
+| Realtime endpoints / tier 1 all turns | $23.0533 | 17.5m | B0 baseline |
+| Faithful trace DAG, tier1+tier2 combo | $23.0533 | 17.5m | 0 off-critical assistant turns |
+| All tier 2, blocking | $17.2899 | 23.4h | Cost floor, not interactive |
+| Optimistic segment DAG combo | $18.5364 | 110.9m | First/last segment turns tier 1, middle turns parallel tier 2 |
+
+Conclusion: the trace-derived DAG is effectively linear at the model-call level. Tool-call fan-out exists but does not affect provider cost and is already cheap. A faithful DAG executor is not enough; the next work is an optimistic DAG workflow that deliberately creates background branches.
+
+## D2 — Optimistic DAG benchmark matrix, planned
+
+Design notes: [`docs/OPTIMISTIC_DAG_WORKFLOW.md`](OPTIMISTIC_DAG_WORKFLOW.md).
+
+Purpose: understand whether an optimistic DAG workflow is worth building and isolate where savings come from.
+
+Required comparison matrix:
+
+| Scenario | What it isolates | Success signal |
+| --- | --- | --- |
+| `sequential-tier1` | Current fastest active loop baseline | Baseline active time and cost |
+| `optimistic-dag-tier1` | DAG/workflow speedup or overhead without Doubleword discount | Same or lower active time than sequential tier1 |
+| `optimistic-dag-tier1+tier2` | Doubleword cost savings and latency penalty on the same DAG | Lower cost with active time close to `optimistic-dag-tier1` |
+| `all-tier2` | Cost floor | Non-interactive reference only |
+
+Reporting requirements:
+
+- Use more samples than B0, split by task type.
+- Report active developer time separately from background completion time.
+- Report cost deltas from DAG shape separately from Doubleword tier routing.
+- Track branch count, tier2-eligible token share, barrier count/depth, and late/unused branch outputs.
+- Include portfolio-mode estimates: N independent optimistic DAG tasks launched concurrently under a shared budget/concurrency cap.
+
 ## Running experiment ledger
 
 Add one row per meaningful workflow or routing change.
@@ -120,21 +170,28 @@ Add one row per meaningful workflow or routing change.
 | --- | --- | --- | --- | --- | ---: | ---: | --- |
 | B0 | 2026-06-25 | Baseline sequential Pi loop | 3 `badlogicgames/pi-mono` traces | GLM realtime/tier 1 only | $23.0533 | 17.5m | Current baseline |
 | B0-all-tier2 | 2026-06-25 | Same turns, all tier 2 SLA simulation | same | GLM tier 2 all turns | $17.2899 | 23.4h | Not usable interactively |
+| D1 | 2026-06-25 | Faithful trace-DAG routing check | same | GLM tier1+tier2 combo | $23.0533 | 17.5m | No off-critical model turns; DAG not justified yet |
 
 ## Candidate improvements to test next
 
-1. **Reduce model turns before routing tiers**
-   - Improve planning/batching prompts.
-   - Measure fewer assistant turns per user segment and fewer tool round trips.
+1. **Expand sample confidence**
+   - Run D1/D2 metrics over more local samples.
+   - Split by review-only, implementation, merge/release, issue triage, docs, and debugging.
 
-2. **Use tier 2 only off the critical path**
-   - Background reviews, summarization, or speculative analysis.
-   - Measure active-loop turnaround separately from background completion time.
+2. **Separate DAG savings from Doubleword savings**
+   - Add `optimistic-dag-tier1` before claiming any Doubleword effect.
+   - Treat realtime/tier1 as the fastest endpoint baseline; tier2 should be counted as cost savings with latency risk.
 
-3. **Batch or parallelize tier 2 work**
-   - Tier 2 only helps usability if multiple long-latency calls run concurrently or outside the user's wait path.
+3. **Optimize the 1.8h optimistic estimate**
+   - Route fewer branches to tier2: only high-token, low-urgency work.
+   - Add branch deadlines and synthesize with ready outputs instead of blocking on every branch.
+   - Avoid serial tier2 barriers.
 
-4. **Route by task type, not by call duration**
+4. **Portfolio-mode concurrency**
+   - Estimate multiple independent 1.8h optimistic DAG runs launched together.
+   - Report user active time, background completion time, total cost, and concurrency/budget caps.
+
+5. **Route by task type, not by call duration**
    - Current trace shows no calls naturally long enough to justify tier 2 while blocking.
    - Try policies like tier 1 for patching/tool loops, tier 2 for review/eval/report generation.
 

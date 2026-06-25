@@ -16,6 +16,7 @@ The workflow should preserve developer velocity where possible by using async on
 - Stub before live endpoints.
 - Observability first.
 - Use planning prompts before custom orchestration.
+- Separate workflow gains from provider-tier savings in every benchmark.
 - Keep expensive/deep workflow ideas deferred until benchmarks justify them.
 
 ## Phase 0: Project docs and planning
@@ -114,7 +115,7 @@ Key limitation to validate live: async responses may not stream; Pi may only rec
 
 ## Phase 6: Stub/trace benchmarks
 
-Status: initial offline trace summarizer and smoke fixtures are in place. It reads local `observability.jsonl` files and raw Pi session JSONL traces, then produces `runs/phase6/summary.json` plus `summary.md`; no live calls or replay engine. Running benchmark results are tracked in `docs/BENCHMARKS.md`.
+Status: initial offline trace summarizer and smoke fixtures are in place. It reads local `observability.jsonl` files and raw Pi session JSONL traces, then produces `runs/phase6/summary.json` plus `summary.md`; no live calls or replay engine. A trace-DAG check found no off-critical model turns in the B0 sample. The next benchmark focus is an optimistic DAG workflow, with DAG-only effects separated from Doubleword tier savings. Running benchmark results are tracked in `docs/BENCHMARKS.md`.
 
 Run:
 
@@ -152,11 +153,25 @@ Current benchmark questions answered by the summarizer and `docs/BENCHMARKS.md`:
 - What is cost vs realtime? Use provider usage/cost totals plus the `glm-5-2` tier comparison table.
 - Does planning-first reduce retries and wasted turns? Compare summaries from plain runs vs `/dw-plan` runs.
 
-Deferred until the summaries prove they are needed: external dataset downloader, trace replay engine, DAG executor, subagents, and indexing.
+Deferred until the summaries prove they are needed: external dataset downloader, trace replay engine, strict DAG executor, subagents, and indexing.
 
-## Phase 7: Live endpoint benchmarks
+## Phase 7: Optimistic DAG workflow design
 
-After stubs and traces:
+Status: design docs first; prototype deferred until the benchmark matrix is ready.
+
+Design target: an opt-in workflow where tier1 plans, applies, validates, and synthesizes while tier2 runs background branches for review, research, summaries, evals, or alternatives. See [`docs/OPTIMISTIC_DAG_WORKFLOW.md`](OPTIMISTIC_DAG_WORKFLOW.md).
+
+Next work:
+
+- Run the DAG estimator over more samples for confidence, split by task type.
+- Add a benchmark matrix that separates `sequential-tier1`, `optimistic-dag-tier1`, `optimistic-dag-tier1+tier2`, and `all-tier2`.
+- Optimize the current ~1.8h optimistic completion estimate with branch deadlines, routing thresholds, fewer tier2 branches, and portfolio-mode concurrency.
+- Capture best practices for running multiple independent optimistic DAG tasks in parallel while reporting active developer time separately from background completion time.
+- Start as a prompt/template workflow; build a stricter executor only if the data shows prompt workflows cannot enforce deadlines, budgets, and dependency barriers.
+
+## Phase 8: Live endpoint benchmarks
+
+After stubs, traces, and optimistic DAG routing policies:
 
 - Run small live realtime baseline.
 - Run same tasks through live async.
@@ -167,8 +182,8 @@ After stubs and traces:
 
 Only build these if the simpler system fails benchmarks:
 
-- DAG executor for explicit parallel investigation/execution.
-- Subagents / multiple concurrent provider calls.
+- Strict DAG executor for explicit parallel investigation/execution.
+- Broad subagent orchestration beyond the optimistic DAG prototype.
 - Model profiles/fusion: cheap investigator, deep researcher, reviewer, patcher, etc.
 - Predictive repo indexing and speculative context gathering.
 - Batch-tier orchestration for normal workflows.

@@ -123,3 +123,15 @@ Reason: Real datasets such as `badlogicgames/pi-mono` are Pi sessions, not Doubl
 Decision: Price `glm-5-2` realtime/tier 1 at $1.40/$4.40 per MTok in/out and tier 2/flex at $1.05/$3.30; price `deepseek-v4-flash` realtime/tier 1 at $0.14/$0.28 and tier 2/flex at $0.10/$0.20.
 
 Reason: Tier 2 comparisons should show the latency/cost tradeoff instead of reusing realtime prices.
+
+### Keep DAG executor deferred after trace-DAG check
+
+Decision: Do not build a DAG executor from the B0 trace evidence.
+
+Reason: D1 found no off-critical assistant/model turns in the faithful trace DAG. The only trace-backed fan-out is local tool batching, while tier 2 remains useful only for background or batch work outside the active loop.
+
+### Design optimistic DAG workflow before implementation
+
+Decision: Treat optimistic DAG as an opt-in workflow design and benchmark problem before building a strict executor.
+
+Reason: The useful product shape is not faithful replay. It is tier1 planning/synthesis with tier2 background branches, clear deadlines, budget caps, and portfolio-mode concurrency. Benchmarks must separate DAG-only effects from Doubleword tier savings.

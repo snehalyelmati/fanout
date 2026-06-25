@@ -32,5 +32,6 @@ Normal runs also get lightweight think-ahead batching instructions.
 Docs:
 
 - [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)
+- [`docs/OPTIMISTIC_DAG_WORKFLOW.md`](docs/OPTIMISTIC_DAG_WORKFLOW.md)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md)
 - [`docs/DESIGN_DECISIONS.md`](docs/DESIGN_DECISIONS.md)
