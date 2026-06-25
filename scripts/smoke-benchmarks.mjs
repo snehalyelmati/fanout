@@ -352,6 +352,27 @@ try {
   const invalidSafe = runSafeEval([piMonoSampleFixture, "--predictions", invalidSafePredictions, "--out", join(dir, "invalid-safe-out")], 1);
   if (!invalidSafe.stderr.includes(`${invalidSafePredictions}:1`) || !invalidSafe.stderr.includes("trace 105b45a9-be31-4997-95c3-c95ab814daf8") || !invalidSafe.stderr.includes("unit safe-doc-note") || !invalidSafe.stderr.includes("field ownedFiles")) fail(`safe work unit invalid artifact diagnostic was not source-aware:\n${invalidSafe.stderr}`);
 
+  const invalidActiveBoundaryCases = [
+    { name: "missing-active-boundary-claim", patch: { activeBoundaryClaim: undefined }, expect: "field activeBoundaryClaim" },
+    { name: "empty-active-boundary-claim", patch: { activeBoundaryClaim: {} }, expect: "field activeBoundaryClaim.status" },
+    { name: "nonboolean-active-boundary-required", patch: { activeBoundaryClaim: { status: "background", requiredForNextActionableResponse: "no", boundary: "after prefix user request" } }, expect: "field activeBoundaryClaim.requiredForNextActionableResponse" },
+    { name: "missing-active-boundary-required", patch: { activeBoundaryClaim: { status: "background", boundary: "after prefix user request" } }, expect: "field activeBoundaryClaim.requiredForNextActionableResponse" },
+    { name: "missing-active-boundary-status", patch: { activeBoundaryClaim: { requiredForNextActionableResponse: false, boundary: "after prefix user request" } }, expect: "field activeBoundaryClaim.status" },
+    { name: "malformed-active-boundary-status", patch: { activeBoundaryClaim: { status: "deferred", requiredForNextActionableResponse: false, boundary: "after prefix user request" } }, expect: "field activeBoundaryClaim.status" },
+    { name: "missing-active-boundary-boundary", patch: { activeBoundaryClaim: { status: "background", requiredForNextActionableResponse: false } }, expect: "field activeBoundaryClaim.boundary" },
+    { name: "malformed-active-boundary-boundary", patch: { activeBoundaryClaim: { status: "background", requiredForNextActionableResponse: false, boundary: "" } }, expect: "field activeBoundaryClaim.boundary" },
+  ];
+  for (const item of invalidActiveBoundaryCases) {
+    const file = join(dir, `${item.name}.jsonl`);
+    const row = JSON.parse(readFileSync(safeWorkUnitPredictions, "utf8").trim());
+    row.proposedUnits = [{ ...row.proposedUnits[0], label: undefined, ...item.patch }];
+    writeFileSync(file, `${JSON.stringify(row)}\n`);
+    const result = runSafeEval([piMonoSampleFixture, "--predictions", file, "--out", join(dir, `${item.name}-out`)], 1);
+    if (!result.stderr.includes(`${file}:1`) || !result.stderr.includes("trace 105b45a9-be31-4997-95c3-c95ab814daf8") || !result.stderr.includes("unit safe-doc-note") || !result.stderr.includes(item.expect)) {
+      fail(`${item.name} active boundary diagnostic was not source-aware and field-specific:\n${result.stderr}`);
+    }
+  }
+
   const noJsonl = run([join(dir, "missing"), "--out", join(dir, "missing-out")], 1);
   if (!noJsonl.stderr.includes("no JSONL files found")) fail("missing input did not fail with no JSONL message");
   const emptyJsonl = join(dir, "empty.jsonl");

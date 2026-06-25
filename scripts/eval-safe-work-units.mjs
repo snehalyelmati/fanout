@@ -88,6 +88,18 @@ function validateBoundary(row, boundary) {
   return { line: boundary.line, messageId: boundary.messageId ?? null };
 }
 
+function validateActiveBoundaryClaim(row, claim, context) {
+  if (!isObject(claim)) diagnostic(row, context, "activeBoundaryClaim", "expected object");
+  if (claim.status !== "active" && claim.status !== "background") diagnostic(row, context, "activeBoundaryClaim.status", "expected active or background");
+  if (typeof claim.requiredForNextActionableResponse !== "boolean") diagnostic(row, context, "activeBoundaryClaim.requiredForNextActionableResponse", "expected boolean");
+  if (typeof claim.boundary !== "string" || !claim.boundary.trim()) diagnostic(row, context, "activeBoundaryClaim.boundary", "expected non-empty string");
+  return {
+    status: claim.status,
+    requiredForNextActionableResponse: claim.requiredForNextActionableResponse,
+    boundary: claim.boundary,
+  };
+}
+
 function validatePredictionRow(row) {
   if (row.schema !== PREDICTION_SCHEMA) diagnostic(row, "", "schema", `expected ${PREDICTION_SCHEMA}`);
   if (row.version !== PREDICTION_VERSION) diagnostic(row, "", "version", `expected ${PREDICTION_VERSION}`);
@@ -109,7 +121,7 @@ function validatePredictionRow(row) {
     requireArray(row, unit, "validationRequirements", `unit ${unit.unitId}`);
     requireArray(row, unit, "reviewRequirements", `unit ${unit.unitId}`);
     requireArray(row, unit, "cancellationRules", `unit ${unit.unitId}`);
-    if (!isObject(unit.activeBoundaryClaim)) diagnostic(row, `unit ${unit.unitId}`, "activeBoundaryClaim", "expected object");
+    const activeBoundaryClaim = validateActiveBoundaryClaim(row, unit.activeBoundaryClaim, `unit ${unit.unitId}`);
 
     const label = unit.label;
     if (label !== undefined && (!isObject(label) || !VERDICTS.includes(label.expectedVerdict))) {
@@ -126,7 +138,7 @@ function validatePredictionRow(row) {
       validationRequirements: optionalStringArray(row, unit, "validationRequirements", `unit ${unit.unitId}`),
       reviewRequirements: optionalStringArray(row, unit, "reviewRequirements", `unit ${unit.unitId}`),
       cancellationRules: optionalStringArray(row, unit, "cancellationRules", `unit ${unit.unitId}`),
-      activeBoundaryClaim: { ...unit.activeBoundaryClaim },
+      activeBoundaryClaim,
       speculative: unit.speculative === true,
       label: label ? { expectedVerdict: label.expectedVerdict } : null,
     };
