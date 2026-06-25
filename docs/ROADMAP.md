@@ -114,7 +114,7 @@ Key limitation to validate live: async responses may not stream; Pi may only rec
 
 ## Phase 6: Stub/trace benchmarks
 
-Status: initial offline trace summarizer and smoke fixtures are in place. It reads local `observability.jsonl` files and raw Pi session JSONL traces, then produces `runs/phase6/summary.json` plus `summary.md`; no live calls or replay engine.
+Status: initial offline trace summarizer and smoke fixtures are in place. It reads local `observability.jsonl` files and raw Pi session JSONL traces, then produces `runs/phase6/summary.json` plus `summary.md`; no live calls or replay engine. Running benchmark results are tracked in `docs/BENCHMARKS.md`.
 
 Run:
 
@@ -144,7 +144,7 @@ datasets/traces/
 datasets/fixtures/
 ```
 
-Current benchmark questions answered by the summarizer:
+Current benchmark questions answered by the summarizer and `docs/BENCHMARKS.md`:
 
 - How many model turns does the workflow need? Use `agent_end.turnCount` and `turn_*` events.
 - How many local tool calls are batched into each turn? Use `turn_end.toolCallCount`.

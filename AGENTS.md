@@ -12,3 +12,4 @@ This repo is for a Pi extension that can use Doubleword as an LLM provider.
 - Do not commit secrets or real API keys. Use environment variables for credentials.
 - Keep `docs/ROADMAP.md` updated when scope/order changes.
 - Keep `docs/DESIGN_DECISIONS.md` updated when design decisions are made or reversed.
+- Keep `docs/BENCHMARKS.md` updated whenever benchmark datasets, pricing, routing policies, workflow experiments, or baseline cost/time metrics change; put detailed supporting notes under `docs/benchmarks/` when useful.

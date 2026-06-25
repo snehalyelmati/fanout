@@ -31,5 +31,6 @@ Normal runs also get lightweight think-ahead batching instructions.
 
 Docs:
 
+- [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md)
 - [`docs/DESIGN_DECISIONS.md`](docs/DESIGN_DECISIONS.md)
