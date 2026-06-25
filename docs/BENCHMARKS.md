@@ -243,6 +243,62 @@ Representative synthetic outcomes:
 
 These are fixture-policy results only. They prove simulator semantics and target accounting over synthetic assumptions; they do not claim observed real-trace feasibility.
 
+## D7 - Hybrid target evidence workflow
+
+Date: 2026-06-25
+
+Purpose: run the mixed existing-plus-synthetic evidence workflow and record the honest 3x active TAT target status. The generated reports separate observed trace fixtures from synthetic workflow fixtures; all target passes below are synthetic fixture-policy evidence, not observed trace feasibility.
+
+Command:
+
+```bash
+rtk npm run benchmark:traces -- datasets/fixtures --model glm-5-2 --out runs/mission-hybrid-benchmark
+```
+
+Generated evidence:
+
+- `runs/mission-hybrid-benchmark/summary.json`
+- `runs/mission-hybrid-benchmark/summary.md`
+
+Run summary:
+
+| Metric | Value |
+| --- | ---: |
+| Input files | 4 |
+| Trace groups | 15 |
+| Hybrid workflows | 12 |
+| Hybrid policy results | 96 |
+| Formats in one run | `hybrid-workflow`, `observability`, `pi-session` |
+| Non-baseline pass results with tier2 calls and active ratio <= 3 | 49 |
+
+Source labels in the generated JSON keep observed and synthetic evidence separate. `phase6-observability.jsonl` is summarized as `observability`, `pi-session-trace.jsonl` is summarized as `pi-session`, and the hybrid workflow fixtures are summarized as `hybrid-workflow` with `sourceType: "synthetic"` and `provenance.synthetic: true`.
+
+Representative synthetic target passes:
+
+| Fixture | Policy | Source | Active boundary | Active TAT | Background completion | Ratio | Tier2 calls | Target status | Caveat |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| `hybrid-wide-fanout` | `critical_path_slack` | synthetic | `synthesis` | 1.5s | 7.5s | 1.000 | 3 | pass | Optional fan-out is explicit background work; one optional result is late and counted. |
+| `hybrid-serial-rpe` | `rpe_background` | synthetic | `plan` | 1.8s | 9.8s | 1.000 | 1 | pass | Tier1 research and plan are the next actionable response; execute is deferred background work. |
+| `hybrid-sharded-rpe` | `sharded_rpe` | synthetic | `plan` | 1.6s | 8.1s | 1.000 | 2 | pass | Independent execute shards run after the tier1 plan and honor the tier2 concurrency cap. |
+| `hybrid-branch-race` | `speculative_portfolio` | synthetic | `accept-winner` | 5.8s | 9.7s | 1.526 | 2 | pass | Tier1 `accept-winner` reviews the winning tier2 branch; loser cost is counted as speculative waste. |
+| `hybrid-invalid-fastest-branch` | `speculative_portfolio` | synthetic | `accept-winner` | 6.1s | 7.6s | 1.649 | 3 | pass | Tier1 `accept-winner` accepts `branch-valid-slower`; failed/stale branches are rejected and counted as waste. |
+
+Representative infeasible synthetic classes:
+
+| Fixture | Policy | Active TAT | Background completion | Ratio | Tier2 calls | Target status | Reason |
+| --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| `hybrid-linear-critical-path` | `all_tier2_blocking` | 11.0s | 11.0s | 2.750 | 1 | infeasible | Mandatory tier2 work is on the active linear critical path. |
+| `hybrid-structural-linear-mandatory` | `all_tier2_blocking` | 9.8s | 9.8s | 2.722 | 1 | infeasible | Mandatory tier2 work is on the active linear critical path, detected from graph structure rather than scenario id. |
+
+Active/background interpretation:
+
+- Active user-facing TAT is measured to each fixture's declared `activeBoundaryNodeId` plus mandatory active acceptance work.
+- Work is excluded from active TAT only when fixture metadata marks it background, optional, non-user-blocking, or after a next-actionable boundary such as the RPE `plan`.
+- Background completion still includes launched tier2 work, optional late results, and speculative losers.
+- Passing policies that use mandatory tier2 output include a tier1 review, validation, synthesis, or acceptance node before claiming success. Examples include `accept-winner` reviewing portfolio branches and `repair-tier1`/`accept-fallback` validating failed tier2 output.
+
+Detailed supporting notes: [`docs/benchmarks/hybrid-target-evidence.md`](benchmarks/hybrid-target-evidence.md).
+
 ## Running experiment ledger
 
 Add one row per meaningful workflow or routing change.
@@ -257,6 +313,7 @@ Add one row per meaningful workflow or routing change.
 | D4 | 2026-06-25 | Hybrid workflow fixture schema | committed synthetic fixtures | parser only | n/a | n/a | Covers required workflow shapes and graph validation; no policy claims yet |
 | D5 | 2026-06-25 | Hybrid policy simulation engine | committed synthetic fixtures | GLM tier1/tier2 policy matrix | per policy | active + background reported separately | Emits schedules, target statuses, concurrency/budget/deadline/fallback/speculative evidence |
 | D6 | 2026-06-25 | Hybrid policy hardening | committed synthetic fixtures | speculative portfolio + structural infeasibility | per policy | active + background reported separately | Rejects invalid fastest speculative branches by completion time and detects linear mandatory infeasibility from graph structure |
+| D7 | 2026-06-25 | Hybrid target evidence workflow | existing fixtures plus synthetic hybrid workflows | GLM tier1/tier2 policy matrix | per policy | active + background reported separately | Mixed run preserves observed/synthetic source labels; synthetic eligible workflows pass <=3x active TAT while linear mandatory classes are infeasible |
 
 ## Candidate improvements to test next
 
