@@ -210,7 +210,34 @@ Scenario coverage in `hybrid-workflows.jsonl`:
 | `conflict-stale-output` | synthetic | conflict and stale output metadata |
 | `validation-failure-fallback` | synthetic | failed tier2 output with tier1 fallback and review |
 
-These fixtures are synthetic assumptions, not observed trace feasibility evidence. They only establish parser, schema, metadata, and graph-validation coverage. Policy results and target claims belong to later simulator work.
+These fixtures are synthetic assumptions, not observed trace feasibility evidence.
+
+## D5 - Hybrid policy simulation engine
+
+Date: 2026-06-25
+
+Purpose: deterministically compare tier1/tier2 workflow policies over the committed hybrid fixture graph while keeping active user-facing TAT separate from background completion.
+
+Command:
+
+```bash
+rtk npm run benchmark:traces -- datasets/fixtures --model glm-5-2 --out runs/mission-hybrid-benchmark
+```
+
+The simulator emits all required policies for every hybrid workflow: all tier1 baseline, all tier2 blocking, critical-path/slack, deadline synthesis, RPE background, sharded RPE, speculative portfolio, and budget-constrained routing. Each result includes per-node schedule evidence with tier assignment, dependency start/end times, active/background classification, accepted/late/failed state, cost, budget status, tier2 concurrency, and 3x target status.
+
+Representative synthetic outcomes:
+
+| Fixture | Policy | Active TAT | Background completion | Target status | Notes |
+| --- | --- | ---: | ---: | --- | --- |
+| `hybrid-linear-critical-path` | all tier2 blocking | 11.0s | 11.0s | infeasible | Mandatory tier2 work is on the active linear critical path. |
+| `hybrid-wide-fanout` | critical-path/slack | 1.5s | 7.5s | pass | Optional research fan-out moves to tier2; one optional result is late. |
+| `hybrid-serial-rpe` | RPE background | 1.8s | 9.8s | pass | Active response stops at the tier1 plan; execute completes in background. |
+| `hybrid-sharded-rpe` | sharded RPE | 1.6s | 8.1s | pass | Two independent execute shards honor the tier2 concurrency cap. |
+| `hybrid-branch-race` | speculative portfolio | 5.8s | 9.7s | pass | Fast valid branch wins, slow loser cost is counted as speculative waste. |
+| `hybrid-budget-routing` | budget-constrained routing | 1.9s | 1.9s | fail | Cost exceeds the configured synthetic budget. |
+
+These are fixture-policy results only. They prove simulator semantics and target accounting over synthetic assumptions; they do not claim observed real-trace feasibility.
 
 ## Running experiment ledger
 
@@ -224,6 +251,7 @@ Add one row per meaningful workflow or routing change.
 | D2 | 2026-06-25 | Manual semantic DAG review | 10 Pi traces | GLM semantic tier1+tier2 | $20.4214 effective hybrid | same active path | Only 1.48% semantic tier2 savings; ~24.8% separate DAG/prompt-efficiency opportunity |
 | D3 | 2026-06-25 | Research-plan-execute routing | 5 RPE Pi traces | GLM tier1 research+plan, tier2 execute | $18.0758 | 14.2h-28.2h sequential completion | Saves 22.0%; only viable async/background |
 | D4 | 2026-06-25 | Hybrid workflow fixture schema | committed synthetic fixtures | parser only | n/a | n/a | Covers required workflow shapes and graph validation; no policy claims yet |
+| D5 | 2026-06-25 | Hybrid policy simulation engine | committed synthetic fixtures | GLM tier1/tier2 policy matrix | per policy | active + background reported separately | Emits schedules, target statuses, concurrency/budget/deadline/fallback/speculative evidence |
 
 ## Candidate improvements to test next
 

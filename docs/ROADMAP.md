@@ -115,7 +115,7 @@ Key limitation to validate live: async responses may not stream; Pi may only rec
 
 ## Phase 6: Stub/trace benchmarks
 
-Status: initial offline trace summarizer and smoke fixtures are in place. It reads local `observability.jsonl` files, raw Pi session JSONL traces, and versioned synthetic hybrid workflow JSONL fixtures, then produces `runs/phase6/summary.json` plus `summary.md`; no live calls or replay engine. Manual semantic subagent reviews now supersede the coarse optimistic-DAG heuristic. Results are tracked in `docs/BENCHMARKS.md` and [`docs/benchmarks/semantic-dag-and-rpe.md`](benchmarks/semantic-dag-and-rpe.md).
+Status: initial offline trace summarizer, smoke fixtures, and deterministic hybrid policy simulation are in place. It reads local `observability.jsonl` files, raw Pi session JSONL traces, and versioned synthetic hybrid workflow JSONL fixtures, then produces `runs/phase6/summary.json` plus `summary.md`; no live calls or replay engine. Manual semantic subagent reviews now supersede the coarse optimistic-DAG heuristic. Hybrid fixture reports now include policy matrices with active TAT, background completion, target status, per-node schedules, budget/deadline/fallback/speculative evidence, and tier2 concurrency caps. Results are tracked in `docs/BENCHMARKS.md` and [`docs/benchmarks/semantic-dag-and-rpe.md`](benchmarks/semantic-dag-and-rpe.md).
 
 Run:
 
@@ -153,6 +153,7 @@ Current benchmark questions answered by the summarizer and `docs/BENCHMARKS.md`:
 - Does async TTFT multiply wall-clock time or get amortized? Use async provider duration, TTFT, poll count, and poll duration totals.
 - What is cost vs realtime? Use provider usage/cost totals plus the `glm-5-2` tier comparison table.
 - Does planning-first reduce retries and wasted turns? Compare summaries from plain runs vs `/dw-plan` runs.
+- Which synthetic hybrid workflow policies meet the 3x active TAT target? Use hybrid policy results, active/background schedules, and target statuses.
 
 Deferred until the summaries prove they are needed: external dataset downloader, trace replay engine, strict DAG executor, subagents, and indexing.
 

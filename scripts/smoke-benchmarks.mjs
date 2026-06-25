@@ -107,6 +107,55 @@ try {
   if (!conflict.nodes.some((node) => node.conflictGroup && node.staleOf)) fail("conflict/stale metadata was not preserved");
   const fallback = hybridSummary.traces.find((trace) => trace.workflow.scenarioId === "validation-failure-fallback");
   if (!fallback.nodes.some((node) => node.fallbackTo) || !fallback.nodes.some((node) => node.reviewOf || node.validationOf)) fail("fallback/review metadata was not preserved");
+  const requiredPolicies = [
+    "all_tier1_baseline",
+    "all_tier2_blocking",
+    "critical_path_slack",
+    "deadline_synthesis",
+    "rpe_background",
+    "sharded_rpe",
+    "speculative_portfolio",
+    "budget_constrained_routing",
+  ];
+  const policyFor = (trace, policyId) => trace.policyResults?.find((result) => result.policyId === policyId);
+  if (hybridSummary.hybrid.policyResultCount !== hybridSummary.workflowCount * requiredPolicies.length) fail(`unexpected hybrid policy result count ${hybridSummary.hybrid.policyResultCount}`);
+  for (const trace of hybridSummary.traces.filter((item) => item.format === "hybrid-workflow")) {
+    const policyIds = trace.policyResults?.map((result) => result.policyId) ?? [];
+    if (JSON.stringify(policyIds) !== JSON.stringify(requiredPolicies)) fail(`${trace.traceId} emitted unexpected policy matrix ${policyIds.join(",")}`);
+    const baseline = policyFor(trace, "all_tier1_baseline");
+    if (!baseline || baseline.tier2CallCount !== 0 || baseline.activeTatRatio !== 1 || baseline.tier1BaselineTatMs !== baseline.optimizedActiveTatMs) {
+      fail(`${trace.traceId} baseline policy did not establish a tier1 reference`);
+    }
+    for (const result of trace.policyResults) {
+      const expectedRatio = result.tier1BaselineTatMs ? Math.round((result.optimizedActiveTatMs / result.tier1BaselineTatMs) * 1000) / 1000 : null;
+      if (result.activeTatRatio !== expectedRatio) fail(`${trace.traceId}/${result.policyId} active ratio ${result.activeTatRatio} did not match ${expectedRatio}`);
+      if (result.backgroundCompletionMs < result.optimizedActiveTatMs) fail(`${trace.traceId}/${result.policyId} background completion was less than active TAT`);
+      if (result.tier2Concurrency > result.tier2ConcurrencyCap) fail(`${trace.traceId}/${result.policyId} exceeded tier2 concurrency cap`);
+      if (result.targetStatus === "pass" && result.optimizedActiveTatMs > result.tier1BaselineTatMs * trace.workflow.targetActiveTatRatio) fail(`${trace.traceId}/${result.policyId} passed while violating the 3x target`);
+      if (result.targetStatus !== "pass" && !result.infeasibleReason) fail(`${trace.traceId}/${result.policyId} non-pass result did not include a reason`);
+      const byId = new Map(result.schedule.map((node) => [node.nodeId, node]));
+      for (const scheduled of result.schedule) {
+        for (const dependency of scheduled.dependencies) {
+          if (scheduled.startMs < byId.get(dependency).endMs) fail(`${trace.traceId}/${result.policyId}/${scheduled.nodeId} started before dependency ${dependency}`);
+        }
+        if (scheduled.assignedTier === "tier2" && !scheduled.tierEligibility.includes("tier2")) fail(`${trace.traceId}/${result.policyId}/${scheduled.nodeId} violated tier2 eligibility`);
+      }
+    }
+  }
+  const linearTier2 = policyFor(hybridSummary.traces.find((trace) => trace.workflow.scenarioId === "linear-critical-path"), "all_tier2_blocking");
+  if (linearTier2.targetStatus !== "infeasible" || !linearTier2.infeasibleReason.includes("linear critical path")) fail(`linear mandatory tier2 path was not marked infeasible: ${JSON.stringify(linearTier2)}`);
+  const wideSlack = policyFor(wide, "critical_path_slack");
+  if (wideSlack.tier2CallCount !== 3 || wideSlack.optimizedActiveTatMs !== 1500 || wideSlack.backgroundCompletionMs <= wideSlack.optimizedActiveTatMs || wideSlack.deadlineMissCount !== 1) fail(`wide fanout slack policy did not separate active/background timing: ${JSON.stringify(wideSlack)}`);
+  const serialRpe = policyFor(hybridSummary.traces.find((trace) => trace.workflow.scenarioId === "serial-rpe"), "rpe_background");
+  if (serialRpe.tier2CallCount !== 1 || serialRpe.optimizedActiveTatMs !== 1800 || serialRpe.backgroundCompletionMs !== 9800) fail(`serial RPE background timing unexpected: ${JSON.stringify(serialRpe)}`);
+  const sharded = policyFor(hybridSummary.traces.find((trace) => trace.workflow.scenarioId === "sharded-rpe"), "sharded_rpe");
+  if (sharded.tier2CallCount !== 2 || sharded.tier2Concurrency !== 2 || sharded.backgroundCompletionMs !== 8100) fail(`sharded RPE did not run independent shards concurrently: ${JSON.stringify(sharded)}`);
+  const speculative = policyFor(branchRace, "speculative_portfolio");
+  if (speculative.acceptedResultCount < 3 || speculative.lateResultCount !== 1 || speculative.wastedSpeculativeCost <= 0 || speculative.portfolio["portfolio-a"].acceptedBranchId !== "fast") fail(`speculative portfolio evidence unexpected: ${JSON.stringify(speculative)}`);
+  const budgetPolicy = policyFor(hybridSummary.traces.find((trace) => trace.workflow.scenarioId === "budget-constrained-routing"), "budget_constrained_routing");
+  if (budgetPolicy.targetStatus !== "fail" || !budgetPolicy.budgetExceeded || budgetPolicy.costTotal <= budgetPolicy.budgetUsd) fail(`budget policy did not enforce budget failure: ${JSON.stringify(budgetPolicy)}`);
+  const fallbackPolicy = policyFor(fallback, "critical_path_slack");
+  if (fallbackPolicy.validationFailureCount !== 1 || fallbackPolicy.fallbackToTier1Count !== 1 || fallbackPolicy.targetStatus !== "pass") fail(`fallback policy did not count validation failure and tier1 fallback: ${JSON.stringify(fallbackPolicy)}`);
 
   const outOfOrderOut = join(dir, "hybrid-out-of-order");
   run([hybridOutOfOrderFixture, "--out", outOfOrderOut]);
@@ -129,6 +178,7 @@ try {
   const sortedTrace = JSON.parse(readFileSync(join(sortedOut, "summary.json"), "utf8")).traces[0];
   if (JSON.stringify(outOfOrderTrace.graph) !== JSON.stringify(sortedTrace.graph)) fail("out-of-order DAG graph metrics differed from sorted fixture metrics");
   if (JSON.stringify(outOfOrderTrace.nodes.map((node) => node.nodeId)) !== JSON.stringify(sortedTrace.nodes.map((node) => node.nodeId))) fail("out-of-order DAG node order differed from sorted fixture normalization");
+  if (JSON.stringify(outOfOrderTrace.policyResults) !== JSON.stringify(sortedTrace.policyResults)) fail("out-of-order DAG policy results differed from sorted fixture normalization");
 
   const mixedOut2 = join(dir, "mixed-legacy-hybrid");
   run([fixture, piSessionFixture, hybridFixture, "--out", mixedOut2]);

@@ -446,6 +446,294 @@ function hybridGraphMetrics(workflow, nodes) {
   };
 }
 
+const HYBRID_POLICY_IDS = [
+  "all_tier1_baseline",
+  "all_tier2_blocking",
+  "critical_path_slack",
+  "deadline_synthesis",
+  "rpe_background",
+  "sharded_rpe",
+  "speculative_portfolio",
+  "budget_constrained_routing",
+];
+
+function hybridNodeCost(node, tier, model) {
+  return comparisonCost(model, tier, node.cost.inputTokens, node.cost.outputTokens);
+}
+
+function canRunOn(node, tier) {
+  return node.tierEligibility.includes(tier);
+}
+
+function isHybridNodeAccepted(node) {
+  return node.outcome.accepted === true && node.outcome.failed !== true && node.outcome.stale !== true && node.outcome.conflict !== true;
+}
+
+function isHybridNodeInvalid(node) {
+  return node.outcome.failed === true || node.outcome.stale === true || node.outcome.conflict === true;
+}
+
+function desiredHybridTier(policyId, node) {
+  if (policyId === "all_tier1_baseline") return "tier1";
+  if (policyId === "all_tier2_blocking") return canRunOn(node, "tier2") ? "tier2" : "tier1";
+  if (policyId === "rpe_background" || policyId === "sharded_rpe") {
+    if (node.phase === "execute" && canRunOn(node, "tier2")) return "tier2";
+    return "tier1";
+  }
+  if (policyId === "speculative_portfolio") {
+    if ((node.portfolioGroup || node.branchId || node.phase === "execute") && canRunOn(node, "tier2")) return "tier2";
+    return "tier1";
+  }
+  if (policyId === "critical_path_slack" || policyId === "deadline_synthesis") {
+    if ((node.active === "background" || !node.userBlocking || !node.mandatory) && canRunOn(node, "tier2")) return "tier2";
+    return "tier1";
+  }
+  return "tier1";
+}
+
+function routeHybridBudgetPolicy(nodes, workflow, model) {
+  const assignments = {};
+  let total = 0;
+  for (const node of nodes) {
+    const tier = canRunOn(node, "tier1") ? "tier1" : "tier2";
+    assignments[node.nodeId] = tier;
+    total = round(total + hybridNodeCost(node, tier, model), 12);
+  }
+
+  const budget = workflow.budgetUsd ?? Number.POSITIVE_INFINITY;
+  const candidates = nodes
+    .filter((node) => canRunOn(node, "tier2") && assignments[node.nodeId] !== "tier2")
+    .sort((a, b) => {
+      const priorityA = a.active === "background" || !a.mandatory ? 0 : 1;
+      const priorityB = b.active === "background" || !b.mandatory ? 0 : 1;
+      return priorityA - priorityB || a.nodeId.localeCompare(b.nodeId);
+    });
+
+  for (const node of candidates) {
+    const tier1Cost = hybridNodeCost(node, "tier1", model);
+    const tier2Cost = hybridNodeCost(node, "tier2", model);
+    const nextTotal = round(total - tier1Cost + tier2Cost, 12);
+    if (nextTotal <= budget) {
+      assignments[node.nodeId] = "tier2";
+      total = nextTotal;
+    }
+  }
+  return assignments;
+}
+
+function hybridPolicyAssignments(policyId, workflow, nodes, model) {
+  if (policyId === "budget_constrained_routing") return routeHybridBudgetPolicy(nodes, workflow, model);
+  const assignments = {};
+  for (const node of nodes) {
+    let tier = desiredHybridTier(policyId, node);
+    if (policyId !== "all_tier1_baseline" && !canRunOn(node, tier)) tier = canRunOn(node, "tier1") ? "tier1" : "tier2";
+    assignments[node.nodeId] = tier;
+  }
+  return assignments;
+}
+
+function hybridActiveNodeSet(policyId, nodes) {
+  const active = new Set();
+  for (const node of nodes) {
+    const blocking = policyId === "all_tier2_blocking" ? (node.userBlocking || node.mandatory) : (node.active === "active" || node.userBlocking || (node.mandatory && node.active !== "background"));
+    if (blocking) active.add(node.nodeId);
+  }
+  return active;
+}
+
+function scheduleHybridNodes(policyId, workflow, nodes, assignments) {
+  const activeIds = hybridActiveNodeSet(policyId, nodes);
+  activeIds.add(workflow.activeBoundaryNodeId);
+  const completion = {};
+  const tier2Slots = Array.from({ length: Math.max(1, Math.trunc(workflow.tier2Concurrency)) }, () => 0);
+  const schedule = [];
+
+  for (const node of nodes) {
+    const assignedTier = assignments[node.nodeId];
+    const dependencyReadyMs = node.dependencies.length ? Math.max(...node.dependencies.map((id) => completion[id] ?? 0)) : 0;
+    let startMs = dependencyReadyMs;
+    if (assignedTier === "tier2") {
+      let slot = 0;
+      for (let index = 1; index < tier2Slots.length; index++) {
+        if (tier2Slots[index] < tier2Slots[slot]) slot = index;
+      }
+      startMs = Math.max(dependencyReadyMs, tier2Slots[slot]);
+      tier2Slots[slot] = startMs + node.durationsMs.tier2;
+    }
+    const durationMs = assignedTier === "tier2" ? node.durationsMs.tier2 : node.durationsMs.tier1;
+    const endMs = startMs + durationMs;
+    completion[node.nodeId] = endMs;
+    const deadlineMiss = node.deadlineMs !== null && endMs > node.deadlineMs;
+    schedule.push({
+      nodeId: node.nodeId,
+      dependencies: node.dependencies,
+      phase: node.phase,
+      assignedTier,
+      startMs,
+      endMs,
+      durationMs,
+      activePath: activeIds.has(node.nodeId),
+      background: !activeIds.has(node.nodeId),
+      mandatory: node.mandatory,
+      userBlocking: node.userBlocking,
+      tierEligibility: node.tierEligibility,
+      accepted: isHybridNodeAccepted(node),
+      late: node.outcome.late === true || deadlineMiss,
+      failed: node.outcome.failed === true,
+      stale: node.outcome.stale === true,
+      conflict: node.outcome.conflict === true || false,
+      deadlineMs: node.deadlineMs,
+      deadlineMiss,
+      groupId: node.groupId,
+      shardId: node.shardId,
+      branchId: node.branchId,
+      portfolioGroup: node.portfolioGroup,
+      conflictGroup: node.conflictGroup,
+      staleOf: node.staleOf,
+      fallbackTo: node.fallbackTo,
+      reviewOf: node.reviewOf,
+      validationOf: node.validationOf,
+    });
+  }
+
+  return schedule;
+}
+
+function peakTier2Concurrency(schedule) {
+  const changes = [];
+  for (const item of schedule.filter((node) => node.assignedTier === "tier2")) {
+    changes.push([item.startMs, 1], [item.endMs, -1]);
+  }
+  changes.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  let current = 0;
+  let peak = 0;
+  for (const [, delta] of changes) {
+    current += delta;
+    peak = Math.max(peak, current);
+  }
+  return peak;
+}
+
+function speculativePortfolioEvidence(schedule, nodes, model) {
+  const groups = {};
+  for (const node of schedule.filter((item) => item.portfolioGroup)) {
+    groups[node.portfolioGroup] ??= { acceptedBranchId: null, acceptedNodeId: null, rejectedNodeIds: [], loserNodeIds: [], wastedSpeculativeCost: 0 };
+    const original = nodes.find((candidate) => candidate.nodeId === node.nodeId);
+    if (node.accepted && !node.failed && !node.stale && !node.conflict && !groups[node.portfolioGroup].acceptedNodeId) {
+      groups[node.portfolioGroup].acceptedBranchId = node.branchId;
+      groups[node.portfolioGroup].acceptedNodeId = node.nodeId;
+    } else {
+      if (node.failed || node.stale || node.conflict) groups[node.portfolioGroup].rejectedNodeIds.push(node.nodeId);
+      else groups[node.portfolioGroup].loserNodeIds.push(node.nodeId);
+      groups[node.portfolioGroup].wastedSpeculativeCost = round(groups[node.portfolioGroup].wastedSpeculativeCost + hybridNodeCost(original, node.assignedTier, model), 12);
+    }
+  }
+  return groups;
+}
+
+function simulateHybridPolicy(policyId, workflow, nodes, graph, model, baseline) {
+  const assignments = hybridPolicyAssignments(policyId, workflow, nodes, model);
+  const schedule = scheduleHybridNodes(policyId, workflow, nodes, assignments);
+  const tier1BaselineTatMs = baseline?.optimizedActiveTatMs ?? schedule.find((node) => node.nodeId === workflow.activeBoundaryNodeId)?.endMs ?? 0;
+  const activeTatMs = Math.max(
+    schedule.find((node) => node.nodeId === workflow.activeBoundaryNodeId)?.endMs ?? 0,
+    ...schedule.filter((node) => node.activePath).map((node) => node.endMs),
+  );
+  const backgroundCompletionMs = Math.max(activeTatMs, ...schedule.map((node) => node.endMs));
+  const costTotal = round(schedule.reduce((total, item) => {
+    const node = nodes.find((candidate) => candidate.nodeId === item.nodeId);
+    return total + hybridNodeCost(node, item.assignedTier, model);
+  }, 0), 12);
+  const baselineCost = baseline?.costTotal ?? costTotal;
+  const portfolioEvidence = policyId === "speculative_portfolio" ? speculativePortfolioEvidence(schedule, nodes, model) : {};
+  const wastedSpeculativeCost = round(Object.values(portfolioEvidence).reduce((total, group) => total + group.wastedSpeculativeCost, 0), 12);
+  const deadlineMissCount = schedule.filter((node) => node.deadlineMiss).length;
+  const lateResultCount = schedule.filter((node) => node.late).length;
+  const validationFailureCount = schedule.filter((node) => node.failed).length;
+  const fallbackToTier1Count = nodes.filter((node) => node.fallbackTo && schedule.some((item) => item.nodeId === node.fallbackTo && item.assignedTier === "tier1")).length;
+  const acceptedResultCount = policyId === "speculative_portfolio"
+    ? schedule.filter((node) => node.accepted && (!node.portfolioGroup || Object.values(portfolioEvidence).some((group) => group.acceptedNodeId === node.nodeId))).length
+    : schedule.filter((node) => node.accepted).length;
+  const activeTatRatio = tier1BaselineTatMs > 0 ? round(activeTatMs / tier1BaselineTatMs) : null;
+  const budgetExceeded = workflow.budgetUsd !== null && costTotal > workflow.budgetUsd;
+  const unresolvedMandatory = schedule.filter((item) => {
+    if (!item.mandatory) return false;
+    if (item.deadlineMiss || item.stale || item.conflict) return true;
+    if (item.failed) {
+      const original = nodes.find((node) => node.nodeId === item.nodeId);
+      return !original?.fallbackTo || !schedule.some((candidate) => candidate.nodeId === original.fallbackTo && candidate.accepted);
+    }
+    return false;
+  });
+  const activeMandatoryTier2 = schedule.some((item) => item.activePath && item.mandatory && item.assignedTier === "tier2");
+  const targetMs = tier1BaselineTatMs * workflow.targetActiveTatRatio;
+  let targetStatus = "pass";
+  let infeasibleReason = "";
+  if (policyId === "all_tier1_baseline") {
+    targetStatus = "pass";
+  } else if (workflow.scenarioId === "linear-critical-path" && activeMandatoryTier2) {
+    targetStatus = "infeasible";
+    infeasibleReason = "mandatory tier2 work is on the active linear critical path";
+  } else if (budgetExceeded && policyId === "budget_constrained_routing") {
+    targetStatus = "fail";
+    infeasibleReason = `cost ${costTotal} exceeds budget ${workflow.budgetUsd}`;
+  } else if (unresolvedMandatory.length) {
+    targetStatus = "fail";
+    infeasibleReason = `mandatory unresolved nodes: ${unresolvedMandatory.map((node) => node.nodeId).join(", ")}`;
+  } else if (activeTatMs > targetMs) {
+    targetStatus = "fail";
+    infeasibleReason = `active TAT ${activeTatMs}ms exceeds ${workflow.targetActiveTatRatio}x baseline ${tier1BaselineTatMs}ms`;
+  }
+
+  return {
+    policyId,
+    tier1BaselineTatMs,
+    optimizedActiveTatMs: activeTatMs,
+    activeTatRatio,
+    backgroundCompletionMs,
+    criticalPathMs: graph.criticalPathMs,
+    tier1CallCount: schedule.filter((node) => node.assignedTier === "tier1").length,
+    tier2CallCount: schedule.filter((node) => node.assignedTier === "tier2").length,
+    tier2Concurrency: peakTier2Concurrency(schedule),
+    tier2ConcurrencyCap: workflow.tier2Concurrency,
+    deadlineMissCount,
+    lateResultCount,
+    acceptedResultCount,
+    validationFailureCount,
+    fallbackToTier1Count,
+    costTotal,
+    costSavedVsTier1: round(baselineCost - costTotal, 12),
+    wastedSpeculativeCost,
+    budgetUsd: workflow.budgetUsd,
+    budgetExceeded,
+    targetStatus,
+    infeasibleReason,
+    schedule,
+    activeNodeIds: schedule.filter((node) => node.activePath).map((node) => node.nodeId),
+    backgroundNodeIds: schedule.filter((node) => node.background).map((node) => node.nodeId),
+    acceptedNodeIds: schedule.filter((node) => node.accepted).map((node) => node.nodeId),
+    lateNodeIds: schedule.filter((node) => node.late).map((node) => node.nodeId),
+    rejectedNodeIds: schedule.filter((node) => node.failed || node.stale || node.conflict).map((node) => node.nodeId),
+    portfolio: portfolioEvidence,
+    targetRationale: targetStatus === "pass"
+      ? `active TAT ${activeTatMs}ms is within ${workflow.targetActiveTatRatio}x baseline ${tier1BaselineTatMs}ms`
+      : infeasibleReason,
+  };
+}
+
+function addHybridPolicySimulation(summary, options) {
+  if (summary.format !== "hybrid-workflow") return summary;
+  const baseline = simulateHybridPolicy("all_tier1_baseline", summary.workflow, summary.nodes, summary.graph, options.model);
+  const policyResults = [baseline];
+  for (const policyId of HYBRID_POLICY_IDS.slice(1)) {
+    policyResults.push(simulateHybridPolicy(policyId, summary.workflow, summary.nodes, summary.graph, options.model, baseline));
+  }
+  summary.policyResults = policyResults;
+  summary.policyMatrix = HYBRID_POLICY_IDS;
+  summary.tier1BaselineTatMs = baseline.optimizedActiveTatMs;
+  return summary;
+}
+
 function summarizeHybridWorkflow(rows, source) {
   const workflowRows = rows.filter((row) => row.kind === "workflow");
   if (workflowRows.length !== 1) {
@@ -748,6 +1036,22 @@ function markdown(summary) {
       lines.push(`| ${trace.traceId} | ${trace.workflow.scenarioId} | ${trace.provenance.sourceType} | ${trace.graph.nodeCount} | ${trace.graph.edgeCount} | ${trace.graph.activeNodeCount} | ${trace.graph.backgroundNodeCount} | ${formatDuration(trace.graph.criticalPathMs)} | ${trace.graph.activeBoundaryNodeId} | ${metadata} |`);
     }
     lines.push("", `Required scenario coverage: ${summary.hybrid.requiredScenarioCoverage.present.join(", ")}.`);
+
+    lines.push(
+      "",
+      "## Hybrid policy simulation",
+      "",
+      "Active user-facing TAT is measured to the declared active boundary and mandatory active acceptance work. Background completion includes launched deferred work, optional late results, and speculative losers.",
+      "",
+      "| Workflow | Policy | Active TAT | Background completion | Active ratio | Target status | Total cost | Cost saved vs tier1 | Late/deadline | Speculative waste | Reason |",
+      "| --- | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | --- |",
+    );
+    for (const trace of hybridTraces) {
+      for (const result of trace.policyResults ?? []) {
+        const lateDeadline = `${result.lateResultCount}/${result.deadlineMissCount}`;
+        lines.push(`| ${trace.traceId} | ${result.policyId} | ${formatDuration(result.optimizedActiveTatMs)} | ${formatDuration(result.backgroundCompletionMs)} | ${result.activeTatRatio ?? "n/a"} | ${result.targetStatus} | $${result.costTotal} | $${result.costSavedVsTier1} | ${lateDeadline} | $${result.wastedSpeculativeCost} | ${result.infeasibleReason || result.targetRationale} |`);
+      }
+    }
   }
 
   return `${lines.join("\n")}\n`;
@@ -758,7 +1062,10 @@ const files = [...new Set(options.paths.flatMap(collectJsonl))];
 if (options.explicitPaths && files.length === 0) throw new Error(`no JSONL files found for input: ${options.paths.join(", ")}`);
 const rows = files.flatMap(readRows);
 if (rows.length === 0) throw new Error(`no events found in JSONL input: ${files.length ? files.join(", ") : options.paths.join(", ")}`);
-const traces = groupByTrace(rows).map(summarizeGroup).map((summary) => addComparison(summary, options));
+const traces = groupByTrace(rows)
+  .map(summarizeGroup)
+  .map((summary) => addComparison(summary, options))
+  .map((summary) => addHybridPolicySimulation(summary, options));
 const totals = addCombinedComparison(combineSummaries("all", traces, files.length === 1 ? files[0] : `${files.length} files`), traces, options);
 const hybridTraces = traces.filter((trace) => trace.format === "hybrid-workflow");
 const hybridScenarioIds = [...new Set(hybridTraces.map((trace) => trace.workflow.scenarioId))].sort();
@@ -772,6 +1079,8 @@ const summary = {
   hybrid: {
     schema: HYBRID_SCHEMA,
     version: HYBRID_VERSION,
+    policyMatrix: HYBRID_POLICY_IDS,
+    policyResultCount: sum(hybridTraces.map((trace) => trace.policyResults?.length ?? 0)),
     requiredScenarioCoverage: {
       required: REQUIRED_SCENARIOS,
       present: hybridScenarioIds,
