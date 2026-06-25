@@ -317,6 +317,13 @@ function requireStringArray(row, field) {
   return row[field];
 }
 
+function requireOptionalObject(row, field) {
+  if (row[field] !== undefined && (!row[field] || typeof row[field] !== "object" || Array.isArray(row[field]))) {
+    hybridError(row, field, "must be an object when present");
+  }
+  return row[field] ?? {};
+}
+
 function validateHybridBase(row) {
   if (row.schema !== HYBRID_SCHEMA) hybridError(row, "schema", `must be ${HYBRID_SCHEMA}`);
   if (row.version !== HYBRID_VERSION) hybridError(row, "version", `unsupported hybrid workflow schema version ${row.version}`);
@@ -336,7 +343,7 @@ function normalizeWorkflowRow(row) {
     deadlineOrigin: requireString(row, "deadlineOrigin"),
     tier2Concurrency: requireNumber(row, "tier2Concurrency", { positive: true }),
     activeBoundaryNodeId: requireString(row, "activeBoundaryNodeId"),
-    metadata: row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata) ? row.metadata : {},
+    metadata: requireOptionalObject(row, "metadata"),
     sourceLine: row.sourceLine,
   };
   if (!["synthetic", "observed", "trace-derived"].includes(workflow.sourceType)) hybridError(row, "sourceType", "must be synthetic, observed, or trace-derived");
@@ -371,6 +378,7 @@ function normalizeHybridNode(row) {
     sourceLine: row.sourceLine,
   };
   if (!["active", "background"].includes(node.active)) hybridError(row, "active", "must be active or background");
+  if (node.tierEligibility.length === 0) hybridError(row, "tierEligibility", "must include at least one tier");
   if (!node.tierEligibility.every((tier) => tier === "tier1" || tier === "tier2")) hybridError(row, "tierEligibility", "must only include tier1 or tier2");
   if (!node.durationsMs || typeof node.durationsMs !== "object" || Array.isArray(node.durationsMs)) hybridError(row, "durationsMs", "must be an object");
   for (const tier of ["tier1", "tier2"]) {

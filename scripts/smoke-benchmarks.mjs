@@ -238,6 +238,8 @@ try {
   const validNode = { schema: "doubleword.hybrid-workflow", version: 1, kind: "node", workflowId: "invalid", nodeId: "a", dependencies: [], phase: "plan", tierEligibility: ["tier1"], userBlocking: true, mandatory: true, durationsMs: { tier1: 1, tier2: 0 }, cost: { inputTokens: 1, outputTokens: 1 }, active: "active" };
   const invalidCases = [
     { name: "missing-field", rows: [validWorkflow, { ...validNode, nodeId: undefined }], expect: "field nodeId" },
+    { name: "empty-tier-eligibility", rows: [validWorkflow, { ...validNode, tierEligibility: [] }], expect: "field tierEligibility", expectLine: 2, expectNode: "node a" },
+    { name: "malformed-workflow-metadata", rows: [{ ...validWorkflow, metadata: "not-an-object" }, validNode], expect: "field metadata", expectLine: 1 },
     { name: "unsupported-version", rows: [{ ...validWorkflow, version: 99 }, validNode], expect: "field version" },
     { name: "node-less", rows: [validWorkflow], expect: "field nodes" },
     { name: "unknown-kind", rows: [{ ...validWorkflow, kind: "metadata" }], expect: "field kind" },
@@ -251,7 +253,8 @@ try {
     const file = join(dir, `${item.name}.jsonl`);
     writeFileSync(file, item.rows.map((row) => JSON.stringify(row)).join("\n"));
     const result = run([file, "--out", join(dir, `${item.name}-out`)], 1);
-    if (!result.stderr.includes(file) || !result.stderr.includes("workflow invalid") || !result.stderr.includes(item.expect)) {
+    const expectedLine = item.expectLine ? `${file}:${item.expectLine}` : file;
+    if (!result.stderr.includes(expectedLine) || !result.stderr.includes("workflow invalid") || !result.stderr.includes(item.expect) || (item.expectNode && !result.stderr.includes(item.expectNode))) {
       fail(`${item.name} diagnostic was not source-aware and field-specific:\n${result.stderr}`);
     }
   }
