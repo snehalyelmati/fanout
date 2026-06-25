@@ -26,6 +26,24 @@ function run(args, expectedStatus = 0, env = {}) {
   return result;
 }
 
+function normalizeReport(report) {
+  return JSON.stringify({
+    ...report,
+    generatedAt: "<generated>",
+    inputs: report.inputs.map(() => "<input>"),
+    files: report.files.map(() => "<file>"),
+    inputFiles: report.inputFiles.map((file) => ({ ...file, path: "<file>" })),
+    workflowResults: report.workflowResults.map((workflow) => ({ ...workflow, source: "<file>" })),
+    policyResults: report.policyResults.map((policy) => ({ ...policy, source: "<file>" })),
+    traces: report.traces.map((trace) => ({ ...trace, source: "<file>" })),
+    totals: { ...report.totals, source: "<file>" },
+  }, null, 2);
+}
+
+function requireFiniteMetric(result, field) {
+  if (typeof result[field] !== "number" || !Number.isFinite(result[field])) fail(`${result.workflowId}/${result.policyId} ${field} was not finite`);
+}
+
 try {
   run([fixture, "--out", out]);
 
@@ -76,7 +94,7 @@ try {
   if (piTrace.comparison.doublewordTier2.durationMs !== 200) fail(`expected 200ms tier2 simulated duration, got ${piTrace.comparison.doublewordTier2.durationMs}`);
 
   const hybridOut = join(dir, "hybrid-out");
-  run([hybridFixture, "--out", hybridOut], 0, { DOUBLEWORD_API_KEY: "", DOUBLEWORD_BASE_URL: "" });
+  run([hybridFixture, "--out", hybridOut], 0, { DOUBLEWORD_API_KEY: "placeholder-offline-key", DOUBLEWORD_BASE_URL: "https://example.invalid/doubleword" });
   const hybridSummary = JSON.parse(readFileSync(join(hybridOut, "summary.json"), "utf8"));
   const hybridMd = readFileSync(join(hybridOut, "summary.md"), "utf8");
   const requiredScenarios = [
@@ -91,6 +109,11 @@ try {
     "validation-failure-fallback",
   ];
   if (hybridSummary.workflowCount !== 9) fail(`expected 9 hybrid workflows, got ${hybridSummary.workflowCount}`);
+  if (hybridSummary.reportSchema !== "doubleword.benchmark-summary" || hybridSummary.reportVersion !== 1 || hybridSummary.schemaVersion !== 1) fail("hybrid report was missing stable top-level schema fields");
+  if (!Array.isArray(hybridSummary.inputFiles) || hybridSummary.inputFiles.length !== 1 || !hybridSummary.inputFiles[0].formats.includes("hybrid-workflow")) fail("hybrid report was missing input file provenance");
+  if (hybridSummary.policyResultCount !== hybridSummary.hybrid.policyResultCount) fail("top-level policy result count did not match hybrid count");
+  if (hybridSummary.workflowResults.length !== hybridSummary.workflowCount) fail("top-level workflow results did not include every workflow");
+  if (hybridSummary.policyResults.length !== hybridSummary.policyResultCount) fail("top-level policy results did not include every policy");
   if (hybridSummary.hybrid.requiredScenarioCoverage.missing.length) fail(`missing hybrid scenarios: ${hybridSummary.hybrid.requiredScenarioCoverage.missing.join(", ")}`);
   for (const scenario of requiredScenarios) {
     if (!hybridSummary.hybrid.requiredScenarioCoverage.present.includes(scenario)) fail(`hybrid summary missing scenario ${scenario}`);
@@ -127,6 +150,9 @@ try {
       fail(`${trace.traceId} baseline policy did not establish a tier1 reference`);
     }
     for (const result of trace.policyResults) {
+      for (const field of ["tier1BaselineTatMs", "optimizedActiveTatMs", "backgroundCompletionMs", "criticalPathMs", "tier1CallCount", "tier2CallCount", "tier2Concurrency", "deadlineMissCount", "lateResultCount", "acceptedResultCount", "validationFailureCount", "fallbackToTier1Count", "costTotal", "costSavedVsTier1", "wastedSpeculativeCost"]) {
+        requireFiniteMetric({ ...result, workflowId: trace.workflow.workflowId }, field);
+      }
       const expectedRatio = result.tier1BaselineTatMs ? Math.round((result.optimizedActiveTatMs / result.tier1BaselineTatMs) * 1000) / 1000 : null;
       if (result.activeTatRatio !== expectedRatio) fail(`${trace.traceId}/${result.policyId} active ratio ${result.activeTatRatio} did not match ${expectedRatio}`);
       if (result.backgroundCompletionMs < result.optimizedActiveTatMs) fail(`${trace.traceId}/${result.policyId} background completion was less than active TAT`);
@@ -146,6 +172,10 @@ try {
   if (linearTier2.targetStatus !== "infeasible" || !linearTier2.infeasibleReason.includes("linear critical path")) fail(`linear mandatory tier2 path was not marked infeasible: ${JSON.stringify(linearTier2)}`);
   const wideSlack = policyFor(wide, "critical_path_slack");
   if (wideSlack.tier2CallCount !== 3 || wideSlack.optimizedActiveTatMs !== 1500 || wideSlack.backgroundCompletionMs <= wideSlack.optimizedActiveTatMs || wideSlack.deadlineMissCount !== 1) fail(`wide fanout slack policy did not separate active/background timing: ${JSON.stringify(wideSlack)}`);
+  if (!hybridMd.includes(`| ${wide.traceId} | critical_path_slack | 1.5s (${wideSlack.optimizedActiveTatMs} ms) | 7.5s (${wideSlack.backgroundCompletionMs} ms) | ${wideSlack.activeTatRatio} | ${wideSlack.targetStatus} | $${wideSlack.costTotal} | $${wideSlack.costSavedVsTier1} | ${wideSlack.lateResultCount}/${wideSlack.deadlineMissCount} | $${wideSlack.wastedSpeculativeCost} |`)) {
+    fail("hybrid markdown did not agree with representative wide fanout JSON values");
+  }
+  if (!hybridMd.includes("### Hybrid schedule evidence") || !hybridMd.includes(wideSlack.activeNodeIds.join(", "))) fail("hybrid markdown was missing schedule evidence");
   const serialRpe = policyFor(hybridSummary.traces.find((trace) => trace.workflow.scenarioId === "serial-rpe"), "rpe_background");
   if (serialRpe.tier2CallCount !== 1 || serialRpe.optimizedActiveTatMs !== 1800 || serialRpe.backgroundCompletionMs !== 9800) fail(`serial RPE background timing unexpected: ${JSON.stringify(serialRpe)}`);
   const sharded = policyFor(hybridSummary.traces.find((trace) => trace.workflow.scenarioId === "sharded-rpe"), "sharded_rpe");
@@ -186,6 +216,18 @@ try {
   const formats = new Set(mixedLegacyHybrid.traces.map((trace) => trace.format));
   if (!formats.has("observability") || !formats.has("pi-session") || !formats.has("hybrid-workflow")) fail(`mixed run did not preserve formats: ${[...formats].join(", ")}`);
   if (!mixedLegacyHybrid.traces.every((trace) => trace.source)) fail("mixed run did not preserve source paths");
+  if (!mixedLegacyHybrid.inputFiles.some((file) => file.formats.includes("observability")) || !mixedLegacyHybrid.inputFiles.some((file) => file.formats.includes("pi-session")) || !mixedLegacyHybrid.inputFiles.some((file) => file.formats.includes("hybrid-workflow"))) fail("mixed run input file provenance did not preserve formats");
+
+  const deterministicOutA = join(dir, "deterministic-a");
+  const deterministicOutB = join(dir, "deterministic-b");
+  run([hybridFixture, "--out", deterministicOutA]);
+  run([hybridFixture, "--out", deterministicOutB]);
+  const deterministicA = JSON.parse(readFileSync(join(deterministicOutA, "summary.json"), "utf8"));
+  const deterministicB = JSON.parse(readFileSync(join(deterministicOutB, "summary.json"), "utf8"));
+  if (normalizeReport(deterministicA) !== normalizeReport(deterministicB)) fail("hybrid repeated runs differed after normalizing timestamps and paths");
+  const deterministicMdA = readFileSync(join(deterministicOutA, "summary.md"), "utf8").replace(/^Generated: .+$/m, "Generated: <generated>");
+  const deterministicMdB = readFileSync(join(deterministicOutB, "summary.md"), "utf8").replace(/^Generated: .+$/m, "Generated: <generated>");
+  if (deterministicMdA !== deterministicMdB) fail("hybrid markdown repeated runs differed after normalizing timestamps");
 
   const invalidJsonl = join(dir, "invalid-json.jsonl");
   writeFileSync(invalidJsonl, "{\"schema\":\"doubleword.hybrid-workflow\"\n");

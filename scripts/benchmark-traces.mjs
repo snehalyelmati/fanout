@@ -6,6 +6,8 @@ const DEFAULT_OUT = join("runs", "phase6");
 const DEFAULT_MODEL = "glm-5-2";
 const DEFAULT_TIER2_MIN_MS = 5 * 60 * 1000;
 const DEFAULT_TIER2_MAX_MS = 10 * 60 * 1000;
+const REPORT_SCHEMA = "doubleword.benchmark-summary";
+const REPORT_VERSION = 1;
 const MODEL_COSTS = {
   "glm-5-2": {
     realtime: { input: 1.4, output: 4.4 },
@@ -957,6 +959,136 @@ function formatDuration(ms) {
   return `${round(ms / 3_600_000, 1)}h`;
 }
 
+function formatCost(value) {
+  return `$${value}`;
+}
+
+function hybridWorkflowResults(traces) {
+  return traces.filter((trace) => trace.format === "hybrid-workflow").map((trace) => ({
+    workflowId: trace.workflow.workflowId,
+    traceId: trace.traceId,
+    scenarioId: trace.workflow.scenarioId,
+    source: trace.source,
+    provenance: trace.provenance,
+    nodeCount: trace.graph.nodeCount,
+    activeBoundaryNodeId: trace.graph.activeBoundaryNodeId,
+    tier1BaselineTatMs: trace.tier1BaselineTatMs,
+    policyResultCount: trace.policyResults?.length ?? 0,
+    policyResults: (trace.policyResults ?? []).map((result) => result.policyId),
+  }));
+}
+
+function hybridPolicyResults(traces) {
+  return traces
+    .filter((trace) => trace.format === "hybrid-workflow")
+    .flatMap((trace) => (trace.policyResults ?? []).map((result) => ({
+      workflowId: trace.workflow.workflowId,
+      traceId: trace.traceId,
+      scenarioId: trace.workflow.scenarioId,
+      source: trace.source,
+      sourceType: trace.provenance.sourceType,
+      policyId: result.policyId,
+      tier1BaselineTatMs: result.tier1BaselineTatMs,
+      optimizedActiveTatMs: result.optimizedActiveTatMs,
+      activeTatRatio: result.activeTatRatio,
+      backgroundCompletionMs: result.backgroundCompletionMs,
+      criticalPathMs: result.criticalPathMs,
+      tier1CallCount: result.tier1CallCount,
+      tier2CallCount: result.tier2CallCount,
+      tier2Concurrency: result.tier2Concurrency,
+      tier2ConcurrencyCap: result.tier2ConcurrencyCap,
+      deadlineMissCount: result.deadlineMissCount,
+      lateResultCount: result.lateResultCount,
+      acceptedResultCount: result.acceptedResultCount,
+      validationFailureCount: result.validationFailureCount,
+      fallbackToTier1Count: result.fallbackToTier1Count,
+      costTotal: result.costTotal,
+      costSavedVsTier1: result.costSavedVsTier1,
+      wastedSpeculativeCost: result.wastedSpeculativeCost,
+      budgetUsd: result.budgetUsd,
+      budgetExceeded: result.budgetExceeded,
+      targetStatus: result.targetStatus,
+      infeasibleReason: result.infeasibleReason || null,
+      targetRationale: result.targetRationale,
+      activeNodeIds: result.activeNodeIds,
+      backgroundNodeIds: result.backgroundNodeIds,
+      acceptedNodeIds: result.acceptedNodeIds,
+      lateNodeIds: result.lateNodeIds,
+      rejectedNodeIds: result.rejectedNodeIds,
+      schedule: result.schedule,
+      portfolio: result.portfolio,
+    })));
+}
+
+function inputFileSummaries(files, traces) {
+  return files.map((file) => {
+    const fileTraces = traces.filter((trace) => trace.source === file);
+    return {
+      path: file,
+      traceCount: fileTraces.length,
+      formats: [...new Set(fileTraces.map((trace) => trace.format))].sort(),
+      workflowIds: fileTraces.filter((trace) => trace.format === "hybrid-workflow").map((trace) => trace.workflow.workflowId).sort(),
+    };
+  });
+}
+
+function validateHybridMetricInvariants(summary) {
+  const allowedStatuses = new Set(["pass", "fail", "infeasible"]);
+  const numericFields = [
+    "tier1BaselineTatMs",
+    "optimizedActiveTatMs",
+    "backgroundCompletionMs",
+    "criticalPathMs",
+    "tier1CallCount",
+    "tier2CallCount",
+    "tier2Concurrency",
+    "tier2ConcurrencyCap",
+    "deadlineMissCount",
+    "lateResultCount",
+    "acceptedResultCount",
+    "validationFailureCount",
+    "fallbackToTier1Count",
+    "costTotal",
+    "costSavedVsTier1",
+    "wastedSpeculativeCost",
+  ];
+  const integerFields = [
+    "tier1CallCount",
+    "tier2CallCount",
+    "tier2Concurrency",
+    "tier2ConcurrencyCap",
+    "deadlineMissCount",
+    "lateResultCount",
+    "acceptedResultCount",
+    "validationFailureCount",
+    "fallbackToTier1Count",
+  ];
+
+  for (const result of summary.policyResults) {
+    for (const field of numericFields) {
+      if (typeof result[field] !== "number" || !Number.isFinite(result[field])) throw new Error(`hybrid metric invariant failed for ${result.workflowId}/${result.policyId}: ${field} must be finite`);
+    }
+    for (const field of integerFields) {
+      if (!Number.isInteger(result[field]) || result[field] < 0) throw new Error(`hybrid metric invariant failed for ${result.workflowId}/${result.policyId}: ${field} must be a non-negative integer`);
+    }
+    if (result.tier1BaselineTatMs < 0 || result.optimizedActiveTatMs < 0 || result.backgroundCompletionMs < 0 || result.criticalPathMs < 0 || result.costTotal < 0 || result.wastedSpeculativeCost < 0) {
+      throw new Error(`hybrid metric invariant failed for ${result.workflowId}/${result.policyId}: durations and costs must be non-negative`);
+    }
+    if (result.backgroundCompletionMs < result.optimizedActiveTatMs) throw new Error(`hybrid metric invariant failed for ${result.workflowId}/${result.policyId}: background completion precedes active TAT`);
+    const expectedRatio = result.tier1BaselineTatMs > 0 ? round(result.optimizedActiveTatMs / result.tier1BaselineTatMs) : null;
+    if (result.activeTatRatio !== expectedRatio) throw new Error(`hybrid metric invariant failed for ${result.workflowId}/${result.policyId}: active ratio mismatch`);
+    if (result.wastedSpeculativeCost > result.costTotal) throw new Error(`hybrid metric invariant failed for ${result.workflowId}/${result.policyId}: speculative waste exceeds total cost`);
+    if (!allowedStatuses.has(result.targetStatus)) throw new Error(`hybrid metric invariant failed for ${result.workflowId}/${result.policyId}: unsupported target status ${result.targetStatus}`);
+    if (result.targetStatus !== "pass" && !result.infeasibleReason) throw new Error(`hybrid metric invariant failed for ${result.workflowId}/${result.policyId}: non-pass result requires a reason`);
+    for (const item of result.schedule) {
+      for (const field of ["startMs", "endMs", "durationMs"]) {
+        if (typeof item[field] !== "number" || !Number.isFinite(item[field]) || item[field] < 0) throw new Error(`hybrid schedule invariant failed for ${result.workflowId}/${result.policyId}/${item.nodeId}: ${field} must be non-negative finite`);
+      }
+      if (item.endMs < item.startMs) throw new Error(`hybrid schedule invariant failed for ${result.workflowId}/${result.policyId}/${item.nodeId}: end before start`);
+    }
+  }
+}
+
 function markdown(summary) {
   const total = summary.totals;
   const lines = [
@@ -1049,7 +1181,22 @@ function markdown(summary) {
     for (const trace of hybridTraces) {
       for (const result of trace.policyResults ?? []) {
         const lateDeadline = `${result.lateResultCount}/${result.deadlineMissCount}`;
-        lines.push(`| ${trace.traceId} | ${result.policyId} | ${formatDuration(result.optimizedActiveTatMs)} | ${formatDuration(result.backgroundCompletionMs)} | ${result.activeTatRatio ?? "n/a"} | ${result.targetStatus} | $${result.costTotal} | $${result.costSavedVsTier1} | ${lateDeadline} | $${result.wastedSpeculativeCost} | ${result.infeasibleReason || result.targetRationale} |`);
+        lines.push(`| ${trace.traceId} | ${result.policyId} | ${formatDuration(result.optimizedActiveTatMs)} (${result.optimizedActiveTatMs} ms) | ${formatDuration(result.backgroundCompletionMs)} (${result.backgroundCompletionMs} ms) | ${result.activeTatRatio ?? "n/a"} | ${result.targetStatus} | ${formatCost(result.costTotal)} | ${formatCost(result.costSavedVsTier1)} | ${lateDeadline} | ${formatCost(result.wastedSpeculativeCost)} | ${result.infeasibleReason || result.targetRationale} |`);
+      }
+    }
+
+    lines.push(
+      "",
+      "### Hybrid schedule evidence",
+      "",
+      "Each policy result in `summary.json` includes per-node schedule evidence with dependencies, phase, assigned tier, start/end times, active/background classification, and accepted/late/failed status. The compact lists below show representative active, background, accepted, late, and rejected node ids used by the policy rationale.",
+      "",
+      "| Workflow | Policy | Active nodes | Background nodes | Accepted nodes | Late nodes | Rejected nodes |",
+      "| --- | --- | --- | --- | --- | --- | --- |",
+    );
+    for (const trace of hybridTraces) {
+      for (const result of trace.policyResults ?? []) {
+        lines.push(`| ${trace.traceId} | ${result.policyId} | ${result.activeNodeIds.join(", ") || "none"} | ${result.backgroundNodeIds.join(", ") || "none"} | ${result.acceptedNodeIds.join(", ") || "none"} | ${result.lateNodeIds.join(", ") || "none"} | ${result.rejectedNodeIds.join(", ") || "none"} |`);
       }
     }
   }
@@ -1070,11 +1217,16 @@ const totals = addCombinedComparison(combineSummaries("all", traces, files.lengt
 const hybridTraces = traces.filter((trace) => trace.format === "hybrid-workflow");
 const hybridScenarioIds = [...new Set(hybridTraces.map((trace) => trace.workflow.scenarioId))].sort();
 const summary = {
+  reportSchema: REPORT_SCHEMA,
+  reportVersion: REPORT_VERSION,
+  schemaVersion: REPORT_VERSION,
   generatedAt: new Date().toISOString(),
   inputs: options.paths,
   files,
+  inputFiles: inputFileSummaries(files, traces),
   traceCount: traces.length,
   workflowCount: hybridTraces.length,
+  policyResultCount: sum(hybridTraces.map((trace) => trace.policyResults?.length ?? 0)),
   comparison: { model: options.model, tier2MinMs: options.tier2MinMs, tier2MaxMs: options.tier2MaxMs },
   hybrid: {
     schema: HYBRID_SCHEMA,
@@ -1087,11 +1239,14 @@ const summary = {
       missing: REQUIRED_SCENARIOS.filter((scenario) => !hybridScenarioIds.includes(scenario)),
     },
   },
+  workflowResults: hybridWorkflowResults(traces),
+  policyResults: hybridPolicyResults(traces),
   totals,
   traces,
 };
 
 mkdirSync(options.out, { recursive: true });
+validateHybridMetricInvariants(summary);
 writeFileSync(join(options.out, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`);
 writeFileSync(join(options.out, "summary.md"), markdown(summary));
 console.log(`wrote ${join(options.out, "summary.json")} and ${join(options.out, "summary.md")} (${traces.length} traces, ${rows.length} events)`);
