@@ -73,13 +73,38 @@ Readout:
 - The useful product shape is background execution after a tier1 research/plan handoff, especially in a portfolio of independent tasks.
 - Active user time can stay close to tier1 planning time if the user launches several approved execute jobs and reviews results later.
 
+## Experiment C: code-edit safe-unit TAT buckets
+
+Question: after a tier1 planning prefix, can code-edit work units from realistic `pi-mono` traces form shallow enough DAGs that tier2 background execution is acceptable?
+
+Detailed notes: [`tat-bucket-code-shards.md`](tat-bucket-code-shards.md).
+
+Sample: 15 traces from the full `badlogicgames/pi-mono` dataset, three per baseline TAT bucket: `<5m`, `5-10m`, `10-15m`, `15-30m`, and `30-45m`.
+
+| Metric | Value |
+| --- | ---: |
+| Code-edit units | 49 |
+| Safe independent | 31 |
+| Safe after dependency | 16 |
+| Unsafe | 2 |
+| Safety precision | 1 |
+| Dependency accuracy | 0.941 |
+
+Readout:
+
+- Short traces usually lose because tier2 has a 5-10 minute startup quantum.
+- Long decomposable traces can compress remaining realtime work when the code DAG is shallow.
+- The useful scheduling metric is accepted safe-unit critical path, not raw trace length or raw unit count.
+- Prefix time is not a hard route guard. If no execution remains, launch nothing; if execution remains, route by safety, acyclic dependencies, ownership conflicts, user wait budget, and cost.
+- Conservative routing should use `tier2_exec_wait_worst_case = DAG_depth * 10m` until live tier2 evidence proves a tighter bound.
+
 ## Consolidated conclusions
 
-1. **Realtime/tier1 remains the speed baseline.** Tier 2 does not make interactive loops faster.
+1. **Realtime/tier1 remains the active-chat speed baseline.** Tier 2 does not make short interactive loops faster.
 2. **Normal interactive semantic DAG routing has weak Doubleword savings.** The manually reviewed 10-trace sample found only ~1.5% semantic tier2 savings.
 3. **DAG/prompt efficiency is valuable but provider-independent.** About ~25% cost reduction appears plausible from fewer model turns and smaller context, but that should be counted as tier1 workflow improvement, not Doubleword tier savings.
-4. **RPE background execution is promising for cost.** Research+plan on tier1 and execute on tier2 saved ~22% in the 5-trace RPE sample.
-5. **RPE is only usable asynchronously.** Blocking completion is hours, so product UX must be portfolio/background: plan now, execute in background, review later.
+4. **RPE background execution is promising for cost and sometimes wall-clock compression.** Research+plan on tier1 and execute on tier2 saved ~22% in the 5-trace RPE sample; the 15-trace code-shard bucket test shows long decomposable traces can compress remaining realtime loops into 5-40m bounded background execution depending on DAG depth.
+5. **RPE is only usable as bounded background execution.** Short tasks lose to tier2 latency; long tasks may be acceptable when the user accepts a clear wait budget such as “up to 20 minutes” or “up to 40 minutes.”
 
 ## Post-mission direction
 
@@ -92,7 +117,7 @@ The two useful tier2 paths are:
 1. **RPE background execution**: tier1 researches and plans, then tier2 executes approved background work after an explicit next-actionable boundary.
 2. **Sharded RPE**: tier1 decomposes independent execution units, a scheduler enforces file ownership and dependency constraints, and tier2 runs isolated shards in parallel for later review.
 
-The next evidence step is a retrospective prefix evaluation over `pi-mono` traces. Reveal only the trace prefix available at a planning point, ask GPT-5.5 to predict safe independent work units, file ownership, dependencies, cancellation rules, and review requirements, then compare those predictions to the full trace suffix. This should be reported as trace-derived evaluation evidence, separate from synthetic simulator evidence and separate from any future live runtime TAT claims.
+The next implementation step is to turn the trace-derived safe-unit evidence into a minimal scheduler contract: reject cycles and ownership conflicts, compute accepted DAG critical path, estimate worst-case tier2 wait from SLA (`depth * 10m`), ask for/record the user's wait budget, and keep tier1 review/synthesis mandatory before acceptance. Continue treating this as trace-derived evaluation evidence until live tier2 runs measure actual TAT.
 
 ## Product implication
 
@@ -101,4 +126,4 @@ Do not build a generic DAG executor to route arbitrary middle turns to tier2. Do
 Prefer two narrower workflows:
 
 1. **Tier1 semantic batching workflow**: improve planning prompts and tool batching to reduce turns, redundant checks, and context bloat while staying realtime.
-2. **Planned Parallel RPE workflow**: tier1 research/plan produces approved execution packets; a conflict-aware scheduler launches isolated tier2 background executors or shards with budgets, cancellation rules, file ownership constraints, and final tier1 review/synthesis.
+2. **Planned Parallel RPE workflow**: tier1 research/plan produces approved execution packets; a conflict-aware scheduler launches isolated tier2 background executors or shards with budgets, cancellation rules, file ownership constraints, wait-budget estimates, and final tier1 review/synthesis.

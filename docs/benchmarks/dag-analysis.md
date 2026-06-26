@@ -4,7 +4,7 @@ Date: 2026-06-25
 
 Purpose: check whether a DAG executor would make Doubleword tier routing materially better on the same three `badlogicgames/pi-mono` baseline traces used for B0.
 
-Status note: this structural/heuristic analysis is retained as a historical D1 artifact. It is superseded for product decisions by manual semantic subagent reviews in [`semantic-dag-and-rpe.md`](semantic-dag-and-rpe.md).
+Status note: this structural/heuristic analysis is retained as a historical D1 artifact. It is superseded for product decisions by manual semantic subagent reviews in [`semantic-dag-and-rpe.md`](semantic-dag-and-rpe.md) and the planned code-shard evaluation in [`tat-bucket-code-shards.md`](tat-bucket-code-shards.md).
 
 Command:
 
@@ -53,7 +53,10 @@ Manual semantic review replaced this heuristic. The updated finding is:
 normal interactive semantic tier2 savings: ~1.5%
 separate DAG/prompt-efficiency opportunity: ~25%
 research-plan-execute tier2 savings: ~22%, but only as background execution
+planned code-shard RPE: promising for long decomposable traces when safe-unit DAG depth is shallow
 ```
+
+Important distinction: faithful replay DAGs preserve the original serial chat loop and therefore show little tier2 opportunity. Planned code-shard DAGs deliberately change the workflow after a tier1 planning boundary by launching isolated code-edit units with file ownership and dependency constraints.
 
 ## By trace
 
@@ -65,4 +68,4 @@ research-plan-execute tier2 savings: ~22%, but only as background execution
 
 ## Conclusion
 
-A faithful DAG executor is not justified by these traces. The next design target is an optimistic DAG workflow that deliberately creates background branches. Use tier 2 for review, evals, summaries, research, or speculative alternatives that can miss a deadline without blocking the active loop.
+A faithful DAG executor is not justified by these traces. The useful design target is Planned Parallel RPE: tier1 planning deliberately creates safe background code-shard branches, a scheduler rejects cycles/conflicts, and tier2 execution is reported as bounded background wait. Do not route middle turns mechanically.

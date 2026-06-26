@@ -4,6 +4,8 @@ Date: 2026-06-25
 
 This note records the reproducible evidence for the hybrid tier1/tier2 active TAT target. It intentionally scopes the target passes to synthetic workflow fixtures. The same command also includes existing observability and Pi session fixtures so source labels can be checked in one report.
 
+Update: later full `pi-mono` code-shard evaluation adds trace-derived support for some Planned Parallel RPE shapes, but this document's target-pass rows remain synthetic simulator evidence, not live runtime evidence.
+
 ## Reproduce
 
 ```bash
@@ -67,4 +69,6 @@ The hybrid fixture passes do not prove that realistic multi-turn Pi traces have 
 
 The useful tier2 paths from the combined evidence are RPE background execution and sharded RPE. The proposed Planned Parallel RPE workflow should keep tier1 responsible for planning, active-boundary decisions, conflict-aware scheduling, and final review. Tier2 work should run only in isolated background executors with declared file ownership, cancellation rules for speculative pre-confirm work, and parallel reviewer handoffs.
 
-Before runtime implementation, run a prefix-based trace evaluation over `pi-mono`: reveal only the planning prefix, ask GPT-5.5 to predict safe independent work units, file ownership, dependencies, cancellation rules, and review requirements, then compare those predictions with the full trace suffix. Report that as trace-derived evaluation evidence, separate from this synthetic simulator evidence and separate from any future live runtime TAT measurement.
+A prefix-based trace evaluation has now been run over full `pi-mono` TAT buckets for code-edit shards; see [`tat-bucket-code-shards.md`](tat-bucket-code-shards.md). It found 49 predicted code-edit units across 15 traces, with 31 safe independent, 16 safe-after-dependency, 2 unsafe, and safety precision 1. This supports defining a runtime Planned Parallel RPE scheduler, but it is still retrospective trace-derived evidence and separate from live runtime TAT measurement.
+
+The runtime scheduler should preserve the same synthetic-fixture safety principles: explicit active/background boundaries, declared file ownership, dependency graph validation, cycle/conflict rejection, cancellation rules, tier1 review before acceptance, and background completion reported separately from active TAT.

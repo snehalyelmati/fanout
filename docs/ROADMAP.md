@@ -161,7 +161,7 @@ Deferred until the summaries prove they are needed: external dataset downloader,
 
 ## Phase 7: Planned Parallel RPE prototypes
 
-Status: design docs and the first offline safe-work-unit prefix evaluator are in place; runtime prototype remains deferred until more trace-derived planner reliability evidence exists.
+Status: design docs, offline safe-work-unit evaluator, full `pi-mono` TAT bucket code-shard evaluation, and trace-derived wait estimates are in place. Runtime prototype remains deferred until the execution packet and scheduler policy are defined.
 
 Trace-backed direction:
 
@@ -169,6 +169,7 @@ Trace-backed direction:
 - One-turn synthetic hybrid fixtures prove simulator accounting, but they are insufficient evidence for realistic multi-turn Pi traces.
 - Tier1 semantic batching is valuable: manual estimates show ~25% savings from fewer turns/context, independent of Doubleword.
 - Research-plan-execute background routing is promising: 5 RPE traces saved ~22% when research+plan stayed tier1 and execute moved to tier2, but sequential completion became 14-28h.
+- Full `pi-mono` TAT bucket code-shard evaluation found 49 predicted code-edit units across 15 traces, with 31 safe independent, 16 safe-after-dependency, 2 unsafe, safety precision 1, and tier2 execution waits of 5-40m by accepted DAG depth.
 - Speculative duplicate implementations are usually wasteful unless the scheduler proves independence, file ownership, budget, and cancellation constraints up front.
 
 Design target: two narrower opt-in workflows, documented in [`docs/OPTIMISTIC_DAG_WORKFLOW.md`](OPTIMISTIC_DAG_WORKFLOW.md):
@@ -178,10 +179,10 @@ Design target: two narrower opt-in workflows, documented in [`docs/OPTIMISTIC_DA
 
 Next work:
 
-- Expand the retrospective prefix-based `pi-mono` trace evaluation with externally captured prediction artifacts. The local evaluator command is `rtk npm run eval:safe-work-units -- datasets/traces/pi-mono-sample --predictions datasets/fixtures/safe-work-unit-predictions.jsonl --out runs/safe-work-unit-eval`.
-- Define the RPE execution packet: accepted plan, owned/read-only files, constraints, validation contract, budget, stop rules, cancellation rules, and expected handoff.
-- Add observability fields for active planning time, background completion time, late outputs, retries, cancellation, rejected speculative work, review latency, and acceptance failures.
-- Prototype RPE background execution and sharded RPE only if prefix-evaluation evidence supports safe decomposition.
+- Define the RPE execution packet: accepted plan, owned/read-only files, dependencies, constraints, validation contract, budget, user wait budget, stop rules, cancellation rules, and expected handoff.
+- Define scheduler policy: reject cycles and ownership conflicts, compute accepted safe-unit DAG critical path, estimate `tier2_exec_wait_worst_case = DAG_depth * 10m`, and launch only when it fits the user wait budget.
+- Add observability fields for active planning time, background completion time, late outputs, retries, cancellation, rejected speculative work, review latency, acceptance failures, accepted DAG depth, and estimated/actual tier2 wait.
+- Prototype RPE background execution and sharded RPE now that prefix-evaluation evidence supports safe decomposition for some code-edit traces, but keep it opt-in and background-only.
 - Keep strict/generic DAG execution and default duplicate implementations deferred until trace-derived evidence shows real off-critical model branches outside RPE.
 
 ## Phase 8: Live endpoint benchmarks

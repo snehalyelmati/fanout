@@ -347,6 +347,7 @@ Add one row per meaningful workflow or routing change.
 | D7 | 2026-06-25 | Hybrid target evidence workflow | existing fixtures plus synthetic hybrid workflows | GLM tier1/tier2 policy matrix | per policy | active + background reported separately | Mixed run preserves observed/synthetic source labels; synthetic eligible workflows pass <=3x active TAT while linear mandatory classes are infeasible |
 | D8 | 2026-06-25 | Planned Parallel RPE direction | simulator docs + manual Pi trace reviews | design/evaluation only | n/a | no runtime TAT claim | Generic tier2 DAG and duplicate implementations deferred; next step is prefix-based safe-work-unit evaluation |
 | E1 | 2026-06-25 | Safe work unit prefix evaluation | Pi trace prefix + prediction artifact fixture | offline evaluator | safety precision primary | no runtime TAT claim | Reports safe independent, dependent, unsafe, and inconclusive verdicts from prefix context plus suffix evidence |
+| E2 | 2026-06-26 | TAT bucket code-shard evaluation | 15 full `pi-mono` traces, 3 per TAT bucket | offline safe-unit evaluator + tier2 wait estimate | safety precision primary | 5-40m tier2 background by DAG depth | 49 code-edit units; long decomposable traces often compress remaining realtime loops to shallow tier2 DAGs |
 
 ## E1 - Safe work unit prefix evaluation
 
@@ -377,16 +378,56 @@ Fixture coverage in `datasets/fixtures/safe-work-unit-predictions.jsonl`:
 
 Primary metric is safety precision. The labeled fixture reports safety precision `1`, unsafe false positives `0`, recall `1`, and all four verdict buckets. When labels are absent, recall is reported as unavailable instead of guessed.
 
+## E2 - TAT bucket code-shard evaluation
+
+Purpose: test whether code-edit safe work units can compress longer realtime execution loops into bounded tier2 background DAGs.
+
+Detailed notes: [`docs/benchmarks/tat-bucket-code-shards.md`](benchmarks/tat-bucket-code-shards.md).
+
+Command:
+
+```bash
+rtk npm run eval:safe-work-units -- \
+  datasets/traces/pi-mono-full \
+  --predictions runs/safe-work-unit-eval/tat-bucket-code-shards-predictions.jsonl \
+  --out runs/safe-work-unit-eval/tat-bucket-code-shards
+```
+
+Result summary:
+
+| Metric | Value |
+| --- | ---: |
+| Traces | 15 |
+| Code-edit units | 49 |
+| Safe independent | 31 |
+| Safe after dependency | 16 |
+| Unsafe | 2 |
+| Safety precision | 1 |
+| Recall | 0.969 |
+| Dependency accuracy | 0.941 |
+
+Wait model: use tier2 SLA as the scheduling quantum. Conservative routing uses `tier2_exec_wait_worst_case = accepted_DAG_depth * 10m`; the table reports the prior 5-10m per-depth range for comparison.
+
+| Bucket | Median DAG depth | Typical tier2 wait | Readout |
+| --- | ---: | ---: | --- |
+| <5m | 2 | 5-20m | Usually worse than realtime. |
+| 5-10m | 3 | 5-30m | Mixed; only shallow DAGs are competitive. |
+| 10-15m | 2 | 5-20m | Often comparable to remaining realtime. |
+| 15-30m | 1 | 5-20m | Best observed fit for compression. |
+| 30-45m | 3 | 5-40m | Depends on how late the planning boundary is and DAG depth. |
+
+Conclusion: tier2 Planned Parallel RPE is not a generic realtime accelerator. It is useful when tier1 planning produces an acyclic, conflict-free code DAG and the user accepts bounded background execution. Prefix time is not a hard routing guard: if no execution remains, no job is launched; otherwise route by safety, user wait budget, DAG critical path, and cost.
+
 ## Candidate improvements to test next
 
 1. **Improve tier1 workflow efficiency first**
    - Better batching, complete root-cause inspection, fewer redundant checks, and less tool-output bloat.
    - Measure this as `semantic-batching-tier1`, not as Doubleword savings.
 
-2. **Expand prefix-based Planned Parallel RPE evaluation**
-   - Add more externally captured prediction artifacts over `pi-mono` trace prefixes.
-   - Compare predictions against full trace suffixes for file ownership conflicts, hidden dependencies, validation needs, and cancellation points.
-   - Keep this separate from synthetic simulator passes and future live runtime measurements.
+2. **Turn safe-unit evidence into scheduler policy**
+   - Use accepted safe-unit DAG critical path, not raw unit count or depth alone.
+   - Reject cycles and ownership conflicts before launch.
+   - Estimate `tier2_exec_wait_worst_case = DAG_depth * 10m` and compare it to the user's background wait budget.
 
 3. **Prototype RPE background execution after trace-derived evidence**
    - Tier1 research+plan creates an execution packet and validation contract.

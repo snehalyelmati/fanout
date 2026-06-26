@@ -4,7 +4,7 @@ Status: design target, not implemented.
 
 Goal: keep the active developer loop near realtime/tier1 speed while using Doubleword tier2 only where latency can be hidden. Realtime/tier1 remains the speed baseline; tier2 is for cost reduction on background work. The current direction is **planned parallel RPE**, not a generic tier2 DAG router.
 
-Latest benchmark detail: [`docs/benchmarks/semantic-dag-and-rpe.md`](benchmarks/semantic-dag-and-rpe.md).
+Latest benchmark detail: [`docs/benchmarks/semantic-dag-and-rpe.md`](benchmarks/semantic-dag-and-rpe.md) and [`docs/benchmarks/tat-bucket-code-shards.md`](benchmarks/tat-bucket-code-shards.md).
 
 ## What the traces now say
 
@@ -15,7 +15,8 @@ Manual subagent reviews corrected the earlier mechanical optimistic-DAG estimate
 | Normal interactive DAG | ~1.5% semantic tier2 savings across 10 manually reviewed traces | Not worth a generic tier2 DAG router |
 | Tier1 DAG/prompt efficiency | ~25% possible savings from fewer turns/context in the same 10 traces | Improve planning, batching, and context hygiene first |
 | Research-plan-execute | ~22% savings when execution moves to tier2 across 5 RPE traces | Promising only as background/portfolio execution |
-| One-turn synthetic parallel fixtures | Some eligible shapes pass the <=3x active TAT target in the simulator | Useful for invariants, not proof that GPT can pick safe units in full Pi traces |
+| Code-edit safe-unit TAT buckets | 49 predicted code-edit units across 15 full `pi-mono` traces; 31 safe independent, 16 safe-after-dependency, 2 unsafe | Long decomposable traces can compress remaining realtime loops when the safe-unit DAG is shallow |
+| One-turn synthetic parallel fixtures | Some eligible shapes pass the <=3x active TAT target in the simulator | Useful for invariants, now supported by separate trace-derived code-shard evidence for some shapes |
 
 ## Revised tier2 direction
 
@@ -62,7 +63,7 @@ user task
   -> tier1 review/synthesis/apply/acceptance when results are ready
 ```
 
-This is the first trace-backed place where Doubleword tier2 savings are material. In the 5-trace sample, it saved ~22% provider cost, but blocking completion grew from ~23.5 minutes to ~14-28 hours sequentially. So this must be async/background UX.
+This is the first trace-backed place where Doubleword tier2 savings are material. In the 5-trace sample, it saved ~22% provider cost, but blocking completion grew from ~23.5 minutes to ~14-28 hours sequentially. Later code-shard TAT bucket evaluation showed that sharded code execution can be 5-40 minutes by accepted DAG depth, so this remains async/background UX but may be acceptable for longer RPE tasks.
 
 ## Planned Parallel RPE architecture
 
@@ -89,6 +90,24 @@ Required safety constraints:
 
 ## Routing rules
 
+Use the conservative tier2 SLA as the scheduling quantum until live measurements prove otherwise:
+
+```text
+tier2_node_wait = 10m worst-case
+tier2_exec_wait_worst_case = accepted_DAG_depth * 10m
+```
+
+Launch tier2 RPE only when:
+
+```text
+accepted_code_units > 0
+DAG is acyclic
+no ownership conflicts or mutable-resource conflicts
+tier2_exec_wait_worst_case <= user_wait_budget
+```
+
+Prefix time is not a hard guard. If no execution remains, launch nothing; if execution remains, route by safety, dependencies, wait budget, and cost.
+
 Tier1:
 
 - research needed for immediate plan quality;
@@ -107,9 +126,9 @@ Tier2:
 
 Do not route a turn to tier2 just because it is in the middle of a trace. It must be semantically off the active path or explicitly approved as background execution.
 
-## Proposed prefix-based trace evaluation
+## Prefix-based trace evaluation
 
-Before implementing runtime scheduling, evaluate whether GPT-5.5 can retrospectively predict safe independent work units from `pi-mono` traces:
+The first evaluation checked whether GPT-5.5-style subagents can retrospectively predict safe independent work units from `pi-mono` traces:
 
 1. For each multi-turn trace, reveal only a prefix ending at a plausible planning point.
 2. Ask GPT-5.5 to propose safe RPE work units, declared file ownership, dependencies, active boundary, cancellation rules, and review requirements using only the prefix context.
@@ -117,7 +136,7 @@ Before implementing runtime scheduling, evaluate whether GPT-5.5 can retrospecti
 4. Score whether proposed units would have stayed independent, avoided overlapping edits, preserved mandatory validation, and avoided user-blocking dependencies.
 5. Label outcomes as observed trace-derived evaluation, separate from synthetic simulator fixtures and separate from future live runtime results.
 
-This evaluation should answer whether safe-work-unit prediction is reliable enough to justify Planned Parallel RPE implementation. Until then, synthetic one-turn fixture passes remain simulator evidence only.
+The TAT bucket code-shard evaluation provides enough trace-derived signal to define the scheduler and execution packet, but not enough to claim live runtime TAT. Synthetic one-turn fixture passes remain simulator evidence; safe-unit results are retrospective trace-derived planner reliability evidence.
 
 ## Best practices
 
@@ -132,7 +151,7 @@ Example: several approved RPE tasks can run concurrently in tier2. The user spen
 
 ## Next implementation steps
 
-1. Run the prefix-based `pi-mono` trace evaluation for safe work-unit prediction.
-2. If the evaluation is strong enough, prototype the RPE execution packet, scheduler, file ownership contract, and background job lifecycle.
-3. Add benchmark reporting for active time, completion time, tier2 turns, late outputs, cancellation, rejected work, review latency, and acceptance failures.
+1. Define the RPE execution packet: accepted plan, owned/read-only files, dependency graph, validation contract, user wait budget, cost budget, stop rules, cancellation rules, and handoff artifacts.
+2. Prototype the scheduler with graph-level validation: reject cycles, reject ownership conflicts, compute accepted DAG depth, and estimate worst-case tier2 wait.
+3. Add benchmark reporting for active time, completion time, tier2 turns, accepted DAG depth, estimated/actual tier2 wait, late outputs, cancellation, rejected work, review latency, and acceptance failures.
 4. Keep generic DAG execution and default duplicate implementation deferred unless trace-derived evidence shows safe off-critical model branches outside RPE.
