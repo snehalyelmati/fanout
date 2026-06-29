@@ -228,6 +228,14 @@ Decision: Before merging this experiment branch or starting plugin restructuring
 
 Reason: The current branch contains useful trace-derived direction. Merging should preserve the experiment as a reusable evidence base with tracked prediction artifacts, protocol docs, and validation rather than as an implicit conversation-dependent result.
 
+## 2026-06-30
+
+### Defer Pi marketplace packaging
+
+Decision: Defer publishing a Pi package marketplace/npm release for now. Keep `@snehalyelmati/pi-doubleword-provider` as a possible standalone provider package name, but do not treat it as released or linked to Fanout release order.
+
+Reason: Packaging should wait until the intended package boundary, metadata, and install path are explicitly validated.
+
 ## 2026-06-29
 
 ### Add live realtime as a key-gated provider
