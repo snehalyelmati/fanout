@@ -4,22 +4,22 @@ Date: 2026-06-26
 
 Purpose: test whether Planned Parallel RPE can turn longer realtime execution loops into shallow code-edit DAGs with bounded tier2 background wait.
 
-Evidence scope: retrospective trace-derived planner reliability and wait estimation. This is not live Doubleword runtime evidence.
+Evidence scope: retrospective trace-derived planner reliability and wait estimation. This is not live Doubleword runtime evidence. The prediction protocol is documented in [`safe-work-unit-eval-protocol.md`](safe-work-unit-eval-protocol.md).
 
 ## Dataset and command
 
-Full `badlogicgames/pi-mono` JSONL traces were downloaded under ignored local storage:
+Full [`badlogicgames/pi-mono`](https://huggingface.co/datasets/badlogicgames/pi-mono) JSONL traces were downloaded under ignored local storage:
 
 ```text
 datasets/traces/pi-mono-full/
 ```
 
-Selection: 3 traces per baseline realtime TAT bucket, chosen from the full dataset by assistant-turn timestamp-gap proxy.
+Selection: 3 traces per baseline realtime TAT bucket, chosen from the full dataset by assistant-turn timestamp-gap proxy. The tracked prediction fixture is the selected trace manifest: each of its 15 rows contains the selected `traceId` and `prefixBoundary`. The full command may load all local `pi-mono` trace files (626 files in the downloaded sample), but only those 15 prediction rows are evaluated.
 
 Prediction artifact and report:
 
 ```text
-runs/safe-work-unit-eval/tat-bucket-code-shards-predictions.jsonl
+datasets/fixtures/tat-bucket-code-shards-predictions.jsonl
 runs/safe-work-unit-eval/tat-bucket-code-shards/summary.md
 ```
 
@@ -28,7 +28,7 @@ Evaluator command:
 ```bash
 rtk npm run eval:safe-work-units -- \
   datasets/traces/pi-mono-full \
-  --predictions runs/safe-work-unit-eval/tat-bucket-code-shards-predictions.jsonl \
+  --predictions datasets/fixtures/tat-bucket-code-shards-predictions.jsonl \
   --out runs/safe-work-unit-eval/tat-bucket-code-shards
 ```
 
@@ -36,7 +36,7 @@ rtk npm run eval:safe-work-units -- \
 
 | Metric | Value |
 | --- | ---: |
-| Traces | 15 |
+| Evaluated prediction rows/traces | 15 |
 | Total code-edit units | 49 |
 | Safe independent | 31 |
 | Safe after dependency | 16 |

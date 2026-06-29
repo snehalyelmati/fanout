@@ -5,10 +5,12 @@ import { join } from "node:path";
 
 const fixture = "datasets/fixtures/phase6-observability.jsonl";
 const piSessionFixture = "datasets/fixtures/pi-session-trace.jsonl";
-const piMonoSampleFixture = "datasets/traces/pi-mono-sample/2026-01-16T11-12-35-796Z_105b45a9-be31-4997-95c3-c95ab814daf8.jsonl";
+const piMonoSampleFixture = "datasets/fixtures/pi-mono-105b45a9.jsonl";
 const hybridFixture = "datasets/fixtures/hybrid-workflows.jsonl";
 const hybridOutOfOrderFixture = "datasets/fixtures/hybrid-workflows-out-of-order.jsonl";
 const safeWorkUnitPredictions = "datasets/fixtures/safe-work-unit-predictions.jsonl";
+const tatBucketCodeShardPredictions = "datasets/fixtures/tat-bucket-code-shards-predictions.jsonl";
+const piMonoFullDir = "datasets/traces/pi-mono-full";
 const dir = mkdtempSync(join(tmpdir(), "doubleword-pi-bench-"));
 const out = join(dir, "phase6");
 
@@ -320,6 +322,7 @@ try {
     if (!unitById.get(unitId)?.reasons.some((item) => item.code === reason)) fail(`expected ${unitId} reason ${reason}, got ${JSON.stringify(unitById.get(unitId)?.reasons)}`);
   }
   if (safeEvalSummary.metrics.primaryMetric !== "safetyPrecision" || safeEvalSummary.metrics.safetyPrecision !== 1 || safeEvalSummary.metrics.unsafeFalsePositiveCount !== 0 || safeEvalSummary.metrics.recall !== 1) fail(`safe eval primary metrics unexpected: ${JSON.stringify(safeEvalSummary.metrics)}`);
+  if (safeEvalSummary.evaluations[0].graph.dagDepth !== 2 || safeEvalSummary.evaluations[0].graph.dagWidth !== 2 || safeEvalSummary.evaluations[0].graph.schedulable !== false || safeEvalSummary.evaluations[0].graph.graphRejectionCount !== 2) fail(`safe eval graph summary unexpected: ${JSON.stringify(safeEvalSummary.evaluations[0].graph)}`);
   for (const verdict of ["safe_independent", "safe_after_dependency", "unsafe", "inconclusive"]) {
     if (!safeEvalMd.includes(verdict)) fail(`safe eval markdown missing verdict ${verdict}`);
   }
@@ -351,6 +354,52 @@ try {
   writeFileSync(invalidSafePredictions, `${JSON.stringify({ ...unlabeledRow, proposedUnits: [{ ...unlabeledRow.proposedUnits[0], ownedFiles: "README.md" }] })}\n`);
   const invalidSafe = runSafeEval([piMonoSampleFixture, "--predictions", invalidSafePredictions, "--out", join(dir, "invalid-safe-out")], 1);
   if (!invalidSafe.stderr.includes(`${invalidSafePredictions}:1`) || !invalidSafe.stderr.includes("trace 105b45a9-be31-4997-95c3-c95ab814daf8") || !invalidSafe.stderr.includes("unit safe-doc-note") || !invalidSafe.stderr.includes("field ownedFiles")) fail(`safe work unit invalid artifact diagnostic was not source-aware:\n${invalidSafe.stderr}`);
+
+  const emptyMessageIdPredictions = join(dir, "empty-safe-work-unit-message-id.jsonl");
+  writeFileSync(emptyMessageIdPredictions, `${JSON.stringify({ ...unlabeledRow, prefixBoundary: { ...unlabeledRow.prefixBoundary, messageId: "" } })}\n`);
+  const emptyMessageId = runSafeEval([piMonoSampleFixture, "--predictions", emptyMessageIdPredictions, "--out", join(dir, "empty-message-id-out")], 1);
+  if (!emptyMessageId.stderr.includes("field prefixBoundary.messageId") || !emptyMessageId.stderr.includes("expected non-empty string")) fail(`safe work unit empty messageId diagnostic was not specific:\n${emptyMessageId.stderr}`);
+
+  const invalidMessageIdPredictions = join(dir, "invalid-safe-work-unit-message-id.jsonl");
+  writeFileSync(invalidMessageIdPredictions, `${JSON.stringify({ ...unlabeledRow, prefixBoundary: { ...unlabeledRow.prefixBoundary, messageId: "wrong-message" } })}\n`);
+  const invalidMessageId = runSafeEval([piMonoSampleFixture, "--predictions", invalidMessageIdPredictions, "--out", join(dir, "invalid-message-id-out")], 1);
+  if (!invalidMessageId.stderr.includes("field prefixBoundary.messageId") || !invalidMessageId.stderr.includes("wrong-message")) fail(`safe work unit invalid messageId diagnostic was not specific:\n${invalidMessageId.stderr}`);
+
+  const graphCasePredictions = join(dir, "safe-work-unit-graph-cases.jsonl");
+  const graphCase = {
+    ...unlabeledRow,
+    predictionId: "graph-cases",
+    proposedUnits: [
+      { ...unlabeledRow.proposedUnits[0], unitId: "safe-ok", title: "Safe OK", ownedFiles: ["safe-ok.ts"], dependencies: [] },
+      { ...unlabeledRow.proposedUnits[0], unitId: "cycle-a", title: "Cycle A", ownedFiles: ["cycle-a.ts"], dependencies: ["cycle-b"] },
+      { ...unlabeledRow.proposedUnits[0], unitId: "cycle-b", title: "Cycle B", ownedFiles: ["cycle-b.ts"], dependencies: ["cycle-a"] },
+      { ...unlabeledRow.proposedUnits[0], unitId: "dangling", title: "Dangling", ownedFiles: ["dangling.ts"], dependencies: ["missing-unit"] },
+      { ...unlabeledRow.proposedUnits[0], unitId: "unsafe-root", title: "Unsafe Root", ownedFiles: ["unsafe-root.ts"], dependencies: [], validationRequirements: [], reviewRequirements: [] },
+      { ...unlabeledRow.proposedUnits[0], unitId: "unsafe-mid", title: "Unsafe Mid", ownedFiles: ["unsafe-mid.ts"], dependencies: ["unsafe-root"] },
+      { ...unlabeledRow.proposedUnits[0], unitId: "unsafe-top", title: "Unsafe Top", ownedFiles: ["unsafe-top.ts"], dependencies: ["unsafe-mid"] },
+      { ...unlabeledRow.proposedUnits[0], unitId: "inconclusive-root", title: "Inconclusive Root", ownedFiles: [], readOnlyFiles: [], mutableResources: [], dependencies: [], validationRequirements: [], reviewRequirements: [] },
+      { ...unlabeledRow.proposedUnits[0], unitId: "inconclusive-dependent", title: "Inconclusive Dependent", ownedFiles: ["inconclusive-dependent.ts"], dependencies: ["inconclusive-root"] },
+    ],
+  };
+  writeFileSync(graphCasePredictions, `${JSON.stringify(graphCase)}\n`);
+  const graphCaseOut = join(dir, "safe-work-unit-graph-cases-out");
+  runSafeEval([piMonoSampleFixture, "--predictions", graphCasePredictions, "--out", graphCaseOut]);
+  const graphCaseSummary = JSON.parse(readFileSync(join(graphCaseOut, "summary.json"), "utf8"));
+  const graphUnits = new Map(graphCaseSummary.evaluations[0].unitResults.map((unit) => [unit.unitId, unit]));
+  if (graphCaseSummary.evaluations[0].graph.schedulable !== false || graphUnits.get("safe-ok")?.verdict !== "safe_independent" || !graphUnits.get("cycle-a").reasons.some((reason) => reason.code === "dependency_cycle") || !graphUnits.get("dangling").reasons.some((reason) => reason.code === "dangling_dependency") || !graphUnits.get("unsafe-mid").reasons.some((reason) => reason.code === "unsafe_dependency") || !graphUnits.get("unsafe-top").reasons.some((reason) => reason.code === "unsafe_dependency") || graphUnits.get("inconclusive-root")?.verdict !== "inconclusive" || !graphUnits.get("inconclusive-dependent").reasons.some((reason) => reason.code === "unsafe_dependency")) fail(`graph-level safe eval checks did not trigger: ${JSON.stringify(graphCaseSummary.evaluations[0], null, 2)}`);
+
+  if (!existsSync(tatBucketCodeShardPredictions)) fail(`missing tracked TAT bucket prediction fixture ${tatBucketCodeShardPredictions}`);
+  const tatRows = readFileSync(tatBucketCodeShardPredictions, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  if (tatRows.length !== 15) fail(`expected 15 tracked TAT bucket prediction rows, got ${tatRows.length}`);
+
+  if (existsSync(piMonoFullDir)) {
+    const tatOut = join(dir, "tat-bucket-code-shards-out");
+    runSafeEval([piMonoFullDir, "--predictions", tatBucketCodeShardPredictions, "--out", tatOut]);
+    const tatSummary = JSON.parse(readFileSync(join(tatOut, "summary.json"), "utf8"));
+    if (tatSummary.traceCount <= tatSummary.predictionCount || tatSummary.predictionCount !== 15 || tatSummary.metrics.totalUnits !== 49 || tatSummary.metrics.verdictCounts.safe_independent !== 31 || tatSummary.metrics.verdictCounts.safe_after_dependency !== 16 || tatSummary.metrics.verdictCounts.unsafe !== 2 || tatSummary.metrics.safetyPrecision !== 1 || tatSummary.metrics.recall !== 0.969 || tatSummary.metrics.dependencyAccuracy !== 0.941) {
+      fail(`TAT bucket code-shard metrics changed: ${JSON.stringify(tatSummary.metrics)}`);
+    }
+  }
 
   const invalidActiveBoundaryCases = [
     { name: "missing-active-boundary-claim", patch: { activeBoundaryClaim: undefined }, expect: "field activeBoundaryClaim" },

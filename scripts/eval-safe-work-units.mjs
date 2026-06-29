@@ -84,7 +84,7 @@ function optionalStringArray(row, object, field, context = "") {
 function validateBoundary(row, boundary) {
   if (!isObject(boundary)) diagnostic(row, "", "prefixBoundary", "expected object");
   if (!Number.isInteger(boundary.line) || boundary.line < 1) diagnostic(row, "", "prefixBoundary.line", "expected positive integer JSONL line");
-  if (boundary.messageId !== undefined && typeof boundary.messageId !== "string") diagnostic(row, "", "prefixBoundary.messageId", "expected string when present");
+  if (boundary.messageId !== undefined && (typeof boundary.messageId !== "string" || !boundary.messageId.trim())) diagnostic(row, "", "prefixBoundary.messageId", "expected non-empty string when present");
   return { line: boundary.line, messageId: boundary.messageId ?? null };
 }
 
@@ -217,9 +217,124 @@ function addReason(reasons, code, message, evidence = {}) {
   reasons.push({ code, message, evidence });
 }
 
+function markUnsafe(unit, code, message, evidence = {}) {
+  if (!unit.reasons.some((reason) => reason.code === code && JSON.stringify(reason.evidence) === JSON.stringify(evidence))) {
+    addReason(unit.reasons, code, message, evidence);
+  }
+  unit.verdict = "unsafe";
+}
+
+function dependencyPathExists(fromUnit, toUnitId, unitById, seen = new Set()) {
+  if (fromUnit.unitId === toUnitId) return true;
+  if (seen.has(fromUnit.unitId)) return false;
+  seen.add(fromUnit.unitId);
+  return fromUnit.dependencies.some((dependency) => {
+    if (dependency === toUnitId) return true;
+    const dependencyUnit = unitById.get(dependency);
+    return dependencyUnit ? dependencyPathExists(dependencyUnit, toUnitId, unitById, seen) : false;
+  });
+}
+
+function isAcceptedVerdict(verdict) {
+  return verdict === "safe_independent" || verdict === "safe_after_dependency";
+}
+
+function analyzeGraph(unitResults) {
+  const unitById = new Map(unitResults.map((unit) => [unit.unitId, unit]));
+  const cycleUnits = new Set();
+  const visiting = new Set();
+  const visited = new Set();
+  const stack = [];
+
+  for (const unit of unitResults) {
+    for (const dependency of unit.dependencies) {
+      if (!unitById.has(dependency)) {
+        markUnsafe(unit, "dangling_dependency", "Unit depends on a missing unit id.", { dependency });
+      }
+    }
+  }
+
+  function visit(unit) {
+    if (visiting.has(unit.unitId)) {
+      for (let index = stack.indexOf(unit.unitId); index < stack.length; index++) cycleUnits.add(stack[index]);
+      cycleUnits.add(unit.unitId);
+      return;
+    }
+    if (visited.has(unit.unitId)) return;
+    visiting.add(unit.unitId);
+    stack.push(unit.unitId);
+    for (const dependency of unit.dependencies) {
+      const dependencyUnit = unitById.get(dependency);
+      if (dependencyUnit) visit(dependencyUnit);
+    }
+    stack.pop();
+    visiting.delete(unit.unitId);
+    visited.add(unit.unitId);
+  }
+
+  for (const unit of unitResults) visit(unit);
+  for (const unitId of cycleUnits) {
+    markUnsafe(unitById.get(unitId), "dependency_cycle", "Unit participates in a dependency cycle, so the work graph is not schedulable.", { unitId });
+  }
+
+  for (const unit of unitResults) {
+    for (const other of unitResults) {
+      if (unit.unitId >= other.unitId) continue;
+      const ownedOverlap = intersect(unit.ownedFiles, other.ownedFiles);
+      const resourceOverlap = intersect(unit.mutableResources, other.mutableResources);
+      const serialized = dependencyPathExists(unit, other.unitId, unitById) || dependencyPathExists(other, unit.unitId, unitById);
+      if ((ownedOverlap.length || resourceOverlap.length) && !serialized) {
+        markUnsafe(unit, "ownership_overlap_without_serialization", "Overlapping owned files or mutable resources are not serialized by the dependency graph.", { otherUnitId: other.unitId, ownedFiles: ownedOverlap, mutableResources: resourceOverlap });
+        markUnsafe(other, "ownership_overlap_without_serialization", "Overlapping owned files or mutable resources are not serialized by the dependency graph.", { otherUnitId: unit.unitId, ownedFiles: ownedOverlap, mutableResources: resourceOverlap });
+      }
+    }
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const unit of unitResults) {
+      for (const dependency of unit.dependencies) {
+        const dependencyUnit = unitById.get(dependency);
+        if (dependencyUnit && !isAcceptedVerdict(dependencyUnit.verdict) && unit.verdict !== "unsafe") {
+          markUnsafe(unit, "unsafe_dependency", "Unit depends on work that was not accepted as safe.", { dependency, dependencyVerdict: dependencyUnit.verdict });
+          changed = true;
+        }
+      }
+    }
+  }
+
+  const graphRejectionCodes = new Set(["dependency_cycle", "dangling_dependency", "ownership_overlap_without_serialization"]);
+  const graphRejectionCount = unitResults.flatMap((unit) => unit.reasons.filter((reason) => graphRejectionCodes.has(reason.code))).length;
+  const accepted = unitResults.filter((unit) => isAcceptedVerdict(unit.verdict));
+  const acceptedById = new Map(accepted.map((unit) => [unit.unitId, unit]));
+  const depthMemo = new Map();
+  function depth(unit) {
+    if (depthMemo.has(unit.unitId)) return depthMemo.get(unit.unitId);
+    const dependencies = unit.dependencies.map((dependency) => acceptedById.get(dependency)).filter(Boolean);
+    const value = 1 + (dependencies.length ? Math.max(...dependencies.map(depth)) : 0);
+    depthMemo.set(unit.unitId, value);
+    return value;
+  }
+  const levels = {};
+  for (const unit of accepted) levels[depth(unit)] = (levels[depth(unit)] ?? 0) + 1;
+
+  return {
+    schedulable: accepted.length > 0 && graphRejectionCount === 0,
+    acceptedUnitCount: accepted.length,
+    unsafeUnitCount: unitResults.filter((unit) => unit.verdict === "unsafe").length,
+    dagDepth: accepted.length ? Math.max(...Object.keys(levels).map(Number)) : 0,
+    dagWidth: accepted.length ? Math.max(...Object.values(levels)) : 0,
+    graphRejectionCount,
+    cycleUnitCount: cycleUnits.size,
+    danglingDependencyCount: unitResults.flatMap((unit) => unit.reasons.filter((reason) => reason.code === "dangling_dependency")).length,
+  };
+}
+
 function evaluateUnit(unit, allUnits, prefix, suffix) {
   const reasons = [];
   const declaredDependencies = unit.dependencies.filter((dep) => allUnits.some((candidate) => candidate.unitId === dep));
+  const unitById = new Map(allUnits.map((candidate) => [candidate.unitId, candidate]));
   const prefixVisibleFiles = new Set(prefix.paths);
   const suffixVisibleFiles = new Set(suffix.paths);
 
@@ -228,7 +343,7 @@ function evaluateUnit(unit, allUnits, prefix, suffix) {
     const ownedOverlap = intersect(unit.ownedFiles, other.ownedFiles);
     const resourceOverlap = intersect(unit.mutableResources, other.mutableResources);
     if (ownedOverlap.length || resourceOverlap.length) {
-      const dependencyDeclared = hasDependency(unit, other) || hasDependency(other, unit);
+      const dependencyDeclared = dependencyPathExists(unit, other.unitId, unitById) || dependencyPathExists(other, unit.unitId, unitById);
       addReason(
         reasons,
         dependencyDeclared ? "ownership_overlap_with_declared_dependency" : "ownership_overlap_without_dependency",
@@ -341,11 +456,16 @@ function evaluatePrediction(prediction, trace) {
   if (prediction.prefixBoundary.line > trace.rows.length) {
     throw new Error(`${prediction.source}:${prediction.sourceLine}: trace ${prediction.traceId} field prefixBoundary.line: boundary exceeds trace length ${trace.rows.length}`);
   }
+  const boundaryRow = trace.rows[prediction.prefixBoundary.line - 1];
+  if (prediction.prefixBoundary.messageId !== null && prediction.prefixBoundary.messageId !== undefined && boundaryRow?.id !== prediction.prefixBoundary.messageId) {
+    throw new Error(`${prediction.source}:${prediction.sourceLine}: trace ${prediction.traceId} field prefixBoundary.messageId: expected line ${prediction.prefixBoundary.line} to have id ${prediction.prefixBoundary.messageId}, got ${boundaryRow?.id ?? "missing"}`);
+  }
   const prefixRows = trace.rows.filter((row) => row.sourceLine <= prediction.prefixBoundary.line);
   const suffixRows = trace.rows.filter((row) => row.sourceLine > prediction.prefixBoundary.line);
   const prefix = summarizeRows(prefixRows);
   const suffix = summarizeRows(suffixRows);
   const unitResults = prediction.proposedUnits.map((unit) => evaluateUnit(unit, prediction.proposedUnits, prefix, suffix));
+  const graph = analyzeGraph(unitResults);
   return {
     traceId: prediction.traceId,
     predictionId: prediction.predictionId,
@@ -354,6 +474,7 @@ function evaluatePrediction(prediction, trace) {
     prefixBoundary: prediction.prefixBoundary,
     prefixContext: prefix,
     suffixEvidence: suffix,
+    graph,
     unitResults,
     metrics: computeMetrics(unitResults),
   };
@@ -386,12 +507,12 @@ function buildMarkdown(report) {
     "",
     "## Prefix and suffix separation",
     "",
-    "| Trace | Prediction source | Retrospective evidence source | Prefix boundary line | Prefix rows | Suffix rows |",
-    "| --- | --- | --- | ---: | ---: | ---: |",
+    "| Trace | Prediction source | Retrospective evidence source | Prefix boundary line | Prefix rows | Suffix rows | DAG depth | DAG width | Schedulable |",
+    "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
   ];
 
   for (const evaluation of report.evaluations) {
-    lines.push(`| ${evaluation.traceId} | ${evaluation.predictionSource} | ${evaluation.retrospectiveEvidenceSource} | ${evaluation.prefixBoundary.line} | ${evaluation.prefixContext.rowCount} | ${evaluation.suffixEvidence.rowCount} |`);
+    lines.push(`| ${evaluation.traceId} | ${evaluation.predictionSource} | ${evaluation.retrospectiveEvidenceSource} | ${evaluation.prefixBoundary.line} | ${evaluation.prefixContext.rowCount} | ${evaluation.suffixEvidence.rowCount} | ${evaluation.graph.dagDepth} | ${evaluation.graph.dagWidth} | ${evaluation.graph.schedulable ? "yes" : "no"} |`);
   }
 
   lines.push("", "## Unit verdicts", "", "| Trace | Unit | Verdict | Reasons |", "| --- | --- | --- | --- |");

@@ -1240,7 +1240,7 @@ function markdown(summary) {
       "",
       "## Hybrid policy simulation",
       "",
-      "Active user-facing TAT is measured to the declared active boundary and mandatory active acceptance work. Background completion includes launched deferred work, optional late results, and speculative losers.",
+      "Active user-facing TAT is measured to the declared active boundary and mandatory active acceptance work. Background completion includes launched deferred work, optional late results, and speculative losers. `all_tier1_baseline` is a hypothetical comparison baseline, not an eligibility-constrained runnable policy.",
       "",
       "| Workflow | Policy | Active TAT | Background completion | Active ratio | Target status | Total cost | Cost saved vs tier1 | Late/deadline | Speculative waste | Reason |",
       "| --- | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | --- |",

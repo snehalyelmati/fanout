@@ -57,6 +57,7 @@ Linear mandatory critical-path work is not counted as a tier2 success even when 
 
 ## Active and background caveats
 
+- `all_tier1_baseline` is a hypothetical comparison baseline. It prices and schedules every node as tier1 even when a synthetic fixture marks a node as tier2-only, so target ratios compare against a common tier1 reference rather than an eligibility-constrained runnable policy.
 - Active TAT is measured to the same declared boundary for tier1 baseline and optimized policies.
 - Background exclusion requires explicit fixture metadata: optional, non-user-blocking, background, or a next-actionable boundary.
 - Background completion remains reported and can be much larger than active TAT.

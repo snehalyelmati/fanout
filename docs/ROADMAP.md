@@ -177,7 +177,9 @@ Design target: two narrower opt-in workflows, documented in [`docs/OPTIMISTIC_DA
 1. `semantic-batching-tier1`: realtime/tier1 workflow that reduces turns, redundant checks, and context bloat.
 2. `planned-parallel-rpe`: tier1 planner, conflict-aware scheduler, isolated tier2 background executors, parallel reviewers, cancellation for speculative pre-confirm work, file ownership constraints, and tier1 final review/synthesis.
 
-Next work:
+Pre-merge cleanup is tracked in [`docs/PRE_MERGE_CLEANUP_PLAN.md`](PRE_MERGE_CLEANUP_PLAN.md). Finish that before runtime/plugin restructuring.
+
+Next work after cleanup:
 
 - Define the RPE execution packet: accepted plan, owned/read-only files, dependencies, constraints, validation contract, budget, user wait budget, stop rules, cancellation rules, and expected handoff.
 - Define scheduler policy: reject cycles and ownership conflicts, compute accepted safe-unit DAG critical path, estimate `tier2_exec_wait_worst_case = DAG_depth * 10m`, and launch only when it fits the user wait budget.

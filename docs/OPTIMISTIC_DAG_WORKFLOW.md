@@ -136,7 +136,7 @@ The first evaluation checked whether GPT-5.5-style subagents can retrospectively
 4. Score whether proposed units would have stayed independent, avoided overlapping edits, preserved mandatory validation, and avoided user-blocking dependencies.
 5. Label outcomes as observed trace-derived evaluation, separate from synthetic simulator fixtures and separate from future live runtime results.
 
-The TAT bucket code-shard evaluation provides enough trace-derived signal to define the scheduler and execution packet, but not enough to claim live runtime TAT. Synthetic one-turn fixture passes remain simulator evidence; safe-unit results are retrospective trace-derived planner reliability evidence.
+The TAT bucket code-shard evaluation provides enough trace-derived signal to define the scheduler and execution packet, but not enough to claim live runtime TAT. Synthetic one-turn fixture passes remain simulator evidence; safe-unit results are retrospective trace-derived planner reliability evidence. The prediction/scoring protocol is documented in [`docs/benchmarks/safe-work-unit-eval-protocol.md`](benchmarks/safe-work-unit-eval-protocol.md).
 
 ## Best practices
 
@@ -150,6 +150,8 @@ The TAT bucket code-shard evaluation provides enough trace-derived signal to def
 Example: several approved RPE tasks can run concurrently in tier2. The user spends tier1 time reviewing plans up front, then later reviews completed outputs in a batch. Provider cost drops, but wall-clock completion is intentionally background.
 
 ## Next implementation steps
+
+Evidence cleanup is captured in [`docs/PRE_MERGE_CLEANUP_PLAN.md`](PRE_MERGE_CLEANUP_PLAN.md). After cleanup:
 
 1. Define the RPE execution packet: accepted plan, owned/read-only files, dependency graph, validation contract, user wait budget, cost budget, stop rules, cancellation rules, and handoff artifacts.
 2. Prototype the scheduler with graph-level validation: reject cycles, reject ownership conflicts, compute accepted DAG depth, and estimate worst-case tier2 wait.

@@ -389,7 +389,7 @@ Command:
 ```bash
 rtk npm run eval:safe-work-units -- \
   datasets/traces/pi-mono-full \
-  --predictions runs/safe-work-unit-eval/tat-bucket-code-shards-predictions.jsonl \
+  --predictions datasets/fixtures/tat-bucket-code-shards-predictions.jsonl \
   --out runs/safe-work-unit-eval/tat-bucket-code-shards
 ```
 
@@ -397,7 +397,7 @@ Result summary:
 
 | Metric | Value |
 | --- | ---: |
-| Traces | 15 |
+| Evaluated prediction rows/traces | 15 |
 | Code-edit units | 49 |
 | Safe independent | 31 |
 | Safe after dependency | 16 |
@@ -418,27 +418,34 @@ Wait model: use tier2 SLA as the scheduling quantum. Conservative routing uses `
 
 Conclusion: tier2 Planned Parallel RPE is not a generic realtime accelerator. It is useful when tier1 planning produces an acyclic, conflict-free code DAG and the user accepts bounded background execution. Prefix time is not a hard routing guard: if no execution remains, no job is launched; otherwise route by safety, user wait budget, DAG critical path, and cost.
 
+The 15-trace prediction artifact is tracked at `datasets/fixtures/tat-bucket-code-shards-predictions.jsonl`; it acts as the selected trace manifest because each row includes the target `traceId` and `prefixBoundary`. The full command may load all local `badlogicgames/pi-mono` JSONL traces from `datasets/traces/pi-mono-full` (626 trace files in the downloaded sample), but only the 15 prediction rows are evaluated. The prediction protocol is documented in [`docs/benchmarks/safe-work-unit-eval-protocol.md`](benchmarks/safe-work-unit-eval-protocol.md).
+
 ## Candidate improvements to test next
 
 1. **Improve tier1 workflow efficiency first**
    - Better batching, complete root-cause inspection, fewer redundant checks, and less tool-output bloat.
    - Measure this as `semantic-batching-tier1`, not as Doubleword savings.
 
-2. **Turn safe-unit evidence into scheduler policy**
+2. **Finish pre-merge evidence cleanup**
+   - Keep the E2 prediction artifact tracked and smoke-checked.
+   - Keep the safe-work-unit prediction protocol and prompt template documented.
+   - Keep evaluator checks for prefix `messageId`, dependency cycles, dangling dependencies, and graph schedulability covered.
+
+3. **Turn safe-unit evidence into scheduler policy**
    - Use accepted safe-unit DAG critical path, not raw unit count or depth alone.
    - Reject cycles and ownership conflicts before launch.
    - Estimate `tier2_exec_wait_worst_case = DAG_depth * 10m` and compare it to the user's background wait budget.
 
-3. **Prototype RPE background execution after trace-derived evidence**
+4. **Prototype RPE background execution after trace-derived evidence**
    - Tier1 research+plan creates an execution packet and validation contract.
    - Tier2 executes in background with budget/concurrency caps.
    - Tier1 reviews/synthesizes completed output before acceptance.
 
-4. **Measure sharded RPE concurrency only after safe-unit evidence**
+5. **Measure sharded RPE concurrency only after safe-unit evidence**
    - Estimate N independent RPE execute jobs launched together.
    - Report active planning time, background completion time, total cost, failures, late outputs, canceled speculative work, reviewer time, and file conflicts.
 
-5. **Keep generic DAG tier2 routing deferred**
+6. **Keep generic DAG tier2 routing deferred**
    - Manual semantic review found only ~1.5% tier2 savings in normal interactive traces.
    - Do not route critical edit/tool loops to tier2.
    - Do not use duplicate implementations unless the scheduler proves independent ownership and bounded waste.
