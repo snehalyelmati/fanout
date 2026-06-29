@@ -151,7 +151,7 @@ Example: several approved RPE tasks can run concurrently in tier2. The user spen
 
 ## Next implementation steps
 
-Evidence cleanup is captured in [`docs/PRE_MERGE_CLEANUP_PLAN.md`](PRE_MERGE_CLEANUP_PLAN.md). After cleanup:
+After evidence cleanup:
 
 1. Define the RPE execution packet: accepted plan, owned/read-only files, dependency graph, validation contract, user wait budget, cost budget, stop rules, cancellation rules, and handoff artifacts.
 2. Prototype the scheduler with graph-level validation: reject cycles, reject ownership conflicts, compute accepted DAG depth, and estimate worst-case tier2 wait.
