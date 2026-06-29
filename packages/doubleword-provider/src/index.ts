@@ -708,7 +708,11 @@ function streamLiveAsync(model: Model<Api>, context: Context, options?: SimpleSt
 				if (pollMs > 0 && remaining <= pollMs) {
 					try {
 						response = await withAsyncDeadline((signal) =>
-							fetchJson(`${baseUrl}/responses/${encodeURIComponent(responseId)}`, { method: "GET", headers, signal }),
+							fetchJsonWithPollRetry(
+								`${baseUrl}/responses/${encodeURIComponent(responseId)}`,
+								{ method: "GET", headers, signal },
+								{ deadline, pollIndex, model, responseId, turnIndex },
+							),
 						);
 					} catch (error) {
 						if (options?.signal?.aborted) throw error;

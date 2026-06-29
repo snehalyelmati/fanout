@@ -7,7 +7,8 @@
   "keywords": ["fanout", "doubleword", "pi-package"],
   "scripts": {
     "build": "echo 'nothing to build'",
-    "check": "node scripts/check-models.mjs",
+    "check": "node scripts/check-models.mjs && node scripts/test-doubleword-model-cache.mjs",
+    "test:doubleword-provider": "node scripts/test-doubleword-model-cache.mjs && node scripts/smoke-live-realtime-mock.mjs && node scripts/smoke-live-async-mock.mjs",
     "smoke:realtime": "pi -e . --model doubleword-realtime-stub/deepseek-v4-flash -p \"Respond 'hello', do not say anything else.\"",
     "smoke:async": "pi -e . --model doubleword-async-stub/doubleword-async-stub -p \"Respond 'hello', do not say anything else.\"",
     "smoke:live:realtime": "node scripts/smoke-live-realtime.mjs",

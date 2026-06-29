@@ -12,10 +12,13 @@ mkdirSync(agentDir, { recursive: true });
 writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ retry: { enabled: false } }));
 const successResponseId = "resp_mock_1";
 const timeoutResponseId = "resp_timeout_1";
+const finalGetResponseId = "resp_final_get_1";
+const finalGetLogFile = join(dir, "final-get-observability.jsonl");
 const requests = [];
 let submitCount = 0;
 let successRetrieveCount = 0;
 let timeoutRetrieveCount = 0;
+let finalGetRetrieveCount = 0;
 
 function assert(ok, message) {
   if (!ok) throw new Error(message);
@@ -28,8 +31,8 @@ async function readBody(req) {
   return body;
 }
 
-function sendJson(res, status, body) {
-  res.writeHead(status, { "content-type": "application/json" });
+function sendJson(res, status, body, headers = {}) {
+  res.writeHead(status, { "content-type": "application/json", ...headers });
   res.end(JSON.stringify(body));
 }
 
@@ -39,7 +42,7 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/responses") {
       const body = JSON.parse(await readBody(req));
       submitCount++;
-      const responseId = submitCount === 1 ? successResponseId : timeoutResponseId;
+      const responseId = submitCount === 1 ? successResponseId : submitCount === 2 ? timeoutResponseId : finalGetResponseId;
       requests.push({ method: req.method, path: url.pathname, body, responseId });
       return sendJson(res, 200, { id: responseId, status: "queued", service_tier: "flex" });
     }
@@ -59,6 +62,18 @@ const server = createServer(async (req, res) => {
       timeoutRetrieveCount++;
       requests.push({ method: req.method, path: url.pathname, retrieveCount: timeoutRetrieveCount });
       return sendJson(res, 200, { id: timeoutResponseId, status: "queued", service_tier: "flex" });
+    }
+    if (req.method === "GET" && url.pathname === `/responses/${finalGetResponseId}`) {
+      finalGetRetrieveCount++;
+      requests.push({ method: req.method, path: url.pathname, retrieveCount: finalGetRetrieveCount });
+      if (finalGetRetrieveCount === 1) return sendJson(res, 503, { error: "temporary" }, { "retry-after": "0" });
+      return sendJson(res, 200, {
+        id: finalGetResponseId,
+        status: "completed",
+        service_tier: "flex",
+        output_text: "Doubleword final GET mock response.",
+        usage: { input_tokens: 2, output_tokens: 5, total_tokens: 7 },
+      });
     }
     if (req.method === "POST" && url.pathname === `/responses/${timeoutResponseId}/cancel`) {
       await readBody(req);
@@ -87,6 +102,7 @@ function runPi(baseUrl, { logFile, runId, pollMs = "0", asyncTimeoutMs = "30000"
         ...process.env,
         DOUBLEWORD_API_KEY: "mock-key",
         DOUBLEWORD_BASE_URL: baseUrl,
+        DOUBLEWORD_MAX_OUTPUT_TOKENS: "16384",
         DOUBLEWORD_OBSERVABILITY_FILE: logFile,
         DOUBLEWORD_RUN_ID: runId,
         DOUBLEWORD_LIVE_ASYNC_POLL_MS: pollMs,
@@ -179,11 +195,29 @@ try {
     `missing successful provider_cancel_end event\n${readFileSync(timeoutLogFile, "utf8")}`,
   );
 
-  console.log(`live async mock smoke passed (${requests.length} requests, ${events.length + timeoutEvents.length} events)`);
+  const finalGetResult = await runPi(baseUrl, {
+    logFile: finalGetLogFile,
+    runId: "smoke-live-async-mock-final-get",
+    pollMs: "1000",
+    asyncTimeoutMs: "250",
+    processTimeoutMs: 10_000,
+  });
+  assert(!finalGetResult.timedOut, `final GET scenario hit harness timeout\nstdout:\n${finalGetResult.stdout}\nstderr:\n${finalGetResult.stderr}`);
+  assert(finalGetResult.status === 0, `final GET scenario failed\nstdout:\n${finalGetResult.stdout}\nstderr:\n${finalGetResult.stderr}`);
+  assert(finalGetResult.stdout.includes("Doubleword final GET mock response."), `final GET output missing\nstdout:\n${finalGetResult.stdout}\nstderr:\n${finalGetResult.stderr}`);
+  assert(requests.filter((request) => request.method === "GET" && request.path === `/responses/${finalGetResponseId}`).length === 2, `final GET retry did not happen: ${JSON.stringify(requests)}`);
+  assert(!requests.some((request) => request.method === "POST" && request.path === `/responses/${finalGetResponseId}/cancel`), `final GET completion should not cancel: ${JSON.stringify(requests)}`);
+
+  const finalGetEvents = readEvents(finalGetLogFile);
+  assert(finalGetEvents.some((event) => event.event === "async_poll_retry" && event.responseId === finalGetResponseId), `missing final GET retry event\n${readFileSync(finalGetLogFile, "utf8")}`);
+  assert(finalGetEvents.some((event) => event.event === "provider_end" && event.responseId === finalGetResponseId), `missing final GET provider_end\n${readFileSync(finalGetLogFile, "utf8")}`);
+  assert(!finalGetEvents.some((event) => event.event.startsWith("provider_cancel") && event.responseId === finalGetResponseId), `final GET completion should not emit cancel events\n${readFileSync(finalGetLogFile, "utf8")}`);
+
+  console.log(`live async mock smoke passed (${requests.length} requests, ${events.length + timeoutEvents.length + finalGetEvents.length} events)`);
   rmSync(dir, { recursive: true, force: true });
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
-  console.error(`observability logs: ${successLogFile}, ${timeoutLogFile}`);
+  console.error(`observability logs: ${successLogFile}, ${timeoutLogFile}, ${finalGetLogFile}`);
   process.exitCode = 1;
 } finally {
   if (server.listening) server.close();

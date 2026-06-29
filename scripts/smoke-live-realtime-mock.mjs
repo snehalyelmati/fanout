@@ -67,6 +67,7 @@ function runPi(baseUrl, prompt = "Respond 'hello', do not say anything else.") {
         ...process.env,
         DOUBLEWORD_API_KEY: "mock-key",
         DOUBLEWORD_BASE_URL: baseUrl,
+        DOUBLEWORD_MAX_OUTPUT_TOKENS: "16384",
         DOUBLEWORD_OBSERVABILITY_FILE: logFile,
         DOUBLEWORD_RUN_ID: "smoke-live-realtime-mock",
       },
@@ -106,6 +107,7 @@ try {
   const submit = requests.find((request) => request.method === "POST" && request.path === "/responses" && !String(request.body.input).includes("Return queued status"));
   assert(submit, `POST /responses was not called: ${JSON.stringify(requests)}`);
   assert(submit.body.service_tier === "priority", `POST /responses missing service_tier priority: ${JSON.stringify(submit.body)}`);
+  assert(submit.body.max_output_tokens === 16384, `POST /responses wrong max_output_tokens: ${JSON.stringify(submit.body)}`);
   assert(submit.body.background === undefined, `POST /responses should be blocking realtime: ${JSON.stringify(submit.body)}`);
 
   const events = readFileSync(logFile, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
