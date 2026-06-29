@@ -1,10 +1,16 @@
 # Project Instructions
 
-This repo is for a Pi extension that can use Doubleword as an LLM provider.
+This repo is a minimal Fanout monorepo:
+
+- `doubleword-provider`: standalone Doubleword model/provider integration.
+- `fanout-core`: agent-agnostic work splitting, scheduling, validation, and review policy.
+- `fanout-pi`: Pi adapter/install target that wires Fanout and Doubleword into Pi.
 
 ## Working rules
 
 - Keep the normal Pi agent loop unless a concrete limitation forces a custom workflow.
+- Keep Doubleword provider support independent from Fanout.
+- Keep Fanout core independent from Pi and Doubleword.
 - Build stubs before live Doubleword endpoints.
 - Make observability part of the first working version: timings, TTFT, token usage, cost, poll time, and tool timings.
 - Prefer prompt/template workflows before custom orchestrators.

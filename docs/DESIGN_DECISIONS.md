@@ -227,3 +227,17 @@ Reason: A retrospective prediction produced a cyclic code-shard graph that the e
 Decision: Before merging this experiment branch or starting plugin restructuring/runtime RPE work, package the evidence into reproducible fixtures and protocol docs.
 
 Reason: The current branch contains useful trace-derived direction. Merging should preserve the experiment as a reusable evidence base with tracked prediction artifacts, protocol docs, and validation rather than as an implicit conversation-dependent result.
+
+## 2026-06-29
+
+### Split Fanout from Doubleword provider support
+
+Decision: Structure the repo as a minimal monorepo with `doubleword-provider`, `fanout-core`, and `fanout-pi`.
+
+Reason: Doubleword provider support answers “how do I call this model/tier?”, while Fanout answers “how do I split, schedule, validate, and review work safely?”. Keeping them separate lets users install the provider alone, use Fanout without Doubleword, and add non-Pi adapters later only when needed.
+
+### Keep Fanout package count minimal
+
+Decision: Do not add a CLI package, generic adapter framework, or separate repos yet.
+
+Reason: Pi is the only concrete adapter today. Three packages are enough to preserve boundaries without adding release and build overhead.

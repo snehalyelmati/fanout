@@ -3,13 +3,13 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const promptPath = "prompts/dw-plan.md";
+const promptPath = "packages/fanout-pi/prompts/dw-plan.md";
 if (!existsSync(promptPath)) throw new Error(`${promptPath} is missing`);
 
 const prompt = readFileSync(promptPath, "utf8");
-const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 
-if (!pkg.pi?.prompts?.includes(`./${promptPath}`)) throw new Error(`package.json does not expose ./${promptPath}`);
+const piPkg = JSON.parse(readFileSync("packages/fanout-pi/package.json", "utf8"));
+if (!piPkg.pi?.prompts?.includes("./prompts/dw-plan.md")) throw new Error("packages/fanout-pi/package.json does not expose ./prompts/dw-plan.md");
 for (const phrase of ["Planning only", "Clarify until the ask is clear", "<proposed_plan>"]) {
   if (!prompt.includes(phrase)) throw new Error(`${promptPath} is missing phrase: ${phrase}`);
 }

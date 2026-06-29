@@ -2,17 +2,25 @@
 
 ## Objective
 
-Build a Pi extension that supports Doubleword as a provider while adapting to its inference tiers:
+Build Fanout as an agent-agnostic optimization layer, plus a standalone Doubleword provider and a Pi adapter:
+
+- `doubleword-provider`: how to call Doubleword models and tiers.
+- `fanout-core`: how to split, schedule, validate, and review work safely.
+- `fanout-pi`: Pi adapter/install target that can use both.
+
+The Doubleword provider adapts to these inference tiers:
 
 - **Realtime**: interactive, standard OpenAI-compatible usage.
 - **Async / tier 2**: minutes-scale TTFT via Responses API polling, lower cost.
 - **Batch / tier 3**: long-running JSONL batch jobs, lowest cost.
 
-The workflow should preserve developer velocity where possible by using async only where latency can be hidden or amortized.
+Fanout should preserve developer velocity where possible by using async only where latency can be hidden or amortized.
 
 ## Principles
 
 - Stay Pi-native first; avoid a new agent loop unless necessary.
+- Keep Doubleword provider support independent from Fanout.
+- Keep Fanout core independent from Pi and Doubleword.
 - Stub before live endpoints.
 - Observability first.
 - Use planning prompts before custom orchestration.
@@ -24,10 +32,11 @@ The workflow should preserve developer velocity where possible by using async on
 - Create project docs and working rules.
 - Track scope in this roadmap.
 - Track decisions in `docs/DESIGN_DECISIONS.md`.
+- Keep the repo as one minimal monorepo with `doubleword-provider`, `fanout-core`, and `fanout-pi`.
 
 ## Phase 1: Provider stubs
 
-Status: initial Pi extension skeleton complete with realtime and async stub providers.
+Status: provider stubs live in `doubleword-provider`, with `fanout-pi` registering them for Pi.
 
 Build provider stubs without hitting Doubleword live endpoints.
 

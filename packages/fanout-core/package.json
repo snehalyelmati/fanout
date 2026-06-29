@@ -1,0 +1,10 @@
+{
+  "name": "fanout-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./batching-discipline": "./src/batching-discipline.ts",
+    "./observability": "./src/observability.ts"
+  }
+}

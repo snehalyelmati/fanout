@@ -1,0 +1,15 @@
+{
+  "name": "fanout-pi",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "keywords": ["pi-package", "fanout"],
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": ["./src/index.ts"],
+    "prompts": ["./prompts/dw-plan.md"]
+  }
+}

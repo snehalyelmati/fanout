@@ -1,0 +1,464 @@
+import { randomUUID } from "node:crypto";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { performance } from "node:perf_hooks";
+import { fileURLToPath } from "node:url";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	createAssistantMessageEventStream,
+	type Api,
+	type AssistantMessage,
+	type AssistantMessageEventStream,
+	type Context,
+	type Model,
+	type SimpleStreamOptions,
+	type Usage,
+} from "@earendil-works/pi-ai";
+
+const REALTIME_PROVIDER = "doubleword-realtime-stub";
+const ASYNC_PROVIDER = "doubleword-async-stub";
+const LIVE_ASYNC_PROVIDER = "doubleword-async";
+const DOUBLEWORD_API_BASE_URL = process.env.DOUBLEWORD_BASE_URL ?? "https://api.doubleword.ai/v1";
+const ASYNC_SERVICE_TIER = "flex";
+const BATCHING_DISCIPLINE_MARKER = "## Think-ahead batching";
+type ModelCost = Model<Api>["cost"];
+
+const ZERO_COST: ModelCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+let runId = process.env.DOUBLEWORD_RUN_ID ?? `${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`;
+
+let activeTurnIndex: number | undefined;
+
+export function setDoublewordActiveTurnIndex(turnIndex: number | undefined): void {
+	activeTurnIndex = turnIndex;
+}
+
+export function setDoublewordRunId(nextRunId: string): void {
+	runId = nextRunId;
+}
+
+function readFixtureText(): string {
+	try {
+		const path = fileURLToPath(new URL("../fixtures/tiny-response.json", import.meta.url));
+		const fixture = JSON.parse(readFileSync(path, "utf8")) as { text?: string };
+		return fixture.text ?? "Doubleword stub response.";
+	} catch {
+		return "Doubleword stub response.";
+	}
+}
+
+const FIXTURE_TEXT = readFixtureText();
+
+function durationMs(start: number): number {
+	return Math.round((performance.now() - start) * 1000) / 1000;
+}
+
+function writeJsonl(event: string, data: Record<string, unknown> = {}, baseCwd = process.cwd()): void {
+	try {
+		const file = process.env.DOUBLEWORD_OBSERVABILITY_FILE ?? join(baseCwd, "runs", runId, "observability.jsonl");
+		mkdirSync(dirname(file), { recursive: true });
+		appendFileSync(file, `${JSON.stringify({ ts: new Date().toISOString(), runId, event, ...data })}\n`, "utf8");
+	} catch {
+		// Observability must not break provider streaming.
+	}
+}
+
+function envInt(name: string, fallback: number): number {
+	const value = Number(process.env[name]);
+	return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function envString(name: string, fallback: string): string {
+	const value = process.env[name];
+	return value && value.trim() ? value : fallback;
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+	if (ms <= 0) return Promise.resolve();
+	return new Promise((resolve, reject) => {
+		if (signal?.aborted) return reject(new Error("aborted"));
+		const timeout = setTimeout(done, ms);
+		const abort = () => {
+			signal?.removeEventListener("abort", abort);
+			clearTimeout(timeout);
+			reject(new Error("aborted"));
+		};
+		function done() {
+			signal?.removeEventListener("abort", abort);
+			resolve();
+		}
+		signal?.addEventListener("abort", abort, { once: true });
+	});
+}
+
+function countTokens(text: string): number {
+	return text.trim() ? text.trim().split(/\s+/).length : 0;
+}
+
+function textFrom(value: unknown): string {
+	if (typeof value === "string") return value;
+	if (!Array.isArray(value)) return "";
+	return value
+		.map((part) => {
+			if (!part || typeof part !== "object") return "";
+			const block = part as { type?: string; text?: string; thinking?: string; name?: string; arguments?: unknown };
+			if (block.type === "text") return block.text ?? "";
+			if (block.type === "thinking") return block.thinking ?? "";
+			if (block.type === "toolCall") return `${block.name ?? "tool"} ${JSON.stringify(block.arguments ?? {})}`;
+			return "";
+		})
+		.join("\n");
+}
+
+function costFor(model: Model<Api>, input: number, output: number, cacheRead = 0, cacheWrite = 0): Usage["cost"] {
+	const cost = {
+		input: (model.cost.input / 1_000_000) * input,
+		output: (model.cost.output / 1_000_000) * output,
+		cacheRead: (model.cost.cacheRead / 1_000_000) * cacheRead,
+		cacheWrite: (model.cost.cacheWrite / 1_000_000) * cacheWrite,
+		total: 0,
+	};
+	cost.total = cost.input + cost.output + cost.cacheRead + cost.cacheWrite;
+	return cost;
+}
+
+function usageFor(model: Model<Api>, context: Context, outputText: string): Usage {
+	const input = countTokens([context.systemPrompt ?? "", ...context.messages.map((message) => textFrom(message.content))].join("\n"));
+	const output = countTokens(outputText);
+	return {
+		input,
+		output,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: input + output,
+		cost: costFor(model, input, output),
+	};
+}
+
+function numberFrom(value: unknown, fallback = 0): number {
+	return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function usageFromResponse(model: Model<Api>, context: Context, outputText: string, response: Record<string, any>): Usage {
+	const raw = response.usage ?? {};
+	const input = numberFrom(raw.input_tokens ?? raw.prompt_tokens, countTokens([context.systemPrompt ?? "", ...context.messages.map((message) => textFrom(message.content))].join("\n")));
+	const output = numberFrom(raw.output_tokens ?? raw.completion_tokens, countTokens(outputText));
+	const cacheRead = numberFrom(raw.input_tokens_details?.cached_tokens ?? raw.prompt_tokens_details?.cached_tokens, 0);
+	const cacheWrite = numberFrom(raw.input_tokens_details?.cache_write_tokens ?? raw.prompt_tokens_details?.cache_write_tokens, 0);
+	return {
+		input,
+		output,
+		cacheRead,
+		cacheWrite,
+		totalTokens: numberFrom(raw.total_tokens, input + output + cacheRead + cacheWrite),
+		cost: costFor(model, input, output, cacheRead, cacheWrite),
+	};
+}
+
+function responsesInput(context: Context): string {
+	const parts: string[] = [];
+	if (context.systemPrompt) parts.push(`[system]\n${context.systemPrompt}`);
+	for (const message of context.messages) {
+		const label = message.role === "toolResult" ? `tool:${message.toolName}` : message.role;
+		parts.push(`[${label}]\n${textFrom(message.content)}`);
+	}
+	return parts.join("\n\n");
+}
+
+function responseText(response: Record<string, any>): string {
+	if (typeof response.output_text === "string") return response.output_text;
+	const output = response.output;
+	if (!Array.isArray(output)) return "";
+	return output
+		.flatMap((item) => {
+			if (typeof item?.text === "string") return [item.text];
+			if (!Array.isArray(item?.content)) return [];
+			return item.content.map((part: any) => (typeof part?.text === "string" ? part.text : ""));
+		})
+		.filter(Boolean)
+		.join("\n");
+}
+
+async function fetchJson(url: string, init: RequestInit): Promise<Record<string, any>> {
+	const response = await fetch(url, init);
+	const body = await response.text();
+	let json: Record<string, any> = {};
+	if (body.trim()) {
+		try {
+			json = JSON.parse(body);
+		} catch {
+			json = { text: body };
+		}
+	}
+	if (!response.ok) throw new Error(`Doubleword API error ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`);
+	return json;
+}
+
+function emptyMessage(model: Model<Api>, responseId: string): AssistantMessage {
+	return {
+		role: "assistant",
+		content: [],
+		api: model.api,
+		provider: model.provider,
+		model: model.id,
+		responseId,
+		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+		stopReason: "stop",
+		timestamp: Date.now(),
+	};
+}
+
+async function simulateAsyncPolls(model: Model<Api>, responseId: string, turnIndex: number | undefined, options?: SimpleStreamOptions): Promise<void> {
+	const submitStart = performance.now();
+	writeJsonl("async_submit", {
+		provider: model.provider,
+		model: model.id,
+		responseId,
+		turnIndex,
+		serviceTierRequested: ASYNC_SERVICE_TIER,
+		durationMs: durationMs(submitStart),
+	});
+
+	const pollCount = envInt("DOUBLEWORD_ASYNC_STUB_POLLS", 2);
+	const pollMs = envInt("DOUBLEWORD_ASYNC_STUB_POLL_MS", 100);
+	for (let pollIndex = 1; pollIndex <= pollCount; pollIndex++) {
+		const pollStart = performance.now();
+		await sleep(pollMs, options?.signal);
+		writeJsonl("async_poll", {
+			provider: model.provider,
+			model: model.id,
+			responseId,
+			turnIndex,
+			serviceTierRequested: ASYNC_SERVICE_TIER,
+			pollIndex,
+			pollCount,
+			status: pollIndex === pollCount ? "complete" : pollIndex === 1 ? "queued" : "in_progress",
+			durationMs: durationMs(pollStart),
+		});
+	}
+}
+
+function streamStub(tier: "realtime" | "async", model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
+	const stream = createAssistantMessageEventStream();
+
+	(async () => {
+		const started = performance.now();
+		const turnIndex = activeTurnIndex;
+		const responseId = `stub-${randomUUID()}`;
+		const output = emptyMessage(model, responseId);
+
+		try {
+			writeJsonl("provider_start", {
+				tier,
+				provider: model.provider,
+				model: model.id,
+				api: model.api,
+				responseId,
+				turnIndex,
+				batchingDiscipline: Boolean(context.systemPrompt?.includes(BATCHING_DISCIPLINE_MARKER)),
+			});
+			stream.push({ type: "start", partial: output });
+
+			if (tier === "async") await simulateAsyncPolls(model, responseId, turnIndex, options);
+			else await sleep(envInt("DOUBLEWORD_REALTIME_STUB_DELAY_MS", 0), options?.signal);
+
+			output.content.push({ type: "text", text: "" });
+			const contentIndex = output.content.length - 1;
+			stream.push({ type: "text_start", contentIndex, partial: output });
+
+			const block = output.content[contentIndex];
+			if (block.type === "text") block.text += FIXTURE_TEXT;
+			stream.push({ type: "text_delta", contentIndex, delta: FIXTURE_TEXT, partial: output });
+			writeJsonl("provider_ttft", { tier, provider: model.provider, model: model.id, responseId, turnIndex, ttftMs: durationMs(started) });
+
+			stream.push({ type: "text_end", contentIndex, content: FIXTURE_TEXT, partial: output });
+			output.usage = usageFor(model, context, FIXTURE_TEXT);
+			stream.push({ type: "done", reason: "stop", message: output });
+			writeJsonl("provider_end", {
+				tier,
+				provider: model.provider,
+				model: model.id,
+				responseId,
+				turnIndex,
+				durationMs: durationMs(started),
+				usage: output.usage,
+			});
+			stream.end();
+		} catch (error) {
+			const reason = options?.signal?.aborted ? "aborted" : "error";
+			output.stopReason = reason;
+			output.errorMessage = error instanceof Error ? error.message : String(error);
+			writeJsonl("provider_error", { tier, provider: model.provider, model: model.id, responseId, turnIndex, reason, durationMs: durationMs(started), error: output.errorMessage });
+			stream.push({ type: "error", reason, error: output });
+			stream.end();
+		}
+	})();
+
+	return stream;
+}
+
+function streamRealtimeStub(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
+	return streamStub("realtime", model, context, options);
+}
+
+function streamAsyncStub(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
+	return streamStub("async", model, context, options);
+}
+
+function streamLiveAsync(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
+	const stream = createAssistantMessageEventStream();
+
+	(async () => {
+		const started = performance.now();
+		const turnIndex = activeTurnIndex;
+		let responseId = `pending-${randomUUID()}`;
+		const output = emptyMessage(model, responseId);
+
+		try {
+			writeJsonl("provider_start", { tier: "async", provider: model.provider, model: model.id, api: model.api, turnIndex, serviceTierRequested: ASYNC_SERVICE_TIER });
+			stream.push({ type: "start", partial: output });
+
+			const configuredApiKey = options?.apiKey && options.apiKey !== "doubleword-live-placeholder" && !options.apiKey.startsWith("$") ? options.apiKey : undefined;
+			const apiKey = process.env.DOUBLEWORD_API_KEY ?? configuredApiKey;
+			if (!apiKey) throw new Error("DOUBLEWORD_API_KEY is required for doubleword-async live provider");
+
+			const baseUrl = envString("DOUBLEWORD_BASE_URL", model.baseUrl ?? DOUBLEWORD_API_BASE_URL).replace(/\/$/, "");
+			const headers = new Headers(options?.headers);
+			headers.set("content-type", "application/json");
+			headers.set("authorization", `Bearer ${apiKey}`);
+			const submitStart = performance.now();
+			let response = await fetchJson(`${baseUrl}/responses`, {
+				method: "POST",
+				headers,
+				signal: options?.signal,
+				body: JSON.stringify({ model: model.id, input: responsesInput(context), service_tier: ASYNC_SERVICE_TIER, background: true }),
+			});
+			responseId = String(response.id ?? responseId);
+			output.responseId = responseId;
+			writeJsonl("async_submit", {
+				provider: model.provider,
+				model: model.id,
+				responseId,
+				turnIndex,
+				status: response.status,
+				serviceTierRequested: ASYNC_SERVICE_TIER,
+				serviceTierActual: response.service_tier,
+				durationMs: durationMs(submitStart),
+			});
+
+			const pollMs = envInt("DOUBLEWORD_LIVE_ASYNC_POLL_MS", 2000);
+			const maxPolls = envInt("DOUBLEWORD_LIVE_ASYNC_MAX_POLLS", 300);
+			let pollIndex = 0;
+			while (["queued", "in_progress"].includes(String(response.status))) {
+				if (++pollIndex > maxPolls) throw new Error(`Doubleword async response ${responseId} exceeded ${maxPolls} polls`);
+				const pollStart = performance.now();
+				await sleep(pollMs, options?.signal);
+				response = await fetchJson(`${baseUrl}/responses/${encodeURIComponent(responseId)}`, { method: "GET", headers, signal: options?.signal });
+				writeJsonl("async_poll", {
+					provider: model.provider,
+					model: model.id,
+					responseId,
+					turnIndex,
+					serviceTierRequested: ASYNC_SERVICE_TIER,
+					serviceTierActual: response.service_tier,
+					pollIndex,
+					status: response.status,
+					durationMs: durationMs(pollStart),
+				});
+			}
+
+			const status = String(response.status ?? "");
+			if (["failed", "cancelled", "canceled", "incomplete", "expired"].includes(status)) throw new Error(`Doubleword async response ${responseId} ended with status ${status}`);
+			if (status !== "completed") throw new Error(`Doubleword async response ${responseId} has unsupported/incomplete status ${status || "missing"}`);
+
+			const text = responseText(response);
+			writeJsonl("provider_ttft", { tier: "async", provider: model.provider, model: model.id, responseId, turnIndex, ttftMs: durationMs(started) });
+			if (text) {
+				output.content.push({ type: "text", text: "" });
+				const contentIndex = output.content.length - 1;
+				stream.push({ type: "text_start", contentIndex, partial: output });
+				const block = output.content[contentIndex];
+				if (block.type === "text") block.text += text;
+				stream.push({ type: "text_delta", contentIndex, delta: text, partial: output });
+				stream.push({ type: "text_end", contentIndex, content: text, partial: output });
+			}
+
+			output.usage = usageFromResponse(model, context, text, response);
+			stream.push({ type: "done", reason: "stop", message: output });
+			writeJsonl("provider_end", {
+				tier: "async",
+				provider: model.provider,
+				model: model.id,
+				responseId,
+				turnIndex,
+				status: response.status,
+				serviceTierRequested: ASYNC_SERVICE_TIER,
+				serviceTierActual: response.service_tier,
+				durationMs: durationMs(started),
+				usage: output.usage,
+			});
+			stream.end();
+		} catch (error) {
+			const reason = options?.signal?.aborted ? "aborted" : "error";
+			output.stopReason = reason;
+			output.errorMessage = error instanceof Error ? error.message : String(error);
+			writeJsonl("provider_error", { tier: "async", provider: model.provider, model: model.id, responseId, turnIndex, reason, serviceTierRequested: ASYNC_SERVICE_TIER, durationMs: durationMs(started), error: output.errorMessage });
+			stream.push({ type: "error", reason, error: output });
+			stream.end();
+		}
+	})();
+
+	return stream;
+}
+
+const stubModel = (id: string, name: string, cost: ModelCost = ZERO_COST) => ({
+	id,
+	name,
+	reasoning: false,
+	input: ["text" as const],
+	cost,
+	contextWindow: 128000,
+	maxTokens: 4096,
+});
+
+const REALTIME_STUB_MODELS = [
+	stubModel("glm-5-2", "GLM-5.2-FP8", { input: 1.4, output: 4.4, cacheRead: 0, cacheWrite: 0 }),
+	stubModel("deepseek-v4-flash", "DeepSeek-V4-Flash", { input: 0.14, output: 0.28, cacheRead: 0, cacheWrite: 0 }),
+];
+
+const LIVE_ASYNC_MODELS = [
+	stubModel("glm-5-2", "GLM-5.2-FP8", { input: 1.05, output: 3.3, cacheRead: 0, cacheWrite: 0 }),
+	stubModel("deepseek-v4-flash", "DeepSeek-V4-Flash", { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 }),
+];
+
+export function registerDoublewordProviders(pi: ExtensionAPI): void {
+	pi.registerProvider(REALTIME_PROVIDER, {
+		name: "Doubleword Realtime Stub",
+		baseUrl: "http://localhost/doubleword-realtime-stub",
+		apiKey: "doubleword-stub",
+		api: "doubleword-realtime-stub-api",
+		models: REALTIME_STUB_MODELS,
+		streamSimple: streamRealtimeStub,
+	});
+
+	pi.registerProvider(ASYNC_PROVIDER, {
+		name: "Doubleword Async Stub",
+		baseUrl: "http://localhost/doubleword-async-stub",
+		apiKey: "doubleword-stub",
+		api: "doubleword-async-stub-api",
+		models: [stubModel(ASYNC_PROVIDER, "Doubleword async stub")],
+		streamSimple: streamAsyncStub,
+	});
+
+	pi.registerProvider(LIVE_ASYNC_PROVIDER, {
+		name: "Doubleword Async",
+		baseUrl: DOUBLEWORD_API_BASE_URL,
+		apiKey: "doubleword-live-placeholder",
+		api: "doubleword-async-api",
+		models: LIVE_ASYNC_MODELS,
+		streamSimple: streamLiveAsync,
+	});
+}
+
+export default function (pi: ExtensionAPI): void {
+	registerDoublewordProviders(pi);
+}

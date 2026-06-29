@@ -1,13 +1,26 @@
-# doubleword-pi
+# Fanout
 
-Pi extension research/workspace for using [Doubleword](https://doubleword.ai) as a provider.
+Monorepo workspace for three related packages:
+
+- `doubleword-provider`: [Doubleword](https://doubleword.ai) model/provider integration.
+- `fanout-core`: agent-agnostic work splitting, scheduling, validation, and review policy.
+- `fanout-pi`: Pi adapter and install target that wires Fanout plus the Doubleword provider into Pi.
+
+Current package layout:
+
+```text
+packages/
+  doubleword-provider/
+  fanout-core/
+  fanout-pi/
+```
 
 Current focus:
 
-1. Stub realtime and async Doubleword providers.
-2. Add observability-first testing.
-3. Keep workflows Pi-native: planning prompts first, custom orchestration later only if needed.
-4. Benchmark with traces, stubs, and local hybrid workflow fixtures before live endpoints.
+1. Keep Doubleword provider support usable on its own.
+2. Keep Fanout optimization agent-agnostic.
+3. Keep `fanout-pi` as the Pi adapter/install target.
+4. Benchmark with traces, stubs, and local hybrid workflow fixtures before live orchestration.
 
 The current benchmark layer includes a local/offline hybrid workflow simulator for comparing tier1 and tier2 routing policies. It reads committed JSONL fixtures, simulates active user-facing turnaround time separately from background completion, and reports target evidence for critical-path scheduling, RPE background execution, sharded RPE, speculative portfolio execution, and budget-constrained routing. Synthetic fixture passes are simulator evidence only, not observed trace feasibility claims.
 
@@ -31,6 +44,15 @@ Planning prompt:
 Realtime stubs expose `glm-5-2` and `deepseek-v4-flash` with offline cost estimates. Realtime/tier 1 prices are GLM $1.40/$4.40 and DeepSeek $0.14/$0.28 per MTok in/out; tier 2/flex prices are GLM $1.05/$3.30 and DeepSeek $0.10/$0.20.
 `doubleword-async` is an opt-in live Responses API polling provider gated by `DOUBLEWORD_API_KEY`.
 Normal runs also get lightweight think-ahead batching instructions.
+
+Install target shape:
+
+```text
+pi install git:github.com/org/fanout
+pi install git:github.com/org/fanout/packages/doubleword-provider
+```
+
+Use the repo root for Fanout so the Pi adapter can load its sibling packages. Use the `doubleword-provider` package directly when users only want the provider.
 
 Docs:
 

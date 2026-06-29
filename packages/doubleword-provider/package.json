@@ -1,0 +1,17 @@
+{
+  "name": "doubleword-provider",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "keywords": ["pi-package", "doubleword", "provider"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  }
+}

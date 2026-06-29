@@ -1,5 +1,5 @@
 ---
-description: Plan a Pi/Doubleword task before implementation
+description: Plan a Pi/Fanout task before implementation
 argument-hint: "<task>"
 ---
 
