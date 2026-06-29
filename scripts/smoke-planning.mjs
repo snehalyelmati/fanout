@@ -26,7 +26,7 @@ function readEvents(logFile) {
 
 function run(name, promptText) {
   const logFile = join(dir, `${name}.jsonl`);
-  const result = spawnSync("pi", ["-e", ".", "--model", "doubleword-realtime-stub/glm-5-2", "-p", promptText], {
+  const result = spawnSync("pi", ["-e", ".", "--model", "doubleword-stub/deepseek-v4-flash", "-p", promptText], {
     cwd: process.cwd(),
     env: { ...process.env, DOUBLEWORD_OBSERVABILITY_FILE: logFile, DOUBLEWORD_RUN_ID: `smoke-planning-${name}` },
     encoding: "utf8",

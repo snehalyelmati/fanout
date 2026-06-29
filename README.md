@@ -41,9 +41,21 @@ Planning prompt:
 /dw-plan <task>
 ```
 
-Realtime stubs expose `glm-5-2` and `deepseek-v4-flash` with offline cost estimates. Realtime/tier 1 prices are GLM $1.40/$4.40 and DeepSeek $0.14/$0.28 per MTok in/out; tier 2/flex prices are GLM $1.05/$3.30 and DeepSeek $0.10/$0.20.
-`doubleword-async` is an opt-in live Responses API polling provider gated by `DOUBLEWORD_API_KEY`.
+`doubleword-stub` exposes `glm-5-2` and `deepseek-v4-flash` with offline cost estimates. Realtime/tier 1 prices are GLM $1.40/$4.40 and DeepSeek $0.14/$0.28 per MTok in/out; tier 2/flex prices are GLM $1.05/$3.30 and DeepSeek $0.10/$0.20.
+Live `doubleword` discovers models from Doubleword `/models` when `DOUBLEWORD_API_KEY` is set, caches the catalog locally, and falls back to the minimal GLM/DeepSeek list when discovery is unavailable. Use `Alt+T` or `/doubleword-mode` to toggle realtime vs async for `doubleword` and `doubleword-stub`. Async uses Responses `background: true` polling with a 10 minute wall-clock timeout, one final GET before timeout failure, best-effort remote cancel, transient poll retry, and a default `max_output_tokens` cap of 16k.
 Normal runs also get lightweight think-ahead batching instructions.
+
+Useful provider environment variables:
+
+```text
+DOUBLEWORD_API_KEY                 live API key
+DOUBLEWORD_BASE_URL                override API base URL
+DOUBLEWORD_MODEL_CACHE_FILE        override cached /models catalog path
+DOUBLEWORD_MAX_OUTPUT_TOKENS       override default 16384 output cap
+DOUBLEWORD_LIVE_ASYNC_TIMEOUT_MS   override default 600000 async timeout
+DOUBLEWORD_LIVE_ASYNC_POLL_MS      override default 2000 poll interval
+DOUBLEWORD_CANCEL_TIMEOUT_MS       override default 10000 cancel request timeout
+```
 
 Install target shape:
 

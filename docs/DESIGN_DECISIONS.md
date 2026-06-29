@@ -66,7 +66,7 @@ Reason: The workspace should be self-contained for extension development and ben
 
 ### Stub providers use custom streamSimple
 
-Decision: Register `doubleword-realtime-stub` and `doubleword-async-stub` with custom `streamSimple` implementations instead of proxying a live-compatible API shape immediately.
+Decision: Register `doubleword-stub` with custom `streamSimple` implementations instead of proxying a live-compatible API shape immediately.
 
 Reason: The custom stream path validates Pi provider mechanics, event ordering, async polling simulation, and observability before any live Doubleword endpoint assumptions.
 
@@ -102,7 +102,7 @@ Reason: This validates Pi model registration, model selection, usage accounting,
 
 ### Live async uses direct Responses polling first
 
-Decision: Add an opt-in `doubleword-async` provider that submits Responses API requests with `service_tier: "flex"` and `background: true`, then polls `/responses/{id}` directly.
+Decision: Add async mode to the opt-in `doubleword` provider. It submits Responses API requests with `service_tier: "flex"` and `background: true`, then polls `/responses/{id}` directly.
 
 Reason: Direct polling preserves queue/status/poll observability and avoids adding Autobatcher or custom orchestration before benchmarks justify it.
 
@@ -230,6 +230,30 @@ Reason: The current branch contains useful trace-derived direction. Merging shou
 
 ## 2026-06-29
 
+### Add live realtime as a key-gated provider
+
+Decision: Register `doubleword` as an opt-in live provider using the Responses API with `service_tier: "priority"`, while keeping `doubleword-stub` for default checks.
+
+Reason: Tier 1 should be testable through Pi without replacing the offline stub path or requiring live credentials in normal validation.
+
+### Keep batch as smoke/probe, not interactive Pi provider
+
+Decision: Validate tier 3 with a key-gated batch create/retrieve/cancel smoke script instead of registering it as a Pi streaming provider.
+
+Reason: Batch jobs return files over long windows and do not fit Pi's interactive `streamSimple` response contract.
+
+### Map Doubleword reasoning to Pi thinking blocks
+
+Decision: Convert Responses `reasoning` items to Pi `thinking` content and only emit message `output_text` as assistant text.
+
+Reason: Pi has first-class thinking blocks. Mixing reasoning summaries into user-visible text corrupts normal answers while losing trace structure.
+
+### Use full Doubleword model IDs for live providers
+
+Decision: Live providers expose Doubleword's full model IDs, such as `deepseek-ai/DeepSeek-V4-Flash`, while stubs may keep short local aliases.
+
+Reason: Live `/responses` rejected short aliases; `/models` returns provider-qualified IDs.
+
 ### Split Fanout from Doubleword provider support
 
 Decision: Structure the repo as a minimal monorepo with `doubleword-provider`, `fanout-core`, and `fanout-pi`.
@@ -241,3 +265,21 @@ Reason: Doubleword provider support answers “how do I call this model/tier?”
 Decision: Do not add a CLI package, generic adapter framework, or separate repos yet.
 
 Reason: Pi is the only concrete adapter today. Three packages are enough to preserve boundaries without adding release and build overhead.
+
+### Cache Doubleword model discovery from the provider
+
+Decision: Discover live Doubleword models from `/v1/models` when an API key is available, cache the catalog locally, and fall back to the cached catalog or the minimal GLM/DeepSeek list when discovery is unavailable.
+
+Reason: Pi custom providers need models registered during extension startup. Provider discovery keeps the model list current without making startup depend on live network availability.
+
+### Decouple Doubleword execution tier from model names
+
+Decision: Register only `doubleword` and `doubleword-stub` providers whose model IDs stay stable while `Alt+T` or `/doubleword-mode` toggles `realtime` vs `async` execution. Show the status-line toggle only when the selected provider supports multiple tiers.
+
+Reason: Tier is an execution policy, not a model identity. Keeping the toggle conditional avoids clutter for single-tier providers, and not registering tier-named aliases avoids duplicate model-list entries.
+
+### Define Doubleword async cancellation and timeout semantics
+
+Decision: Live async uses a 10 minute wall-clock timeout, sends `max_output_tokens` capped at 16k by default, retries transient poll failures, performs one final GET before timeout failure, and best-effort cancels background responses on timeout or user abort.
+
+Reason: Async Responses jobs can outlive the Pi turn. Local abort must stop immediately, timeout should not discard a just-completed result, and remote cancel should avoid orphaned background work without masking the original abort or timeout.

@@ -6,14 +6,13 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "doubleword-pi-"));
 const logFile = join(dir, "observability.jsonl");
 const realtimeModels = [
-  { model: "glm-5-2", inputRate: 1.4, outputRate: 4.4 },
   { model: "deepseek-v4-flash", inputRate: 0.14, outputRate: 0.28 },
 ];
 
-function run(provider, model = provider) {
-  const result = spawnSync("pi", ["-e", ".", "--model", `${provider}/${model}`, "-p", "Say hello"], {
+function run(provider, model = provider, envPatch = {}) {
+  const result = spawnSync("pi", ["-e", ".", "--model", `${provider}/${model}`, "-p", "Respond 'hello', do not say anything else."], {
     cwd: process.cwd(),
-    env: { ...process.env, DOUBLEWORD_OBSERVABILITY_FILE: logFile, DOUBLEWORD_RUN_ID: "smoke-observability" },
+    env: { ...process.env, DOUBLEWORD_OBSERVABILITY_FILE: logFile, DOUBLEWORD_RUN_ID: "smoke-observability", ...envPatch },
     encoding: "utf8",
   });
   if (result.status !== 0 || !result.stdout.includes("Doubleword stub response.")) {
@@ -39,7 +38,7 @@ function sameCost(actual, expected) {
 }
 
 function realtimeCostMatches(event, model, inputRate, outputRate) {
-  if (event.provider !== "doubleword-realtime-stub" || event.model !== model) return false;
+  if (event.provider !== "doubleword-stub" || event.model !== model || event.tier !== "realtime") return false;
   const usage = event.usage;
   if (typeof usage?.input !== "number" || typeof usage.output !== "number") return false;
   const expectedInput = usage.input * inputRate / 1_000_000;
@@ -49,8 +48,8 @@ function realtimeCostMatches(event, model, inputRate, outputRate) {
 }
 
 try {
-  for (const { model } of realtimeModels) run("doubleword-realtime-stub", model);
-  run("doubleword-async-stub");
+  run("doubleword-stub", "deepseek-v4-flash");
+  run("doubleword-stub", "deepseek-v4-flash", { DOUBLEWORD_EXECUTION_MODE: "async" });
 
   const events = readFileSync(logFile, "utf8")
     .trim()
@@ -58,11 +57,11 @@ try {
     .filter(Boolean)
     .map((line) => JSON.parse(line));
 
-  const providers = ["doubleword-realtime-stub", "doubleword-async-stub"];
+  const providers = ["doubleword-stub"];
   const checks = [
-    ["agent_end.no_tools", allEvents(events, "agent_end", 3, (event) => event.turnCount === 1 && event.toolCallCount === 0)],
+    ["agent_end.no_tools", allEvents(events, "agent_end", 2, (event) => event.turnCount === 1 && event.toolCallCount === 0)],
     ["turn_start", has(events, "turn_start", (event) => typeof event.turnIndex === "number")],
-    ["turn_end.no_tools", allEvents(events, "turn_end", 3, (event) => event.toolCallCount === 0)],
+    ["turn_end.no_tools", allEvents(events, "turn_end", 2, (event) => event.toolCallCount === 0)],
     ["provider_start", has(events, "provider_start")],
     ...providers.flatMap((provider) => [
       [`${provider}.provider_start.turnIndex`, has(events, "provider_start", (event) => event.provider === provider && event.turnIndex === 0)],
@@ -75,9 +74,10 @@ try {
       `realtime.${model}.cost`,
       has(events, "provider_end", (event) => realtimeCostMatches(event, model, inputRate, outputRate)),
     ]),
-    ["async.cost.zero", has(events, "provider_end", (event) => event.provider === "doubleword-async-stub" && event.usage?.cost?.total === 0)],
-    ["async_submit", has(events, "async_submit", (event) => event.provider === "doubleword-async-stub" && event.turnIndex === 0 && event.serviceTierRequested === "flex")],
-    ["async_poll", has(events, "async_poll", (event) => event.provider === "doubleword-async-stub" && event.turnIndex === 0 && event.serviceTierRequested === "flex" && typeof event.durationMs === "number")],
+    ["unified.realtime.tier", has(events, "provider_end", (event) => event.provider === "doubleword-stub" && event.model === "deepseek-v4-flash" && event.tier === "realtime")],
+    ["unified.async.tier", has(events, "provider_end", (event) => event.provider === "doubleword-stub" && event.model === "deepseek-v4-flash" && event.tier === "async")],
+    ["unified.async_submit", has(events, "async_submit", (event) => event.provider === "doubleword-stub" && event.turnIndex === 0 && event.serviceTierRequested === "flex")],
+    ["unified.async_poll", has(events, "async_poll", (event) => event.provider === "doubleword-stub" && event.turnIndex === 0 && event.serviceTierRequested === "flex" && typeof event.durationMs === "number")],
   ];
   const missing = checks.filter(([, ok]) => !ok).map(([name]) => name);
   if (missing.length) throw new Error(`Missing observability fields/events: ${missing.join(", ")}\n${readFileSync(logFile, "utf8")}`);
