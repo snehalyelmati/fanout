@@ -15,7 +15,7 @@ const timeout = Number(process.env.DOUBLEWORD_LIVE_ASYNC_SMOKE_TIMEOUT_MS ?? 600
 try {
   const result = spawnSync(
     "pi",
-    ["-e", ".", "--model", "doubleword-async/deepseek-v4-flash", "-p", "Say hello in one short sentence."],
+    ["-e", ".", "--model", "doubleword-async/deepseek-ai/DeepSeek-V4-Flash", "-p", "Respond 'hello', do not say anything else."],
     {
       cwd: process.cwd(),
       env: { ...process.env, DOUBLEWORD_OBSERVABILITY_FILE: logFile, DOUBLEWORD_RUN_ID: "smoke-live-async" },
@@ -37,7 +37,7 @@ try {
   const has = (name, predicate = () => true) => events.some((event) => event.event === name && predicate(event));
   const required = [
     ["async_submit", has("async_submit", (event) => event.provider === "doubleword-async" && event.serviceTierRequested === "flex" && typeof event.responseId === "string")],
-    ["provider_end", has("provider_end", (event) => event.provider === "doubleword-async" && event.model === "deepseek-v4-flash")],
+    ["provider_end", has("provider_end", (event) => event.provider === "doubleword-async" && event.model === "deepseek-ai/DeepSeek-V4-Flash")],
   ];
   const missing = required.filter(([, ok]) => !ok).map(([name]) => name);
   if (missing.length) throw new Error(`missing live async events: ${missing.join(", ")}\n${readFileSync(logFile, "utf8")}`);

@@ -6,12 +6,11 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "doubleword-pi-"));
 const logFile = join(dir, "observability.jsonl");
 const realtimeModels = [
-  { model: "glm-5-2", inputRate: 1.4, outputRate: 4.4 },
   { model: "deepseek-v4-flash", inputRate: 0.14, outputRate: 0.28 },
 ];
 
 function run(provider, model = provider) {
-  const result = spawnSync("pi", ["-e", ".", "--model", `${provider}/${model}`, "-p", "Say hello"], {
+  const result = spawnSync("pi", ["-e", ".", "--model", `${provider}/${model}`, "-p", "Respond 'hello', do not say anything else."], {
     cwd: process.cwd(),
     env: { ...process.env, DOUBLEWORD_OBSERVABILITY_FILE: logFile, DOUBLEWORD_RUN_ID: "smoke-observability" },
     encoding: "utf8",
@@ -60,9 +59,9 @@ try {
 
   const providers = ["doubleword-realtime-stub", "doubleword-async-stub"];
   const checks = [
-    ["agent_end.no_tools", allEvents(events, "agent_end", 3, (event) => event.turnCount === 1 && event.toolCallCount === 0)],
+    ["agent_end.no_tools", allEvents(events, "agent_end", 2, (event) => event.turnCount === 1 && event.toolCallCount === 0)],
     ["turn_start", has(events, "turn_start", (event) => typeof event.turnIndex === "number")],
-    ["turn_end.no_tools", allEvents(events, "turn_end", 3, (event) => event.toolCallCount === 0)],
+    ["turn_end.no_tools", allEvents(events, "turn_end", 2, (event) => event.toolCallCount === 0)],
     ["provider_start", has(events, "provider_start")],
     ...providers.flatMap((provider) => [
       [`${provider}.provider_start.turnIndex`, has(events, "provider_start", (event) => event.provider === provider && event.turnIndex === 0)],

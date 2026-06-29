@@ -59,7 +59,7 @@ function listen() {
 function runPi(baseUrl) {
   const timeout = Number(process.env.DOUBLEWORD_LIVE_ASYNC_MOCK_TIMEOUT_MS ?? 60_000);
   return new Promise((resolve) => {
-    const child = spawn("pi", ["-e", ".", "--model", "doubleword-async/deepseek-v4-flash", "-p", "Say hello in one short sentence."], {
+    const child = spawn("pi", ["-e", ".", "--model", "doubleword-async/deepseek-ai/DeepSeek-V4-Flash", "-p", "Respond 'hello', do not say anything else."], {
       cwd: process.cwd(),
       env: {
         ...process.env,
@@ -119,7 +119,7 @@ try {
   const liveEvent = (event) => event.provider === "doubleword-async" && event.turnIndex === 0 && event.serviceTierRequested === "flex";
   assert(has("async_submit", liveEvent), `missing live async_submit event\n${readFileSync(logFile, "utf8")}`);
   assert(has("async_poll", liveEvent), `missing live async_poll event\n${readFileSync(logFile, "utf8")}`);
-  assert(has("provider_end", (event) => event.provider === "doubleword-async" && event.model === "deepseek-v4-flash"), `missing provider_end for doubleword-async/deepseek-v4-flash\n${readFileSync(logFile, "utf8")}`);
+  assert(has("provider_end", (event) => event.provider === "doubleword-async" && event.model === "deepseek-ai/DeepSeek-V4-Flash"), `missing provider_end for doubleword-async/deepseek-ai/DeepSeek-V4-Flash\n${readFileSync(logFile, "utf8")}`);
 
   console.log(`live async mock smoke passed (${requests.length} requests, ${events.length} events)`);
   rmSync(dir, { recursive: true, force: true });

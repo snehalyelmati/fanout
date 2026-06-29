@@ -18,8 +18,10 @@ const available = new Set(rows.map(([provider, model]) => `${provider}/${model}`
 const expected = [
   ["doubleword-realtime-stub", "glm-5-2"],
   ["doubleword-realtime-stub", "deepseek-v4-flash"],
-  ["doubleword-async", "glm-5-2"],
-  ["doubleword-async", "deepseek-v4-flash"],
+  ["doubleword-realtime", "zai-org/GLM-5.2-FP8"],
+  ["doubleword-realtime", "deepseek-ai/DeepSeek-V4-Flash"],
+  ["doubleword-async", "zai-org/GLM-5.2-FP8"],
+  ["doubleword-async", "deepseek-ai/DeepSeek-V4-Flash"],
   ["doubleword-async-stub", "doubleword-async-stub"],
 ];
 

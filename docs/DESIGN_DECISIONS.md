@@ -230,6 +230,30 @@ Reason: The current branch contains useful trace-derived direction. Merging shou
 
 ## 2026-06-29
 
+### Add live realtime as a key-gated provider
+
+Decision: Register `doubleword-realtime` as an opt-in live provider using the Responses API with `service_tier: "priority"`, while keeping realtime stubs for default checks.
+
+Reason: Tier 1 should be testable through Pi without replacing the offline stub path or requiring live credentials in normal validation.
+
+### Keep batch as smoke/probe, not interactive Pi provider
+
+Decision: Validate tier 3 with a key-gated batch create/retrieve/cancel smoke script instead of registering it as a Pi streaming provider.
+
+Reason: Batch jobs return files over long windows and do not fit Pi's interactive `streamSimple` response contract.
+
+### Map Doubleword reasoning to Pi thinking blocks
+
+Decision: Convert Responses `reasoning` items to Pi `thinking` content and only emit message `output_text` as assistant text.
+
+Reason: Pi has first-class thinking blocks. Mixing reasoning summaries into user-visible text corrupts normal answers while losing trace structure.
+
+### Use full Doubleword model IDs for live providers
+
+Decision: Live providers expose Doubleword's full model IDs, such as `deepseek-ai/DeepSeek-V4-Flash`, while stubs may keep short local aliases.
+
+Reason: Live `/responses` rejected short aliases; `/models` returns provider-qualified IDs.
+
 ### Split Fanout from Doubleword provider support
 
 Decision: Structure the repo as a minimal monorepo with `doubleword-provider`, `fanout-core`, and `fanout-pi`.

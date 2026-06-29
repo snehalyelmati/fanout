@@ -101,26 +101,27 @@ This is the first version of “predictive coding”: prompt the model to predic
 
 ## Phase 4: Live-shaped realtime Doubleword stubs
 
-Status: realtime stubs expose the first live-shaped model IDs and pricing metadata; live endpoints remain deferred.
+Status: realtime stubs expose the first live-shaped model IDs and pricing metadata. An opt-in `doubleword-realtime` live provider now calls the Responses API with `service_tier: "priority"`; normal validation remains offline and keyless.
 
 - Register Doubleword realtime-shaped stub models for `glm-5-2` ($1.40/$4.40 per MTok in/out) and `deepseek-v4-flash` ($0.14/$0.28 per MTok in/out).
 - Use pricing metadata from `https://doubleword.ai/pricing` for stub cost estimates.
 - Keep the stub path available for tests; no live API key or network required.
 - Verify model IDs, fixture streaming, usage reporting, and pricing metadata.
-- Defer OpenAI-compatible live endpoint registration until after stub/trace confidence.
+- Register opt-in live realtime models under `doubleword-realtime` with Doubleword's full model IDs, e.g. `deepseek-ai/DeepSeek-V4-Flash`.
+- Keep live smoke opt-in with `DOUBLEWORD_API_KEY`; no live network in default checks.
 
 ## Phase 5: Live async Doubleword provider
 
 Status: opt-in `doubleword-async` provider path is wired for Responses API background polling; normal validation remains offline and keyless.
 
-- Register live-shaped async models for `glm-5-2` (tier 2/flex $1.05/$3.30 per MTok in/out) and `deepseek-v4-flash` (tier 2/flex $0.10/$0.20 per MTok in/out) under `doubleword-async`.
+- Register live-shaped async models with Doubleword's full model IDs, including `deepseek-ai/DeepSeek-V4-Flash` (tier 2/flex $0.10/$0.20 per MTok in/out), under `doubleword-async`.
 - Use Responses API at `https://api.doubleword.ai/v1` with `service_tier: "flex"` and `background: true`.
 - Poll `GET /v1/responses/{id}` while status is `queued` or `in_progress`.
-- Translate completed text responses into Pi assistant events after completion; no streaming before completion is assumed.
+- Translate completed Responses output into Pi assistant events after completion: reasoning items become `thinking` blocks, final `output_text` becomes text; no streaming before completion is assumed.
 - Track response ID, status transitions, requested/actual service tier, poll time, usage, and errors.
 - Keep live smoke opt-in with `DOUBLEWORD_API_KEY`; no live network in default checks.
 
-Key limitation to validate live: async responses may not stream; Pi may only receive content/tool calls after completion. Tool-call translation remains pending until live Responses output shape is confirmed.
+Key limitation to validate live: async responses may not stream; Pi may only receive content/tool calls after completion. Tool-call translation remains pending.
 
 ## Phase 6: Stub/trace benchmarks
 
@@ -198,8 +199,9 @@ Next work after evidence cleanup:
 
 After stubs, traces, and RPE routing policies:
 
-- Run small live realtime baseline.
-- Run same tasks through live async.
+- Run small live realtime baseline with `rtk npm run smoke:live:realtime`.
+- Run same tasks through live async with `rtk npm run smoke:live:async`.
+- Probe batch creation/cancel with `DOUBLEWORD_LIVE_BATCH=1 rtk npm run smoke:live:batch`.
 - Compare wall-clock time, TTFT, total time, tool count, token usage, and cost.
 - Keep live tests opt-in and API-key gated.
 

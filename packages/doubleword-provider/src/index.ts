@@ -17,8 +17,11 @@ import {
 
 const REALTIME_PROVIDER = "doubleword-realtime-stub";
 const ASYNC_PROVIDER = "doubleword-async-stub";
+const LIVE_REALTIME_PROVIDER = "doubleword-realtime";
 const LIVE_ASYNC_PROVIDER = "doubleword-async";
 const DOUBLEWORD_API_BASE_URL = process.env.DOUBLEWORD_BASE_URL ?? "https://api.doubleword.ai/v1";
+const LIVE_GLM_MODEL_ID = "zai-org/GLM-5.2-FP8";
+const LIVE_DEEPSEEK_MODEL_ID = "deepseek-ai/DeepSeek-V4-Flash";
 const ASYNC_SERVICE_TIER = "flex";
 const BATCHING_DISCIPLINE_MARKER = "## Think-ahead batching";
 type ModelCost = Model<Api>["cost"];
@@ -164,18 +167,68 @@ function responsesInput(context: Context): string {
 	return parts.join("\n\n");
 }
 
-function responseText(response: Record<string, any>): string {
-	if (typeof response.output_text === "string") return response.output_text;
-	const output = response.output;
-	if (!Array.isArray(output)) return "";
-	return output
-		.flatMap((item) => {
-			if (typeof item?.text === "string") return [item.text];
-			if (!Array.isArray(item?.content)) return [];
-			return item.content.map((part: any) => (typeof part?.text === "string" ? part.text : ""));
-		})
+function messageText(item: any): string {
+	if (!Array.isArray(item?.content)) return "";
+	return item.content
+		.map((part: any) => (part?.type === "output_text" || part?.type === "refusal" ? (part.text ?? part.refusal ?? "") : ""))
 		.filter(Boolean)
-		.join("\n");
+		.join("");
+}
+
+function reasoningText(item: any): string {
+	const parts = Array.isArray(item?.summary) && item.summary.length ? item.summary : item?.content;
+	if (!Array.isArray(parts)) return "";
+	return parts
+		.map((part: any) => (part?.type === "summary_text" || part?.type === "reasoning_text" ? part.text ?? "" : ""))
+		.filter(Boolean)
+		.join("\n\n");
+}
+
+function emitText(stream: AssistantMessageEventStream, output: AssistantMessage, text: string): void {
+	output.content.push({ type: "text", text: "" });
+	const contentIndex = output.content.length - 1;
+	stream.push({ type: "text_start", contentIndex, partial: output });
+	const block = output.content[contentIndex];
+	if (block.type === "text") block.text += text;
+	stream.push({ type: "text_delta", contentIndex, delta: text, partial: output });
+	stream.push({ type: "text_end", contentIndex, content: text, partial: output });
+}
+
+function emitThinking(stream: AssistantMessageEventStream, output: AssistantMessage, thinking: string, signature?: string): void {
+	output.content.push({ type: "thinking", thinking: "", thinkingSignature: signature });
+	const contentIndex = output.content.length - 1;
+	stream.push({ type: "thinking_start", contentIndex, partial: output });
+	const block = output.content[contentIndex];
+	if (block.type === "thinking") block.thinking += thinking;
+	stream.push({ type: "thinking_delta", contentIndex, delta: thinking, partial: output });
+	stream.push({ type: "thinking_end", contentIndex, content: thinking, partial: output });
+}
+
+function emitResponseContent(response: Record<string, any>, stream: AssistantMessageEventStream, output: AssistantMessage): string {
+	const items = Array.isArray(response.output) ? response.output : [];
+	const finalText: string[] = [];
+	for (const item of items) {
+		if (item?.type === "reasoning") {
+			const thinking = reasoningText(item);
+			if (thinking) emitThinking(stream, output, thinking, JSON.stringify(item));
+		} else if (item?.type === "message") {
+			const text = messageText(item);
+			if (text) {
+				emitText(stream, output, text);
+				finalText.push(text);
+			}
+		}
+	}
+	if (finalText.length) return finalText.join("\n");
+	const fallback = typeof response.output_text === "string" ? response.output_text : "";
+	if (fallback) emitText(stream, output, fallback);
+	return fallback;
+}
+
+function assertCompletedResponse(tier: "realtime" | "async", responseId: string, response: Record<string, any>): void {
+	const status = String(response.status ?? "");
+	if (["failed", "cancelled", "canceled", "incomplete", "expired"].includes(status)) throw new Error(`Doubleword ${tier} response ${responseId} ended with status ${status}`);
+	if (status !== "completed") throw new Error(`Doubleword ${tier} response ${responseId} has unsupported/incomplete status ${status || "missing"}`);
 }
 
 async function fetchJson(url: string, init: RequestInit): Promise<Record<string, any>> {
@@ -304,6 +357,66 @@ function streamAsyncStub(model: Model<Api>, context: Context, options?: SimpleSt
 	return streamStub("async", model, context, options);
 }
 
+function streamLiveRealtime(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
+	const stream = createAssistantMessageEventStream();
+
+	(async () => {
+		const started = performance.now();
+		const turnIndex = activeTurnIndex;
+		let responseId = `pending-${randomUUID()}`;
+		const output = emptyMessage(model, responseId);
+
+		try {
+			writeJsonl("provider_start", { tier: "realtime", provider: model.provider, model: model.id, api: model.api, turnIndex, serviceTierRequested: "priority" });
+			stream.push({ type: "start", partial: output });
+
+			const configuredApiKey = options?.apiKey && options.apiKey !== "doubleword-live-placeholder" && !options.apiKey.startsWith("$") ? options.apiKey : undefined;
+			const apiKey = process.env.DOUBLEWORD_API_KEY ?? configuredApiKey;
+			if (!apiKey) throw new Error("DOUBLEWORD_API_KEY is required for doubleword-realtime live provider");
+
+			const baseUrl = envString("DOUBLEWORD_BASE_URL", model.baseUrl ?? DOUBLEWORD_API_BASE_URL).replace(/\/$/, "");
+			const headers = new Headers(options?.headers);
+			headers.set("content-type", "application/json");
+			headers.set("authorization", `Bearer ${apiKey}`);
+			const response = await fetchJson(`${baseUrl}/responses`, {
+				method: "POST",
+				headers,
+				signal: options?.signal,
+				body: JSON.stringify({ model: model.id, input: responsesInput(context), service_tier: "priority" }),
+			});
+			responseId = String(response.id ?? responseId);
+			output.responseId = responseId;
+			assertCompletedResponse("realtime", responseId, response);
+			writeJsonl("provider_ttft", { tier: "realtime", provider: model.provider, model: model.id, responseId, turnIndex, ttftMs: durationMs(started) });
+			const text = emitResponseContent(response, stream, output);
+
+			output.usage = usageFromResponse(model, context, text, response);
+			stream.push({ type: "done", reason: "stop", message: output });
+			writeJsonl("provider_end", {
+				tier: "realtime",
+				provider: model.provider,
+				model: model.id,
+				responseId,
+				status: response.status,
+				serviceTierRequested: "priority",
+				serviceTierActual: response.service_tier,
+				durationMs: durationMs(started),
+				usage: output.usage,
+			});
+			stream.end();
+		} catch (error) {
+			const reason = options?.signal?.aborted ? "aborted" : "error";
+			output.stopReason = reason;
+			output.errorMessage = error instanceof Error ? error.message : String(error);
+			writeJsonl("provider_error", { tier: "realtime", provider: model.provider, model: model.id, responseId, turnIndex, reason, serviceTierRequested: "priority", durationMs: durationMs(started), error: output.errorMessage });
+			stream.push({ type: "error", reason, error: output });
+			stream.end();
+		}
+	})();
+
+	return stream;
+}
+
 function streamLiveAsync(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
 	const stream = createAssistantMessageEventStream();
 
@@ -366,21 +479,10 @@ function streamLiveAsync(model: Model<Api>, context: Context, options?: SimpleSt
 				});
 			}
 
-			const status = String(response.status ?? "");
-			if (["failed", "cancelled", "canceled", "incomplete", "expired"].includes(status)) throw new Error(`Doubleword async response ${responseId} ended with status ${status}`);
-			if (status !== "completed") throw new Error(`Doubleword async response ${responseId} has unsupported/incomplete status ${status || "missing"}`);
+			assertCompletedResponse("async", responseId, response);
 
-			const text = responseText(response);
 			writeJsonl("provider_ttft", { tier: "async", provider: model.provider, model: model.id, responseId, turnIndex, ttftMs: durationMs(started) });
-			if (text) {
-				output.content.push({ type: "text", text: "" });
-				const contentIndex = output.content.length - 1;
-				stream.push({ type: "text_start", contentIndex, partial: output });
-				const block = output.content[contentIndex];
-				if (block.type === "text") block.text += text;
-				stream.push({ type: "text_delta", contentIndex, delta: text, partial: output });
-				stream.push({ type: "text_end", contentIndex, content: text, partial: output });
-			}
+			const text = emitResponseContent(response, stream, output);
 
 			output.usage = usageFromResponse(model, context, text, response);
 			stream.push({ type: "done", reason: "stop", message: output });
@@ -425,9 +527,14 @@ const REALTIME_STUB_MODELS = [
 	stubModel("deepseek-v4-flash", "DeepSeek-V4-Flash", { input: 0.14, output: 0.28, cacheRead: 0, cacheWrite: 0 }),
 ];
 
+const LIVE_REALTIME_MODELS = [
+	stubModel(LIVE_GLM_MODEL_ID, "GLM-5.2-FP8", { input: 1.4, output: 4.4, cacheRead: 0, cacheWrite: 0 }),
+	stubModel(LIVE_DEEPSEEK_MODEL_ID, "DeepSeek-V4-Flash", { input: 0.14, output: 0.28, cacheRead: 0, cacheWrite: 0 }),
+];
+
 const LIVE_ASYNC_MODELS = [
-	stubModel("glm-5-2", "GLM-5.2-FP8", { input: 1.05, output: 3.3, cacheRead: 0, cacheWrite: 0 }),
-	stubModel("deepseek-v4-flash", "DeepSeek-V4-Flash", { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 }),
+	stubModel(LIVE_GLM_MODEL_ID, "GLM-5.2-FP8", { input: 1.05, output: 3.3, cacheRead: 0, cacheWrite: 0 }),
+	stubModel(LIVE_DEEPSEEK_MODEL_ID, "DeepSeek-V4-Flash", { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 }),
 ];
 
 export function registerDoublewordProviders(pi: ExtensionAPI): void {
@@ -438,6 +545,15 @@ export function registerDoublewordProviders(pi: ExtensionAPI): void {
 		api: "doubleword-realtime-stub-api",
 		models: REALTIME_STUB_MODELS,
 		streamSimple: streamRealtimeStub,
+	});
+
+	pi.registerProvider(LIVE_REALTIME_PROVIDER, {
+		name: "Doubleword Realtime",
+		baseUrl: DOUBLEWORD_API_BASE_URL,
+		apiKey: "doubleword-live-placeholder",
+		api: "doubleword-realtime-api",
+		models: LIVE_REALTIME_MODELS,
+		streamSimple: streamLiveRealtime,
 	});
 
 	pi.registerProvider(ASYNC_PROVIDER, {
