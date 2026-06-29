@@ -265,3 +265,15 @@ Reason: Doubleword provider support answers “how do I call this model/tier?”
 Decision: Do not add a CLI package, generic adapter framework, or separate repos yet.
 
 Reason: Pi is the only concrete adapter today. Three packages are enough to preserve boundaries without adding release and build overhead.
+
+### Cache Doubleword model discovery from the provider
+
+Decision: Discover live Doubleword models from `/v1/models` when an API key is available, cache the catalog locally, and fall back to the cached catalog or the minimal GLM/DeepSeek list when discovery is unavailable.
+
+Reason: Pi custom providers need models registered during extension startup. Provider discovery keeps the model list current without making startup depend on live network availability.
+
+### Define Doubleword async cancellation and timeout semantics
+
+Decision: Live async uses a 10 minute wall-clock timeout, sends `max_output_tokens` capped at 16k by default, retries transient poll failures, performs one final GET before timeout failure, and best-effort cancels background responses on timeout or user abort.
+
+Reason: Async Responses jobs can outlive the Pi turn. Local abort must stop immediately, timeout should not discard a just-completed result, and remote cancel should avoid orphaned background work without masking the original abort or timeout.

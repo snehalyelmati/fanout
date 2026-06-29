@@ -1,8 +1,15 @@
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const env = { ...process.env };
+delete env.DOUBLEWORD_API_KEY;
+env.DOUBLEWORD_MODEL_CACHE_FILE = join(tmpdir(), `doubleword-check-models-${process.pid}-${Date.now()}.json`);
 
 const result = spawnSync("pi", ["-e", ".", "--list-models"], {
   cwd: process.cwd(),
   encoding: "utf8",
+  env,
 });
 
 if (result.status !== 0) {

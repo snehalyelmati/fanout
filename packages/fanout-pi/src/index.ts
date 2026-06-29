@@ -4,7 +4,7 @@ import { registerDoublewordProviders, setDoublewordActiveTurnIndex, setDoublewor
 import { BATCHING_DISCIPLINE, BATCHING_DISCIPLINE_MARKER } from "../../fanout-core/src/batching-discipline.ts";
 import { durationMs, RUN_ID, setObservabilityCwd, writeJsonl } from "../../fanout-core/src/observability.ts";
 
-export default function (pi: ExtensionAPI) {
+export default async function (pi: ExtensionAPI) {
 	let agentStarted: number | undefined;
 	let agentTurnCount = 0;
 	let agentToolCallCount = 0;
@@ -13,7 +13,7 @@ export default function (pi: ExtensionAPI) {
 	const toolStarts = new Map<string, { started: number; turnIndex?: number }>();
 
 	setDoublewordRunId(RUN_ID);
-	registerDoublewordProviders(pi);
+	await registerDoublewordProviders(pi);
 
 	pi.on("session_start", (_event, ctx) => {
 		setObservabilityCwd(ctx.cwd);

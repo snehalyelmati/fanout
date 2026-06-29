@@ -101,24 +101,25 @@ This is the first version of “predictive coding”: prompt the model to predic
 
 ## Phase 4: Live-shaped realtime Doubleword stubs
 
-Status: realtime stubs expose the first live-shaped model IDs and pricing metadata. An opt-in `doubleword-realtime` live provider now calls the Responses API with `service_tier: "priority"`; normal validation remains offline and keyless.
+Status: realtime stubs expose the first live-shaped model IDs and pricing metadata. An opt-in `doubleword-realtime` live provider now calls the Responses API with `service_tier: "priority"`, discovers live models from `/v1/models`, and caches that catalog; normal validation remains offline and keyless.
 
 - Register Doubleword realtime-shaped stub models for `glm-5-2` ($1.40/$4.40 per MTok in/out) and `deepseek-v4-flash` ($0.14/$0.28 per MTok in/out).
-- Use pricing metadata from `https://doubleword.ai/pricing` for stub cost estimates.
+- Use pricing metadata from `https://doubleword.ai/pricing` for stub cost estimates and known live model tier costs; unknown discovered models remain available with zero-cost placeholders until pricing is added.
 - Keep the stub path available for tests; no live API key or network required.
 - Verify model IDs, fixture streaming, usage reporting, and pricing metadata.
-- Register opt-in live realtime models under `doubleword-realtime` with Doubleword's full model IDs, e.g. `deepseek-ai/DeepSeek-V4-Flash`.
+- Register opt-in live realtime models under `doubleword-realtime` from provider discovery/cache, falling back to the minimal GLM/DeepSeek list when discovery is unavailable.
 - Keep live smoke opt-in with `DOUBLEWORD_API_KEY`; no live network in default checks.
 
 ## Phase 5: Live async Doubleword provider
 
-Status: opt-in `doubleword-async` provider path is wired for Responses API background polling; normal validation remains offline and keyless.
+Status: opt-in `doubleword-async` provider path is wired for discovered/cached live models, Responses API background polling, 16k default output cap, wall-clock timeout, transient poll retry, final GET on timeout, and best-effort remote cancellation; normal validation remains offline and keyless.
 
-- Register live-shaped async models with Doubleword's full model IDs, including `deepseek-ai/DeepSeek-V4-Flash` (tier 2/flex $0.10/$0.20 per MTok in/out), under `doubleword-async`.
-- Use Responses API at `https://api.doubleword.ai/v1` with `service_tier: "flex"` and `background: true`.
-- Poll `GET /v1/responses/{id}` while status is `queued` or `in_progress`.
+- Register live-shaped async models under `doubleword-async` from provider discovery/cache, falling back to the minimal GLM/DeepSeek list when discovery is unavailable.
+- Use Responses API at `https://api.doubleword.ai/v1` with `service_tier: "flex"`, `background: true`, and `max_output_tokens` defaulting to 16k (`DOUBLEWORD_MAX_OUTPUT_TOKENS` overrides).
+- Poll `GET /v1/responses/{id}` while status is `queued` or `in_progress`, retry transient poll failures, and enforce a 10 minute wall-clock timeout (`DOUBLEWORD_LIVE_ASYNC_TIMEOUT_MS` overrides).
+- On timeout, perform one final GET; if still incomplete, best-effort cancel `POST /v1/responses/{id}/cancel`. On user abort, stop the local stream promptly and fire-and-forget the remote cancel.
 - Translate completed Responses output into Pi assistant events after completion: reasoning items become `thinking` blocks, final `output_text` becomes text; no streaming before completion is assumed.
-- Track response ID, status transitions, requested/actual service tier, poll time, usage, and errors.
+- Track response ID, status transitions, requested/actual service tier, poll time, usage, timeout, cancellation, retries, and errors.
 - Keep live smoke opt-in with `DOUBLEWORD_API_KEY`; no live network in default checks.
 
 Key limitation to validate live: async responses may not stream; Pi may only receive content/tool calls after completion. Tool-call translation remains pending.
@@ -222,5 +223,5 @@ Only build these if the simpler system fails benchmarks:
 - Whether async Responses supports tool calls in the needed format.
 - Whether live async exposes useful usage metadata on retrieval.
 - Whether any tier supports true streaming before completion.
-- Cancellation behavior for async Responses.
+- Whether Doubleword's Responses cancel endpoint has any provider-specific caveats beyond OpenAI-compatible background response cancellation.
 - Which Doubleword models should be exposed first.
