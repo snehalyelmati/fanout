@@ -3,3 +3,4 @@ runs/
 .env
 datasets/traces/*
 !datasets/traces/.gitkeep
+.envrc
