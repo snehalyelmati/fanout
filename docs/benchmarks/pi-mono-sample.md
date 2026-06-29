@@ -4,7 +4,9 @@ This supports the running benchmark doc: [`../BENCHMARKS.md`](../BENCHMARKS.md).
 
 Dataset: <https://huggingface.co/datasets/badlogicgames/pi-mono>
 
-The sample contains three raw Pi session JSONL files. These external files live under ignored `datasets/traces/pi-mono-sample/` when fetched locally; do not commit them.
+The original sample contains three raw Pi session JSONL files. These external files live under ignored `datasets/traces/pi-mono-sample/` when fetched locally; do not commit them.
+
+Later experiments also downloaded the full `badlogicgames/pi-mono` dataset under ignored local storage `datasets/traces/pi-mono-full/` for TAT bucket code-shard evaluation. See [`tat-bucket-code-shards.md`](tat-bucket-code-shards.md).
 
 ## Trace inventory
 
@@ -48,6 +50,10 @@ Most assistant turns issued a single tool call. A few turns batched two or three
 ```
 
 Tool result ordering matched the assistant tool-call batches in this sample: tool-result messages immediately followed the assistant turn that requested them.
+
+## Full dataset follow-up
+
+The full local dataset was used to select 15 traces: three each from `<5m`, `5-10m`, `10-15m`, `15-30m`, and `30-45m` realtime TAT buckets. The code-shard evaluation found that short traces usually lose to tier2 latency, while longer decomposable traces can compress remaining realtime work into shallow tier2 background DAGs.
 
 ## Timing caveat
 

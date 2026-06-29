@@ -115,13 +115,14 @@ Key limitation to validate live: async responses may not stream; Pi may only rec
 
 ## Phase 6: Stub/trace benchmarks
 
-Status: initial offline trace summarizer and smoke fixtures are in place. It reads local `observability.jsonl` files and raw Pi session JSONL traces, then produces `runs/phase6/summary.json` plus `summary.md`; no live calls or replay engine. Manual semantic subagent reviews now supersede the coarse optimistic-DAG heuristic. Results are tracked in `docs/BENCHMARKS.md` and [`docs/benchmarks/semantic-dag-and-rpe.md`](benchmarks/semantic-dag-and-rpe.md).
+Status: initial offline trace summarizer, smoke fixtures, deterministic hybrid policy simulation, and target evidence docs are in place. It reads local `observability.jsonl` files, raw Pi session JSONL traces, and versioned synthetic hybrid workflow JSONL fixtures, then produces `runs/phase6/summary.json` plus `summary.md`; no live calls or replay engine. Manual semantic subagent reviews now supersede the coarse optimistic-DAG heuristic. Hybrid fixture reports now include policy matrices with active TAT, background completion, target status, per-node schedules, budget/deadline/fallback/speculative evidence, and tier2 concurrency caps. The mixed fixture command demonstrates synthetic non-baseline tier2 passes for eligible workflow shapes and marks linear mandatory active critical paths infeasible. Results are tracked in `docs/BENCHMARKS.md`, [`docs/benchmarks/semantic-dag-and-rpe.md`](benchmarks/semantic-dag-and-rpe.md), and [`docs/benchmarks/hybrid-target-evidence.md`](benchmarks/hybrid-target-evidence.md).
 
 Run:
 
 ```bash
 rtk npm run benchmark:traces -- datasets/fixtures/phase6-observability.jsonl
 rtk npm run benchmark:traces -- datasets/fixtures/pi-session-trace.jsonl --model glm-5-2
+rtk npm run benchmark:traces -- datasets/fixtures --model glm-5-2 --out runs/mission-hybrid-benchmark
 # after placing ignored external samples under datasets/traces/pi-mono-sample:
 rtk npm run benchmark:traces -- datasets/traces/pi-mono-sample --model glm-5-2
 rtk npm run smoke:benchmarks
@@ -152,30 +153,37 @@ Current benchmark questions answered by the summarizer and `docs/BENCHMARKS.md`:
 - Does async TTFT multiply wall-clock time or get amortized? Use async provider duration, TTFT, poll count, and poll duration totals.
 - What is cost vs realtime? Use provider usage/cost totals plus the `glm-5-2` tier comparison table.
 - Does planning-first reduce retries and wasted turns? Compare summaries from plain runs vs `/dw-plan` runs.
+- Which synthetic hybrid workflow policies meet the 3x active TAT target? Use hybrid policy results, active/background schedules, and target statuses.
+- Which workflow classes are ineligible? Linear mandatory critical-path fixtures are reported as infeasible instead of as tier2 feasibility passes.
+- Which evidence is observed versus synthetic? Mixed reports preserve `observability`, `pi-session`, and synthetic `hybrid-workflow` source labels.
 
 Deferred until the summaries prove they are needed: external dataset downloader, trace replay engine, strict DAG executor, subagents, and indexing.
 
-## Phase 7: Tier-aware workflow prototypes
+## Phase 7: Planned Parallel RPE prototypes
 
-Status: design docs first; prototype deferred until the workflow contracts are explicit.
+Status: design docs, offline safe-work-unit evaluator, full `pi-mono` TAT bucket code-shard evaluation, and trace-derived wait estimates are in place. Runtime prototype remains deferred until the execution packet and scheduler policy are defined.
 
 Trace-backed direction:
 
 - Generic interactive DAG tier2 routing is weak: manual semantic review found only ~1.5% tier2 savings in 10 traces.
+- One-turn synthetic hybrid fixtures prove simulator accounting, but they are insufficient evidence for realistic multi-turn Pi traces.
 - Tier1 semantic batching is valuable: manual estimates show ~25% savings from fewer turns/context, independent of Doubleword.
 - Research-plan-execute background routing is promising: 5 RPE traces saved ~22% when research+plan stayed tier1 and execute moved to tier2, but sequential completion became 14-28h.
+- Full `pi-mono` TAT bucket code-shard evaluation found 49 predicted code-edit units across 15 traces, with 31 safe independent, 16 safe-after-dependency, 2 unsafe, safety precision 1, and tier2 execution waits of 5-40m by accepted DAG depth.
+- Speculative duplicate implementations are usually wasteful unless the scheduler proves independence, file ownership, budget, and cancellation constraints up front.
 
 Design target: two narrower opt-in workflows, documented in [`docs/OPTIMISTIC_DAG_WORKFLOW.md`](OPTIMISTIC_DAG_WORKFLOW.md):
 
 1. `semantic-batching-tier1`: realtime/tier1 workflow that reduces turns, redundant checks, and context bloat.
-2. `rpe-background-execute`: tier1 research+plan, user-approved execution packet, tier2 background execution, tier1 final review/synthesis.
+2. `planned-parallel-rpe`: tier1 planner, conflict-aware scheduler, isolated tier2 background executors, parallel reviewers, cancellation for speculative pre-confirm work, file ownership constraints, and tier1 final review/synthesis.
 
-Next work:
+Next work after evidence cleanup:
 
-- Define the RPE execution packet: accepted plan, files, constraints, validation contract, budget, stop rules, and expected handoff.
-- Add observability fields for active planning time, background completion time, late outputs, retries, and acceptance failures.
-- Prototype portfolio-mode execution with concurrency and dollar caps.
-- Keep strict/generic DAG execution deferred until semantic reviews show real off-critical model branches outside RPE.
+- Define the RPE execution packet: accepted plan, owned/read-only files, dependencies, constraints, validation contract, budget, user wait budget, stop rules, cancellation rules, and expected handoff.
+- Define scheduler policy: reject cycles and ownership conflicts, compute accepted safe-unit DAG critical path, estimate `tier2_exec_wait_worst_case = DAG_depth * 10m`, and launch only when it fits the user wait budget.
+- Add observability fields for active planning time, background completion time, late outputs, retries, cancellation, rejected speculative work, review latency, acceptance failures, accepted DAG depth, and estimated/actual tier2 wait.
+- Prototype RPE background execution and sharded RPE now that prefix-evaluation evidence supports safe decomposition for some code-edit traces, but keep it opt-in and background-only.
+- Keep strict/generic DAG execution and default duplicate implementations deferred until trace-derived evidence shows real off-critical model branches outside RPE.
 
 ## Phase 8: Live endpoint benchmarks
 

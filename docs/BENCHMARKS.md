@@ -177,6 +177,159 @@ Purpose: test a narrower workflow where research+plan stays tier1 and approved e
 
 Conclusion: RPE is the first trace-backed shape where tier2 savings are material. It is not suitable for blocking interactive execution; it is a background/portfolio workflow.
 
+## D4 - Hybrid workflow fixture schema
+
+Date: 2026-06-25
+
+Purpose: add a committed local JSONL fixture format for future tier1/tier2 workflow simulation while preserving existing observability and Pi session parsing.
+
+Command:
+
+```bash
+rtk npm run benchmark:traces -- datasets/fixtures --model glm-5-2 --out runs/mission-hybrid-benchmark
+```
+
+Committed fixtures:
+
+- `datasets/fixtures/hybrid-workflows.jsonl`
+- `datasets/fixtures/hybrid-workflows-out-of-order.jsonl`
+
+The hybrid format uses `schema: "doubleword.hybrid-workflow"`, `version: 1`, one `kind: "workflow"` metadata row per workflow, and `kind: "node"` rows for graph nodes. Workflow metadata includes scenario id, source type, target ratio, budget, deadline origin, concurrency cap, and active boundary. Node metadata preserves dependencies, phase, tier eligibility, active/background, mandatory/optional, durations, token cost inputs, deadlines, outcomes, groups, shards, branches, portfolio, conflict, stale, fallback, review, and validation links.
+
+Scenario coverage in `hybrid-workflows.jsonl`:
+
+| Scenario | Source type | Purpose |
+| --- | --- | --- |
+| `linear-critical-path` | synthetic | mandatory linear control |
+| `wide-fanout` | synthetic | optional background fan-out |
+| `serial-rpe` | synthetic | research-plan active boundary with background execution |
+| `sharded-rpe` | synthetic | independent background execute shards |
+| `speculative-branch-race` | synthetic | branch winner plus late loser metadata |
+| `speculative-invalid-fastest-branch` | synthetic | fastest invalid speculative branch rejected before next valid winner |
+| `renamed-mandatory-critical-path` | synthetic | graph-structural linear mandatory critical path with non-literal scenario id |
+| `deadline-miss` | synthetic | optional late result |
+| `budget-constrained-routing` | synthetic | budget metadata for routing policies |
+| `conflict-stale-output` | synthetic | conflict and stale output metadata |
+| `validation-failure-fallback` | synthetic | failed tier2 output with tier1 fallback and review |
+
+These fixtures are synthetic assumptions, not observed trace feasibility evidence.
+
+## D5 - Hybrid policy simulation engine
+
+Date: 2026-06-25
+
+Purpose: deterministically compare tier1/tier2 workflow policies over the committed hybrid fixture graph while keeping active user-facing TAT separate from background completion.
+
+Command:
+
+```bash
+rtk npm run benchmark:traces -- datasets/fixtures --model glm-5-2 --out runs/mission-hybrid-benchmark
+```
+
+The simulator emits all required policies for every hybrid workflow: all tier1 baseline, all tier2 blocking, critical-path/slack, deadline synthesis, RPE background, sharded RPE, speculative portfolio, and budget-constrained routing. Each result includes per-node schedule evidence with tier assignment, dependency start/end times, active/background classification, accepted/late/failed state, cost, budget status, tier2 concurrency, and 3x target status.
+
+Representative synthetic outcomes:
+
+| Fixture | Policy | Active TAT | Background completion | Target status | Notes |
+| --- | --- | ---: | ---: | --- | --- |
+| `hybrid-linear-critical-path` | all tier2 blocking | 11.0s | 11.0s | infeasible | Mandatory tier2 work is on the active linear critical path. |
+| `hybrid-wide-fanout` | critical-path/slack | 1.5s | 7.5s | pass | Optional research fan-out moves to tier2; one optional result is late. |
+| `hybrid-serial-rpe` | RPE background | 1.8s | 9.8s | pass | Active response stops at the tier1 plan; execute completes in background. |
+| `hybrid-sharded-rpe` | sharded RPE | 1.6s | 8.1s | pass | Two independent execute shards honor the tier2 concurrency cap. |
+| `hybrid-branch-race` | speculative portfolio | 5.8s | 9.7s | pass | Fast valid branch wins, slow loser cost is counted as speculative waste. |
+| `hybrid-invalid-fastest-branch` | speculative portfolio | 6.1s | 7.6s | pass | Failed fastest and stale slowest branches are rejected and counted as speculative waste; the next valid branch wins. |
+| `hybrid-structural-linear-mandatory` | all tier2 blocking | 9.8s | 9.8s | infeasible | Mandatory tier2 work on a linear active critical path is detected structurally, not by scenario id. |
+| `hybrid-budget-routing` | budget-constrained routing | 1.9s | 1.9s | fail | Cost exceeds the configured synthetic budget. |
+
+These are fixture-policy results only. They prove simulator semantics and target accounting over synthetic assumptions; they do not claim observed real-trace feasibility.
+
+## D7 - Hybrid target evidence workflow
+
+Date: 2026-06-25
+
+Purpose: run the mixed existing-plus-synthetic evidence workflow and record the honest 3x active TAT target status. The generated reports separate observed trace fixtures from synthetic workflow fixtures; all target passes below are synthetic fixture-policy evidence, not observed trace feasibility.
+
+Command:
+
+```bash
+rtk npm run benchmark:traces -- datasets/fixtures --model glm-5-2 --out runs/mission-hybrid-benchmark
+```
+
+Generated evidence:
+
+- `runs/mission-hybrid-benchmark/summary.json`
+- `runs/mission-hybrid-benchmark/summary.md`
+
+Run summary:
+
+| Metric | Value |
+| --- | ---: |
+| Input files | 4 |
+| Trace groups | 15 |
+| Hybrid workflows | 12 |
+| Hybrid policy results | 96 |
+| Formats in one run | `hybrid-workflow`, `observability`, `pi-session` |
+| Non-baseline pass results with tier2 calls and active ratio <= 3 | 49 |
+
+Source labels in the generated JSON keep observed and synthetic evidence separate. `phase6-observability.jsonl` is summarized as `observability`, `pi-session-trace.jsonl` is summarized as `pi-session`, and the hybrid workflow fixtures are summarized as `hybrid-workflow` with `sourceType: "synthetic"` and `provenance.synthetic: true`.
+
+Representative synthetic target passes:
+
+| Fixture | Policy | Source | Active boundary | Active TAT | Background completion | Ratio | Tier2 calls | Target status | Caveat |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| `hybrid-wide-fanout` | `critical_path_slack` | synthetic | `synthesis` | 1.5s | 7.5s | 1.000 | 3 | pass | Optional fan-out is explicit background work; one optional result is late and counted. |
+| `hybrid-serial-rpe` | `rpe_background` | synthetic | `plan` | 1.8s | 9.8s | 1.000 | 1 | pass | Tier1 research and plan are the next actionable response; execute is deferred background work. |
+| `hybrid-sharded-rpe` | `sharded_rpe` | synthetic | `plan` | 1.6s | 8.1s | 1.000 | 2 | pass | Independent execute shards run after the tier1 plan and honor the tier2 concurrency cap. |
+| `hybrid-branch-race` | `speculative_portfolio` | synthetic | `accept-winner` | 5.8s | 9.7s | 1.526 | 2 | pass | Tier1 `accept-winner` reviews the winning tier2 branch; loser cost is counted as speculative waste. |
+| `hybrid-invalid-fastest-branch` | `speculative_portfolio` | synthetic | `accept-winner` | 6.1s | 7.6s | 1.649 | 3 | pass | Tier1 `accept-winner` accepts `branch-valid-slower`; failed/stale branches are rejected and counted as waste. |
+
+Representative infeasible synthetic classes:
+
+| Fixture | Policy | Active TAT | Background completion | Ratio | Tier2 calls | Target status | Reason |
+| --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| `hybrid-linear-critical-path` | `all_tier2_blocking` | 11.0s | 11.0s | 2.750 | 1 | infeasible | Mandatory tier2 work is on the active linear critical path. |
+| `hybrid-structural-linear-mandatory` | `all_tier2_blocking` | 9.8s | 9.8s | 2.722 | 1 | infeasible | Mandatory tier2 work is on the active linear critical path, detected from graph structure rather than scenario id. |
+
+Active/background interpretation:
+
+- Active user-facing TAT is measured to each fixture's declared `activeBoundaryNodeId` plus mandatory active acceptance work.
+- Work is excluded from active TAT only when fixture metadata marks it background, optional, non-user-blocking, or after a next-actionable boundary such as the RPE `plan`.
+- Background completion still includes launched tier2 work, optional late results, and speculative losers.
+- Passing policies that use mandatory tier2 output include a tier1 review, validation, synthesis, or acceptance node before claiming success. Examples include `accept-winner` reviewing portfolio branches and `repair-tier1`/`accept-fallback` validating failed tier2 output.
+
+Detailed supporting notes: [`docs/benchmarks/hybrid-target-evidence.md`](benchmarks/hybrid-target-evidence.md).
+
+## D8 - Planned Parallel RPE direction
+
+Date: 2026-06-25
+
+Purpose: record the post-mission workflow direction after comparing simulator evidence with observed multi-turn Pi trace reviews.
+
+Evidence status:
+
+- **Simulator evidence**: one-turn synthetic hybrid fixtures prove parser, scheduler, active/background accounting, target statuses, speculative waste, and infeasibility semantics.
+- **Observed trace evidence**: manual multi-turn `pi-mono` reviews show generic interactive tier2 DAG routing is weak, with about 1.5% semantic tier2 savings in the reviewed sample.
+- **Trace-backed RPE evidence**: five RPE-shaped traces show about 22% provider cost savings when research+plan stays tier1 and execution moves to tier2, but blocking completion grows to hours.
+- **Future runtime work**: no live runtime TAT improvement is claimed yet. Planned Parallel RPE remains a design and evaluation direction.
+
+Revised direction:
+
+1. Do not build a generic tier2 DAG router for arbitrary middle turns.
+2. Do not default to speculative duplicate feature implementations. They often repeat investigation, contend for the same files, create merge/review overhead, and waste tier2 budget unless independence is proven.
+3. Focus tier2 work on **RPE background execution** and **sharded RPE**.
+4. Use a **Planned Parallel RPE** workflow: tier1 planner, conflict-aware scheduler, isolated background executors, parallel reviewers, cancellation for speculative pre-confirm work, file ownership constraints, and final tier1 review/synthesis.
+
+The next benchmark/evaluation step is retrospective and prefix-based:
+
+```text
+pi-mono trace prefix
+  -> GPT-5.5 predicts safe work units, file ownership, dependencies, cancellation, review needs
+  -> compare against full trace suffix
+  -> score independence, conflict risk, validation preservation, and active-boundary correctness
+```
+
+This evaluation should decide whether GPT-5.5 can reliably identify safe independent work units from partial Pi trace context before any runtime scheduler or background executor is built.
+
 ## Running experiment ledger
 
 Add one row per meaningful workflow or routing change.
@@ -188,6 +341,84 @@ Add one row per meaningful workflow or routing change.
 | D1 | 2026-06-25 | Faithful trace-DAG routing check | same | GLM tier1+tier2 combo | $23.0533 | 17.5m | No off-critical model turns; structural optimistic estimate later superseded |
 | D2 | 2026-06-25 | Manual semantic DAG review | 10 Pi traces | GLM semantic tier1+tier2 | $20.4214 effective hybrid | same active path | Only 1.48% semantic tier2 savings; ~24.8% separate DAG/prompt-efficiency opportunity |
 | D3 | 2026-06-25 | Research-plan-execute routing | 5 RPE Pi traces | GLM tier1 research+plan, tier2 execute | $18.0758 | 14.2h-28.2h sequential completion | Saves 22.0%; only viable async/background |
+| D4 | 2026-06-25 | Hybrid workflow fixture schema | committed synthetic fixtures | parser only | n/a | n/a | Covers required workflow shapes and graph validation; no policy claims yet |
+| D5 | 2026-06-25 | Hybrid policy simulation engine | committed synthetic fixtures | GLM tier1/tier2 policy matrix | per policy | active + background reported separately | Emits schedules, target statuses, concurrency/budget/deadline/fallback/speculative evidence |
+| D6 | 2026-06-25 | Hybrid policy hardening | committed synthetic fixtures | speculative portfolio + structural infeasibility | per policy | active + background reported separately | Rejects invalid fastest speculative branches by completion time and detects linear mandatory infeasibility from graph structure |
+| D7 | 2026-06-25 | Hybrid target evidence workflow | existing fixtures plus synthetic hybrid workflows | GLM tier1/tier2 policy matrix | per policy | active + background reported separately | Mixed run preserves observed/synthetic source labels; synthetic eligible workflows pass <=3x active TAT while linear mandatory classes are infeasible |
+| D8 | 2026-06-25 | Planned Parallel RPE direction | simulator docs + manual Pi trace reviews | design/evaluation only | n/a | no runtime TAT claim | Generic tier2 DAG and duplicate implementations deferred; next step is prefix-based safe-work-unit evaluation |
+| E1 | 2026-06-25 | Safe work unit prefix evaluation | Pi trace prefix + prediction artifact fixture | offline evaluator | safety precision primary | no runtime TAT claim | Reports safe independent, dependent, unsafe, and inconclusive verdicts from prefix context plus suffix evidence |
+| E2 | 2026-06-26 | TAT bucket code-shard evaluation | 15 full `pi-mono` traces, 3 per TAT bucket | offline safe-unit evaluator + tier2 wait estimate | safety precision primary | 5-40m tier2 background by DAG depth | 49 code-edit units; long decomposable traces often compress remaining realtime loops to shallow tier2 DAGs |
+
+## E1 - Safe work unit prefix evaluation
+
+Purpose: evaluate Planned Parallel RPE planner reliability from local trace prefixes before building runtime parallel execution. This is retrospective trace-derived evidence, not runtime TAT evidence.
+
+Command:
+
+```bash
+rtk npm run eval:safe-work-units -- \
+  datasets/traces/pi-mono-sample \
+  --predictions datasets/fixtures/safe-work-unit-predictions.jsonl \
+  --out runs/safe-work-unit-eval
+```
+
+The evaluator is offline and deterministic. It reads structured prediction artifacts rather than calling GPT-5.5, Doubleword, or any live provider. Reports separate prefix-visible context from suffix retrospective evidence and write `summary.json` plus `summary.md`.
+
+Fixture coverage in `datasets/fixtures/safe-work-unit-predictions.jsonl`:
+
+| Case | Expected verdict | Evidence checked |
+| --- | --- | --- |
+| independent docs note | `safe_independent` | Declared ownership, validation, review, cancellation, and no overlap. |
+| shared package edits | `safe_after_dependency` | Overlapping owned file and mutable resource with explicit dependency. |
+| hidden README dependency | `unsafe` | Read-only file appears only in suffix evidence. |
+| missing checks/review | `unsafe` | Mutable source work omits validation and tier1 review. |
+| wrong active boundary | `unsafe` | Background claim conflicts with next-actionable response requirement. |
+| speculative stale work | `unsafe` | Speculative README edit omits cancellation and suffix touches the same file. |
+| unknown surface | `inconclusive` | No declared file or mutable resource surface. |
+
+Primary metric is safety precision. The labeled fixture reports safety precision `1`, unsafe false positives `0`, recall `1`, and all four verdict buckets. When labels are absent, recall is reported as unavailable instead of guessed.
+
+## E2 - TAT bucket code-shard evaluation
+
+Purpose: test whether code-edit safe work units can compress longer realtime execution loops into bounded tier2 background DAGs.
+
+Detailed notes: [`docs/benchmarks/tat-bucket-code-shards.md`](benchmarks/tat-bucket-code-shards.md).
+
+Command:
+
+```bash
+rtk npm run eval:safe-work-units -- \
+  datasets/traces/pi-mono-full \
+  --predictions datasets/fixtures/tat-bucket-code-shards-predictions.jsonl \
+  --out runs/safe-work-unit-eval/tat-bucket-code-shards
+```
+
+Result summary:
+
+| Metric | Value |
+| --- | ---: |
+| Evaluated prediction rows/traces | 15 |
+| Code-edit units | 49 |
+| Safe independent | 31 |
+| Safe after dependency | 16 |
+| Unsafe | 2 |
+| Safety precision | 1 |
+| Recall | 0.969 |
+| Dependency accuracy | 0.941 |
+
+Wait model: use tier2 SLA as the scheduling quantum. Conservative routing uses `tier2_exec_wait_worst_case = accepted_DAG_depth * 10m`; the table reports the prior 5-10m per-depth range for comparison.
+
+| Bucket | Median DAG depth | Typical tier2 wait | Readout |
+| --- | ---: | ---: | --- |
+| <5m | 2 | 5-20m | Usually worse than realtime. |
+| 5-10m | 3 | 5-30m | Mixed; only shallow DAGs are competitive. |
+| 10-15m | 2 | 5-20m | Often comparable to remaining realtime. |
+| 15-30m | 1 | 5-20m | Best observed fit for compression. |
+| 30-45m | 3 | 5-40m | Depends on how late the planning boundary is and DAG depth. |
+
+Conclusion: tier2 Planned Parallel RPE is not a generic realtime accelerator. It is useful when tier1 planning produces an acyclic, conflict-free code DAG and the user accepts bounded background execution. Prefix time is not a hard routing guard: if no execution remains, no job is launched; otherwise route by safety, user wait budget, DAG critical path, and cost.
+
+The 15-trace prediction artifact is tracked at `datasets/fixtures/tat-bucket-code-shards-predictions.jsonl`; it acts as the selected trace manifest because each row includes the target `traceId` and `prefixBoundary`. The full command may load all local `badlogicgames/pi-mono` JSONL traces from `datasets/traces/pi-mono-full` (626 trace files in the downloaded sample), but only the 15 prediction rows are evaluated. The prediction protocol is documented in [`docs/benchmarks/safe-work-unit-eval-protocol.md`](benchmarks/safe-work-unit-eval-protocol.md).
 
 ## Candidate improvements to test next
 
@@ -195,18 +426,29 @@ Add one row per meaningful workflow or routing change.
    - Better batching, complete root-cause inspection, fewer redundant checks, and less tool-output bloat.
    - Measure this as `semantic-batching-tier1`, not as Doubleword savings.
 
-2. **Prototype RPE background execution**
+2. **Finish pre-merge evidence cleanup**
+   - Keep the E2 prediction artifact tracked and smoke-checked.
+   - Keep the safe-work-unit prediction protocol and prompt template documented.
+   - Keep evaluator checks for prefix `messageId`, dependency cycles, dangling dependencies, and graph schedulability covered.
+
+3. **Turn safe-unit evidence into scheduler policy**
+   - Use accepted safe-unit DAG critical path, not raw unit count or depth alone.
+   - Reject cycles and ownership conflicts before launch.
+   - Estimate `tier2_exec_wait_worst_case = DAG_depth * 10m` and compare it to the user's background wait budget.
+
+4. **Prototype RPE background execution after trace-derived evidence**
    - Tier1 research+plan creates an execution packet and validation contract.
    - Tier2 executes in background with budget/concurrency caps.
    - Tier1 reviews/synthesizes completed output before acceptance.
 
-3. **Measure portfolio-mode concurrency**
+5. **Measure sharded RPE concurrency only after safe-unit evidence**
    - Estimate N independent RPE execute jobs launched together.
-   - Report active planning time, background completion time, total cost, failures, and late outputs.
+   - Report active planning time, background completion time, total cost, failures, late outputs, canceled speculative work, reviewer time, and file conflicts.
 
-4. **Keep generic DAG tier2 routing deferred**
+6. **Keep generic DAG tier2 routing deferred**
    - Manual semantic review found only ~1.5% tier2 savings in normal interactive traces.
    - Do not route critical edit/tool loops to tier2.
+   - Do not use duplicate implementations unless the scheduler proves independent ownership and bounded waste.
 
 ## Reproduction notes
 
