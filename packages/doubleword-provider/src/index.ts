@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	createAssistantMessageEventStream,
 	type Api,
@@ -16,10 +16,9 @@ import {
 	type Usage,
 } from "@earendil-works/pi-ai";
 
-const REALTIME_PROVIDER = "doubleword-realtime-stub";
-const ASYNC_PROVIDER = "doubleword-async-stub";
-const LIVE_REALTIME_PROVIDER = "doubleword-realtime";
-const LIVE_ASYNC_PROVIDER = "doubleword-async";
+const UNIFIED_STUB_PROVIDER = "doubleword-stub";
+const UNIFIED_LIVE_PROVIDER = "doubleword";
+const MULTI_TIER_PROVIDERS = new Set([UNIFIED_STUB_PROVIDER, UNIFIED_LIVE_PROVIDER]);
 const DOUBLEWORD_API_BASE_URL = process.env.DOUBLEWORD_BASE_URL ?? "https://api.doubleword.ai/v1";
 const LIVE_GLM_MODEL_ID = "zai-org/GLM-5.2-FP8";
 const LIVE_DEEPSEEK_MODEL_ID = "deepseek-ai/DeepSeek-V4-Flash";
@@ -35,7 +34,9 @@ const ZERO_COST: ModelCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 
 let runId = process.env.DOUBLEWORD_RUN_ID ?? `${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`;
 
 let activeTurnIndex: number | undefined;
+let executionMode: ExecutionMode = process.env.DOUBLEWORD_EXECUTION_MODE === "async" ? "async" : "realtime";
 
+type ExecutionMode = "realtime" | "async";
 type TierCosts = { realtime: ModelCost; async: ModelCost; batch?: ModelCost };
 type ProviderModel = {
 	id: string;
@@ -520,6 +521,10 @@ function streamAsyncStub(model: Model<Api>, context: Context, options?: SimpleSt
 	return streamStub("async", model, context, options);
 }
 
+function streamUnifiedStub(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
+	return executionMode === "async" ? streamAsyncStub(withRuntimeTierCost(model), context, options) : streamRealtimeStub(withRuntimeTierCost(model), context, options);
+}
+
 async function cancelResponse(
 	baseUrl: string,
 	headers: Headers,
@@ -563,7 +568,7 @@ function streamLiveRealtime(model: Model<Api>, context: Context, options?: Simpl
 
 			const configuredApiKey = options?.apiKey && options.apiKey !== "doubleword-live-placeholder" && !options.apiKey.startsWith("$") ? options.apiKey : undefined;
 			const apiKey = process.env.DOUBLEWORD_API_KEY ?? configuredApiKey;
-			if (!apiKey) throw new Error("DOUBLEWORD_API_KEY is required for doubleword-realtime live provider");
+			if (!apiKey) throw new Error("DOUBLEWORD_API_KEY is required for doubleword live provider");
 
 			const baseUrl = envString("DOUBLEWORD_BASE_URL", model.baseUrl ?? DOUBLEWORD_API_BASE_URL).replace(/\/$/, "");
 			const headers = new Headers(options?.headers);
@@ -607,6 +612,10 @@ function streamLiveRealtime(model: Model<Api>, context: Context, options?: Simpl
 	})();
 
 	return stream;
+}
+
+function streamUnifiedLive(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
+	return executionMode === "async" ? streamLiveAsync(withRuntimeTierCost(model), context, options) : streamLiveRealtime(withRuntimeTierCost(model), context, options);
 }
 
 function streamLiveAsync(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
@@ -666,7 +675,7 @@ function streamLiveAsync(model: Model<Api>, context: Context, options?: SimpleSt
 
 			const configuredApiKey = options?.apiKey && options.apiKey !== "doubleword-live-placeholder" && !options.apiKey.startsWith("$") ? options.apiKey : undefined;
 			const apiKey = process.env.DOUBLEWORD_API_KEY ?? configuredApiKey;
-			if (!apiKey) throw new Error("DOUBLEWORD_API_KEY is required for doubleword-async live provider");
+			if (!apiKey) throw new Error("DOUBLEWORD_API_KEY is required for doubleword live provider");
 
 			headers.set("content-type", "application/json");
 			headers.set("authorization", `Bearer ${apiKey}`);
@@ -821,6 +830,14 @@ const FALLBACK_LIVE_MODELS = [
 ];
 
 const KNOWN_TIER_COSTS: Record<string, TierCosts> = {
+	["glm-5-2"]: {
+		realtime: { input: 1.4, output: 4.4, cacheRead: 0, cacheWrite: 0 },
+		async: { input: 1.05, output: 3.3, cacheRead: 0, cacheWrite: 0 },
+	},
+	["deepseek-v4-flash"]: {
+		realtime: { input: 0.14, output: 0.28, cacheRead: 0, cacheWrite: 0 },
+		async: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 },
+	},
 	[LIVE_GLM_MODEL_ID.toLowerCase()]: {
 		realtime: { input: 1.4, output: 4.4, cacheRead: 0, cacheWrite: 0 },
 		async: { input: 1.05, output: 3.3, cacheRead: 0, cacheWrite: 0 },
@@ -849,6 +866,34 @@ function tierCost(id: string, tier: "realtime" | "async"): ModelCost {
 
 function withTierCost(model: ProviderModel, tier: "realtime" | "async"): ProviderModel {
 	return { ...model, cost: tierCost(model.id, tier) };
+}
+
+function withRuntimeTierCost<T extends Model<Api> | ProviderModel>(model: T): T {
+	return { ...model, cost: tierCost(model.id, executionMode) };
+}
+
+function supportsExecutionModeToggle(model: Model<Api> | undefined): boolean {
+	return !!model && MULTI_TIER_PROVIDERS.has(model.provider);
+}
+
+function executionModeStatusText(ctx: ExtensionContext): string {
+	const color = executionMode === "async" ? "warning" : "accent";
+	return ctx.ui.theme.fg(color, `dw:${executionMode}`);
+}
+
+function updateExecutionModeStatus(ctx: ExtensionContext): void {
+	ctx.ui.setStatus("doubleword-mode", supportsExecutionModeToggle(ctx.model) ? executionModeStatusText(ctx) : undefined);
+}
+
+function toggleExecutionMode(ctx: ExtensionContext): void {
+	if (!supportsExecutionModeToggle(ctx.model)) {
+		ctx.ui.notify("Current provider has one execution tier", "info");
+		updateExecutionModeStatus(ctx);
+		return;
+	}
+	executionMode = executionMode === "realtime" ? "async" : "realtime";
+	updateExecutionModeStatus(ctx);
+	ctx.ui.notify(`Doubleword execution: ${executionMode}`, "info");
 }
 
 function modelFromCatalogEntry(entry: any): ProviderModel | undefined {
@@ -899,7 +944,7 @@ async function discoverLiveModels(): Promise<ProviderModel[]> {
 				return models;
 			}
 		} catch (error) {
-			writeJsonl("model_discovery_error", { provider: LIVE_REALTIME_PROVIDER, baseUrl, error: error instanceof Error ? error.message : String(error) });
+			writeJsonl("model_discovery_error", { provider: UNIFIED_LIVE_PROVIDER, baseUrl, error: error instanceof Error ? error.message : String(error) });
 		}
 	}
 	return readCachedModels(baseUrl) ?? FALLBACK_LIVE_MODELS;
@@ -907,41 +952,35 @@ async function discoverLiveModels(): Promise<ProviderModel[]> {
 
 export async function registerDoublewordProviders(pi: ExtensionAPI): Promise<void> {
 	const liveModels = await discoverLiveModels();
-	pi.registerProvider(REALTIME_PROVIDER, {
-		name: "Doubleword Realtime Stub",
-		baseUrl: "http://localhost/doubleword-realtime-stub",
+	pi.registerShortcut("alt+t", {
+		description: "Toggle Doubleword realtime/async execution",
+		handler: async (ctx) => toggleExecutionMode(ctx),
+	});
+	pi.registerCommand("doubleword-mode", {
+		description: "Toggle Doubleword realtime/async execution",
+		handler: async (_args, ctx) => toggleExecutionMode(ctx),
+	});
+	pi.on("session_start", (_event, ctx) => updateExecutionModeStatus(ctx));
+	pi.on("model_select", (_event, ctx) => updateExecutionModeStatus(ctx));
+
+	pi.registerProvider(UNIFIED_STUB_PROVIDER, {
+		name: "Doubleword Stub",
+		baseUrl: "http://localhost/doubleword-stub",
 		apiKey: "doubleword-stub",
-		api: "doubleword-realtime-stub-api",
-		models: REALTIME_STUB_MODELS,
-		streamSimple: streamRealtimeStub,
+		api: "doubleword-stub-api",
+		models: REALTIME_STUB_MODELS.map(withRuntimeTierCost),
+		streamSimple: streamUnifiedStub,
 	});
 
-	pi.registerProvider(LIVE_REALTIME_PROVIDER, {
-		name: "Doubleword Realtime",
+	pi.registerProvider(UNIFIED_LIVE_PROVIDER, {
+		name: "Doubleword",
 		baseUrl: DOUBLEWORD_API_BASE_URL,
 		apiKey: "doubleword-live-placeholder",
-		api: "doubleword-realtime-api",
-		models: liveModels.map((model) => withTierCost(model, "realtime")),
-		streamSimple: streamLiveRealtime,
+		api: "doubleword-api",
+		models: liveModels.map(withRuntimeTierCost),
+		streamSimple: streamUnifiedLive,
 	});
 
-	pi.registerProvider(ASYNC_PROVIDER, {
-		name: "Doubleword Async Stub",
-		baseUrl: "http://localhost/doubleword-async-stub",
-		apiKey: "doubleword-stub",
-		api: "doubleword-async-stub-api",
-		models: [stubModel(ASYNC_PROVIDER, "Doubleword async stub")],
-		streamSimple: streamAsyncStub,
-	});
-
-	pi.registerProvider(LIVE_ASYNC_PROVIDER, {
-		name: "Doubleword Async",
-		baseUrl: DOUBLEWORD_API_BASE_URL,
-		apiKey: "doubleword-live-placeholder",
-		api: "doubleword-async-api",
-		models: liveModels.map((model) => withTierCost(model, "async")),
-		streamSimple: streamLiveAsync,
-	});
 }
 
 export default async function (pi: ExtensionAPI): Promise<void> {

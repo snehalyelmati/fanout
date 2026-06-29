@@ -61,7 +61,7 @@ function listen() {
 
 function runPi(baseUrl, prompt = "Respond 'hello', do not say anything else.") {
   return new Promise((resolve) => {
-    const child = spawn("pi", ["-e", ".", "--model", "doubleword-realtime/deepseek-ai/DeepSeek-V4-Flash", "-p", prompt], {
+    const child = spawn("pi", ["-e", ".", "--model", "doubleword/deepseek-ai/DeepSeek-V4-Flash", "-p", prompt], {
       cwd: process.cwd(),
       env: {
         ...process.env,
@@ -111,7 +111,7 @@ try {
   assert(submit.body.background === undefined, `POST /responses should be blocking realtime: ${JSON.stringify(submit.body)}`);
 
   const events = readFileSync(logFile, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
-  assert(events.some((event) => event.event === "provider_end" && event.provider === "doubleword-realtime" && event.model === "deepseek-ai/DeepSeek-V4-Flash"), `missing provider_end\n${readFileSync(logFile, "utf8")}`);
+  assert(events.some((event) => event.event === "provider_end" && event.provider === "doubleword" && event.model === "deepseek-ai/DeepSeek-V4-Flash" && event.tier === "realtime"), `missing provider_end\n${readFileSync(logFile, "utf8")}`);
 
   console.log(`live realtime mock smoke passed (${requests.length} requests, ${events.length} events)`);
   rmSync(dir, { recursive: true, force: true });

@@ -96,7 +96,7 @@ function listen() {
 function runPi(baseUrl, { logFile, runId, pollMs = "0", asyncTimeoutMs = "30000", processTimeoutMs } = {}) {
   const timeout = Number(processTimeoutMs ?? process.env.DOUBLEWORD_LIVE_ASYNC_MOCK_TIMEOUT_MS ?? 60_000);
   return new Promise((resolve) => {
-    const child = spawn("pi", ["-e", ".", "--model", "doubleword-async/deepseek-ai/DeepSeek-V4-Flash", "-p", "Respond 'hello', do not say anything else."], {
+    const child = spawn("pi", ["-e", ".", "--model", "doubleword/deepseek-ai/DeepSeek-V4-Flash", "-p", "Respond 'hello', do not say anything else."], {
       cwd: process.cwd(),
       env: {
         ...process.env,
@@ -105,6 +105,7 @@ function runPi(baseUrl, { logFile, runId, pollMs = "0", asyncTimeoutMs = "30000"
         DOUBLEWORD_MAX_OUTPUT_TOKENS: "16384",
         DOUBLEWORD_OBSERVABILITY_FILE: logFile,
         DOUBLEWORD_RUN_ID: runId,
+        DOUBLEWORD_EXECUTION_MODE: "async",
         DOUBLEWORD_LIVE_ASYNC_POLL_MS: pollMs,
         DOUBLEWORD_LIVE_ASYNC_TIMEOUT_MS: asyncTimeoutMs,
         DOUBLEWORD_CANCEL_TIMEOUT_MS: "1000",
@@ -161,11 +162,11 @@ try {
 
   const events = readEvents(successLogFile);
   const has = (name, predicate = () => true) => events.some((event) => event.event === name && predicate(event));
-  const liveEvent = (event) => event.provider === "doubleword-async" && event.turnIndex === 0 && event.serviceTierRequested === "flex";
+  const liveEvent = (event) => event.provider === "doubleword" && event.turnIndex === 0 && event.serviceTierRequested === "flex";
   assert(has("async_submit", liveEvent), `missing live async_submit event\n${readFileSync(successLogFile, "utf8")}`);
   assert(has("async_poll_retry", liveEvent), `missing live async_poll_retry event\n${readFileSync(successLogFile, "utf8")}`);
   assert(has("async_poll", liveEvent), `missing live async_poll event\n${readFileSync(successLogFile, "utf8")}`);
-  assert(has("provider_end", (event) => event.provider === "doubleword-async" && event.model === "deepseek-ai/DeepSeek-V4-Flash"), `missing provider_end for doubleword-async/deepseek-ai/DeepSeek-V4-Flash\n${readFileSync(successLogFile, "utf8")}`);
+  assert(has("provider_end", (event) => event.provider === "doubleword" && event.model === "deepseek-ai/DeepSeek-V4-Flash" && event.tier === "async"), `missing provider_end for doubleword/deepseek-ai/DeepSeek-V4-Flash\n${readFileSync(successLogFile, "utf8")}`);
 
   const timeoutResult = await runPi(baseUrl, {
     logFile: timeoutLogFile,
@@ -187,7 +188,7 @@ try {
 
   const timeoutEvents = readEvents(timeoutLogFile);
   const timeoutHas = (name, predicate = () => true) => timeoutEvents.some((event) => event.event === name && predicate(event));
-  const timeoutEvent = (event) => event.provider === "doubleword-async" && event.model === "deepseek-ai/DeepSeek-V4-Flash" && event.responseId === timeoutResponseId;
+  const timeoutEvent = (event) => event.provider === "doubleword" && event.model === "deepseek-ai/DeepSeek-V4-Flash" && event.responseId === timeoutResponseId;
   assert(timeoutHas("provider_timeout", timeoutEvent), `missing provider_timeout event\n${readFileSync(timeoutLogFile, "utf8")}`);
   assert(timeoutHas("provider_cancel_requested", (event) => timeoutEvent(event) && event.reason === "timeout"), `missing provider_cancel_requested event\n${readFileSync(timeoutLogFile, "utf8")}`);
   assert(

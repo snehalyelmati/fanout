@@ -66,7 +66,7 @@ Reason: The workspace should be self-contained for extension development and ben
 
 ### Stub providers use custom streamSimple
 
-Decision: Register `doubleword-realtime-stub` and `doubleword-async-stub` with custom `streamSimple` implementations instead of proxying a live-compatible API shape immediately.
+Decision: Register `doubleword-stub` with custom `streamSimple` implementations instead of proxying a live-compatible API shape immediately.
 
 Reason: The custom stream path validates Pi provider mechanics, event ordering, async polling simulation, and observability before any live Doubleword endpoint assumptions.
 
@@ -102,7 +102,7 @@ Reason: This validates Pi model registration, model selection, usage accounting,
 
 ### Live async uses direct Responses polling first
 
-Decision: Add an opt-in `doubleword-async` provider that submits Responses API requests with `service_tier: "flex"` and `background: true`, then polls `/responses/{id}` directly.
+Decision: Add async mode to the opt-in `doubleword` provider. It submits Responses API requests with `service_tier: "flex"` and `background: true`, then polls `/responses/{id}` directly.
 
 Reason: Direct polling preserves queue/status/poll observability and avoids adding Autobatcher or custom orchestration before benchmarks justify it.
 
@@ -232,7 +232,7 @@ Reason: The current branch contains useful trace-derived direction. Merging shou
 
 ### Add live realtime as a key-gated provider
 
-Decision: Register `doubleword-realtime` as an opt-in live provider using the Responses API with `service_tier: "priority"`, while keeping realtime stubs for default checks.
+Decision: Register `doubleword` as an opt-in live provider using the Responses API with `service_tier: "priority"`, while keeping `doubleword-stub` for default checks.
 
 Reason: Tier 1 should be testable through Pi without replacing the offline stub path or requiring live credentials in normal validation.
 
@@ -271,6 +271,12 @@ Reason: Pi is the only concrete adapter today. Three packages are enough to pres
 Decision: Discover live Doubleword models from `/v1/models` when an API key is available, cache the catalog locally, and fall back to the cached catalog or the minimal GLM/DeepSeek list when discovery is unavailable.
 
 Reason: Pi custom providers need models registered during extension startup. Provider discovery keeps the model list current without making startup depend on live network availability.
+
+### Decouple Doubleword execution tier from model names
+
+Decision: Register only `doubleword` and `doubleword-stub` providers whose model IDs stay stable while `Alt+T` or `/doubleword-mode` toggles `realtime` vs `async` execution. Show the status-line toggle only when the selected provider supports multiple tiers.
+
+Reason: Tier is an execution policy, not a model identity. Keeping the toggle conditional avoids clutter for single-tier providers, and not registering tier-named aliases avoids duplicate model-list entries.
 
 ### Define Doubleword async cancellation and timeout semantics
 

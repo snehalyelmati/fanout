@@ -90,16 +90,14 @@ try {
 
   const discovered = await listModels({ DOUBLEWORD_API_KEY: "mock-key", DOUBLEWORD_BASE_URL: baseUrl });
   assert(modelRequests === 1, `expected one /models request, got ${modelRequests}`);
-  assert(hasPair(discovered, "doubleword-realtime", discoveredModelId), `missing discovered realtime model\n${discovered}`);
-  assert(hasPair(discovered, "doubleword-async", discoveredModelId), `missing discovered async model\n${discovered}`);
+  assert(hasPair(discovered, "doubleword", discoveredModelId), `missing discovered unified model\n${discovered}`);
   assert(existsSync(cacheFile), "model cache was not written");
   const cache = JSON.parse(readFileSync(cacheFile, "utf8"));
   assert(cache.models?.some((model) => model.id === discoveredModelId), `cache missing discovered model\n${readFileSync(cacheFile, "utf8")}`);
 
   const cached = await listModels({ DOUBLEWORD_API_KEY: "", DOUBLEWORD_BASE_URL: baseUrl });
   assert(modelRequests === 1, `cache-only run should not request /models, got ${modelRequests}`);
-  assert(hasPair(cached, "doubleword-realtime", discoveredModelId), `missing cached realtime model\n${cached}`);
-  assert(hasPair(cached, "doubleword-async", discoveredModelId), `missing cached async model\n${cached}`);
+  assert(hasPair(cached, "doubleword", discoveredModelId), `missing cached unified model\n${cached}`);
 
   console.log("doubleword model cache test passed");
   rmSync(dir, { recursive: true, force: true });

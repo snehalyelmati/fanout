@@ -15,7 +15,7 @@ const timeout = Number(process.env.DOUBLEWORD_LIVE_REALTIME_SMOKE_TIMEOUT_MS ?? 
 try {
   const result = spawnSync(
     "pi",
-    ["-e", ".", "--model", "doubleword-realtime/deepseek-ai/DeepSeek-V4-Flash", "-p", "Respond 'hello', do not say anything else."],
+    ["-e", ".", "--model", "doubleword/deepseek-ai/DeepSeek-V4-Flash", "-p", "Respond 'hello', do not say anything else."],
     {
       cwd: process.cwd(),
       env: { ...process.env, DOUBLEWORD_OBSERVABILITY_FILE: logFile, DOUBLEWORD_RUN_ID: "smoke-live-realtime" },
@@ -29,7 +29,7 @@ try {
   }
 
   const events = readFileSync(logFile, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
-  const hasEnd = events.some((event) => event.event === "provider_end" && event.provider === "doubleword-realtime" && event.model === "deepseek-ai/DeepSeek-V4-Flash");
+  const hasEnd = events.some((event) => event.event === "provider_end" && event.provider === "doubleword" && event.model === "deepseek-ai/DeepSeek-V4-Flash" && event.tier === "realtime");
   if (!hasEnd) throw new Error(`missing live realtime provider_end\n${readFileSync(logFile, "utf8")}`);
 
   console.log(`live realtime smoke passed (${events.length} events)`);
