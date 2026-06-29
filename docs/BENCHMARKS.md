@@ -422,30 +422,24 @@ The 15-trace prediction artifact is tracked at `datasets/fixtures/tat-bucket-cod
 
 ## Candidate improvements to test next
 
-1. **Improve tier1 workflow efficiency first**
+1. **Define the RPE execution packet and scheduler policy**
+   - Execution packet: accepted plan, owned/read-only files, dependencies, constraints, validation contract, budget, user wait budget, stop rules, cancellation rules, and expected handoff.
+   - Scheduler policy: reject cycles and ownership conflicts, compute accepted safe-unit DAG critical path, estimate `tier2_exec_wait_worst_case = DAG_depth * 10m`, and launch only when it fits the user's background wait budget.
+
+2. **Improve tier1 workflow efficiency**
    - Better batching, complete root-cause inspection, fewer redundant checks, and less tool-output bloat.
    - Measure this as `semantic-batching-tier1`, not as Doubleword savings.
 
-2. **Finish pre-merge evidence cleanup**
-   - Keep the E2 prediction artifact tracked and smoke-checked.
-   - Keep the safe-work-unit prediction protocol and prompt template documented.
-   - Keep evaluator checks for prefix `messageId`, dependency cycles, dangling dependencies, and graph schedulability covered.
-
-3. **Turn safe-unit evidence into scheduler policy**
-   - Use accepted safe-unit DAG critical path, not raw unit count or depth alone.
-   - Reject cycles and ownership conflicts before launch.
-   - Estimate `tier2_exec_wait_worst_case = DAG_depth * 10m` and compare it to the user's background wait budget.
-
-4. **Prototype RPE background execution after trace-derived evidence**
+3. **Prototype RPE background execution after the contract exists**
    - Tier1 research+plan creates an execution packet and validation contract.
    - Tier2 executes in background with budget/concurrency caps.
    - Tier1 reviews/synthesizes completed output before acceptance.
 
-5. **Measure sharded RPE concurrency only after safe-unit evidence**
+4. **Measure sharded RPE concurrency only after scheduler policy exists**
    - Estimate N independent RPE execute jobs launched together.
    - Report active planning time, background completion time, total cost, failures, late outputs, canceled speculative work, reviewer time, and file conflicts.
 
-6. **Keep generic DAG tier2 routing deferred**
+5. **Keep generic DAG tier2 routing deferred**
    - Manual semantic review found only ~1.5% tier2 savings in normal interactive traces.
    - Do not route critical edit/tool loops to tier2.
    - Do not use duplicate implementations unless the scheduler proves independent ownership and bounded waste.
