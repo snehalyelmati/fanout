@@ -76,11 +76,11 @@ Decision: JSONL observability writes must not throw through provider streaming.
 
 Reason: Logging failures should not mask provider errors, aborts, or successful stub responses.
 
-### Planning workflow ships as a prompt template first
+### Planning workflow shipped as a prompt template first
 
-Decision: Phase 3 starts with a `/dw-plan` prompt template instead of extension-enforced plan mode or a custom executor.
+Decision: Phase 3 initially started with a `/dw-plan` prompt template instead of extension-enforced plan mode or a custom executor. This was later superseded by `/dw-fanout` execution-packet planning.
 
-Reason: Prompt templates are Pi-native and cheap to test. The prompt can require non-mutating exploration, clarification until execution is clear, and a decision-complete proposed plan while deferring DAGs, subagents, indexing, and live provider routing.
+Reason: Prompt templates were Pi-native and cheap to test. The prompt proved useful non-mutating exploration and clarification behavior before the workflow moved into packet/DAG preparation.
 
 ### Normal execution gets batching discipline through the system prompt
 
@@ -247,6 +247,36 @@ Reason: The provider has a clear standalone package boundary: it registers the l
 Decision: Make Fanout a three-phase workflow: user-owned research/planning, `/dw-fanout` execution-packet preparation, and `/dw-execute` execution from an accepted packet.
 
 Reason: Keeping research/planning outside Fanout lets users use their own workflow and gives the executor better inputs. The packet boundary lets Fanout validate a fanout-agnostic plan, optimized DAG, ownership, estimates, and stop rules before any worker mutates files.
+
+### Keep `/dw-fanout` non-mutating
+
+Decision: `/dw-fanout` may inspect repository context and prepare artifacts, but it must not edit project files or run destructive commands while building the execution packet.
+
+Reason: Phase 2 exists so users can review the plan, DAG, estimates, ownership, validation, and risks before any worker changes the repo.
+
+### Plan fanout-agnostically before optimizing the DAG
+
+Decision: Packet preparation first creates a fanout-agnostic plan with work units, ownership, dependencies, validation, and acceptance criteria, then converts it into an optimized execution DAG with worker and tier choices.
+
+Reason: Separating the plan from the execution strategy keeps Fanout core independent from Pi, Doubleword, and the eventual worker implementation while still allowing scheduler optimization.
+
+### Keep planning behavior inside packet preparation
+
+Decision: Fanout-agnostic packet planning should explore first, ask only for non-discoverable intent/tradeoffs, stay non-mutating, and produce a decision-complete plan. Remove the old `/dw-plan` prompt instead of maintaining a second planning surface.
+
+Reason: The useful behavior belongs inside `/dw-fanout` packet preparation. Keeping `/dw-plan` would split planning semantics and create a stale path outside the packet/DAG/execution flow.
+
+### Reuse existing worker infrastructure before custom orchestration
+
+Decision: `/dw-execute` should start with native Pi subagents or an existing popular subagent package. Build custom worker orchestration only if isolation, queueing, cancellation, or visibility cannot be handled by existing infrastructure.
+
+Reason: Worker frameworks are expensive to build and maintain. The execution packet should prove the scheduler contract before Fanout adds its own orchestration loop.
+
+### Prefer direct async endpoints before Autobatcher
+
+Decision: Use direct Doubleword async endpoints for the first `/dw-execute` implementation. Add Doubleword Autobatcher only if it materially improves queueing, retries, cancellation, failure handling, or throughput.
+
+Reason: Direct endpoints are the smallest integration that can validate packet execution and metrics. Autobatcher should be justified by observed execution needs, not assumed up front.
 
 ## 2026-06-29
 

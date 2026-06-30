@@ -61,6 +61,7 @@ Build the smallest useful packet first:
    - Objective, constraints, user notes, repo facts, risks, assumptions, and open questions.
    - Read-only investigation plan for facts that are discoverable locally.
 2. **Fanout-agnostic plan**
+   - Explore first, ask only for non-discoverable intent/tradeoffs, and produce a decision-complete plan.
    - Work units, dependencies, owned files/resources, read-only files, validation commands, rollback notes, and acceptance criteria.
    - No provider-specific or Pi-specific execution assumptions in this layer.
 3. **Optimized execution DAG**
@@ -203,21 +204,17 @@ runs/<run-id>/jobs/*.json
 
 ## Track 3: Pi-native planning workflow
 
-Status: initial `/dw-plan` prompt template, always-on batching discipline, and smoke checks are in place.
+Status: superseded by the `/dw-fanout` execution-packet workflow. The old `/dw-plan` prompt should be removed instead of evolved further.
 
-Start with prompt/template workflow, not a custom DAG executor.
+Keep the useful planning rules from the old prompt inside packet preparation:
 
-Planning prompt behavior:
-
-- Plan only: no edits, patches, codegen, migrations, or mutating commands.
+- Plan only during packet prep: no edits, patches, codegen, migrations, or mutating commands.
 - Investigate before asking when facts are discoverable from the repo/environment.
-- Identify what must be read, grepped, tested, or clarified.
-- Batch independent reads, greps, git inspection, and checks in the same model turn when possible.
-- Inject a lighter always-on batching discipline into normal execution so each turn looks ahead before using tools.
-- Ask as many questions as needed until the ask is clear and execution has no material doubts.
-- Produce a concise `<proposed_plan>` before execution when decision-complete; otherwise ask the next needed questions.
+- Separate discoverable facts from user intent/preferences.
+- Ask until goal, success criteria, scope, constraints, tradeoffs, validation, and acceptance are decision-complete.
+- Produce a compact, human-reviewable plan before execution.
 
-This is the first version of “predictive coding”: prompt the model to predict useful investigations and parallelizable work. Indexing is deferred.
+The planning surface is now `/dw-fanout`, not a standalone prompt template.
 
 ## Track 4: Live-shaped realtime Doubleword stubs
 
@@ -283,7 +280,7 @@ Current benchmark questions answered by the summarizer and `docs/BENCHMARKS.md`:
 - How many local tool calls are batched into each turn? Use `turn_end.toolCallCount`.
 - Does async TTFT multiply wall-clock time or get amortized? Use async provider duration, TTFT, poll count, and poll duration totals.
 - What is cost vs realtime? Use provider usage/cost totals plus the `glm-5-2` tier comparison table.
-- Does planning-first reduce retries and wasted turns? Compare summaries from plain runs vs `/dw-plan` runs.
+- Does planning-first reduce retries and wasted turns? Compare summaries from plain runs vs `/dw-fanout` packet-prep runs.
 - Which synthetic hybrid workflow policies meet the 3x active TAT target? Use hybrid policy results, active/background schedules, and target statuses.
 - Which workflow classes are ineligible? Linear mandatory critical-path fixtures are reported as infeasible instead of as tier2 feasibility passes.
 - Which evidence is observed versus synthetic? Mixed reports preserve `observability`, `pi-session`, and synthetic `hybrid-workflow` source labels.
