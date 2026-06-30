@@ -2,11 +2,17 @@
 
 ## Objective
 
-Build Fanout as an agent-agnostic optimization layer, plus a standalone Doubleword provider and a Pi adapter:
+Build Fanout as a planning-to-execution bridge, plus a standalone Doubleword provider and a Pi adapter:
 
 - `doubleword-provider`: how to call Doubleword models and tiers.
-- `fanout-core`: how to split, schedule, validate, and review work safely.
-- `fanout-pi`: Pi adapter/install target that can use both.
+- `fanout-core`: how to turn a user objective plus context into an execution packet, optimized DAG, validation contract, and execution summary.
+- `fanout-pi`: Pi adapter/install target that exposes `/dw-fanout` for packet preparation and `/dw-execute` for execution.
+
+Fanout's workflow is split into three phases:
+
+1. **Research and planning by the user**: users bring whatever research, planning notes, specs, or repo context they prefer. Fanout does not own this phase.
+2. **Execution packet**: `/dw-fanout [objective]` prepares a detailed fanout-agnostic plan, optimized execution DAG, validation loop, execution estimates, and user-reviewable packet.
+3. **Execution**: `/dw-execute` runs the accepted packet with subagent management, validation, synthesis, and summary metrics.
 
 The Doubleword provider adapts to these inference tiers:
 
@@ -14,20 +20,113 @@ The Doubleword provider adapts to these inference tiers:
 - **Async / tier 2**: minutes-scale TTFT via Responses API polling, lower cost.
 - **Batch / tier 3**: long-running JSONL batch jobs, lowest cost.
 
-Fanout should preserve developer velocity where possible by using async only where latency can be hidden or amortized.
+Fanout should preserve developer velocity by using slower tiers only where latency is hidden by planning, parallelism, background execution, or explicit user acceptance.
 
 ## Principles
 
+- User-owned research/planning stays decoupled from execution.
+- Execution packets are the stable boundary between planning and execution.
 - Stay Pi-native first; avoid a new agent loop unless necessary.
 - Keep Doubleword provider support independent from Fanout.
 - Keep Fanout core independent from Pi and Doubleword.
 - Stub before live endpoints.
 - Observability first.
-- Use planning prompts before custom orchestration.
+- Use simple packet and scheduler contracts before custom orchestration.
 - Separate workflow gains from provider-tier savings in every benchmark.
 - Keep expensive/deep workflow ideas deferred until benchmarks justify them.
 
-## Phase 0: Project docs and planning
+## Current Fanout workflow roadmap
+
+### Phase 1: User-owned research and planning
+
+Status: external to Fanout.
+
+Fanout assumes the user may arrive with research notes, implementation ideas, repo context, screenshots, design docs, issue links, or no extra context at all. Fanout should consume this context but not prescribe the user's research workflow.
+
+Acceptance criteria:
+
+- `/dw-fanout` works with either a supplied objective or the current conversation context.
+- Packet preparation clearly lists missing facts and clarification needs instead of inventing them.
+- The packet records user-provided context separately from inferred repo facts.
+
+### Phase 2: Execution packet via `/dw-fanout`
+
+Status: next implementation focus.
+
+Goal: prepare a user-reviewable packet that is detailed enough to execute later, but still fanout-agnostic until the DAG/scheduler pass.
+
+Build the smallest useful packet first:
+
+1. **Context intake**
+   - Objective, constraints, user notes, repo facts, risks, assumptions, and open questions.
+   - Read-only investigation plan for facts that are discoverable locally.
+2. **Fanout-agnostic plan**
+   - Work units, dependencies, owned files/resources, read-only files, validation commands, rollback notes, and acceptance criteria.
+   - No provider-specific or Pi-specific execution assumptions in this layer.
+3. **Optimized execution DAG**
+   - Convert work units into a DAG with dependency edges, ownership conflict checks, validation gates, and reviewer/synthesis nodes.
+   - Reject cycles and unresolved ownership conflicts before execution.
+   - Estimate critical path, parallel width, tier choices, expected active wait, background completion time, cost, and risk.
+4. **Validation loop**
+   - Re-check the packet for missing context, unsafe ownership, invalid dependencies, validation gaps, budget/deadline violations, and stale assumptions.
+   - Iterate until the best packet possible with available info is produced, or explicitly mark blockers/questions.
+5. **User-facing execution plan**
+   - Include a flowchart, worker ownership table, inference tier plan, expected files touched, validation commands, estimated time/cost, cancellation/stop rules, and known risks.
+   - Save the packet in a stable artifact format that `/dw-execute` can consume.
+
+Suggested packet artifact:
+
+```text
+runs/<run-id>/execution-packet.json
+runs/<run-id>/execution-plan.md
+runs/<run-id>/execution-dag.mmd
+```
+
+Phase 2 acceptance criteria:
+
+- `/dw-fanout [objective]` produces a packet without mutating project files.
+- The packet can be reviewed by a human before execution.
+- DAG validation catches cycles, file ownership conflicts, missing validation, and unresolved blockers.
+- Estimates distinguish active wait, background completion, provider tier cost, and workflow savings.
+- Observability logs packet preparation time, model tiers, token usage, DAG depth/width, validation iterations, and rejected/accepted work units.
+
+### Phase 3: Execution via `/dw-execute`
+
+Status: planned after Phase 2 packet is reliable.
+
+Goal: execute an accepted packet, manage workers, validate outputs, and return control with summary plus metrics.
+
+Build order:
+
+1. **Packet loader and guardrails**
+   - Load a saved execution packet.
+   - Refuse stale, invalid, cyclic, or conflict-heavy packets unless regenerated.
+   - Confirm expected file ownership and validation commands before launch.
+2. **Worker management**
+   - Start with native Pi subagents or an existing popular subagent package; do not build a custom worker framework unless the adapter cannot meet isolation/visibility needs.
+   - Assign each worker explicit objective, owned files, read-only context, dependencies, validation contract, budget, and stop rules.
+3. **DAG execution**
+   - Execute ready nodes in dependency order.
+   - Use isolated workspaces for parallel code edits when needed.
+   - Run node-level validation, reviewer nodes, and final synthesis before accepting changes.
+4. **Async infrastructure**
+   - Prefer direct Doubleword async endpoints first.
+   - Use Doubleword Autobatcher only if it materially improves queueing, failure handling, cancellation, or async throughput.
+5. **Summary and metrics**
+   - Return changed files, validation results, rejected/late worker outputs, retries, cancellations, token/cost totals, active time, background time, poll time, tool time, and follow-up risks.
+
+Phase 3 acceptance criteria:
+
+- `/dw-execute <packet>` can run a small packet end-to-end with isolated workers and final synthesis.
+- Failed or late workers cannot corrupt the active worktree silently.
+- The executor records enough metrics to compare against baseline Pi execution.
+- User regains control with a concise summary, validation status, and artifact links.
+
+## Supporting/completed tracks
+
+The sections below capture provider, observability, and benchmark work that supports the current Fanout workflow.
+
+## Track 0: Project docs and planning
 
 - Create project docs and working rules.
 - Track scope in this roadmap.
@@ -55,7 +154,7 @@ Release process used:
 5. Published with public npm access.
 6. Verified the Pi package gallery page.
 
-## Phase 1: Provider stubs
+## Track 1: Provider stubs
 
 Status: provider stubs live in `doubleword-provider`, with `fanout-pi` registering them for Pi.
 
@@ -74,7 +173,7 @@ Build provider stubs without hitting Doubleword live endpoints.
 - Fake response IDs.
 - Fixture-backed final text/tool-call responses.
 
-## Phase 2: Observability test environment
+## Track 2: Observability test environment
 
 Status: initial JSONL hooks are in place for provider, TTFT, async polling, usage/cost, errors/abort, tool timings, agent turn count, and tool batch size per turn. A tiny observability smoke asserts core JSONL events/fields; Phase 6 now has an initial offline trace summarizer, while full trace replay/dataset benchmarks remain deferred.
 
@@ -102,7 +201,7 @@ runs/<run-id>/plan.md
 runs/<run-id>/jobs/*.json
 ```
 
-## Phase 3: Pi-native planning workflow
+## Track 3: Pi-native planning workflow
 
 Status: initial `/dw-plan` prompt template, always-on batching discipline, and smoke checks are in place.
 
@@ -120,7 +219,7 @@ Planning prompt behavior:
 
 This is the first version of “predictive coding”: prompt the model to predict useful investigations and parallelizable work. Indexing is deferred.
 
-## Phase 4: Live-shaped realtime Doubleword stubs
+## Track 4: Live-shaped realtime Doubleword stubs
 
 Status: `doubleword-stub` exposes the first live-shaped model IDs and pricing metadata. An opt-in `doubleword` live provider now calls the Responses API with `service_tier: "priority"`, discovers live models from `/v1/models`, and caches that catalog; normal validation remains offline and keyless.
 
@@ -131,7 +230,7 @@ Status: `doubleword-stub` exposes the first live-shaped model IDs and pricing me
 - Register opt-in live realtime models under `doubleword` from provider discovery/cache, falling back to the minimal GLM/DeepSeek list when discovery is unavailable.
 - Keep live smoke opt-in with `DOUBLEWORD_API_KEY`; no live network in default checks.
 
-## Phase 5: Live async Doubleword provider
+## Track 5: Live async Doubleword provider
 
 Status: opt-in async mode for `doubleword` is wired for discovered/cached live models, Responses API background polling, 16k default output cap, wall-clock timeout, transient poll retry, final GET on timeout, and best-effort remote cancellation. `doubleword` and `doubleword-stub` keep model IDs stable and use a status-line toggle for realtime vs async when the selected provider supports multiple tiers. Normal validation remains offline and keyless.
 
@@ -145,7 +244,7 @@ Status: opt-in async mode for `doubleword` is wired for discovered/cached live m
 
 Key limitation to validate live: async responses may not stream; Pi may only receive content/tool calls after completion. Tool-call translation remains pending.
 
-## Phase 6: Stub/trace benchmarks
+## Track 6: Stub/trace benchmarks
 
 Status: initial offline trace summarizer, smoke fixtures, deterministic hybrid policy simulation, and target evidence docs are in place. It reads local `observability.jsonl` files, raw Pi session JSONL traces, and versioned synthetic hybrid workflow JSONL fixtures, then produces `runs/phase6/summary.json` plus `summary.md`; no live calls or replay engine. Manual semantic subagent reviews now supersede the coarse optimistic-DAG heuristic. Hybrid fixture reports now include policy matrices with active TAT, background completion, target status, per-node schedules, budget/deadline/fallback/speculative evidence, and tier2 concurrency caps. The mixed fixture command demonstrates synthetic non-baseline tier2 passes for eligible workflow shapes and marks linear mandatory active critical paths infeasible. Results are tracked in `docs/BENCHMARKS.md`, [`docs/benchmarks/semantic-dag-and-rpe.md`](benchmarks/semantic-dag-and-rpe.md), and [`docs/benchmarks/hybrid-target-evidence.md`](benchmarks/hybrid-target-evidence.md).
 
@@ -191,9 +290,9 @@ Current benchmark questions answered by the summarizer and `docs/BENCHMARKS.md`:
 
 Deferred until the summaries prove they are needed: external dataset downloader, trace replay engine, strict DAG executor, subagents, and indexing.
 
-## Phase 7: Planned Parallel RPE prototypes
+## Track 7: Planned Parallel RPE prototypes
 
-Status: design docs, offline safe-work-unit evaluator, full `pi-mono` TAT bucket code-shard evaluation, and trace-derived wait estimates are in place. Runtime prototype remains deferred until the execution packet and scheduler policy are defined.
+Status: design docs, offline safe-work-unit evaluator, full `pi-mono` TAT bucket code-shard evaluation, and trace-derived wait estimates are in place. Runtime prototype is folded into Phase 2 execution packet work and Phase 3 execution work.
 
 Trace-backed direction:
 
@@ -209,15 +308,15 @@ Design target: two narrower opt-in workflows, documented in [`docs/OPTIMISTIC_DA
 1. `semantic-batching-tier1`: realtime/tier1 workflow that reduces turns, redundant checks, and context bloat.
 2. `planned-parallel-rpe`: tier1 planner, conflict-aware scheduler, isolated tier2 background executors, parallel reviewers, cancellation for speculative pre-confirm work, file ownership constraints, and tier1 final review/synthesis.
 
-Next work:
+Next work is covered by the current Phase 2 and Phase 3 roadmap:
 
-- Define the RPE execution packet: accepted plan, owned/read-only files, dependencies, constraints, validation contract, budget, user wait budget, stop rules, cancellation rules, and expected handoff.
+- Define the execution packet: accepted plan, owned/read-only files, dependencies, constraints, validation contract, budget, user wait budget, stop rules, cancellation rules, and expected handoff.
 - Define scheduler policy: reject cycles and ownership conflicts, compute accepted safe-unit DAG critical path, estimate `tier2_exec_wait_worst_case = DAG_depth * 10m`, and launch only when it fits the user wait budget.
 - Add observability fields for active planning time, background completion time, late outputs, retries, cancellation, rejected speculative work, review latency, acceptance failures, accepted DAG depth, and estimated/actual tier2 wait.
-- Prototype RPE background execution and sharded RPE now that prefix-evaluation evidence supports safe decomposition for some code-edit traces, but keep it opt-in and background-only.
-- Keep strict/generic DAG execution and default duplicate implementations deferred until trace-derived evidence shows real off-critical model branches outside RPE.
+- Prototype background execution and sharded RPE behind `/dw-execute` after `/dw-fanout` packets are reliable.
+- Keep default duplicate implementations deferred until trace-derived evidence shows they are worth the cost.
 
-## Phase 8: Live endpoint benchmarks
+## Track 8: Live endpoint benchmarks
 
 After stubs, traces, and RPE routing policies:
 
@@ -231,8 +330,8 @@ After stubs, traces, and RPE routing policies:
 
 Only build these if the simpler system fails benchmarks:
 
-- Strict DAG executor for explicit parallel investigation/execution.
-- Broad subagent orchestration beyond the optimistic DAG prototype.
+- Generic DAG executor beyond execution-packet-driven DAGs.
+- Broad subagent orchestration beyond `/dw-execute` needs.
 - Model profiles/fusion: cheap investigator, deep researcher, reviewer, patcher, etc.
 - Predictive repo indexing and speculative context gathering.
 - Batch-tier orchestration for normal workflows.

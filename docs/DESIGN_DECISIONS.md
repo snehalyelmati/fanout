@@ -242,6 +242,12 @@ Decision: Publish the standalone Doubleword provider as `@snehalyelmati/pi-doubl
 
 Reason: The provider has a clear standalone package boundary: it registers the live `doubleword` provider for Pi, while dev-only stubs remain outside the packed npm package. Publishing it separately lets users install Doubleword support without Fanout.
 
+### Split Fanout into user research, execution packet, and execution
+
+Decision: Make Fanout a three-phase workflow: user-owned research/planning, `/dw-fanout` execution-packet preparation, and `/dw-execute` execution from an accepted packet.
+
+Reason: Keeping research/planning outside Fanout lets users use their own workflow and gives the executor better inputs. The packet boundary lets Fanout validate a fanout-agnostic plan, optimized DAG, ownership, estimates, and stop rules before any worker mutates files.
+
 ## 2026-06-29
 
 ### Add live realtime as a key-gated provider
