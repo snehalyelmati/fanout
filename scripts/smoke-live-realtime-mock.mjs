@@ -31,6 +31,16 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+function sendSse(res, events) {
+  res.writeHead(200, { "content-type": "text/event-stream" });
+  for (const [event, data] of events) {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  }
+  res.write("data: [DONE]\n\n");
+  res.end();
+}
+
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -40,43 +50,60 @@ const server = createServer(async (req, res) => {
 
       const inputText = JSON.stringify(body.input);
       if (inputText.includes("Return queued status")) {
-        return sendJson(res, 200, { id: "resp_realtime_mock_queued", status: "queued", service_tier: "priority" });
+        return sendSse(res, [["response.completed", { response: { id: "resp_realtime_mock_queued", status: "queued", service_tier: "priority" } }]]);
       }
 
       if (inputText.includes(toolCallPromptText)) {
         toolCallRequestCount++;
         if (toolCallRequestCount === 1) {
-          return sendJson(res, 200, {
-            id: toolResponseId,
+          return sendSse(res, [["response.completed", {
+            response: {
+              id: toolResponseId,
+              status: "completed",
+              service_tier: "priority",
+              output: [
+                { type: "function_call", id: "fc_read_1", call_id: "call_read_1", name: "read", arguments: JSON.stringify({ path: "README.md" }) },
+              ],
+              usage: { input_tokens: 2, output_tokens: 5, total_tokens: 7 },
+            },
+          }]]);
+        }
+        return sendSse(res, [
+          ["response.created", { response: { id: toolReplayResponseId } }],
+          ["response.output_text.delta", { delta: toolCallFinalText }],
+          ["response.output_text.done", { text: toolCallFinalText }],
+          ["response.completed", {
+            response: {
+              id: toolReplayResponseId,
+              status: "completed",
+              service_tier: "priority",
+              output: [
+                { type: "message", content: [{ type: "output_text", text: toolCallFinalText }] },
+              ],
+              usage: { input_tokens: 3, output_tokens: 4, total_tokens: 7 },
+            },
+          }],
+        ]);
+      }
+
+      return sendSse(res, [
+        ["response.created", { response: { id: "resp_realtime_mock_1" } }],
+        ["response.output_text.delta", { delta: "Doubleword live " }],
+        ["response.output_text.delta", { delta: "realtime mock response." }],
+        ["response.output_text.done", { text: finalText }],
+        ["response.completed", {
+          response: {
+            id: "resp_realtime_mock_1",
             status: "completed",
             service_tier: "priority",
             output: [
-              { type: "function_call", id: "fc_read_1", call_id: "call_read_1", name: "read", arguments: JSON.stringify({ path: "README.md" }) },
+              { type: "reasoning", summary: [{ type: "summary_text", text: reasoningText }] },
+              { type: "message", content: [{ type: "output_text", text: finalText }] },
             ],
             usage: { input_tokens: 2, output_tokens: 5, total_tokens: 7 },
-          });
-        }
-        return sendJson(res, 200, {
-          id: toolReplayResponseId,
-          status: "completed",
-          service_tier: "priority",
-          output: [
-            { type: "message", content: [{ type: "output_text", text: toolCallFinalText }] },
-          ],
-          usage: { input_tokens: 3, output_tokens: 4, total_tokens: 7 },
-        });
-      }
-
-      return sendJson(res, 200, {
-        id: "resp_realtime_mock_1",
-        status: "completed",
-        service_tier: "priority",
-        output: [
-          { type: "reasoning", summary: [{ type: "summary_text", text: reasoningText }] },
-          { type: "message", content: [{ type: "output_text", text: finalText }] },
-        ],
-        usage: { input_tokens: 2, output_tokens: 5, total_tokens: 7 },
-      });
+          },
+        }],
+      ]);
     }
     sendJson(res, 404, { error: "not found" });
   } catch (error) {
@@ -157,6 +184,7 @@ try {
   const submit = requests.find((request) => request.method === "POST" && request.path === "/responses" && !JSON.stringify(request.body.input).includes("Return queued status"));
   assert(submit, `POST /responses was not called: ${JSON.stringify(requests)}`);
   assert(submit.body.service_tier === "priority", `POST /responses missing service_tier priority: ${JSON.stringify(submit.body)}`);
+  assert(submit.body.stream === true, `POST /responses missing stream=true: ${JSON.stringify(submit.body)}`);
   assert(submit.body.max_output_tokens === 16384, `POST /responses wrong max_output_tokens: ${JSON.stringify(submit.body)}`);
   assert(submit.body.background === undefined, `POST /responses should be blocking realtime: ${JSON.stringify(submit.body)}`);
 

@@ -106,6 +106,12 @@ Decision: Add async mode to the opt-in `doubleword` provider. It submits Respons
 
 Reason: Direct polling preserves queue/status/poll observability and avoids adding Autobatcher or custom orchestration before benchmarks justify it.
 
+### Live realtime uses Responses SSE
+
+Decision: Realtime mode requests `stream: true` and maps Responses SSE text deltas into Pi stream events. Async/flex remains polling because the official Doubleword async docs describe background results as retrieve-by-ID/polling, not response-ID streaming.
+
+Reason: This gives interactive TTFT for the tier that documents streaming-compatible integrations while avoiding an invented async stream contract.
+
 ### Phase 6 starts as trace summarization
 
 Decision: Start stub/trace benchmarking with an offline JSONL summarizer over existing observability events, not a trace replay engine or dataset downloader.

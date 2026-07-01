@@ -3,7 +3,7 @@ import { performance } from "node:perf_hooks";
 import { createAssistantMessageEventStream, type Api, type AssistantMessageEventStream, type Context, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { ASYNC_SERVICE_TIER, DEFAULT_ASYNC_TIMEOUT_MS, DEFAULT_CANCEL_TIMEOUT_MS, DOUBLEWORD_API_BASE_URL, elapsedMs, envInt, envString, formatSeconds, maxOutputTokensFor, sleep, withTimeout } from "./config.ts";
 import { fetchJson, fetchJsonWithPollRetry } from "./http.ts";
-import { assertCompletedResponse, emitResponseContent, emptyMessage, guardRepeatedOutput, responsesInput, responsesTools, usageFromResponse } from "./messages.ts";
+import { assertCompletedResponse, emitResponseContent, emptyMessage, endText, guardRepeatedOutput, pushTextDelta, responsesInput, responsesTools, startText, usageFromResponse } from "./messages.ts";
 import { durationMs, getDoublewordActiveTurnIndex, writeJsonl } from "./observability.ts";
 
 class AsyncTimeoutError extends Error {}
@@ -36,6 +36,29 @@ async function cancelResponse(
 	}
 }
 
+function sseEvents(chunk: string, buffer: { text: string }): Array<{ event?: string; data: string }> {
+	buffer.text += chunk;
+	const events: Array<{ event?: string; data: string }> = [];
+	for (;;) {
+		const splitAt = buffer.text.search(/\r?\n\r?\n/);
+		if (splitAt < 0) break;
+		const raw = buffer.text.slice(0, splitAt);
+		buffer.text = buffer.text.slice(buffer.text[splitAt] === "\r" ? splitAt + 4 : splitAt + 2);
+		let event: string | undefined;
+		const data: string[] = [];
+		for (const line of raw.split(/\r?\n/)) {
+			if (line.startsWith("event:")) event = line.slice(6).trim();
+			else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+		}
+		if (data.length) events.push({ event, data: data.join("\n") });
+	}
+	return events;
+}
+
+function streamError(data: any): string {
+	return String(data?.error?.message ?? data?.message ?? data?.response?.error?.message ?? JSON.stringify(data));
+}
+
 export function streamLiveRealtime(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
 	const stream = createAssistantMessageEventStream();
 
@@ -58,18 +81,78 @@ export function streamLiveRealtime(model: Model<Api>, context: Context, options?
 			headers.set("content-type", "application/json");
 			headers.set("authorization", `Bearer ${apiKey}`);
 			const tools = responsesTools(context.tools);
-			const response = await fetchJson(`${baseUrl}/responses`, {
+			const httpResponse = await fetch(`${baseUrl}/responses`, {
 				method: "POST",
 				headers,
 				signal: options?.signal,
-				body: JSON.stringify({ model: model.id, input: responsesInput(context), ...(tools ? { tools } : {}), service_tier: "priority", max_output_tokens: maxOutputTokensFor(model, options) }),
+				body: JSON.stringify({ model: model.id, input: responsesInput(context), ...(tools ? { tools } : {}), service_tier: "priority", stream: true, max_output_tokens: maxOutputTokensFor(model, options) }),
 			});
+			if (!httpResponse.ok) throw new Error(`Doubleword API error ${httpResponse.status}${httpResponse.statusText ? ` ${httpResponse.statusText}` : ""}: ${await httpResponse.text()}`);
+			if (!httpResponse.body) throw new Error("Doubleword realtime stream response had no body");
+
+			let response: Record<string, any> | undefined;
+			let contentIndex: number | undefined;
+			let text = "";
+			let textEnded = false;
+			let ttftLogged = false;
+			const logTtft = () => {
+				if (ttftLogged) return;
+				ttftLogged = true;
+				writeJsonl("provider_ttft", { tier: "realtime", provider: model.provider, model: model.id, responseId, turnIndex, ttftMs: durationMs(started) });
+			};
+
+			const decoder = new TextDecoder();
+			const reader = httpResponse.body.getReader();
+			const buffer = { text: "" };
+			for (;;) {
+				const { done, value } = await reader.read();
+				for (const event of sseEvents(done ? decoder.decode() : decoder.decode(value, { stream: true }), buffer)) {
+					if (event.data === "[DONE]") continue;
+					const data = JSON.parse(event.data);
+					const type = event.event ?? data.type;
+					if (data.response?.id || data.id) {
+						responseId = String(data.response?.id ?? data.id);
+						output.responseId = responseId;
+					}
+					if (type === "response.output_text.delta") {
+						const delta = String(data.delta ?? "");
+						if (!delta) continue;
+						if (contentIndex === undefined) contentIndex = startText(stream, output);
+						pushTextDelta(stream, output, contentIndex, delta);
+						text += delta;
+						logTtft();
+					} else if (type === "response.output_text.done") {
+						if (contentIndex === undefined && data.text) {
+							contentIndex = startText(stream, output);
+							pushTextDelta(stream, output, contentIndex, String(data.text));
+							text += String(data.text);
+							logTtft();
+						}
+						if (contentIndex !== undefined && !textEnded) {
+							endText(stream, output, contentIndex);
+							textEnded = true;
+						}
+					} else if (type === "response.completed") {
+						response = data.response;
+					} else if (["response.failed", "response.incomplete", "error"].includes(type)) {
+						throw new Error(streamError(data));
+					}
+				}
+				if (done) break;
+			}
+			if (contentIndex !== undefined && !textEnded) endText(stream, output, contentIndex);
+			response ??= { id: responseId, status: "completed", output_text: text };
 			responseId = String(response.id ?? responseId);
 			output.responseId = responseId;
 			assertCompletedResponse("realtime", responseId, response);
 			guardRepeatedOutput("realtime", model, responseId, turnIndex, response);
-			writeJsonl("provider_ttft", { tier: "realtime", provider: model.provider, model: model.id, responseId, turnIndex, ttftMs: durationMs(started) });
-			const { text, stopReason } = emitResponseContent(response, stream, output);
+			let stopReason: "stop" | "length" | "toolUse" = "stop";
+			if (!text) {
+				logTtft();
+				const emitted = emitResponseContent(response, stream, output);
+				text = emitted.text;
+				stopReason = emitted.stopReason;
+			}
 
 			output.stopReason = stopReason;
 			output.usage = usageFromResponse(model, context, text, response);

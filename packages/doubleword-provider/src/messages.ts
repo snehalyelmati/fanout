@@ -164,14 +164,30 @@ function reasoningText(item: any): string {
 		.join("\n\n");
 }
 
-export function emitText(stream: AssistantMessageEventStream, output: AssistantMessage, text: string): void {
+export function startText(stream: AssistantMessageEventStream, output: AssistantMessage): number {
 	output.content.push({ type: "text", text: "" });
 	const contentIndex = output.content.length - 1;
 	stream.push({ type: "text_start", contentIndex, partial: output });
+	return contentIndex;
+}
+
+export function pushTextDelta(stream: AssistantMessageEventStream, output: AssistantMessage, contentIndex: number, delta: string): void {
 	const block = output.content[contentIndex];
-	if (block.type === "text") block.text += text;
-	stream.push({ type: "text_delta", contentIndex, delta: text, partial: output });
-	stream.push({ type: "text_end", contentIndex, content: text, partial: output });
+	if (block.type === "text") block.text += delta;
+	stream.push({ type: "text_delta", contentIndex, delta, partial: output });
+}
+
+export function endText(stream: AssistantMessageEventStream, output: AssistantMessage, contentIndex: number): string {
+	const block = output.content[contentIndex];
+	const content = block.type === "text" ? block.text : "";
+	stream.push({ type: "text_end", contentIndex, content, partial: output });
+	return content;
+}
+
+export function emitText(stream: AssistantMessageEventStream, output: AssistantMessage, text: string): void {
+	const contentIndex = startText(stream, output);
+	pushTextDelta(stream, output, contentIndex, text);
+	endText(stream, output, contentIndex);
 }
 
 function emitThinking(stream: AssistantMessageEventStream, output: AssistantMessage, thinking: string, signature?: string): void {
