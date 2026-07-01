@@ -1,4 +1,4 @@
-import type { Api, AssistantMessage, AssistantMessageEventStream, Context, Model, Usage } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, AssistantMessageEventStream, Context, Model, StopReason, Tool, Usage } from "@earendil-works/pi-ai";
 import { writeJsonl } from "./observability.ts";
 
 export function textFrom(value: unknown): string {
@@ -65,14 +65,86 @@ export function usageFromResponse(model: Model<Api>, context: Context, outputTex
 	};
 }
 
-export function responsesInput(context: Context): string {
-	const parts: string[] = [];
-	if (context.systemPrompt) parts.push(`[system]\n${context.systemPrompt}`);
-	for (const message of context.messages) {
-		const label = message.role === "toolResult" ? `tool:${message.toolName}` : message.role;
-		parts.push(`[${label}]\n${textFrom(message.content)}`);
-	}
-	return parts.join("\n\n");
+function inputContent(content: unknown): any[] {
+	if (typeof content === "string") return [{ type: "input_text", text: content }];
+	if (!Array.isArray(content)) return [];
+	return content
+		.map((part: any) => {
+			if (part?.type === "text") return { type: "input_text", text: part.text ?? "" };
+			if (part?.type === "image") return { type: "input_image", detail: "auto", image_url: `data:${part.mimeType};base64,${part.data}` };
+			return undefined;
+		})
+		.filter(Boolean);
+}
+
+function splitToolCallId(id: string | undefined): [string, string | undefined] {
+	if (!id) return ["call_unknown", undefined];
+	const [callId, itemId] = id.split("|");
+	return [callId || id, itemId];
+}
+
+export function responsesInput(context: Context): any[] {
+	const input: any[] = [];
+	if (context.systemPrompt) input.push({ role: "system", content: [{ type: "input_text", text: context.systemPrompt }] });
+
+	context.messages.forEach((message, messageIndex) => {
+		if (message.role === "user") {
+			const content = inputContent(message.content);
+			if (content.length) input.push({ role: "user", content });
+			return;
+		}
+
+		if (message.role === "assistant") {
+			let textIndex = 0;
+			for (const block of message.content) {
+				if (block.type === "text" && block.text.trim()) {
+					input.push({
+						type: "message",
+						role: "assistant",
+						status: "completed",
+						id: `msg_dw_${messageIndex}_${textIndex++}`,
+						content: [{ type: "output_text", text: block.text, annotations: [] }],
+					});
+				} else if (block.type === "thinking" && block.thinkingSignature?.startsWith("{")) {
+					try {
+						input.push(JSON.parse(block.thinkingSignature));
+					} catch {
+						// Ignore invalid opaque reasoning replay data.
+					}
+				} else if (block.type === "toolCall") {
+					const [callId, itemId] = splitToolCallId(block.id);
+					input.push({
+						type: "function_call",
+						id: itemId,
+						call_id: callId,
+						name: block.name,
+						arguments: JSON.stringify(block.arguments ?? {}),
+					});
+				}
+			}
+			return;
+		}
+
+		if (message.role === "toolResult") {
+			const [callId] = splitToolCallId(message.toolCallId);
+			const output = textFrom(message.content) || "(see attached image)";
+			input.push({ type: "function_call_output", call_id: callId, output });
+		}
+	});
+
+	return input;
+}
+
+export function responsesTools(tools: Tool[] | undefined): any[] | undefined {
+	return tools?.length
+		? tools.map((tool) => ({
+				type: "function",
+				name: tool.name,
+				description: tool.description,
+				parameters: tool.parameters,
+				strict: false,
+			}))
+		: undefined;
 }
 
 function messageText(item: any): string {
@@ -112,6 +184,28 @@ function emitThinking(stream: AssistantMessageEventStream, output: AssistantMess
 	stream.push({ type: "thinking_end", contentIndex, content: thinking, partial: output });
 }
 
+function parseArgs(value: unknown): Record<string, any> {
+	if (!value) return {};
+	if (typeof value === "object") return value as Record<string, any>;
+	try {
+		return JSON.parse(String(value));
+	} catch {
+		return {};
+	}
+}
+
+function emitToolCall(stream: AssistantMessageEventStream, output: AssistantMessage, item: any): void {
+	const callId = String(item.call_id ?? item.id ?? `call_${output.content.length}`);
+	const itemId = String(item.id ?? `fc_${callId}`);
+	const rawArgs = typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments ?? {});
+	const toolCall = { type: "toolCall" as const, id: `${callId}|${itemId}`, name: String(item.name ?? "unknown"), arguments: parseArgs(item.arguments) };
+	output.content.push(toolCall);
+	const contentIndex = output.content.length - 1;
+	stream.push({ type: "toolcall_start", contentIndex, partial: output });
+	if (rawArgs) stream.push({ type: "toolcall_delta", contentIndex, delta: rawArgs, partial: output });
+	stream.push({ type: "toolcall_end", contentIndex, toolCall, partial: output });
+}
+
 function finalResponseText(response: Record<string, any>): string {
 	const items = Array.isArray(response.output) ? response.output : [];
 	const finalText = items
@@ -121,9 +215,10 @@ function finalResponseText(response: Record<string, any>): string {
 	return finalText.length ? finalText.join("\n") : typeof response.output_text === "string" ? response.output_text : "";
 }
 
-export function emitResponseContent(response: Record<string, any>, stream: AssistantMessageEventStream, output: AssistantMessage): string {
+export function emitResponseContent(response: Record<string, any>, stream: AssistantMessageEventStream, output: AssistantMessage): { text: string; stopReason: Extract<StopReason, "stop" | "length" | "toolUse"> } {
 	const items = Array.isArray(response.output) ? response.output : [];
 	const finalText: string[] = [];
+	let hasToolCall = false;
 	for (const item of items) {
 		if (item?.type === "reasoning") {
 			const thinking = reasoningText(item);
@@ -134,12 +229,15 @@ export function emitResponseContent(response: Record<string, any>, stream: Assis
 				emitText(stream, output, text);
 				finalText.push(text);
 			}
+		} else if (item?.type === "function_call") {
+			emitToolCall(stream, output, item);
+			hasToolCall = true;
 		}
 	}
-	if (finalText.length) return finalText.join("\n");
+	if (finalText.length) return { text: finalText.join("\n"), stopReason: hasToolCall ? "toolUse" : "stop" };
 	const fallback = typeof response.output_text === "string" ? response.output_text : "";
 	if (fallback) emitText(stream, output, fallback);
-	return fallback;
+	return { text: fallback, stopReason: hasToolCall ? "toolUse" : "stop" };
 }
 
 function repeatedOutputReason(text: string): string | undefined {

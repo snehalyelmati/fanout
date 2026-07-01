@@ -3,7 +3,7 @@ import { performance } from "node:perf_hooks";
 import { createAssistantMessageEventStream, type Api, type AssistantMessageEventStream, type Context, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { ASYNC_SERVICE_TIER, DEFAULT_ASYNC_TIMEOUT_MS, DEFAULT_CANCEL_TIMEOUT_MS, DOUBLEWORD_API_BASE_URL, elapsedMs, envInt, envString, formatSeconds, maxOutputTokensFor, sleep, withTimeout } from "./config.ts";
 import { fetchJson, fetchJsonWithPollRetry } from "./http.ts";
-import { assertCompletedResponse, emitResponseContent, emptyMessage, guardRepeatedOutput, responsesInput, usageFromResponse } from "./messages.ts";
+import { assertCompletedResponse, emitResponseContent, emptyMessage, guardRepeatedOutput, responsesInput, responsesTools, usageFromResponse } from "./messages.ts";
 import { durationMs, getDoublewordActiveTurnIndex, writeJsonl } from "./observability.ts";
 
 class AsyncTimeoutError extends Error {}
@@ -57,21 +57,23 @@ export function streamLiveRealtime(model: Model<Api>, context: Context, options?
 			const headers = new Headers(options?.headers);
 			headers.set("content-type", "application/json");
 			headers.set("authorization", `Bearer ${apiKey}`);
+			const tools = responsesTools(context.tools);
 			const response = await fetchJson(`${baseUrl}/responses`, {
 				method: "POST",
 				headers,
 				signal: options?.signal,
-				body: JSON.stringify({ model: model.id, input: responsesInput(context), service_tier: "priority", max_output_tokens: maxOutputTokensFor(model, options) }),
+				body: JSON.stringify({ model: model.id, input: responsesInput(context), ...(tools ? { tools } : {}), service_tier: "priority", max_output_tokens: maxOutputTokensFor(model, options) }),
 			});
 			responseId = String(response.id ?? responseId);
 			output.responseId = responseId;
 			assertCompletedResponse("realtime", responseId, response);
 			guardRepeatedOutput("realtime", model, responseId, turnIndex, response);
 			writeJsonl("provider_ttft", { tier: "realtime", provider: model.provider, model: model.id, responseId, turnIndex, ttftMs: durationMs(started) });
-			const text = emitResponseContent(response, stream, output);
+			const { text, stopReason } = emitResponseContent(response, stream, output);
 
+			output.stopReason = stopReason;
 			output.usage = usageFromResponse(model, context, text, response);
-			stream.push({ type: "done", reason: "stop", message: output });
+			stream.push({ type: "done", reason: stopReason, message: output });
 			writeJsonl("provider_end", {
 				tier: "realtime",
 				provider: model.provider,
@@ -159,6 +161,7 @@ export function streamLiveAsync(model: Model<Api>, context: Context, options?: S
 			headers.set("content-type", "application/json");
 			headers.set("authorization", `Bearer ${apiKey}`);
 			const submitStart = performance.now();
+			const tools = responsesTools(context.tools);
 			let response = await withAsyncDeadline((signal) =>
 				fetchJson(`${baseUrl}/responses`, {
 					method: "POST",
@@ -167,6 +170,7 @@ export function streamLiveAsync(model: Model<Api>, context: Context, options?: S
 					body: JSON.stringify({
 						model: model.id,
 						input: responsesInput(context),
+						...(tools ? { tools } : {}),
 						service_tier: ASYNC_SERVICE_TIER,
 						background: true,
 						max_output_tokens: maxOutputTokensFor(model, options),
@@ -241,10 +245,11 @@ export function streamLiveAsync(model: Model<Api>, context: Context, options?: S
 			guardRepeatedOutput("async", model, responseId, turnIndex, response);
 
 			writeJsonl("provider_ttft", { tier: "async", provider: model.provider, model: model.id, responseId, turnIndex, ttftMs: durationMs(started) });
-			const text = emitResponseContent(response, stream, output);
+			const { text, stopReason } = emitResponseContent(response, stream, output);
 
+			output.stopReason = stopReason;
 			output.usage = usageFromResponse(model, context, text, response);
-			stream.push({ type: "done", reason: "stop", message: output });
+			stream.push({ type: "done", reason: stopReason, message: output });
 			writeJsonl("provider_end", {
 				tier: "async",
 				provider: model.provider,

@@ -8,7 +8,12 @@ const dir = mkdtempSync(join(tmpdir(), "doubleword-pi-live-realtime-mock-"));
 const logFile = join(dir, "observability.jsonl");
 const requests = [];
 const finalText = "Doubleword live realtime mock response.";
+const toolCallFinalText = "Doubleword live realtime mock tool call response.";
+const toolCallPromptText = "Read README.md and then answer with one line.";
 const reasoningText = "internal reasoning should not be printed";
+const toolResponseId = "resp_realtime_mock_tool_1";
+const toolReplayResponseId = "resp_realtime_mock_tool_2";
+let toolCallRequestCount = 0;
 
 function assert(ok, message) {
   if (!ok) throw new Error(message);
@@ -32,9 +37,36 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/responses") {
       const body = JSON.parse(await readBody(req));
       requests.push({ method: req.method, path: url.pathname, body });
-      if (String(body.input).includes("Return queued status")) {
+
+      const inputText = JSON.stringify(body.input);
+      if (inputText.includes("Return queued status")) {
         return sendJson(res, 200, { id: "resp_realtime_mock_queued", status: "queued", service_tier: "priority" });
       }
+
+      if (inputText.includes(toolCallPromptText)) {
+        toolCallRequestCount++;
+        if (toolCallRequestCount === 1) {
+          return sendJson(res, 200, {
+            id: toolResponseId,
+            status: "completed",
+            service_tier: "priority",
+            output: [
+              { type: "function_call", id: "fc_read_1", call_id: "call_read_1", name: "read", arguments: JSON.stringify({ path: "README.md" }) },
+            ],
+            usage: { input_tokens: 2, output_tokens: 5, total_tokens: 7 },
+          });
+        }
+        return sendJson(res, 200, {
+          id: toolReplayResponseId,
+          status: "completed",
+          service_tier: "priority",
+          output: [
+            { type: "message", content: [{ type: "output_text", text: toolCallFinalText }] },
+          ],
+          usage: { input_tokens: 3, output_tokens: 4, total_tokens: 7 },
+        });
+      }
+
       return sendJson(res, 200, {
         id: "resp_realtime_mock_1",
         status: "completed",
@@ -100,18 +132,38 @@ try {
   assert(result.stdout.includes(finalText), `missing mock output\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
   assert(!result.stdout.includes(reasoningText), `reasoning leaked to stdout\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
 
+  const toolCallResult = await runPi(`http://127.0.0.1:${port}`, toolCallPromptText);
+  assert(toolCallResult.status === 0, `tool-call realtime smoke failed\nstdout:\n${toolCallResult.stdout}\nstderr:\n${toolCallResult.stderr}`);
+  assert(toolCallResult.stdout.includes(toolCallFinalText), `missing mock tool-call output\nstdout:\n${toolCallResult.stdout}\nstderr:\n${toolCallResult.stderr}`);
+  assert(!toolCallResult.stdout.includes("function_call"), `raw function call leaked\nstdout:\n${toolCallResult.stdout}\nstderr:\n${toolCallResult.stderr}`);
+
+  const toolSubmits = requests.filter((request) => request.method === "POST" && request.path === "/responses" && JSON.stringify(request.body.input).includes(toolCallPromptText));
+  assert(toolSubmits.length === 2, `expected two tool-call submits, got ${toolSubmits.length}: ${JSON.stringify(requests)}`);
+  const toolFirstSubmit = toolSubmits[0];
+  assert(Array.isArray(toolFirstSubmit.body.tools), `tool call submit missing tools: ${JSON.stringify(toolFirstSubmit.body)}`);
+  const toolReadSchema = toolFirstSubmit.body.tools.find((tool) => tool?.name === "read");
+  assert(toolReadSchema, `read tool was not sent: ${JSON.stringify(toolFirstSubmit.body.tools)}`);
+  assert(toolReadSchema.parameters !== undefined && toolReadSchema.parameters !== null, `read tool parameters missing: ${JSON.stringify(toolReadSchema)}`);
+  assert(toolReadSchema.strict === false, `read tool strict must be false: ${JSON.stringify(toolReadSchema)}`);
+  const replayInput = toolSubmits[1].body.input;
+  assert(Array.isArray(replayInput), `tool-call replay input should be structured array: ${JSON.stringify(toolSubmits[1].body.input)}`);
+  assert(replayInput.some((item) => item?.type === "function_call"), `second submit missing prior function_call: ${JSON.stringify(replayInput)}`);
+  assert(replayInput.some((item) => item?.type === "function_call_output"), `second submit missing function_call_output: ${JSON.stringify(replayInput)}`);
+
   const queued = await runPi(`http://127.0.0.1:${port}`, "Return queued status");
   assert(queued.status !== 0, `queued realtime response unexpectedly passed\nstdout:\n${queued.stdout}\nstderr:\n${queued.stderr}`);
   assert(`${queued.stdout}\n${queued.stderr}`.includes("unsupported/incomplete status queued"), `queued realtime response did not report unsupported status\nstdout:\n${queued.stdout}\nstderr:\n${queued.stderr}`);
 
-  const submit = requests.find((request) => request.method === "POST" && request.path === "/responses" && !String(request.body.input).includes("Return queued status"));
+  const submit = requests.find((request) => request.method === "POST" && request.path === "/responses" && !JSON.stringify(request.body.input).includes("Return queued status"));
   assert(submit, `POST /responses was not called: ${JSON.stringify(requests)}`);
   assert(submit.body.service_tier === "priority", `POST /responses missing service_tier priority: ${JSON.stringify(submit.body)}`);
   assert(submit.body.max_output_tokens === 16384, `POST /responses wrong max_output_tokens: ${JSON.stringify(submit.body)}`);
   assert(submit.body.background === undefined, `POST /responses should be blocking realtime: ${JSON.stringify(submit.body)}`);
 
   const events = readFileSync(logFile, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
-  assert(events.some((event) => event.event === "provider_end" && event.provider === "doubleword" && event.model === "deepseek-ai/DeepSeek-V4-Flash" && event.tier === "realtime"), `missing provider_end\n${readFileSync(logFile, "utf8")}`);
+  const providerEnds = events.filter((event) => event.event === "provider_end" && event.provider === "doubleword" && event.model === "deepseek-ai/DeepSeek-V4-Flash" && event.tier === "realtime");
+  assert(providerEnds.length >= 2, `missing realtime provider_end events\n${readFileSync(logFile, "utf8")}`);
+  assert(providerEnds.some((event) => event.responseId === toolReplayResponseId), `missing tool-call final provider_end\n${readFileSync(logFile, "utf8")}`);
 
   console.log(`live realtime mock smoke passed (${requests.length} requests, ${events.length} events)`);
   rmSync(dir, { recursive: true, force: true });
