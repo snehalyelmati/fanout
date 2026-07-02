@@ -6,13 +6,13 @@ Build Fanout as a planning-to-execution bridge, plus a standalone Doubleword pro
 
 - `doubleword-provider`: how to call Doubleword models and tiers.
 - `fanout-core`: how to turn a user objective plus context into an execution packet, optimized DAG, validation contract, and execution summary.
-- `fanout-pi`: Pi adapter/install target that exposes `/dw-fanout` for packet preparation and `/dw-execute` for execution.
+- `fanout-pi`: Pi adapter/install target that exposes `/fanout-plan` for packet preparation and `/fanout-execute` for execution.
 
 Fanout's workflow is split into three phases:
 
 1. **Research and planning by the user**: users bring whatever research, planning notes, specs, or repo context they prefer. Fanout does not own this phase.
-2. **Execution packet**: `/dw-fanout [objective]` prepares a detailed fanout-agnostic plan, optimized execution DAG, validation loop, execution estimates, and user-reviewable packet.
-3. **Execution**: `/dw-execute` runs the accepted packet with subagent management, validation, synthesis, and summary metrics.
+2. **Execution packet**: `/fanout-plan [objective]` prepares a detailed fanout-agnostic plan, validates the execution DAG during planning, estimates execution, and emits the active user-reviewable packet.
+3. **Execution**: `/fanout-execute` runs the active accepted packet with subagent management, validation, synthesis, and summary metrics.
 
 The Doubleword provider adapts to these inference tiers:
 
@@ -45,35 +45,39 @@ Fanout assumes the user may arrive with research notes, implementation ideas, re
 
 Acceptance criteria:
 
-- `/dw-fanout` works with either a supplied objective or the current conversation context.
+- `/fanout-plan` works with either a supplied objective or the current conversation context.
 - Packet preparation clearly lists missing facts and clarification needs instead of inventing them.
 - The packet records user-provided context separately from inferred repo facts.
 
-### Phase 2: Execution packet via `/dw-fanout`
+### Phase 2: Execution packet via `/fanout-plan`
 
 Status: next implementation focus.
 
-Goal: prepare a user-reviewable packet that is detailed enough to execute later, but still fanout-agnostic until the DAG/scheduler pass.
+Goal: prepare a user-reviewable active packet that is detailed enough to execute later, with DAG validation completed before the packet is accepted.
 
 Build the smallest useful packet first:
 
 1. **Context intake**
    - Objective, constraints, user notes, repo facts, risks, assumptions, and open questions.
-   - Read-only investigation plan for facts that are discoverable locally.
-2. **Fanout-agnostic plan**
-   - Explore first, ask only for non-discoverable intent/tradeoffs, and produce a decision-complete plan.
-   - Work units, dependencies, owned files/resources, read-only files, validation commands, rollback notes, and acceptance criteria.
+   - Separate user-provided context from inferred repo facts.
+2. **Read-only exploration**
+   - Inspect local files, docs, configs, tests, and history needed for the next decision.
+   - Ask only for non-discoverable intent/tradeoffs.
+   - Do not edit, write, patch, migrate, codegen, or run destructive commands.
+3. **Draft fanout-agnostic work units**
+   - Define work units, owned files/resources, read-only files, dependencies, validation commands, rollback notes, and acceptance criteria.
    - No provider-specific or Pi-specific execution assumptions in this layer.
-3. **Optimized execution DAG**
-   - Convert work units into a DAG with dependency edges, ownership conflict checks, validation gates, and reviewer/synthesis nodes.
-   - Reject cycles and unresolved ownership conflicts before execution.
-   - Estimate critical path, parallel width, tier choices, expected active wait, background completion time, cost, and risk.
-4. **Validation loop**
-   - Re-check the packet for missing context, unsafe ownership, invalid dependencies, validation gaps, budget/deadline violations, and stale assumptions.
+4. **Build the execution DAG**
+   - Convert work units into nodes and dependency edges.
+   - Add validation, reviewer, and synthesis nodes where needed.
+5. **Validate the DAG during planning**
+   - Reject or mark blockers for cycles, missing dependencies, overlapping ownership, missing validation, unclear acceptance criteria, unresolved user decisions, unsafe commands, impossible parallelism, and budget/deadline violations.
    - Iterate until the best packet possible with available info is produced, or explicitly mark blockers/questions.
-5. **User-facing execution plan**
+6. **Optimize the execution plan**
+   - Estimate critical path, parallel width, tier choices, expected active wait, background completion time, cost, and risk.
+7. **Emit the active user-facing execution packet**
    - Include a flowchart, worker ownership table, inference tier plan, expected files touched, validation commands, estimated time/cost, cancellation/stop rules, and known risks.
-   - Save the packet in a stable artifact format that `/dw-execute` can consume.
+   - Save or print the packet in a stable artifact format that `/fanout-execute` can consume as the active packet.
 
 Suggested packet artifact:
 
@@ -85,22 +89,22 @@ runs/<run-id>/execution-dag.mmd
 
 Phase 2 acceptance criteria:
 
-- `/dw-fanout [objective]` produces a packet without mutating project files.
+- `/fanout-plan [objective]` produces an active packet without mutating project files.
 - The packet can be reviewed by a human before execution.
-- DAG validation catches cycles, file ownership conflicts, missing validation, and unresolved blockers.
+- DAG validation catches cycles, file ownership conflicts, missing validation, and unresolved blockers before the packet is accepted.
 - Estimates distinguish active wait, background completion, provider tier cost, and workflow savings.
 - Observability logs packet preparation time, model tiers, token usage, DAG depth/width, validation iterations, and rejected/accepted work units.
 
-### Phase 3: Execution via `/dw-execute`
+### Phase 3: Execution via `/fanout-execute`
 
 Status: planned after Phase 2 packet is reliable.
 
-Goal: execute an accepted packet, manage workers, validate outputs, and return control with summary plus metrics.
+Goal: execute the active accepted packet, manage workers, validate outputs, and return control with summary plus metrics.
 
 Build order:
 
-1. **Packet loader and guardrails**
-   - Load a saved execution packet.
+1. **Active packet loader and guardrails**
+   - Load the active execution packet prepared by `/fanout-plan`.
    - Refuse stale, invalid, cyclic, or conflict-heavy packets unless regenerated.
    - Confirm expected file ownership and validation commands before launch.
 2. **Worker management**
@@ -118,7 +122,7 @@ Build order:
 
 Phase 3 acceptance criteria:
 
-- `/dw-execute <packet>` can run a small packet end-to-end with isolated workers and final synthesis.
+- `/fanout-execute` can run the active packet end-to-end with isolated workers and final synthesis.
 - Failed or late workers cannot corrupt the active worktree silently.
 - The executor records enough metrics to compare against baseline Pi execution.
 - User regains control with a concise summary, validation status, and artifact links.
@@ -204,7 +208,7 @@ runs/<run-id>/jobs/*.json
 
 ## Track 3: Pi-native planning workflow
 
-Status: superseded by the `/dw-fanout` execution-packet workflow. The old `/dw-plan` prompt should be removed instead of evolved further.
+Status: superseded by the `/fanout-plan` execution-packet workflow. The old planning-only prompt should be removed instead of evolved further.
 
 Keep the useful planning rules from the old prompt inside packet preparation:
 
@@ -214,7 +218,7 @@ Keep the useful planning rules from the old prompt inside packet preparation:
 - Ask until goal, success criteria, scope, constraints, tradeoffs, validation, and acceptance are decision-complete.
 - Produce a compact, human-reviewable plan before execution.
 
-The planning surface is now `/dw-fanout`, not a standalone prompt template.
+The planning surface is now `/fanout-plan`, not a standalone prompt template.
 
 ## Track 4: Live-shaped realtime Doubleword stubs
 
@@ -280,7 +284,7 @@ Current benchmark questions answered by the summarizer and `docs/BENCHMARKS.md`:
 - How many local tool calls are batched into each turn? Use `turn_end.toolCallCount`.
 - Does async TTFT multiply wall-clock time or get amortized? Use async provider duration, TTFT, poll count, and poll duration totals.
 - What is cost vs realtime? Use provider usage/cost totals plus the `glm-5-2` tier comparison table.
-- Does planning-first reduce retries and wasted turns? Compare summaries from plain runs vs `/dw-fanout` packet-prep runs.
+- Does planning-first reduce retries and wasted turns? Compare summaries from plain runs vs `/fanout-plan` packet-prep runs.
 - Which synthetic hybrid workflow policies meet the 3x active TAT target? Use hybrid policy results, active/background schedules, and target statuses.
 - Which workflow classes are ineligible? Linear mandatory critical-path fixtures are reported as infeasible instead of as tier2 feasibility passes.
 - Which evidence is observed versus synthetic? Mixed reports preserve `observability`, `pi-session`, and synthetic `hybrid-workflow` source labels.
@@ -310,7 +314,7 @@ Next work is covered by the current Phase 2 and Phase 3 roadmap:
 - Define the execution packet: accepted plan, owned/read-only files, dependencies, constraints, validation contract, budget, user wait budget, stop rules, cancellation rules, and expected handoff.
 - Define scheduler policy: reject cycles and ownership conflicts, compute accepted safe-unit DAG critical path, estimate `tier2_exec_wait_worst_case = DAG_depth * 10m`, and launch only when it fits the user wait budget.
 - Add observability fields for active planning time, background completion time, late outputs, retries, cancellation, rejected speculative work, review latency, acceptance failures, accepted DAG depth, and estimated/actual tier2 wait.
-- Prototype background execution and sharded RPE behind `/dw-execute` after `/dw-fanout` packets are reliable.
+- Prototype background execution and sharded RPE behind `/fanout-execute` after `/fanout-plan` packets are reliable.
 - Keep default duplicate implementations deferred until trace-derived evidence shows they are worth the cost.
 
 ## Track 8: Live endpoint benchmarks
@@ -328,7 +332,7 @@ After stubs, traces, and RPE routing policies:
 Only build these if the simpler system fails benchmarks:
 
 - Generic DAG executor beyond execution-packet-driven DAGs.
-- Broad subagent orchestration beyond `/dw-execute` needs.
+- Broad subagent orchestration beyond `/fanout-execute` needs.
 - Model profiles/fusion: cheap investigator, deep researcher, reviewer, patcher, etc.
 - Predictive repo indexing and speculative context gathering.
 - Batch-tier orchestration for normal workflows.
