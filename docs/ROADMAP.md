@@ -34,19 +34,26 @@ Fanout should preserve developer velocity where possible by using async only whe
 - Track decisions in `docs/DESIGN_DECISIONS.md`.
 - Keep the repo as one minimal monorepo with `doubleword-provider`, `fanout-core`, and `fanout-pi`.
 
-## Deferred: Pi package marketplace release
+## Completed: Standalone Doubleword provider package
 
-Status: deferred for now.
+Status: published as `@snehalyelmati/pi-doubleword-provider` version `0.1.2`.
 
-Release process when packaging resumes:
+Install:
 
-1. Choose the package boundary and npm name, for example `@snehalyelmati/pi-doubleword-provider` for a standalone provider package.
-2. Validate the exact install path locally with `pi -e` or `pi install`.
-3. Set npm metadata: public package, useful `description`, `README.md`, and `keywords` including `pi-package`.
-4. Add/verify the `pi` manifest, for example `"pi": { "extensions": ["./src/index.ts"] }`.
-5. Dry-run the npm package with `npm pack --dry-run` and confirm only needed files ship.
-6. Publish with `npm publish --access public`.
-7. Verify `pi install npm:<package>` and confirm the package appears in the Pi package gallery.
+```bash
+pi install npm:@snehalyelmati/pi-doubleword-provider
+```
+
+Pi package page: <https://pi.dev/packages/@snehalyelmati/pi-doubleword-provider>
+
+Release process used:
+
+1. Chose the standalone provider boundary and npm name `@snehalyelmati/pi-doubleword-provider`.
+2. Validated local and packed install shape with `pi -e`, smoke tests, and `npm pack --dry-run`.
+3. Set npm metadata: public package, provider README, and `keywords` including `pi-package`.
+4. Verified the `pi` manifest: `"pi": { "extensions": ["./src/index.ts"] }`.
+5. Published with public npm access.
+6. Verified the Pi package gallery page.
 
 ## Phase 1: Provider stubs
 

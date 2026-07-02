@@ -52,10 +52,9 @@ const server = createServer(async (req, res) => {
       if (successRetrieveCount === 1) return sendJson(res, 503, { error: "temporary" });
       return sendJson(res, 200, {
         id: successResponseId,
-        status: "completed",
-        service_tier: "flex",
-        output_text: "Doubleword live async mock response.",
-        usage: { input_tokens: 2, output_tokens: 5, total_tokens: 7 },
+        object: "chat.completion",
+        choices: [{ message: { role: "assistant", content: "Doubleword live async mock response." } }],
+        usage: { prompt_tokens: 2, completion_tokens: 5, total_tokens: 7 },
       });
     }
     if (req.method === "GET" && url.pathname === `/responses/${timeoutResponseId}`) {

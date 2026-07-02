@@ -1,9 +1,24 @@
 {
-  "name": "doubleword-provider",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@snehalyelmati/pi-doubleword-provider",
+  "version": "0.1.2",
   "type": "module",
-  "keywords": ["pi-package", "doubleword", "provider"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "description": "Doubleword realtime and async model provider for Pi.",
+  "keywords": ["pi-package", "pi", "doubleword", "provider", "ai"],
+  "files": [
+    "README.md",
+    "assets/model-picker.png",
+    "src/config.ts",
+    "src/http.ts",
+    "src/index.ts",
+    "src/live.ts",
+    "src/messages.ts",
+    "src/models.ts",
+    "src/observability.ts",
+    "src/register.ts"
+  ],
   "exports": {
     ".": "./src/index.ts"
   },
@@ -12,6 +27,7 @@
     "@earendil-works/pi-coding-agent": "*"
   },
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": ["./src/index.ts"],
+    "image": "https://unpkg.com/@snehalyelmati/pi-doubleword-provider@0.1.2/assets/model-picker.png"
   }
 }
