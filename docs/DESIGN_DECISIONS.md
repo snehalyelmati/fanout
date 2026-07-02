@@ -236,11 +236,11 @@ Reason: The current branch contains useful trace-derived direction. Merging shou
 
 ## 2026-06-30
 
-### Defer Pi marketplace packaging
+### Publish standalone Doubleword provider package
 
-Decision: Defer publishing a Pi package marketplace/npm release for now. Keep `@snehalyelmati/pi-doubleword-provider` as a possible standalone provider package name, but do not treat it as released or linked to Fanout release order.
+Decision: Publish the standalone Doubleword provider as `@snehalyelmati/pi-doubleword-provider`, independent from Fanout release order.
 
-Reason: Packaging should wait until the intended package boundary, metadata, and install path are explicitly validated.
+Reason: The provider has a clear standalone package boundary: it registers the live `doubleword` provider for Pi, while dev-only stubs remain outside the packed npm package. Publishing it separately lets users install Doubleword support without Fanout.
 
 ## 2026-06-29
 

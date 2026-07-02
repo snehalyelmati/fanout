@@ -19,7 +19,7 @@ Current focus:
 
 1. Keep Doubleword provider support usable on its own.
 2. Keep Fanout optimization agent-agnostic.
-3. Defer Pi package marketplace release for now.
+3. Keep the standalone Doubleword provider package published independently from Fanout.
 4. Benchmark with traces, stubs, and local hybrid workflow fixtures before live orchestration.
 
 The current benchmark layer includes a local/offline hybrid workflow simulator for comparing tier1 and tier2 routing policies. It reads committed JSONL fixtures, simulates active user-facing turnaround time separately from background completion, and reports target evidence for critical-path scheduling, RPE background execution, sharded RPE, speculative portfolio execution, and budget-constrained routing. Synthetic fixture passes are simulator evidence only, not observed trace feasibility claims.
@@ -59,11 +59,13 @@ DOUBLEWORD_CANCEL_TIMEOUT_MS       override default 10000 cancel request timeout
 
 Packaging status:
 
-Pi package marketplace release is deferred for now. When ready, publish a public npm package with the `pi-package` keyword and a `pi` manifest. A possible standalone provider package name is:
+The standalone Doubleword provider is published as a Pi package:
 
 ```text
 pi install npm:@snehalyelmati/pi-doubleword-provider
 ```
+
+Pi package page: <https://pi.dev/packages/@snehalyelmati/pi-doubleword-provider>
 
 Docs:
 

@@ -1,12 +1,15 @@
 {
   "name": "@snehalyelmati/pi-doubleword-provider",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.2",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "Doubleword realtime and async model provider for Pi.",
   "keywords": ["pi-package", "pi", "doubleword", "provider", "ai"],
   "files": [
     "README.md",
+    "assets/model-picker.png",
     "src/config.ts",
     "src/http.ts",
     "src/index.ts",
@@ -24,6 +27,7 @@
     "@earendil-works/pi-coding-agent": "*"
   },
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": ["./src/index.ts"],
+    "image": "https://unpkg.com/@snehalyelmati/pi-doubleword-provider@0.1.2/assets/model-picker.png"
   }
 }

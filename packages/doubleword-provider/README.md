@@ -2,6 +2,8 @@
 
 Doubleword realtime and async model provider for [Pi](https://pi.dev).
 
+![Doubleword models in Pi](./assets/model-picker.png)
+
 [Doubleword](https://doubleword.ai) provides model inference with multiple execution tiers. This Pi package registers the live `doubleword` provider, discovers available models from Doubleword when an API key is present, and lets you toggle realtime vs async execution from inside Pi.
 
 ## Why Doubleword?
