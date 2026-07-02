@@ -1,9 +1,21 @@
 {
-  "name": "doubleword-provider",
-  "version": "0.0.0",
+  "name": "@snehalyelmati/pi-doubleword-provider",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "keywords": ["pi-package", "doubleword", "provider"],
+  "description": "Doubleword realtime and async model provider for Pi.",
+  "keywords": ["pi-package", "pi", "doubleword", "provider", "ai"],
+  "files": [
+    "README.md",
+    "src/config.ts",
+    "src/http.ts",
+    "src/index.ts",
+    "src/live.ts",
+    "src/messages.ts",
+    "src/models.ts",
+    "src/observability.ts",
+    "src/register.ts"
+  ],
   "exports": {
     ".": "./src/index.ts"
   },

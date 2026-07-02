@@ -3,7 +3,7 @@ import { performance } from "node:perf_hooks";
 import { createAssistantMessageEventStream, type Api, type AssistantMessageEventStream, type Context, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { ASYNC_SERVICE_TIER, DEFAULT_ASYNC_TIMEOUT_MS, DEFAULT_CANCEL_TIMEOUT_MS, DOUBLEWORD_API_BASE_URL, elapsedMs, envInt, envString, formatSeconds, maxOutputTokensFor, sleep, withTimeout } from "./config.ts";
 import { fetchJson, fetchJsonWithPollRetry } from "./http.ts";
-import { assertCompletedResponse, emitResponseContent, emptyMessage, endText, guardRepeatedOutput, pushTextDelta, responsesInput, responsesTools, startText, usageFromResponse } from "./messages.ts";
+import { assertCompletedResponse, emitResponseContent, emitResponseToolCalls, emptyMessage, endText, guardRepeatedOutput, pushTextDelta, responsesInput, responsesTools, startText, usageFromResponse } from "./messages.ts";
 import { durationMs, getDoublewordActiveTurnIndex, writeJsonl } from "./observability.ts";
 
 class AsyncTimeoutError extends Error {}
@@ -133,7 +133,7 @@ export function streamLiveRealtime(model: Model<Api>, context: Context, options?
 							textEnded = true;
 						}
 					} else if (type === "response.completed") {
-						response = data.response;
+						response = data.response ?? data;
 					} else if (["response.failed", "response.incomplete", "error"].includes(type)) {
 						throw new Error(streamError(data));
 					}
@@ -152,6 +152,8 @@ export function streamLiveRealtime(model: Model<Api>, context: Context, options?
 				const emitted = emitResponseContent(response, stream, output);
 				text = emitted.text;
 				stopReason = emitted.stopReason;
+			} else if (emitResponseToolCalls(response, stream, output)) {
+				stopReason = "toolUse";
 			}
 
 			output.stopReason = stopReason;

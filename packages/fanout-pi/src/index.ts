@@ -1,6 +1,7 @@
 import { performance } from "node:perf_hooks";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerDoublewordProviders, setDoublewordActiveTurnIndex, setDoublewordRunId } from "../../doubleword-provider/src/index.ts";
+import { registerDoublewordDevProviders } from "../../doubleword-provider/src/dev.ts";
+import { setDoublewordActiveTurnIndex, setDoublewordRunId } from "../../doubleword-provider/src/index.ts";
 import { BATCHING_DISCIPLINE, BATCHING_DISCIPLINE_MARKER } from "../../fanout-core/src/batching-discipline.ts";
 import { durationMs, RUN_ID, setObservabilityCwd, writeJsonl } from "../../fanout-core/src/observability.ts";
 
@@ -13,7 +14,7 @@ export default async function (pi: ExtensionAPI) {
 	const toolStarts = new Map<string, { started: number; turnIndex?: number }>();
 
 	setDoublewordRunId(RUN_ID);
-	await registerDoublewordProviders(pi);
+	await registerDoublewordDevProviders(pi);
 
 	pi.on("session_start", (_event, ctx) => {
 		setObservabilityCwd(ctx.cwd);

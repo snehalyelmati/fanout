@@ -222,13 +222,46 @@ function emitToolCall(stream: AssistantMessageEventStream, output: AssistantMess
 	stream.push({ type: "toolcall_end", contentIndex, toolCall, partial: output });
 }
 
+function responseToolCalls(response: Record<string, any>): any[] {
+	const outputCalls = Array.isArray(response.output) ? response.output.filter((item: any) => item?.type === "function_call") : [];
+	const choiceCalls = Array.isArray(response.choices)
+		? response.choices.flatMap((choice: any) =>
+				Array.isArray(choice?.message?.tool_calls)
+					? choice.message.tool_calls.map((call: any) => ({
+							id: call.id,
+							call_id: call.id,
+							name: call.function?.name,
+							arguments: call.function?.arguments,
+						}))
+					: [],
+			)
+		: [];
+	return outputCalls.length ? outputCalls : choiceCalls;
+}
+
+function choicesMessageText(response: Record<string, any>): string {
+	if (!Array.isArray(response.choices)) return "";
+	return response.choices
+		.map((choice: any) => textFrom(choice?.message?.content))
+		.filter(Boolean)
+		.join("\n");
+}
+
 function finalResponseText(response: Record<string, any>): string {
 	const items = Array.isArray(response.output) ? response.output : [];
 	const finalText = items
 		.filter((item: any) => item?.type === "message")
 		.map(messageText)
 		.filter(Boolean);
-	return finalText.length ? finalText.join("\n") : typeof response.output_text === "string" ? response.output_text : "";
+	if (finalText.length) return finalText.join("\n");
+	if (typeof response.output_text === "string") return response.output_text;
+	return choicesMessageText(response);
+}
+
+export function emitResponseToolCalls(response: Record<string, any>, stream: AssistantMessageEventStream, output: AssistantMessage): boolean {
+	const calls = responseToolCalls(response);
+	for (const call of calls) emitToolCall(stream, output, call);
+	return calls.length > 0;
 }
 
 export function emitResponseContent(response: Record<string, any>, stream: AssistantMessageEventStream, output: AssistantMessage): { text: string; stopReason: Extract<StopReason, "stop" | "length" | "toolUse"> } {
@@ -245,13 +278,14 @@ export function emitResponseContent(response: Record<string, any>, stream: Assis
 				emitText(stream, output, text);
 				finalText.push(text);
 			}
-		} else if (item?.type === "function_call") {
-			emitToolCall(stream, output, item);
-			hasToolCall = true;
 		}
 	}
+	for (const call of responseToolCalls(response)) {
+		emitToolCall(stream, output, call);
+		hasToolCall = true;
+	}
 	if (finalText.length) return { text: finalText.join("\n"), stopReason: hasToolCall ? "toolUse" : "stop" };
-	const fallback = typeof response.output_text === "string" ? response.output_text : "";
+	const fallback = typeof response.output_text === "string" ? response.output_text : choicesMessageText(response);
 	if (fallback) emitText(stream, output, fallback);
 	return { text: fallback, stopReason: hasToolCall ? "toolUse" : "stop" };
 }
@@ -288,6 +322,7 @@ export function guardRepeatedOutput(tier: "realtime" | "async", model: Model<Api
 }
 
 export function assertCompletedResponse(tier: "realtime" | "async", responseId: string, response: Record<string, any>): void {
+	if (response.object === "chat.completion") return;
 	const status = String(response.status ?? "");
 	if (["failed", "cancelled", "canceled", "incomplete", "expired"].includes(status)) throw new Error(`Doubleword ${tier} response ${responseId} ended with status ${status}`);
 	if (status !== "completed") throw new Error(`Doubleword ${tier} response ${responseId} has unsupported/incomplete status ${status || "missing"}`);
