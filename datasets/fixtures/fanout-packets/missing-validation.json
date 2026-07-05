@@ -1,0 +1,72 @@
+{
+  "schema": "fanout.execution-packet",
+  "version": 2,
+  "status": "ready",
+  "objective": "Invalid missing validation fixture",
+  "createdAt": "2026-07-03T00:00:00.000Z",
+  "userContext": [],
+  "discoveredRepoFacts": [],
+  "assumptions": [],
+  "blockers": [],
+  "workUnits": [
+    {
+      "id": "docs",
+      "goal": "Update docs.",
+      "dependencies": [],
+      "ownedFiles": [
+        "README.md"
+      ],
+      "readOnlyFiles": [],
+      "steps": [
+        "Edit README.md."
+      ],
+      "validationCommands": [],
+      "acceptanceCriteria": [
+        "Docs are clear."
+      ],
+      "rollbackNotes": [
+        "Revert README.md."
+      ],
+      "kind": "docs",
+      "tier": {
+        "preferred": "tier2",
+        "assigned": "tier1",
+        "fallback": "tier1",
+        "provider": "current",
+        "model": "current-session-model",
+        "thinking": "auto",
+        "reason": "tier2 unavailable; realtime fallback"
+      }
+    }
+  ],
+  "estimates": {
+    "activeWait": "unknown",
+    "backgroundCompletion": "unknown",
+    "cost": "unknown",
+    "criticalPath": [],
+    "parallelGroups": []
+  },
+  "stopRules": [],
+  "risks": [],
+  "finalValidationPlan": [],
+  "artifactDir": "/tmp/fanout-artifacts/example",
+  "tierPlan": {
+    "tier1": {
+      "provider": "current",
+      "model": "current-session-model",
+      "thinking": "auto",
+      "source": "current Pi active model",
+      "status": "available",
+      "reason": "control plane, review, synthesis, fallback"
+    },
+    "tier2": {
+      "provider": "doubleword",
+      "model": "zai-org/GLM-5.2-FP8",
+      "thinking": "medium",
+      "source": "default settings",
+      "status": "unavailable",
+      "reason": "async capability unavailable",
+      "fallback": "tier1"
+    }
+  }
+}

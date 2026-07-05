@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./batching-discipline": "./src/batching-discipline.ts",
+    "./execution-packet": "./src/execution-packet.ts",
     "./observability": "./src/observability.ts"
   }
 }
