@@ -1,6 +1,6 @@
 {
   "name": "@snehalyelmati/pi-doubleword-provider",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "publishConfig": {
     "access": "public"
@@ -28,6 +28,6 @@
   },
   "pi": {
     "extensions": ["./src/index.ts"],
-    "image": "https://unpkg.com/@snehalyelmati/pi-doubleword-provider@0.1.2/assets/model-picker.png"
+    "image": "https://unpkg.com/@snehalyelmati/pi-doubleword-provider/assets/model-picker.png"
   }
 }
