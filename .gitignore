@@ -1,5 +1,6 @@
 node_modules/
 runs/
+.pi-subagents/
 .env
 datasets/traces/*
 !datasets/traces/.gitkeep

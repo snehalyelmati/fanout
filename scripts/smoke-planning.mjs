@@ -3,14 +3,14 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const promptPath = "packages/fanout-pi/prompts/dw-plan.md";
+const promptPath = "packages/fanout-pi/prompts/fanout-plan.md";
 if (!existsSync(promptPath)) throw new Error(`${promptPath} is missing`);
 
 const prompt = readFileSync(promptPath, "utf8");
 
 const piPkg = JSON.parse(readFileSync("packages/fanout-pi/package.json", "utf8"));
-if (!piPkg.pi?.prompts?.includes("./prompts/dw-plan.md")) throw new Error("packages/fanout-pi/package.json does not expose ./prompts/dw-plan.md");
-for (const phrase of ["Planning only", "Clarify until the ask is clear", "<proposed_plan>"]) {
+if (!piPkg.pi?.prompts?.includes("./prompts/fanout-plan.md")) throw new Error("packages/fanout-pi/package.json does not expose ./prompts/fanout-plan.md");
+for (const phrase of ["Planning only", "ask_user_question", "Fanout plan ready", "Validate the DAG", "FANOUT_ARTIFACT_DIR=\"<artifactRoot from Fanout runtime context>\"", "scripts/fanout-packet-artifacts.mjs", "Tier/model plan", "Execution flow", "Metrics"]) {
   if (!prompt.includes(phrase)) throw new Error(`${promptPath} is missing phrase: ${phrase}`);
 }
 
@@ -47,14 +47,14 @@ function run(name, promptText) {
 
 try {
   const plain = run("plain", "Prepare a docs-only change plan");
-  const planned = run("dw-plan", "/dw-plan Prepare a docs-only change plan");
+  const planned = run("fanout-plan", "/fanout-plan Prepare a docs-only change plan");
   const minimumLift = 20;
 
   if (planned.input <= plain.input + minimumLift) {
-    throw new Error(`dw-plan did not materially increase provider input: plain=${plain.input}, dw-plan=${planned.input}, logs=${plain.logFile},${planned.logFile}`);
+    throw new Error(`fanout-plan did not materially increase provider input: plain=${plain.input}, fanout-plan=${planned.input}, logs=${plain.logFile},${planned.logFile}`);
   }
 
-  console.log(`planning smoke passed (plain input=${plain.input}, dw-plan input=${planned.input}, events=${plain.events.length}+${planned.events.length})`);
+  console.log(`planning smoke passed (plain input=${plain.input}, fanout-plan input=${planned.input}, events=${plain.events.length}+${planned.events.length})`);
   rmSync(dir, { recursive: true, force: true });
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);

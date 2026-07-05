@@ -7,7 +7,7 @@
   "keywords": ["fanout", "doubleword", "pi-package"],
   "scripts": {
     "build": "echo 'nothing to build'",
-    "check": "node scripts/check-models.mjs && node scripts/test-doubleword-model-cache.mjs && bun scripts/test-doubleword-metadata.mjs",
+    "check": "node scripts/check-models.mjs && node scripts/test-doubleword-model-cache.mjs && bun scripts/test-doubleword-metadata.mjs && node --disable-warning=ExperimentalWarning scripts/smoke-fanout-packet.mjs && node --disable-warning=ExperimentalWarning scripts/smoke-fanout-config.mjs",
     "test:doubleword-provider": "node scripts/test-doubleword-model-cache.mjs && bun scripts/test-doubleword-metadata.mjs && node scripts/smoke-live-realtime-mock.mjs && node scripts/smoke-live-async-mock.mjs && node scripts/smoke-live-async-multiturn-mock.mjs",
     "smoke:realtime": "pi -e . --model doubleword-stub/deepseek-v4-flash -p \"Respond 'hello', do not say anything else.\"",
     "smoke:async": "DOUBLEWORD_EXECUTION_MODE=async pi -e . --model doubleword-stub/deepseek-v4-flash -p \"Respond 'hello', do not say anything else.\"",
@@ -19,13 +19,18 @@
     "smoke:live:batch:mock": "node scripts/smoke-live-batch-mock.mjs",
     "smoke:observability": "node scripts/smoke-observability.mjs",
     "smoke:planning": "node scripts/smoke-planning.mjs",
+    "smoke:fanout-packet": "node --disable-warning=ExperimentalWarning scripts/smoke-fanout-packet.mjs",
+    "smoke:fanout-config": "node --disable-warning=ExperimentalWarning scripts/smoke-fanout-config.mjs",
     "benchmark:traces": "node scripts/benchmark-traces.mjs",
     "eval:safe-work-units": "node scripts/eval-safe-work-units.mjs",
     "smoke:benchmarks": "node scripts/smoke-benchmarks.mjs"
   },
   "pi": {
     "extensions": ["./packages/fanout-pi/src/index.ts"],
-    "prompts": ["./packages/fanout-pi/prompts/dw-plan.md"]
+    "prompts": ["./packages/fanout-pi/prompts/fanout-plan.md"]
+  },
+  "dependencies": {
+    "@juicesharp/rpiv-ask-user-question": "^1.20.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
