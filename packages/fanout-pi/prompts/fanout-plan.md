@@ -22,6 +22,8 @@ Hard rules:
 - First perform one targeted non-mutating exploration pass unless no repo/environment exists.
 - Batch independent reads, greps, git inspection, and checks in the same turn when possible.
 - Do not ask questions that can be answered from files, docs, configs, tests, or git history.
+- Ambiguity gate: if the objective is broad or lacks exact files/sections/outcomes, use `ask_user_question` before drafting work units or writing artifacts.
+- Broad objectives like `Improve the docs`, `Clean up the code`, `Refactor the provider`, or `Update docs` are not decision-complete unless they name exact files/sections/outcomes.
 - If user intent/tradeoffs are still unclear, use `ask_user_question` and ask exactly one question at a time.
 - Every question must include a recommended answer.
 - Do not emit or finalize a packet until the plan is decision-complete.
@@ -33,14 +35,15 @@ Plan phase:
 
 1. Intake objective, constraints, user notes, assumptions, risks, and open questions.
 2. Explore repo context read-only.
-3. Ask one recommended question at a time for unresolved non-discoverable intent/tradeoffs.
-4. Draft fanout-agnostic work units with kind, owned files/resources, read-only files, dependencies, validation commands, rollback notes, and acceptance criteria.
-5. Build the execution DAG from work units, adding validation/review/synthesis nodes only when needed.
-6. Use the preflight `resolvedTierPlan` exactly for packet `tierPlan`.
-7. Assign per-node tier using preflight `nodeKindTierPolicy`; if tier2 is unavailable, assign tier2 candidates to tier1 fallback.
-8. Validate the DAG for cycles, missing dependencies, ownership conflicts, missing validation, unclear acceptance criteria, unresolved required decisions, unsafe commands, stale assumptions, impossible parallelism, tier-policy violations, and budget/deadline violations.
-9. Optimize parallel groups, critical path, active/background work, cost, time, risks, and stop rules.
-10. Write artifacts and run the packet validator.
+3. Apply the ambiguity gate. Example: `Improve the docs` must ask which docs area/outcome first; `Add one sentence to README explaining ready-only packets` may proceed after repo exploration.
+4. Ask one recommended question at a time for unresolved non-discoverable intent/tradeoffs.
+5. Draft fanout-agnostic work units with kind, owned files/resources, read-only files, dependencies, validation commands, rollback notes, and acceptance criteria.
+6. Build the execution DAG from work units, adding validation/review/synthesis nodes only when needed.
+7. Use the preflight `resolvedTierPlan` exactly for packet `tierPlan`.
+8. Assign per-node tier using preflight `nodeKindTierPolicy`; if tier2 is unavailable, assign tier2 candidates to tier1 fallback.
+9. Validate the DAG for cycles, missing dependencies, ownership conflicts, missing validation, unclear acceptance criteria, unresolved required decisions, unsafe commands, stale assumptions, impossible parallelism, tier-policy violations, and budget/deadline violations.
+10. Optimize parallel groups, critical path, active/background work, cost, time, risks, and stop rules.
+11. Write artifacts and run the packet validator.
 
 Artifact contract:
 

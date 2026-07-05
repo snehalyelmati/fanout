@@ -11,7 +11,7 @@ const prompt = readFileSync(promptPath, "utf8");
 const piPkg = JSON.parse(readFileSync("packages/fanout-pi/package.json", "utf8"));
 if (!piPkg.pi?.extensions?.includes("./src/index.ts")) throw new Error("packages/fanout-pi/package.json does not expose ./src/index.ts");
 if (piPkg.pi?.prompts?.includes("./prompts/fanout-plan.md")) throw new Error("/fanout-plan should be command-backed, not a package prompt");
-for (const phrase of ["Planning only", "ask_user_question", "Fanout plan ready", "Validate the DAG", "Resolved preflight context", "packetHelper.printRunDir", "scripts/fanout-packet-artifacts.mjs", "Tier/model plan", "Execution flow", "Metrics"]) {
+for (const phrase of ["Planning only", "ask_user_question", "Ambiguity gate", "Improve the docs", "Add one sentence to README", "Fanout plan ready", "Validate the DAG", "Resolved preflight context", "packetHelper.printRunDir", "scripts/fanout-packet-artifacts.mjs", "Tier/model plan", "Execution flow", "Metrics"]) {
   if (!prompt.includes(phrase)) throw new Error(`${promptPath} is missing phrase: ${phrase}`);
 }
 
