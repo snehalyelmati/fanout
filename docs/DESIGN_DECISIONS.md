@@ -244,11 +244,11 @@ Reason: Pi needs `reasoning` and `thinkingLevelMap` for `Shift+Tab` thinking con
 
 ## 2026-06-30
 
-### Publish standalone Doubleword provider package
+### Publish standalone Doubleword provider extension package
 
-Decision: Publish the standalone Doubleword provider as `@snehalyelmati/pi-doubleword-provider`, independent from Fanout release order.
+Decision: Publish the standalone Doubleword provider extension as `@snehalyelmati/pi-doubleword-provider`, independent from Fanout release order.
 
-Reason: The provider has a clear standalone package boundary: it registers the live `doubleword` provider for Pi, while dev-only stubs remain outside the packed npm package. Publishing it separately lets users install Doubleword support without Fanout.
+Reason: The provider has a clear standalone extension-package boundary: it registers the live `doubleword` provider for Pi, while dev-only stubs remain outside the packed npm package. Publishing it separately lets users install Doubleword support without Fanout.
 
 ### Split Fanout into user research, execution packet, and execution
 

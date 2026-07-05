@@ -138,9 +138,9 @@ The sections below capture provider, observability, and benchmark work that supp
 - Track decisions in `docs/DESIGN_DECISIONS.md`.
 - Keep the repo as one minimal monorepo with `doubleword-provider`, `fanout-core`, and `fanout-pi`.
 
-## Completed: Standalone Doubleword provider package
+## Completed: Standalone Doubleword provider extension package
 
-Status: published as `@snehalyelmati/pi-doubleword-provider` version `0.1.2`; local development now includes reasoning/tier metadata pending the next release.
+Status: published as the provider extension package `@snehalyelmati/pi-doubleword-provider` version `0.1.2`; local development now includes reasoning/tier metadata pending the next release.
 
 Install:
 

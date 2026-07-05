@@ -5,8 +5,8 @@
   "publishConfig": {
     "access": "public"
   },
-  "description": "Doubleword realtime and async model provider for Pi.",
-  "keywords": ["pi-package", "pi", "doubleword", "provider", "ai"],
+  "description": "Pi extension for the Doubleword model provider.",
+  "keywords": ["pi-package", "pi-extension", "pi", "doubleword", "provider", "ai"],
   "files": [
     "README.md",
     "assets/model-picker.png",
