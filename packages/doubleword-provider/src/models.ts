@@ -104,10 +104,12 @@ function modelFromCatalogEntry(entry: any): ProviderModel | undefined {
 	const id = typeof entry?.id === "string" ? entry.id : undefined;
 	if (!id) return undefined;
 	const name = typeof entry.name === "string" ? entry.name : id;
-	const reasoning = typeof entry.reasoning === "boolean" ? entry.reasoning : isGenerationModel(id, name);
+	const capabilities = Array.isArray(entry.capabilities) ? entry.capabilities.map(String) : undefined;
+	const reasoning = typeof entry.reasoning === "boolean" ? entry.reasoning : capabilities ? capabilities.includes("reasoning") : isGenerationModel(id, name);
 	const authReady = Boolean(process.env.DOUBLEWORD_API_KEY);
 	const catalogFanout = typeof entry.fanout === "object" && entry.fanout ? entry.fanout : {};
-	const catalogThinkingLevelMap = typeof entry.thinkingLevelMap === "object" && entry.thinkingLevelMap ? entry.thinkingLevelMap : {};
+	const rawThinkingLevelMap = entry.thinkingLevelMap ?? entry.thinking_level_map;
+	const catalogThinkingLevelMap = typeof rawThinkingLevelMap === "object" && rawThinkingLevelMap ? rawThinkingLevelMap : {};
 	return {
 		id,
 		name,

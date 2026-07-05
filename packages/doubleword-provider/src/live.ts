@@ -62,7 +62,7 @@ function streamError(data: any): string {
 
 export function doublewordReasoningEffort(model: Model<Api>, options?: SimpleStreamOptions): string | undefined {
 	if (!model.reasoning) return undefined;
-	const level = options?.reasoning ?? "off";
+	const level = options?.reasoning ?? "medium";
 	const effort = model.thinkingLevelMap && Object.hasOwn(model.thinkingLevelMap, level) ? model.thinkingLevelMap[level] : DOUBLEWORD_THINKING_LEVEL_MAP[level];
 	return effort === null ? undefined : effort;
 }
