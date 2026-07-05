@@ -20,8 +20,8 @@ async function registerDoublewordStubProvider(pi: ExtensionAPI, onModels?: Doubl
 	});
 }
 
-export async function registerDoublewordDevProviders(pi: ExtensionAPI, onModels?: DoublewordModelMetadataSink): Promise<void> {
-	registerControls(pi);
+export async function registerDoublewordDevProviders(pi: ExtensionAPI, onModels?: DoublewordModelMetadataSink, options: { controls?: boolean } = {}): Promise<void> {
+	if (options.controls !== false) registerControls(pi);
 	await registerDoublewordLiveProvider(pi, onModels);
 	await registerDoublewordStubProvider(pi, onModels);
 }

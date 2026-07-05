@@ -26,7 +26,7 @@ export default async function (pi: ExtensionAPI) {
 	const toolStarts = new Map<string, { started: number; turnIndex?: number }>();
 
 	setDoublewordRunId(RUN_ID);
-	await registerDoublewordDevProviders(pi, rememberDoublewordModels);
+	await registerDoublewordDevProviders(pi, rememberDoublewordModels, { controls: false });
 
 	pi.registerCommand("fanout-plan", {
 		description: "Prepare a decision-complete Fanout execution packet",
