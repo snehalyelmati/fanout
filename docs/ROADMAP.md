@@ -51,7 +51,9 @@ Acceptance criteria:
 
 ### Phase 2: Execution packet via `/fanout-plan`
 
-Status: Phase 2B implemented and locally validated: `/fanout-plan` is registered, the legacy planning prompt is removed, packet validation lives in `fanout-core`, tier fields/report rendering are implemented, `/fanout-config` configures tier models, and `scripts/fanout-packet-artifacts.mjs` writes validated packet artifacts plus the active pointer in Pi-owned storage.
+Status: Phase 2B implemented and locally validated; audit follow-ups remain before calling Phase 2 complete. `/fanout-plan` is registered, the legacy planning prompt is removed, packet validation lives in `fanout-core`, tier fields/report rendering are implemented, `/fanout-config` configures tier models, and `scripts/fanout-packet-artifacts.mjs` writes validated packet artifacts plus the active pointer in Pi-owned storage.
+
+Current audit follow-ups are tracked in [`docs/impl/phase-2b-fanout-plan.md`](impl/phase-2b-fanout-plan.md#audit-findings-to-address-next).
 
 Goal: prepare a user-reviewable active packet that is detailed enough to execute later, with DAG validation completed before the packet is accepted.
 

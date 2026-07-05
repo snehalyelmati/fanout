@@ -552,6 +552,65 @@ Additional targeted checks:
 - packet-prep observability expansion
 - complex provider registry if Pi cannot expose async capability metadata yet
 
+## Audit findings to address next
+
+These findings came from the Phase 2 audit and should be addressed before calling Phase 2 complete. Preserve the current Phase 2B implementation as the baseline, then work these down in small slices.
+
+1. Finding: `/fanout-plan` should be command-backed with deterministic preflight
+    - Where: `packages/fanout-pi/package.json`, `packages/fanout-pi/src/index.ts`, `packages/fanout-pi/prompts/fanout-plan.md`
+    - Issue: `/fanout-plan` is still exposed as a prompt template. The adapter injects runtime hints, but the model still has to resolve deterministic facts that code can compute exactly:
+      - artifact root, project artifact root, run dir, active pointer path
+      - project id from cwd
+      - active tier1 model from `ctx.model`
+      - current/configured thinking level
+      - configured/default tier2 candidate
+      - tier2 availability from `ctx.modelRegistry.getAll()` and `model.fanout`
+      - thinking support/fallback from `thinkingLevelMap`
+      - resolved tier plan
+      - node-kind tier policy
+      - packet helper/validation command paths
+    - Impact: Plans can drift from runtime truth: wrong artifact paths, tier2 marked available when `authReady=false`, unsupported thinking levels, inconsistent tier assignment, skipped helper calls, or malformed packet defaults.
+    - Fix: Make `/fanout-plan` a Pi command. In the command handler, compute preflight context from `ctx`, Pi settings, and `ctx.modelRegistry`; write `runtime-context.json`; then dispatch the existing prompt text with the resolved context. Keep task decomposition, repo reasoning, acceptance criteria, risk prose, and final report model-generated. There is no shared resolver that converts Pi settings + active model + capabilities into a concrete tierPlan.
+
+2. Finding: Fanout does not consume provider tier metadata yet
+    - Where: `packages/fanout-pi/src/index.ts`, `/fanout-plan` runtime context
+    - Issue: Doubleword now exposes `model.fanout.async/background/authReady`, but Fanout still relies on prompt rules instead of resolving tier2 availability from `ctx.modelRegistry`.
+    - Impact: `/fanout-plan` can still mark tier2 available/unavailable inconsistently with actual provider capability/auth state.
+    - Fix: In Fanout runtime context, look up configured/default tier2 in `ctx.modelRegistry.getAll()` and set tier2 available only when:
+      ```ts
+      model.fanout?.async === true &&
+      model.fanout?.background === true &&
+      model.fanout?.authReady === true
+      ```
+    Otherwise mark tier2 unavailable and assign tier2 candidates to tier1 fallback.
+
+3. Finding: Boxed ASCII DAG lacks branch/join shape
+    - Where: packages/fanout-core/src/execution-packet.ts, renderAsciiDag()
+    - Issue: Nodes are boxed, but graph layout is flattened by parallel groups. Dependencies, forks, and joins are not visually obvious.
+    - Impact: The approval view is harder to understand for parallel plans, even though Mermaid remains exact.
+    - Fix: Improve renderAsciiDag() enough to show simple fork/join structure for common DAGs. Keep Mermaid as source of truth; don’t build a full graph layout engine.
+
+4. Finding: Remove blocked packets from the normal packet schema
+    - Where: packages/fanout-core/src/execution-packet.ts, fixtures under datasets/fixtures/fanout-packets/, smoke tests, /fanout-plan prompt/docs
+    - Issue: status: "blocked" remains even though the decided flow is “ask until decision-complete, then write a ready packet; otherwise stop.”
+    - Impact: Keeps a dead path alive: extra schema states, fixtures, tests, and prompt ambiguity.
+    - Fix: Make packet status ready-only for Phase 2B. Remove blocked fixture coverage and blockers-as-state behavior. Keep blockers: [] only if useful for reporting risks, or remove it too if nothing consumes it.
+
+5. Finding: Artifact directory setting is hidden
+    - Where: packages/fanout-pi/src/index.ts, packages/fanout-pi/src/fanout-config.ts, README.md
+    - Issue: Fanout supports fanout.artifactDir in settings, but only FANOUT_ARTIFACT_DIR is documented and /fanout-config cannot set/show artifact storage.
+    - Impact: Users can’t discover or verify where Fanout stores artifacts except by reading code/env.
+    - Fix: Document the settings key and show current artifact root in /fanout-config. Don’t build a full path picker; env var + JSON setting is enough.
+
+6. Finding: /fanout-plan lacks packet-prep observability
+    - Where: packages/fanout-pi/src/index.ts, packages/fanout-core/src/observability.ts, artifact helper flow
+    - Issue: Existing logs cover generic agent/tool/provider events, but not Fanout packet-prep milestones or resolved plan metrics.
+    - Impact: We can’t compare planning overhead, tier fallback behavior, DAG shape, or validation churn against baseline runs.
+    - Fix: Add two or three JSONL events, not a tracing framework:
+        - fanout_plan_start: objective, artifact root, tier defaults
+        - fanout_plan_preflight: resolved tier1/tier2, tier2 availability reason
+        - fanout_packet_ready: artifact dir, work unit count, DAG depth/width, tier node counts, validation issue counts
+
 ## Pending items
 
 These are intentionally left after Phase 2B and should be handled before or during Phase 3:
