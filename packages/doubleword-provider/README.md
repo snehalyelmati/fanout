@@ -38,6 +38,8 @@ pi --model doubleword/deepseek-ai/DeepSeek-V4-Flash
 
 Use `Alt+T` or `/doubleword-mode` to toggle realtime vs async execution for Doubleword models.
 
+For supported Doubleword generation models, press `Shift+Tab` to choose thinking depth. The provider sends that choice to Doubleword as `reasoning_effort`: off disables reasoning, while higher levels ask the model to spend more effort.
+
 ## Configuration
 
 Required for live models:
@@ -64,6 +66,8 @@ DOUBLEWORD_EXECUTION_MODE          realtime or async; defaults to realtime
 - Discovers models from Doubleword `/models` and caches the catalog locally.
 - Falls back to a small known model list when discovery is unavailable.
 - Supports realtime priority execution and async/flex background polling.
+- Marks registered Doubleword models with Fanout tier metadata for realtime, async, and batch.
+- Sends top-level Doubleword `reasoning_effort` for generation models; OCR/embedding models are marked non-reasoning.
 - Converts Doubleword reasoning output into Pi thinking blocks.
 - Supports Responses function-call tool use.
 - Reports usage/cost metadata when returned by the provider.

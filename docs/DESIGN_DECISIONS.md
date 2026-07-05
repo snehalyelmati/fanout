@@ -234,6 +234,14 @@ Decision: Before merging this experiment branch or starting plugin restructuring
 
 Reason: The current branch contains useful trace-derived direction. Merging should preserve the experiment as a reusable evidence base with tracked prediction artifacts, protocol docs, and validation rather than as an implicit conversation-dependent result.
 
+## 2026-07-05
+
+### Doubleword provider owns model reasoning and tier metadata
+
+Decision: Fill missing Doubleword `/v1/models` metadata in the provider by marking generation models reasoning-capable, OCR/embedding models non-reasoning, mapping Pi thinking levels to top-level `reasoning_effort`, and attaching realtime/async/batch Fanout tier metadata. Preserve live catalog metadata if Doubleword adds it later.
+
+Reason: Pi needs `reasoning` and `thinkingLevelMap` for `Shift+Tab` thinking control, while Fanout consumers need tier capability metadata without coupling Fanout planning logic to Doubleword model-name rules.
+
 ## 2026-06-30
 
 ### Publish standalone Doubleword provider package

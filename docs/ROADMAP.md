@@ -140,7 +140,7 @@ The sections below capture provider, observability, and benchmark work that supp
 
 ## Completed: Standalone Doubleword provider package
 
-Status: published as `@snehalyelmati/pi-doubleword-provider` version `0.1.2`.
+Status: published as `@snehalyelmati/pi-doubleword-provider` version `0.1.2`; local development now includes reasoning/tier metadata pending the next release.
 
 Install:
 
@@ -222,12 +222,12 @@ The planning surface is now `/fanout-plan`, not a standalone prompt template.
 
 ## Track 4: Live-shaped realtime Doubleword stubs
 
-Status: `doubleword-stub` exposes the first live-shaped model IDs and pricing metadata. An opt-in `doubleword` live provider now calls the Responses API with `service_tier: "priority"`, discovers live models from `/v1/models`, and caches that catalog; normal validation remains offline and keyless.
+Status: `doubleword-stub` exposes the first live-shaped model IDs, pricing metadata, reasoning metadata, and realtime/async/batch Fanout tier metadata. An opt-in `doubleword` live provider now calls the Responses API with `service_tier: "priority"`, discovers live models from `/v1/models`, fills missing reasoning/tier metadata while preserving live catalog fields, and caches that catalog; normal validation remains offline and keyless.
 
 - Register Doubleword realtime-shaped stub models for `glm-5-2` ($1.40/$4.40 per MTok in/out) and `deepseek-v4-flash` ($0.14/$0.28 per MTok in/out).
 - Use pricing metadata from `https://doubleword.ai/pricing` for stub cost estimates and known live model tier costs; unknown discovered models remain available with zero-cost placeholders until pricing is added.
 - Keep the stub path available for tests; no live API key or network required.
-- Verify model IDs, fixture streaming, usage reporting, and pricing metadata.
+- Verify model IDs, fixture streaming, usage reporting, pricing metadata, reasoning metadata, and tier capability metadata.
 - Register opt-in live realtime models under `doubleword` from provider discovery/cache, falling back to the minimal GLM/DeepSeek list when discovery is unavailable.
 - Keep live smoke opt-in with `DOUBLEWORD_API_KEY`; no live network in default checks.
 
@@ -236,7 +236,7 @@ Status: `doubleword-stub` exposes the first live-shaped model IDs and pricing me
 Status: opt-in async mode for `doubleword` is wired for discovered/cached live models, Responses API background polling, 16k default output cap, wall-clock timeout, transient poll retry, final GET on timeout, and best-effort remote cancellation. `doubleword` and `doubleword-stub` keep model IDs stable and use a status-line toggle for realtime vs async when the selected provider supports multiple tiers. Normal validation remains offline and keyless.
 
 - Register live-shaped async-capable models under `doubleword` from provider discovery/cache, falling back to the minimal GLM/DeepSeek list when discovery is unavailable.
-- Use Responses API at `https://api.doubleword.ai/v1` with `service_tier: "flex"`, `background: true`, and `max_output_tokens` defaulting to 16k (`DOUBLEWORD_MAX_OUTPUT_TOKENS` overrides).
+- Use Responses API at `https://api.doubleword.ai/v1` with `service_tier: "flex"`, `background: true`, top-level `reasoning_effort` when Pi thinking is enabled, and `max_output_tokens` defaulting to 16k (`DOUBLEWORD_MAX_OUTPUT_TOKENS` overrides).
 - Poll `GET /v1/responses/{id}` while status is `queued` or `in_progress`, retry transient poll failures, and enforce a 10 minute wall-clock timeout (`DOUBLEWORD_LIVE_ASYNC_TIMEOUT_MS` overrides).
 - On timeout, perform one final GET; if still incomplete, best-effort cancel `POST /v1/responses/{id}/cancel`. On user abort, stop the local stream promptly and fire-and-forget the remote cancel.
 - Translate completed Responses output into Pi assistant events after completion: reasoning items become `thinking` blocks, final `output_text` becomes text; no streaming before completion is assumed.
