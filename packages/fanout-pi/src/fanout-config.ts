@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-export async function configureFanoutTier(args: string, ctx: any, currentModel: unknown, currentThinking: unknown, settingsPath: string): Promise<void> {
+export async function configureFanoutTier(args: string, ctx: any, currentModel: unknown, currentThinking: unknown, settingsPath: string, artifactRoot?: string): Promise<void> {
+	if (artifactRoot) ctx.ui.notify(`Fanout artifacts: ${artifactRoot}`, "info");
 	const tierChoice = args.trim() === "tier1" || args.trim() === "tier2" ? args.trim() : await ctx.ui.select("Configure Fanout tier", ["tier1", "tier2"]);
 	if (tierChoice !== "tier1" && tierChoice !== "tier2") return;
 

@@ -12,7 +12,6 @@
     "@earendil-works/pi-coding-agent": "*"
   },
   "pi": {
-    "extensions": ["./src/index.ts"],
-    "prompts": ["./prompts/fanout-plan.md"]
+    "extensions": ["./src/index.ts"]
   }
 }

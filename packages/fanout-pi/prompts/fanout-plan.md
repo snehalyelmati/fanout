@@ -9,11 +9,11 @@ $ARGUMENTS
 
 Runtime context:
 
-- Use the injected **Fanout runtime context** for the artifact root, current active tier1 model, thinking level, and tier defaults.
-- If you need an artifact directory, run it with the injected artifactRoot:
-  `rtk env FANOUT_ARTIFACT_DIR="<artifactRoot from Fanout runtime context>" node --disable-warning=ExperimentalWarning scripts/fanout-packet-artifacts.mjs --print-run-dir <run-id>`
-- If you need the active pointer path, run it with the same artifactRoot:
-  `rtk env FANOUT_ARTIFACT_DIR="<artifactRoot from Fanout runtime context>" node --disable-warning=ExperimentalWarning scripts/fanout-packet-artifacts.mjs --print-active-path`
+- `/fanout-plan` is command-backed. Use the adapter-authored **Resolved preflight context** appended below as source of truth.
+- Do not re-resolve deterministic runtime facts that are already in preflight: artifact paths, project id, tier/model/thinking choices, tier2 availability, node tier policy, or packet helper commands.
+- `packetHelper` commands run `scripts/fanout-packet-artifacts.mjs` with the resolved artifact root.
+- If you need an artifact directory, run `packetHelper.printRunDir` from preflight.
+- If you need the active pointer path, use `activePointerPath` from preflight or run `packetHelper.printActivePath`.
 
 Hard rules:
 
@@ -36,13 +36,8 @@ Plan phase:
 3. Ask one recommended question at a time for unresolved non-discoverable intent/tradeoffs.
 4. Draft fanout-agnostic work units with kind, owned files/resources, read-only files, dependencies, validation commands, rollback notes, and acceptance criteria.
 5. Build the execution DAG from work units, adding validation/review/synthesis nodes only when needed.
-6. Resolve tier/model plan:
-   - tier1 default: current active Pi realtime model from runtime context.
-   - tier2 default: `doubleword/zai-org/GLM-5.2-FP8`, thinking `medium`, only when provider/model/auth/async capability are proven.
-   - if async capability metadata is unavailable, mark tier2 unavailable and assign tier2 candidates to tier1 fallback.
-7. Assign per-node tier:
-   - tier2 for safe async worker kinds: implement, test, docs, inspect, validate-shard, review-shard.
-   - tier1 for plan, clarify, packet-validation, dag-safety, final-review, synthesis, final-validation, final-response.
+6. Use the preflight `resolvedTierPlan` exactly for packet `tierPlan`.
+7. Assign per-node tier using preflight `nodeKindTierPolicy`; if tier2 is unavailable, assign tier2 candidates to tier1 fallback.
 8. Validate the DAG for cycles, missing dependencies, ownership conflicts, missing validation, unclear acceptance criteria, unresolved blockers, unsafe commands, stale assumptions, impossible parallelism, tier-policy violations, and budget/deadline violations.
 9. Optimize parallel groups, critical path, active/background work, cost, time, risks, and stop rules.
 10. Write artifacts and run the packet validator.
@@ -50,12 +45,11 @@ Plan phase:
 Artifact contract:
 
 1. Choose a run id such as `YYYYMMDD-HHMMSS-short-objective`.
-2. Resolve artifact paths with the helper, passing the injected artifactRoot each time:
-   - `rtk env FANOUT_ARTIFACT_DIR="<artifactRoot from Fanout runtime context>" node --disable-warning=ExperimentalWarning scripts/fanout-packet-artifacts.mjs --print-run-dir <run-id>`
-   - `rtk env FANOUT_ARTIFACT_DIR="<artifactRoot from Fanout runtime context>" node --disable-warning=ExperimentalWarning scripts/fanout-packet-artifacts.mjs --print-active-path`
+2. Resolve artifact paths with the helper commands from preflight:
+   - `packetHelper.printRunDir`
+   - `packetHelper.printActivePath`
 3. Write `<artifact-dir>/execution-packet.json` using schema `fanout.execution-packet`, version `2`.
-4. Run with the same injected artifactRoot:
-   `rtk env FANOUT_ARTIFACT_DIR="<artifactRoot from Fanout runtime context>" node --disable-warning=ExperimentalWarning scripts/fanout-packet-artifacts.mjs <artifact-dir>/execution-packet.json --out <artifact-dir> --active <active-pointer-path>`
+4. Run the validator/artifact writer using `packetHelper.validatePacket`, replacing `<artifact-dir>`.
 5. The script writes `execution-plan.md`, `execution-dag.mmd`, and updates the active pointer only for executable ready packets.
 6. If validation fails, fix the packet and rerun the validator. Do not ask the user about validator-fixable packet mistakes.
 
