@@ -19,7 +19,7 @@ Current focus:
 
 1. Keep Doubleword provider support usable on its own.
 2. Keep Fanout optimization agent-agnostic.
-3. Keep the standalone Doubleword provider package published independently from Fanout.
+3. Keep the standalone Doubleword provider extension package published independently from Fanout.
 4. Benchmark with traces, stubs, and local hybrid workflow fixtures before live orchestration.
 
 The current benchmark layer includes a local/offline hybrid workflow simulator for comparing tier1 and tier2 routing policies. It reads committed JSONL fixtures, simulates active user-facing turnaround time separately from background completion, and reports target evidence for critical-path scheduling, RPE background execution, sharded RPE, speculative portfolio execution, and budget-constrained routing. Synthetic fixture passes are simulator evidence only, not observed trace feasibility claims.
@@ -38,11 +38,11 @@ The benchmark summarizer accepts this extension's `observability.jsonl` files, r
 Fanout workflow:
 
 ```text
-/dw-fanout [objective]   # prepare a non-mutating execution packet
-/dw-execute <packet>     # execute an accepted packet
+/fanout-plan [objective]     # prepare and validate a non-mutating execution packet
+/fanout-execute              # execute the active accepted packet
 ```
 
-Fanout-agnostic packet planning explores first, asks only for non-discoverable intent/tradeoffs, stays non-mutating, and produces a decision-complete plan before execution.
+`/fanout-plan` explores first, drafts fanout-agnostic work units, builds and validates the DAG during planning, then emits the active reviewable execution packet. `/fanout-execute` later revalidates freshness and worktree safety before running workers.
 
 `doubleword-stub` exposes `glm-5-2` and `deepseek-v4-flash` with offline cost estimates. Realtime/tier 1 prices are GLM $1.40/$4.40 and DeepSeek $0.14/$0.28 per MTok in/out; tier 2/flex prices are GLM $1.05/$3.30 and DeepSeek $0.10/$0.20.
 Live `doubleword` discovers models from Doubleword `/models` when `DOUBLEWORD_API_KEY` is set, caches the catalog locally, and falls back to the minimal GLM/DeepSeek list when discovery is unavailable. Use `Alt+T` or `/doubleword-mode` to toggle realtime vs async for `doubleword` and `doubleword-stub`. Async uses Responses `background: true` polling with a 10 minute wall-clock timeout, one final GET before timeout failure, best-effort remote cancel, transient poll retry, and a default `max_output_tokens` cap of 16k.
@@ -62,7 +62,7 @@ DOUBLEWORD_CANCEL_TIMEOUT_MS       override default 10000 cancel request timeout
 
 Packaging status:
 
-The standalone Doubleword provider is published as a Pi package:
+The standalone Doubleword provider extension is published as a Pi package:
 
 ```text
 pi install npm:@snehalyelmati/pi-doubleword-provider

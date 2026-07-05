@@ -4,6 +4,7 @@ import { createAssistantMessageEventStream, type Api, type AssistantMessageEvent
 import { ASYNC_SERVICE_TIER, DEFAULT_ASYNC_TIMEOUT_MS, DEFAULT_CANCEL_TIMEOUT_MS, DOUBLEWORD_API_BASE_URL, elapsedMs, envInt, envString, formatSeconds, maxOutputTokensFor, sleep, withTimeout } from "./config.ts";
 import { fetchJson, fetchJsonWithPollRetry } from "./http.ts";
 import { assertCompletedResponse, emitResponseContent, emitResponseToolCalls, emptyMessage, endText, guardRepeatedOutput, pushTextDelta, responsesInput, responsesTools, startText, usageFromResponse } from "./messages.ts";
+import { DOUBLEWORD_THINKING_LEVEL_MAP } from "./models.ts";
 import { durationMs, getDoublewordActiveTurnIndex, writeJsonl } from "./observability.ts";
 
 class AsyncTimeoutError extends Error {}
@@ -59,6 +60,26 @@ function streamError(data: any): string {
 	return String(data?.error?.message ?? data?.message ?? data?.response?.error?.message ?? JSON.stringify(data));
 }
 
+export function doublewordReasoningEffort(model: Model<Api>, options?: SimpleStreamOptions): string | undefined {
+	if (!model.reasoning) return undefined;
+	const level = options?.reasoning ?? "medium";
+	const effort = model.thinkingLevelMap && Object.hasOwn(model.thinkingLevelMap, level) ? model.thinkingLevelMap[level] : DOUBLEWORD_THINKING_LEVEL_MAP[level];
+	return effort === null ? undefined : effort;
+}
+
+export function responsesRequestBody(model: Model<Api>, context: Context, options: SimpleStreamOptions | undefined, body: Record<string, any>): Record<string, any> {
+	const tools = responsesTools(context.tools);
+	const reasoningEffort = doublewordReasoningEffort(model, options);
+	return {
+		model: model.id,
+		input: responsesInput(context),
+		...(tools ? { tools } : {}),
+		...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+		...body,
+		max_output_tokens: maxOutputTokensFor(model, options),
+	};
+}
+
 export function streamLiveRealtime(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
 	const stream = createAssistantMessageEventStream();
 
@@ -80,12 +101,11 @@ export function streamLiveRealtime(model: Model<Api>, context: Context, options?
 			const headers = new Headers(options?.headers);
 			headers.set("content-type", "application/json");
 			headers.set("authorization", `Bearer ${apiKey}`);
-			const tools = responsesTools(context.tools);
 			const httpResponse = await fetch(`${baseUrl}/responses`, {
 				method: "POST",
 				headers,
 				signal: options?.signal,
-				body: JSON.stringify({ model: model.id, input: responsesInput(context), ...(tools ? { tools } : {}), service_tier: "priority", stream: true, max_output_tokens: maxOutputTokensFor(model, options) }),
+				body: JSON.stringify(responsesRequestBody(model, context, options, { service_tier: "priority", stream: true })),
 			});
 			if (!httpResponse.ok) throw new Error(`Doubleword API error ${httpResponse.status}${httpResponse.statusText ? ` ${httpResponse.statusText}` : ""}: ${await httpResponse.text()}`);
 			if (!httpResponse.body) throw new Error("Doubleword realtime stream response had no body");
@@ -246,20 +266,12 @@ export function streamLiveAsync(model: Model<Api>, context: Context, options?: S
 			headers.set("content-type", "application/json");
 			headers.set("authorization", `Bearer ${apiKey}`);
 			const submitStart = performance.now();
-			const tools = responsesTools(context.tools);
 			let response = await withAsyncDeadline((signal) =>
 				fetchJson(`${baseUrl}/responses`, {
 					method: "POST",
 					headers,
 					signal,
-					body: JSON.stringify({
-						model: model.id,
-						input: responsesInput(context),
-						...(tools ? { tools } : {}),
-						service_tier: ASYNC_SERVICE_TIER,
-						background: true,
-						max_output_tokens: maxOutputTokensFor(model, options),
-					}),
+					body: JSON.stringify(responsesRequestBody(model, context, options, { service_tier: ASYNC_SERVICE_TIER, background: true })),
 				}),
 			);
 			submitted = true;
