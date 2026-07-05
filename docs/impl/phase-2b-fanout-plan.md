@@ -33,7 +33,7 @@ Completed:
 - Added boxed ASCII flow, tier/model plan, files section, and two-column metrics to `execution-plan.md` rendering.
 - Updated `/fanout-plan` prompt for decision-complete planning and `ask_user_question` usage.
 - Added fanout-pi runtime context injection for active model, thinking level, artifact paths, and resolved tier preflight.
-- Added smoke coverage for packet tier fields, artifact path helper modes, boxed plan report sections, blocked-packet active-pointer no-update, `/fanout-config`, command-backed `/fanout-plan`, and `FANOUT_ARTIFACT_DIR` override.
+- Added smoke coverage for packet tier fields, artifact path helper modes, boxed plan report sections, branch/join ASCII DAG rendering, `/fanout-config`, command-backed `/fanout-plan`, and `FANOUT_ARTIFACT_DIR` override.
 - Bumped execution packet schema to version `2` for required tier-aware fields.
 - Active pointer now stores an absolute packet path.
 - Fixed missing `fanout.artifactDir` fallback so runtime context defaults to Pi-owned storage and `/fanout-config` shows the resolved artifact root.
@@ -43,7 +43,7 @@ Completed:
 
 ### Decision-complete planning
 
-`/fanout-plan` should not normally produce blocked packets.
+`/fanout-plan` should only write ready packets.
 
 Algorithm:
 
@@ -562,20 +562,10 @@ Resolved in this slice:
 - Fanout consumes Doubleword provider tier metadata before Pi `ModelRegistry` strips unknown fields, and tier2 availability requires `fanout.async/background/authReady`.
 - `fanout.artifactDir` is documented and `/fanout-config` shows the resolved artifact root.
 - Packet-prep observability now includes `fanout_plan_start` and `fanout_plan_preflight` events.
+- Boxed ASCII DAG rendering now shows simple branch/join structure for common parallel groups.
+- Packet status is ready-only; missing user decisions stop planning without writing artifacts.
 
-Remaining audit findings:
-
-1. Finding: Boxed ASCII DAG lacks branch/join shape
-    - Where: packages/fanout-core/src/execution-packet.ts, renderAsciiDag()
-    - Issue: Nodes are boxed, but graph layout is flattened by parallel groups. Dependencies, forks, and joins are not visually obvious.
-    - Impact: The approval view is harder to understand for parallel plans, even though Mermaid remains exact.
-    - Fix: Improve renderAsciiDag() enough to show simple fork/join structure for common DAGs. Keep Mermaid as source of truth; don’t build a full graph layout engine.
-
-2. Finding: Remove blocked packets from the normal packet schema
-    - Where: packages/fanout-core/src/execution-packet.ts, fixtures under datasets/fixtures/fanout-packets/, smoke tests, /fanout-plan prompt/docs
-    - Issue: status: "blocked" remains even though the decided flow is “ask until decision-complete, then write a ready packet; otherwise stop.”
-    - Impact: Keeps a dead path alive: extra schema states, fixtures, tests, and prompt ambiguity.
-    - Fix: Make packet status ready-only for Phase 2B. Remove blocked fixture coverage and blockers-as-state behavior. Keep blockers: [] only if useful for reporting risks, or remove it too if nothing consumes it.
+Remaining audit findings: none.
 
 
 ## Pending items

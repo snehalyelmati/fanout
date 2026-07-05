@@ -5,7 +5,7 @@ export const EXECUTION_PACKET_SCHEMA = "fanout.execution-packet";
 export const EXECUTION_PACKET_VERSION = 2;
 export const ACTIVE_PACKET_SCHEMA = "fanout.active-packet";
 
-export type PacketStatus = "ready" | "blocked";
+export type PacketStatus = "ready";
 export type WorkActiveState = "active" | "background";
 export type TierName = "tier1" | "tier2";
 export type TierStatus = "available" | "unavailable";
@@ -99,7 +99,7 @@ export interface PacketValidationResult {
 	graph?: ExecutionGraph;
 }
 
-const VALID_STATUSES = new Set(["ready", "blocked"]);
+const VALID_STATUSES = new Set(["ready"]);
 const VALID_ACTIVE_STATES = new Set(["active", "background"]);
 const VALID_TIERS = new Set(["tier1", "tier2"]);
 const VALID_TIER_STATUSES = new Set(["available", "unavailable"]);
@@ -131,7 +131,7 @@ export function validateExecutionPacket(packet: unknown): PacketValidationResult
 
 	if (packet.schema !== EXECUTION_PACKET_SCHEMA) add(errors, "invalid-schema", `schema must be ${EXECUTION_PACKET_SCHEMA}`, "schema");
 	if (packet.version !== EXECUTION_PACKET_VERSION) add(errors, "invalid-version", `version must be ${EXECUTION_PACKET_VERSION}`, "version");
-	if (typeof packet.status !== "string" || !VALID_STATUSES.has(packet.status)) add(errors, "invalid-status", "status must be ready or blocked", "status");
+	if (typeof packet.status !== "string" || !VALID_STATUSES.has(packet.status)) add(errors, "invalid-status", "status must be ready", "status");
 	if (!nonEmptyString(packet.objective)) add(errors, "missing-objective", "objective is required", "objective");
 	if (!nonEmptyString(packet.createdAt)) add(errors, "missing-created-at", "createdAt is required", "createdAt");
 	if (!nonEmptyString(packet.artifactDir)) add(errors, "missing-artifact-dir", "artifactDir is required", "artifactDir");
@@ -147,10 +147,7 @@ export function validateExecutionPacket(packet: unknown): PacketValidationResult
 		}
 	}
 
-	const status = packet.status;
-	const blockers = Array.isArray(packet.blockers) ? packet.blockers.filter((value) => typeof value === "string" && value.trim()) : [];
-	if (status === "ready" && blockers.length) add(errors, "ready-has-blockers", "ready packets cannot have blockers", "blockers");
-	if (status === "blocked" && blockers.length === 0) add(warnings, "blocked-without-blockers", "blocked packets should explain blockers", "blockers");
+	if (Array.isArray(packet.blockers) && packet.blockers.length > 0) add(errors, "ready-has-blockers", "ready packets cannot have blockers", "blockers");
 
 	if (!isRecord(packet.estimates)) {
 		add(errors, "missing-estimates", "estimates object is required", "estimates");
@@ -164,7 +161,7 @@ export function validateExecutionPacket(packet: unknown): PacketValidationResult
 		add(errors, "missing-work-units", "workUnits array is required", "workUnits");
 		return finish(packet, errors, warnings);
 	}
-	if (status === "ready" && packet.workUnits.length === 0) add(errors, "ready-without-work", "ready packets need at least one work unit", "workUnits");
+	if (packet.workUnits.length === 0) add(errors, "ready-without-work", "ready packets need at least one work unit", "workUnits");
 
 	const workUnits: FanoutWorkUnit[] = [];
 	const ids = new Set<string>();
@@ -365,7 +362,7 @@ function checkTierPolicy(workUnits: FanoutWorkUnit[], tierPlan: unknown, errors:
 
 function finish(packet: Record<string, unknown>, errors: PacketValidationIssue[], warnings: PacketValidationIssue[], graph?: ExecutionGraph): PacketValidationResult {
 	const ok = errors.length === 0;
-	return { ok, executable: ok && packet.status === "ready", errors, warnings, graph };
+	return { ok, executable: ok, errors, warnings, graph };
 }
 
 function buildGraph(workUnits: FanoutWorkUnit[]): ExecutionGraph {
@@ -519,14 +516,69 @@ function renderAsciiDag(packet: FanoutExecutionPacket, validation: PacketValidat
 	if (!graph || packet.workUnits.length === 0) return "Execution flow\n==============\n\n(no executable work units)\n";
 	const units = new Map(packet.workUnits.map((unit) => [unit.id, unit]));
 	const lines = ["Execution flow", "==============", ""];
+	let connectorAlreadyDrawn = false;
 	graph.parallelGroups.forEach((group, groupIndex) => {
-		if (groupIndex > 0) lines.push("        |", "        v");
-		for (const id of group) {
-			const unit = units.get(id);
-			if (unit) lines.push(...boxNode(unit), "");
+		const groupUnits = group.map((id) => units.get(id)).filter((unit): unit is FanoutWorkUnit => Boolean(unit));
+		if (groupUnits.length === 0) return;
+		if (groupIndex > 0 && !connectorAlreadyDrawn) {
+			const previousGroup = graph.parallelGroups[groupIndex - 1] ?? [];
+			if (groupUnits.length > 1 && previousGroup.length === 1 && hasEdgesToAll(graph, previousGroup[0], group)) lines.push(...branchConnector(groupUnits, "fork"));
+			else if (groupUnits.length === 1) lines.push("        |", "        v");
+			else lines.push("");
+		}
+		connectorAlreadyDrawn = false;
+		if (groupUnits.length > 1) lines.push(...boxNodeRow(groupUnits), "");
+		else lines.push(...boxNode(groupUnits[0]), "");
+		const nextGroup = graph.parallelGroups[groupIndex + 1] ?? [];
+		if (groupUnits.length > 1 && nextGroup.length === 1 && hasEdgesFromAll(graph, group, nextGroup[0])) {
+			lines.push(...branchConnector(groupUnits, "join"));
+			connectorAlreadyDrawn = true;
 		}
 	});
 	return `${lines.join("\n").trimEnd()}\n`;
+}
+
+function hasEdgesFromAll(graph: ExecutionGraph, fromIds: string[], toId: string): boolean {
+	return fromIds.every((id) => graph.edges.some(([from, to]) => from === id && to === toId));
+}
+
+function hasEdgesToAll(graph: ExecutionGraph, fromId: string, toIds: string[]): boolean {
+	return toIds.every((id) => graph.edges.some(([from, to]) => from === fromId && to === id));
+}
+
+function boxNodeRow(units: FanoutWorkUnit[]): string[] {
+	const boxes = units.map(boxNode);
+	return boxes[0].map((_, row) => boxes.map((box) => box[row]).join("   "));
+}
+
+function branchConnector(units: FanoutWorkUnit[], direction: "fork" | "join"): string[] {
+	const widths = units.map((unit) => boxNode(unit)[0].length);
+	const centers: number[] = [];
+	let offset = 0;
+	for (const width of widths) {
+		centers.push(offset + Math.floor(width / 2));
+		offset += width + 3;
+	}
+	const width = offset - 3;
+	const bar = Array(width).fill(" ");
+	for (let index = centers[0]; index <= centers.at(-1)!; index++) bar[index] = "-";
+	for (const center of centers) bar[center] = "+";
+	const stems = Array(width).fill(" ");
+	const arrows = Array(width).fill(" ");
+	for (const center of centers) {
+		stems[center] = "|";
+		arrows[center] = "v";
+	}
+	const middle = centeredLine(width, "|");
+	return direction === "fork"
+		? [middle, centeredLine(width, "v"), bar.join(""), stems.join(""), arrows.join("")]
+		: [stems.join(""), bar.join(""), middle, centeredLine(width, "v")];
+}
+
+function centeredLine(width: number, value: string): string {
+	const line = Array(Math.max(1, width)).fill(" ");
+	line[Math.floor(line.length / 2)] = value;
+	return line.join("").trimEnd();
 }
 
 function boxNode(unit: FanoutWorkUnit): string[] {

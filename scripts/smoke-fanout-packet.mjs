@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   readExecutionPacket,
+  renderExecutionPlanMarkdown,
   validateExecutionPacket,
   writeExecutionPacketArtifacts,
 } from "../packages/fanout-core/src/execution-packet.ts";
@@ -14,7 +15,6 @@ const validPacketAbs = resolve(validPacketPath);
 const cliScriptAbs = resolve("scripts/fanout-packet-artifacts.mjs");
 const cases = [
   ["valid-ready.json", true, true, []],
-  ["blocked.json", true, false, []],
   ["cycle.json", false, false, ["cycle"]],
   ["missing-dependency.json", false, false, ["missing-dependency"]],
   ["ownership-conflict.json", false, false, ["ownership-conflict"]],
@@ -51,6 +51,15 @@ expectInvalid("directory/file ownership overlap", withPatch(validPacket, (packet
   packet.estimates.criticalPath = ["docs-dir"];
   packet.estimates.parallelGroups = [["docs-dir", "roadmap"]];
 }), ["ownership-conflict"]);
+expectInvalid("blocked status", withPatch(validPacket, (packet) => {
+  packet.status = "blocked";
+}), ["invalid-status"]);
+expectInvalid("ready blockers", withPatch(validPacket, (packet) => {
+  packet.blockers = ["need a decision"];
+}), ["ready-has-blockers"]);
+expectInvalid("whitespace blocker", withPatch(validPacket, (packet) => {
+  packet.blockers = ["   "];
+}), ["ready-has-blockers"]);
 expectInvalid("tier2 unavailable assignment", withPatch(validPacket, (packet) => {
   packet.workUnits[0].tier.assigned = "tier2";
 }), ["tier2-unavailable-assignment"]);
@@ -69,10 +78,49 @@ try {
     if (!pattern.test(plan)) throw new Error(`execution-plan.md missing pattern: ${pattern}`);
   }
 
-  const blockedPacket = readExecutionPacket(join(fixtureDir, "blocked.json"));
-  const blockedActivePointerPath = join(dir, "blocked-active-packet.json");
-  writeExecutionPacketArtifacts(blockedPacket, join(dir, "blocked-run"), { activePointerPath: blockedActivePointerPath });
-  if (existsSync(blockedActivePointerPath)) throw new Error("blocked packet updated active pointer");
+  const branchPacket = withPatch(validPacket, (packet) => {
+    const root = unit("inspect", [], [], ["README.md"]);
+    root.kind = "inspect";
+    const finalReview = unit("final-review", ["docs-a", "docs-b"], [], ["docs/a.md", "docs/b.md"]);
+    finalReview.kind = "final-review";
+    finalReview.tier.preferred = "tier1";
+    finalReview.tier.reason = "tier1 control-plane node";
+    packet.workUnits = [
+      root,
+      unit("docs-a", ["inspect"], ["docs/a.md"], []),
+      unit("docs-b", ["inspect"], ["docs/b.md"], []),
+      finalReview,
+    ];
+    packet.estimates.criticalPath = ["inspect", "docs-a", "final-review"];
+    packet.estimates.parallelGroups = [["inspect"], ["docs-a", "docs-b"], ["final-review"]];
+  });
+  const branchFlow = executionFlow(branchPacket);
+  if (!/\[docs-a\] docs.*\[docs-b\] docs/.test(branchFlow) || connectorBarCount(branchFlow) < 2) throw new Error("ASCII DAG does not show fork and true join shape");
+
+  const subsetPacket = withPatch(validPacket, (packet) => {
+    packet.workUnits = [
+      unit("docs-a", [], ["docs/a.md"], []),
+      unit("docs-b", [], ["docs/b.md"], []),
+      unit("docs-a-review", ["docs-a"], [], ["docs/a.md"]),
+    ];
+    packet.estimates.criticalPath = ["docs-a", "docs-a-review"];
+    packet.estimates.parallelGroups = [["docs-a", "docs-b"], ["docs-a-review"]];
+  });
+  const subsetFlow = executionFlow(subsetPacket);
+  if (connectorBarCount(subsetFlow) !== 0) throw new Error("ASCII DAG implies a false join for subset dependency");
+
+  const pairwisePacket = withPatch(validPacket, (packet) => {
+    packet.workUnits = [
+      unit("docs-a", [], ["docs/a.md"], []),
+      unit("docs-b", [], ["docs/b.md"], []),
+      unit("docs-a-review", ["docs-a"], [], ["docs/a.md"]),
+      unit("docs-b-review", ["docs-b"], [], ["docs/b.md"]),
+    ];
+    packet.estimates.criticalPath = ["docs-a", "docs-a-review"];
+    packet.estimates.parallelGroups = [["docs-a", "docs-b"], ["docs-a-review", "docs-b-review"]];
+  });
+  const pairwiseFlow = executionFlow(pairwisePacket);
+  if (connectorBarCount(pairwiseFlow) !== 0) throw new Error("ASCII DAG implies a false fork for pairwise lanes");
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }
@@ -154,6 +202,14 @@ try {
 }
 
 console.log("fanout packet smoke passed");
+
+function executionFlow(packet) {
+  return renderExecutionPlanMarkdown(packet).match(/## Execution flow[\s\S]*?## Files/)?.[0] ?? "";
+}
+
+function connectorBarCount(flow) {
+  return flow.split("\n").filter((line) => /^\s+\+[-+]+\s*$/.test(line)).length;
+}
 
 function unit(id, dependencies, ownedFiles, readOnlyFiles) {
   return {

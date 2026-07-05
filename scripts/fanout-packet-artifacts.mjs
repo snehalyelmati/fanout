@@ -47,7 +47,6 @@ try {
   console.log(`wrote ${paths.packetPath}`);
   console.log(`wrote ${paths.planPath}`);
   console.log(`wrote ${paths.dagPath}`);
-  if (activePointerPath && !paths.activePointerPath) console.log("packet is blocked; active pointer not updated");
   if (paths.activePointerPath) console.log(`wrote ${paths.activePointerPath}`);
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);

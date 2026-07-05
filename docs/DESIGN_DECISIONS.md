@@ -264,7 +264,7 @@ Reason: Phase 2 exists so users can review the plan, DAG, estimates, ownership, 
 
 ### Validate the DAG during packet preparation
 
-Decision: Packet preparation first creates fanout-agnostic work units with ownership, dependencies, validation, and acceptance criteria; then it builds the execution DAG, validates cycles/conflicts/blockers during planning, and only then optimizes worker and tier choices.
+Decision: Packet preparation first creates fanout-agnostic work units with ownership, dependencies, validation, and acceptance criteria; then it builds the execution DAG, validates cycles/conflicts/unresolved decisions during planning, and only then optimizes worker and tier choices.
 
 Reason: Separating work-unit planning, DAG validation, and execution optimization keeps Fanout core independent from Pi, Doubleword, and the eventual worker implementation while still catching unsafe packets before execution.
 

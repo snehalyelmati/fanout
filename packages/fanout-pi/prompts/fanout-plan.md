@@ -38,7 +38,7 @@ Plan phase:
 5. Build the execution DAG from work units, adding validation/review/synthesis nodes only when needed.
 6. Use the preflight `resolvedTierPlan` exactly for packet `tierPlan`.
 7. Assign per-node tier using preflight `nodeKindTierPolicy`; if tier2 is unavailable, assign tier2 candidates to tier1 fallback.
-8. Validate the DAG for cycles, missing dependencies, ownership conflicts, missing validation, unclear acceptance criteria, unresolved blockers, unsafe commands, stale assumptions, impossible parallelism, tier-policy violations, and budget/deadline violations.
+8. Validate the DAG for cycles, missing dependencies, ownership conflicts, missing validation, unclear acceptance criteria, unresolved required decisions, unsafe commands, stale assumptions, impossible parallelism, tier-policy violations, and budget/deadline violations.
 9. Optimize parallel groups, critical path, active/background work, cost, time, risks, and stop rules.
 10. Write artifacts and run the packet validator.
 
@@ -65,7 +65,7 @@ Packet JSON fields:
 - userContext
 - discoveredRepoFacts
 - assumptions
-- blockers: normally empty; do not use as a substitute for asking required questions
+- blockers: `[]`; ask/stop instead of writing artifacts
 - workUnits: id, kind, goal, dependencies, ownedFiles, readOnlyFiles, steps, validationCommands, acceptanceCriteria, rollbackNotes, tier, active
 - estimates: activeWait, backgroundCompletion, cost, criticalPath, parallelGroups
 - stopRules
