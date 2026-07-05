@@ -39,10 +39,17 @@ Fanout workflow:
 
 ```text
 /fanout-plan [objective]     # prepare and validate a non-mutating execution packet
-/fanout-execute              # execute the active accepted packet
+/fanout-execute              # planned Phase 3: execute the active accepted packet
 ```
 
-`/fanout-plan` explores first, drafts fanout-agnostic work units, builds and validates the DAG during planning, then emits the active reviewable execution packet. `/fanout-execute` later revalidates freshness and worktree safety before running workers.
+`/fanout-plan` explores first, asks one user question at a time when intent is not discoverable, drafts fanout-agnostic work units, resolves tier1/tier2 model choices, builds and validates the DAG during planning, then emits the active reviewable execution packet. The packet validator/artifact helper stores artifacts in Pi-owned storage by default:
+
+```text
+rtk node --disable-warning=ExperimentalWarning scripts/fanout-packet-artifacts.mjs --print-run-dir <run-id>
+rtk node --disable-warning=ExperimentalWarning scripts/fanout-packet-artifacts.mjs <artifact-dir>/execution-packet.json --out <artifact-dir> --active <active-pointer-path>
+```
+
+Use `FANOUT_ARTIFACT_DIR=/custom/path` to override the default `~/.pi/agent/fanout/...` storage. Use `/fanout-config` to configure tier models with provider → model → thinking selectors. The plan report shows a compact artifact directory, tier/model plan, boxed ASCII DAG, files touched, and two-column metrics. In Phase 3, `/fanout-execute` will revalidate freshness and worktree safety before running workers.
 
 `doubleword-stub` exposes `glm-5-2` and `deepseek-v4-flash` with offline cost estimates. Realtime/tier 1 prices are GLM $1.40/$4.40 and DeepSeek $0.14/$0.28 per MTok in/out; tier 2/flex prices are GLM $1.05/$3.30 and DeepSeek $0.10/$0.20.
 Live `doubleword` discovers models from Doubleword `/models` when `DOUBLEWORD_API_KEY` is set, caches the catalog locally, and falls back to the minimal GLM/DeepSeek list when discovery is unavailable. Use `Alt+T` or `/doubleword-mode` to toggle realtime vs async for `doubleword` and `doubleword-stub`. Async uses Responses `background: true` polling with a 10 minute wall-clock timeout, one final GET before timeout failure, best-effort remote cancel, transient poll retry, and a default `max_output_tokens` cap of 16k.

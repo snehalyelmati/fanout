@@ -280,6 +280,24 @@ Decision: `/fanout-execute` executes the active accepted packet instead of requi
 
 Reason: The normal workflow is plan, review, then execute the current packet. Avoiding an argument keeps the command simple; explicit packet selection can be added later only if multiple active packets become a real need.
 
+### Store the active packet as a pointer
+
+Decision: Fanout stores `active-packet.json` as a pointer to the latest executable ready packet instead of duplicating the full packet.
+
+Reason: The packet artifact remains the single source of truth, while `/fanout-execute` still has a stable default lookup path.
+
+### Store Fanout artifacts outside the repo by default
+
+Decision: `/fanout-plan` writes packet artifacts under Pi-owned storage, defaulting to `~/.pi/agent/fanout/<project-id>/`, with `FANOUT_ARTIFACT_DIR` as an override.
+
+Reason: Execution packets are agent artifacts, not source changes. Keeping them out of the repo avoids accidental commits while preserving user-reviewable files across sessions.
+
+### Require decision-complete planning before packet finalization
+
+Decision: `/fanout-plan` should explore first, then ask one user question at a time with `ask_user_question` for non-discoverable intent/tradeoffs, and only write/update the active packet once the plan is decision-complete.
+
+Reason: Blocked packets are poor UX for normal file-change planning. The packet should represent accepted execution intent; unresolved intent should remain an interactive planning question.
+
 ### Reuse existing worker infrastructure before custom orchestration
 
 Decision: `/fanout-execute` should start with native Pi subagents or an existing popular subagent package. Build custom worker orchestration only if isolation, queueing, cancellation, or visibility cannot be handled by existing infrastructure.

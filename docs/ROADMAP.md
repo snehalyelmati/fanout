@@ -51,7 +51,7 @@ Acceptance criteria:
 
 ### Phase 2: Execution packet via `/fanout-plan`
 
-Status: next implementation focus.
+Status: Phase 2B implemented and locally validated: `/fanout-plan` is registered, the legacy planning prompt is removed, packet validation lives in `fanout-core`, tier fields/report rendering are implemented, `/fanout-config` configures tier models, and `scripts/fanout-packet-artifacts.mjs` writes validated packet artifacts plus the active pointer in Pi-owned storage.
 
 Goal: prepare a user-reviewable active packet that is detailed enough to execute later, with DAG validation completed before the packet is accepted.
 
@@ -62,8 +62,8 @@ Build the smallest useful packet first:
    - Separate user-provided context from inferred repo facts.
 2. **Read-only exploration**
    - Inspect local files, docs, configs, tests, and history needed for the next decision.
-   - Ask only for non-discoverable intent/tradeoffs.
-   - Do not edit, write, patch, migrate, codegen, or run destructive commands.
+   - Ask only for non-discoverable intent/tradeoffs, one question at a time with a recommended answer.
+   - Do not edit project files, patch, migrate, codegen, or run destructive commands; writes are limited to Fanout artifact storage.
 3. **Draft fanout-agnostic work units**
    - Define work units, owned files/resources, read-only files, dependencies, validation commands, rollback notes, and acceptance criteria.
    - No provider-specific or Pi-specific execution assumptions in this layer.
@@ -71,20 +71,21 @@ Build the smallest useful packet first:
    - Convert work units into nodes and dependency edges.
    - Add validation, reviewer, and synthesis nodes where needed.
 5. **Validate the DAG during planning**
-   - Reject or mark blockers for cycles, missing dependencies, overlapping ownership, missing validation, unclear acceptance criteria, unresolved user decisions, unsafe commands, impossible parallelism, and budget/deadline violations.
-   - Iterate until the best packet possible with available info is produced, or explicitly mark blockers/questions.
+   - Reject cycles, missing dependencies, overlapping ownership, missing validation, unclear acceptance criteria, unsafe commands, impossible parallelism, tier-policy violations, and budget/deadline violations.
+   - Ask user questions until user-only ambiguity is resolved; do not normally emit blocked packets.
 6. **Optimize the execution plan**
    - Estimate critical path, parallel width, tier choices, expected active wait, background completion time, cost, and risk.
 7. **Emit the active user-facing execution packet**
-   - Include a flowchart, worker ownership table, inference tier plan, expected files touched, validation commands, estimated time/cost, cancellation/stop rules, and known risks.
+   - Include boxed ASCII DAG nodes, worker ownership table, tier/model plan, expected files touched, two-column metrics, validation commands, cancellation/stop rules, and known risks.
    - Save or print the packet in a stable artifact format that `/fanout-execute` can consume as the active packet.
 
-Suggested packet artifact:
+Packet artifacts:
 
 ```text
-runs/<run-id>/execution-packet.json
-runs/<run-id>/execution-plan.md
-runs/<run-id>/execution-dag.mmd
+~/.pi/agent/fanout/<project-id>/<run-id>/execution-packet.json
+~/.pi/agent/fanout/<project-id>/<run-id>/execution-plan.md
+~/.pi/agent/fanout/<project-id>/<run-id>/execution-dag.mmd
+~/.pi/agent/fanout/<project-id>/active-packet.json
 ```
 
 Phase 2 acceptance criteria:
@@ -93,7 +94,7 @@ Phase 2 acceptance criteria:
 - The packet can be reviewed by a human before execution.
 - DAG validation catches cycles, file ownership conflicts, missing validation, and unresolved blockers before the packet is accepted.
 - Estimates distinguish active wait, background completion, provider tier cost, and workflow savings.
-- Observability logs packet preparation time, model tiers, token usage, DAG depth/width, validation iterations, and rejected/accepted work units.
+- Observability logs packet preparation time, model tiers, token usage, DAG depth/width, validation iterations, and rejected/accepted work units. *(Pending after Phase 2B local validation; add when live Pi planning flow is exercised.)*
 
 ### Phase 3: Execution via `/fanout-execute`
 
