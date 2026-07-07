@@ -2,6 +2,35 @@
 
 This is the primary running document for Doubleword cost/time experiments. Update it whenever workflow changes, routing changes, pricing changes, or benchmark datasets change.
 
+Benchmark procedure: [`docs/benchmarks/fanout-execution-benchmark-procedure.md`](benchmarks/fanout-execution-benchmark-procedure.md) defines the staged path from read-only Fanout DAG prompt experiments to future `/fanout-execute` and TermBench-style execution benchmarks.
+
+## P0 — Fanout prompt-DAG dry-run benchmark
+
+Date: 2026-07-07
+
+Purpose: tune `/fanout-plan` DAG prompt wording before `/fanout-execute` exists. This measures prompt-produced DAG quality only, not executable task success.
+
+Artifacts:
+
+```text
+runs/fanout-dag-prompt-experiments/RESULTS.md
+runs/fanout-dag-prompt-experiments/BEST_PROMPTS.md
+runs/fanout-dag-prompt-experiments/loop-20260707-145016/
+```
+
+Current graduated prompt: `combined-general-conflict-proof`.
+
+| Metric | Value |
+| --- | ---: |
+| Prompt variants in graduating loop | 5 |
+| Tasks in graduating loop | 5 |
+| Heldout tasks | 2 |
+| Best average score | 4.916 / 5 |
+| Best minimum task score | 4.88 / 5 |
+| Stop condition | Passed |
+
+Caveat: P0 uses generated DAGs and evaluator rubrics. Revalidate the winning prompt under P1/P2 execution benchmarks before treating it as an executable-runtime default.
+
 ## Current baseline: B0 — Pi session traces, GLM 5.2 pricing
 
 Date: 2026-06-25

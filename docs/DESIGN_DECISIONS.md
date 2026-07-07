@@ -310,6 +310,20 @@ Decision: Use direct Doubleword async endpoints for the first `/fanout-execute` 
 
 Reason: Direct endpoints are the smallest integration that can validate packet execution and metrics. Autobatcher should be justified by observed execution needs, not assumed up front.
 
+## 2026-07-07
+
+### Benchmark Fanout DAG prompts before executor work
+
+Decision: Use artifact-driven prompt-DAG benchmark loops before changing `/fanout-plan` DAG wording or building `/fanout-execute` orchestration. Each scoring loop uses a fresh shell-launched Pi process, GPT-5.5 medium when supported, multiple prompt variants, known plus heldout tasks, generator/evaluator subagents, and ignored artifacts under `runs/fanout-dag-prompt-experiments/`.
+
+Reason: The current bottleneck is prompt quality for safe parallel DAGs, not executor mechanics. Fresh-process loops reduce session contamination, heldout tasks reduce overfitting, and persisted artifacts make prompt changes auditable.
+
+### Graduate prompt candidates only under strict P0 thresholds
+
+Decision: A prompt-DAG candidate graduates only when average score is greater than 4.90, minimum task score is greater than 4.85, and evaluator artifacts show no task-specific hardcoding, ownership blocker, or repeated false serialization of tests/docs/fixtures behind implementation.
+
+Reason: The benchmark is cheap and prompt-only, so the threshold should be high. Passing P0 is still only a prompt-quality signal; the prompt must be revalidated under `/fanout-execute` smoke and execution benchmarks before becoming a runtime default.
+
 ## 2026-06-29
 
 ### Add live realtime as a key-gated provider
