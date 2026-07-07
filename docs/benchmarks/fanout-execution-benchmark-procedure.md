@@ -18,26 +18,27 @@ Evidence scope: this procedure tracks workflow quality, runtime execution qualit
 
 Use this while `/fanout-execute` is not implemented or while improving `/fanout-plan` prompt wording.
 
-Current ledger:
+Tracked durable summaries:
+
+```text
+docs/benchmarks/fanout-dag-prompt-results.md
+docs/benchmarks/fanout-dag-best-prompts.md
+docs/benchmarks/fanout-dag-experiment-template.md
+```
+
+Ignored working ledger and raw per-run artifacts:
 
 ```text
 runs/fanout-dag-prompt-experiments/RESULTS.md
-```
-
-Per-run artifacts:
-
-```text
+runs/fanout-dag-prompt-experiments/BEST_PROMPTS.md
+runs/fanout-dag-prompt-experiments/TEMPLATE.md
 runs/fanout-dag-prompt-experiments/<run-id>/experiment.md
 runs/fanout-dag-prompt-experiments/<run-id>/generators/*.md
 runs/fanout-dag-prompt-experiments/<run-id>/evaluators/*.md
 runs/fanout-dag-prompt-experiments/<run-id>/synthesis.md
 ```
 
-Best prompt candidates are copied into:
-
-```text
-runs/fanout-dag-prompt-experiments/BEST_PROMPTS.md
-```
+Raw run artifacts stay ignored under `runs/`. After a graduated or otherwise important run, promote durable summaries into the tracked docs above.
 
 ### Run protocol
 
@@ -47,6 +48,7 @@ runs/fanout-dag-prompt-experiments/BEST_PROMPTS.md
 - Generate execution DAGs only, not full packets.
 - Keep artifacts under `runs/fanout-dag-prompt-experiments/`.
 - Update `RESULTS.md` with one row per variant.
+- For important runs, update tracked durable summaries in `docs/benchmarks/fanout-dag-*.md` from the ignored working ledgers/templates.
 
 ### P0 process model and concurrency
 
@@ -109,6 +111,7 @@ After each P0 loop:
 - Do not overwrite prior best prompts; append or mark them superseded.
 - Record batching, spawn-cap, direct-completion, or model-effort caveats in `synthesis.md`.
 - Run a final source-status check and record whether repo files outside ignored run artifacts changed.
+- For graduated prompts or durable procedure changes, copy `RESULTS.md`, `BEST_PROMPTS.md`, and `TEMPLATE.md` to their tracked `docs/benchmarks/fanout-dag-*` counterparts before committing docs.
 
 ### P0 scoring rubric
 

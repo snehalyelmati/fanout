@@ -10,11 +10,15 @@ Date: 2026-07-07
 
 Purpose: tune `/fanout-plan` DAG prompt wording before `/fanout-execute` exists. This measures prompt-produced DAG quality only, not executable task success.
 
-Artifacts:
+Tracked summaries:
+
+- [`docs/benchmarks/fanout-dag-prompt-results.md`](benchmarks/fanout-dag-prompt-results.md)
+- [`docs/benchmarks/fanout-dag-best-prompts.md`](benchmarks/fanout-dag-best-prompts.md)
+- [`docs/benchmarks/fanout-dag-experiment-template.md`](benchmarks/fanout-dag-experiment-template.md)
+
+Raw artifacts remain ignored under:
 
 ```text
-runs/fanout-dag-prompt-experiments/RESULTS.md
-runs/fanout-dag-prompt-experiments/BEST_PROMPTS.md
 runs/fanout-dag-prompt-experiments/loop-20260707-145016/
 ```
 

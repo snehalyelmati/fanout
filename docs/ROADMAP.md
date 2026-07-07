@@ -53,6 +53,8 @@ Acceptance criteria:
 
 Status: Phase 2B implemented and locally validated; audit follow-ups are resolved, with live `/fanout-plan` verification still pending before calling Phase 2 complete. `/fanout-plan` is command-backed with deterministic preflight, the legacy package prompt registration is removed while `prompts/fanout-plan.md` remains as the internal command template, packet validation lives in `fanout-core`, tier fields/report rendering are implemented, `/fanout-config` configures tier models and shows artifact storage, and `scripts/fanout-packet-artifacts.mjs` writes validated packet artifacts plus the active pointer in Pi-owned storage.
 
+P0 prompt-DAG dry-run benchmarking graduated `combined-general-conflict-proof` as the current best DAG prompt candidate across known and heldout tasks. This is prompt-quality evidence only; `/fanout-execute` smoke/execution validation remains pending before treating the prompt as a runtime default.
+
 Resolved audit follow-ups are tracked in [`docs/impl/phase-2b-fanout-plan.md`](impl/phase-2b-fanout-plan.md#audit-findings-to-address-next).
 
 Goal: prepare a user-reviewable active packet that is detailed enough to execute later, with DAG validation completed before the packet is accepted.

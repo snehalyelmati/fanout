@@ -324,6 +324,12 @@ Decision: A prompt-DAG candidate graduates only when average score is greater th
 
 Reason: The benchmark is cheap and prompt-only, so the threshold should be high. Passing P0 is still only a prompt-quality signal; the prompt must be revalidated under `/fanout-execute` smoke and execution benchmarks before becoming a runtime default.
 
+### Promote durable prompt benchmark summaries, not raw runs
+
+Decision: Keep raw prompt-DAG generator/evaluator artifacts ignored under `runs/`, but promote durable summaries, best prompt text, and the experiment template into tracked `docs/benchmarks/fanout-dag-*.md` files.
+
+Reason: Raw artifacts are useful for local audit but too noisy to commit. Tracked summaries preserve the benchmark result, reproducible procedure, and current prompt candidates for future clones and reviews.
+
 ## 2026-06-29
 
 ### Add live realtime as a key-gated provider
