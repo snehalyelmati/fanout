@@ -386,7 +386,7 @@ Execution may fallback from tier2 to tier1, but should not change the DAG shape 
 
 ## Execution Packet
 
-Tier-aware packets use execution packet schema version `2`. The accepted packet should store concrete provider/model/thinking per node.
+Tier-aware packets use execution packet schema version `3`. The accepted packet should store concrete provider/model/thinking per node plus per-unit `workerPacket` handoff context from the compiler.
 
 Example node:
 
@@ -395,7 +395,16 @@ Example node:
   "id": "update-validator",
   "goal": "add DAG/safety checks",
   "ownedFiles": ["packages/fanout-core/src/execution-packet.ts"],
-  "dependencies": ["inspect-contract"],
+  "dependencies": [],
+  "workerPacket": {
+    "sourcePlanIds": ["update-validator"],
+    "targetAnchors": ["packages/fanout-core/src/execution-packet.ts: symbol validateExecutionPacket"],
+    "requiredChanges": ["add DAG/safety checks"],
+    "contractInputs": ["Acceptance: validator rejects unsafe packets"],
+    "readDependencies": [],
+    "forbiddenChanges": [],
+    "handoffContext": []
+  },
   "tier": {
     "preferred": "tier2",
     "assigned": "tier2",

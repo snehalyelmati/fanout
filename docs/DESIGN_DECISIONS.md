@@ -332,11 +332,23 @@ Reason: Raw artifacts are useful for local audit but too noisy to commit. Tracke
 
 ## 2026-07-08
 
-### Split `/fanout-plan` into explicit implementation and packet prompts
+### Split `/fanout-plan` into explicit implementation and detail prompts
 
-Decision: Keep one `/fanout-plan` command, but run two explicit prompts with an artifact handoff: Phase A writes `implementation-plan.json`; Phase B reads it and writes the execution packet/DAG.
+Decision: Keep one `/fanout-plan` command, but run two explicit prompts plus a deterministic compiler: Phase A writes `implementation-plan.json`; Phase B reads it and writes `implementation-details.json`; `fanout-core` validates, groups owned resources, derives dependencies from concrete `post-change-required` reads, computes parallel groups/tiers, and emits execution packet schema v3 with per-unit `workerPacket` handoff context.
 
-Reason: Implementation planning and execution workflow optimization are different jobs. The intermediate artifact makes failures debuggable and prevents the DAG optimizer from inventing scope or optimizing for parallel width before the implementation plan is stable.
+Reason: Implementation planning, repo grounding, and execution compilation are different jobs. The intermediate artifacts make failures debuggable, keep Phase B from inventing scope or DAG shape, and let code enforce ownership/dependency rules consistently.
+
+### Compiler owns execution DAG construction
+
+Decision: Phase A decides what/why, Phase B locates anchors/edit intent, and the compiler owns DAG/parallelism/tier assignment. Work units are file/resource ownership shards; Phase B should prefer one details item per independently editable file/resource and reuse Phase A ids across split items. Every Phase A `filesToChange` entry must be covered by same-id Phase B writable resources so required scope cannot be dropped during grounding. Phase A ids and dependencies are traceability/planning context, while only Phase B `post-change-required` file reads create cross-worker execution edges. If Phase A `filesToRead` overlaps a sibling-owned file/resource, Phase B must classify that read as `baseline-context` or `post-change-required`; otherwise the compiler rejects the packet as ambiguous by default. The Pi adapter precomputes those Phase A overlap rows for the Phase B prompt, but never infers the classification. The Pi adapter may run one Phase B repair pass and, if repair still misses a classification, choose conservative sequential fallback that treats unclassified overlaps as implicit `post-change-required` with a warning. `/fanout-plan` no longer creates a default contract node; same-owned-resource changes merge into one worker packet unless the compiler rejects ambiguity.
+
+Reason: Prompted DAG construction was too easy to overfit or over-serialize. Deterministic grouping and read-dependency rules are smaller, safer, and easier to smoke-test before `/fanout-execute` exists.
+
+### Advance `/fanout-plan` from artifacts, not prompt markers
+
+Decision: `/fanout-plan` phase handoff is driven by pending run state and expected artifacts. Prompt markers remain diagnostic only. After compilation, the chat report is the deterministic `execution-plan.md` rendered from the packet, not an LLM-authored final report.
+
+Reason: Live Phase B produced `implementation-details.json` but skipped compilation when the prompt-marker handoff state was absent. The artifacts are the durable source of truth, so the adapter should validate and compile from them directly.
 
 ## 2026-06-29
 

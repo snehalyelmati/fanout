@@ -17,8 +17,8 @@ Phase 2B is implemented and locally validated.
 Completed:
 
 - `/fanout-plan` is command-backed and dispatches Phase A/Phase B prompts with deterministic preflight context.
-- legacy package prompt registration is removed; `prompts/fanout-implementation-plan.md` and `prompts/fanout-execution-packet.md` are the internal command templates.
-- `fanout-core` validates execution packet schema v2.
+- legacy package prompt registration is removed; `prompts/fanout-implementation-plan.md` and `prompts/fanout-implementation-details.md` are the internal command templates.
+- `fanout-core` compiles implementation details into execution packet schema v3 and validates the result.
 - artifact helper writes packet/plan/DAG/active pointer under Pi-owned storage by default.
 - packet smoke fixtures and tests exist.
 - `/fanout-config` provides provider -> model -> thinking selection.
@@ -31,13 +31,16 @@ Completed:
 - Moved artifact helper defaults to Pi-owned storage via `~/.pi/agent/fanout` or `FANOUT_ARTIFACT_DIR`.
 - Added `--print-run-dir` and `--print-active-path` helper modes.
 - Added boxed ASCII flow, tier/model plan, files section, and two-column metrics to `execution-plan.md` rendering.
-- Split `/fanout-plan` into a Phase A implementation-plan prompt and a Phase B execution-packet prompt.
+- Split `/fanout-plan` into a Phase A implementation-plan prompt, Phase B implementation-details prompt, and deterministic `fanout-core` compiler.
 - Added fanout-pi runtime context injection for active model, thinking level, artifact paths, and resolved tier preflight.
 - Added smoke coverage for packet tier fields, artifact path helper modes, boxed plan report sections, branch/join ASCII DAG rendering, `/fanout-config`, command-backed `/fanout-plan`, and `FANOUT_ARTIFACT_DIR` override.
-- Bumped execution packet schema to version `2` for required tier-aware fields.
+- Bumped execution packet schema to version `3` for required per-unit `workerPacket` handoff fields.
 - Active pointer now stores an absolute packet path.
 - Fixed missing `fanout.artifactDir` fallback so runtime context defaults to Pi-owned storage and `/fanout-config` shows the resolved artifact root.
-- Validation currently passes: `rtk npm run smoke:fanout-packet`, `rtk npm run smoke:fanout-config`, `rtk npm run smoke:planning`, `rtk npm run check`, `rtk git diff --check`.
+- Fixed live Phase B finalization so `/fanout-plan` advances from pending run state plus artifacts instead of requiring prompt-marker handoff state, and displays the deterministic `execution-plan.md` report in chat.
+- Added contract-first anti-serialization guidance to Phase A/B prompts so tests, docs, fixtures, and package scripts can remain authorable from the contract without adding an execution-packet contract node.
+- Changed compiler scheduling to file/resource-owned work units: Phase A semantic dependencies stay as traceability context, and only Phase B `post-change-required` file reads create execution DAG edges.
+- Validation currently passes: `rtk npm run smoke:fanout-compiler`, `rtk npm run smoke:fanout-packet`, `rtk npm run smoke:fanout-config`, `rtk npm run smoke:planning`, `rtk npm run check`, `rtk git diff --check`.
 
 ## Decisions locked
 
@@ -52,9 +55,10 @@ explore repo facts
   -> ask one user question at a time for non-discoverable intent/tradeoffs
   -> repeat until decision-complete
   -> write implementation-plan.json
-  -> convert that plan into work units + execution DAG
+  -> ground anchors/edit intent in implementation-details.json
+  -> compile work units + execution DAG deterministically
   -> validate packet/DAG
-  -> fix packet issues internally
+  -> fail without active pointer update on compiler errors
   -> finalize ready packet
 ```
 
@@ -236,77 +240,47 @@ A safe async worker must have:
 - no ownership conflict;
 - no immediate user-blocking result requirement.
 
-## Implementation-plan and packet schema updates
+## Implementation-plan, details, and packet schema updates
 
-Phase A writes `implementation-plan.json` using schema `fanout.implementation-plan` version `1`. It records implementation items, files to change/read, semantic dependencies, validation, acceptance criteria, and risks. It intentionally has no DAG/tier fields.
+Phase A writes `implementation-plan.json` using schema `fanout.implementation-plan` version `1`. It records implementation items, files to change/read, semantic dependencies, validation intent, acceptance criteria, risks, and forbidden scope. Semantic dependencies are planning context and traceability labels, not execution DAG edges. It intentionally has no anchor, worker, parallelism, DAG, or tier fields.
 
-Phase B uses execution packet schema version `2` because `tierPlan`, work-unit `kind`, and per-node `tier` are required.
+Phase B writes `implementation-details.json` using schema `fanout.implementation-details` version `1`. It records Phase A source ids, owned resources, existing-file anchors, new-file intent, read-dependency classification, forbidden changes, and validation commands. It must not invent contracts/APIs/product scope or packet fields.
 
-Add global tier summary:
+The deterministic compiler emits execution packet schema version `3` because each work unit now carries a required `workerPacket` handoff:
 
 ```json
 {
-  "tierPlan": {
-    "tier1": {
-      "provider": "<active-provider>",
-      "model": "<active-model>",
-      "thinking": "<active-thinking>",
-      "source": "current Pi active model",
-      "status": "available",
-      "reason": "control plane, review, synthesis, fallback"
-    },
-    "tier2": {
-      "provider": "doubleword",
-      "model": "zai-org/GLM-5.2-FP8",
-      "thinking": "medium",
-      "source": "default settings",
-      "status": "available | unavailable",
-      "reason": "parallel async worker nodes"
-    }
+  "workerPacket": {
+    "sourcePlanIds": ["update-validator"],
+    "targetAnchors": ["packages/fanout-core/src/execution-packet.ts: symbol validateExecutionPacket"],
+    "requiredChanges": ["Add workerPacket validation."],
+    "contractInputs": ["Acceptance: v3 packet validates."],
+    "readDependencies": ["packages/fanout-core/src/execution-packet.ts (baseline-context): existing validator shape"],
+    "forbiddenChanges": ["Do not add /fanout-execute."],
+    "handoffContext": ["Read package smoke tests before editing."]
   }
 }
 ```
 
-Add per-node kind and tier:
+Compiler rules:
 
-```json
-{
-  "id": "update-validator",
-  "kind": "implement",
-  "goal": "add DAG/safety checks",
-  "ownedFiles": ["packages/fanout-core/src/execution-packet.ts"],
-  "dependencies": ["inspect-contract"],
-  "tier": {
-    "preferred": "tier2",
-    "assigned": "tier2",
-    "fallback": "tier1",
-    "provider": "doubleword",
-    "model": "zai-org/GLM-5.2-FP8",
-    "thinking": "medium",
-    "reason": "safe parallel implementation worker"
-  }
-}
-```
-
-Fallback example:
-
-```json
-{
-  "tier": {
-    "preferred": "tier2",
-    "assigned": "tier1",
-    "fallback": "tier1",
-    "provider": "<active-provider>",
-    "model": "<active-model>",
-    "thinking": "<active-thinking>",
-    "reason": "tier2 unavailable; realtime fallback"
-  }
-}
-```
+- Phase B should emit one details item per independently editable file/resource and reuse `sourcePlanIds` when splitting one Phase A item;
+- every Phase A `filesToChange` entry must be covered by a same-id Phase B writable resource;
+- same owned file/resource compiles into one worker packet by default;
+- missing anchors, source ids, or Phase A contract inputs fail compilation;
+- Phase A semantic dependencies do not serialize file/resource shards;
+- Phase A `filesToRead` overlaps with sibling-owned resources must be reclassified in Phase B read dependencies;
+- the adapter includes a computed `requiredReadClassifications` checklist in the Phase B prompt, but Phase B still chooses `baseline-context` vs `post-change-required`;
+- `baseline-context` read overlap does not serialize;
+- `post-change-required` read overlap creates a dependency;
+- ambiguous read/write overlap fails compilation;
+- `/fanout-plan` may run one details repair pass for ambiguous Phase A read overlaps, then use conservative sequential fallback with a warning if repair still misses classification;
+- compiler assigns kind/tier from the resolved tier plan and node-kind policy;
+- no default contract node is emitted.
 
 ## User-facing report format
 
-Final `/fanout-plan` response and `execution-plan.md` should use the same main sections.
+Final `/fanout-plan` response is the deterministic `execution-plan.md` rendered from the compiled packet, so chat and artifact use the same main sections.
 
 ### Header
 
@@ -463,7 +437,7 @@ Tasks:
 - remove repo `runs/fanout` assumptions; **done**
 - keep boundary/symlink protections for configured artifact root; **done**
 
-### Step 3: packet schema v2
+### Step 3: packet schema v3
 
 Files likely touched:
 
@@ -476,7 +450,8 @@ Tasks:
 - add `tierPlan` validation; **done**
 - add `kind` and `tier` to work units; **done**
 - validate assigned tier/model/thinking fields; **done**
-- bump schema to version 2 instead of preserving old v1 compatibility; **done**
+- bump schema to version 3 instead of preserving old v1/v2 compatibility; **done**
+- require per-unit `workerPacket`; **done**
 - update metrics derivation; **done**
 
 ### Step 4: report rendering
@@ -484,7 +459,6 @@ Tasks:
 Files likely touched:
 
 - `packages/fanout-core/src/execution-packet.ts`
-- `packages/fanout-pi/prompts/fanout-execution-packet.md`
 
 Tasks:
 
@@ -499,14 +473,17 @@ Tasks:
 Files likely touched:
 
 - `packages/fanout-pi/prompts/fanout-implementation-plan.md`
-- `packages/fanout-pi/prompts/fanout-execution-packet.md`
+- `packages/fanout-pi/prompts/fanout-implementation-details.md`
+- `packages/fanout-core/src/fanout-compiler.ts`
 - `scripts/smoke-planning.mjs`
+- `scripts/smoke-fanout-compiler.mjs`
 
 Tasks:
 
 - require repo exploration before questions in Phase A; **done**
-- write `implementation-plan.json` before packet optimization; **done**
-- require Phase B to consume the implementation plan; **done**
+- write `implementation-plan.json` before repo grounding; **done**
+- require Phase B to consume the implementation plan and write `implementation-details.json`; **done**
+- compile packet/DAG deterministically after details validation; **done**
 - ask one question at a time with recommended option; **done**
 - use `ask_user_question`; **done**
 - do not finalize packet until decision-complete; **done**
@@ -534,6 +511,7 @@ Run after implementation slices:
 
 ```bash
 rtk git diff --check
+rtk npm run smoke:fanout-compiler
 rtk npm run smoke:fanout-packet
 rtk npm run smoke:fanout-config
 rtk npm run smoke:planning
@@ -546,6 +524,8 @@ Additional targeted checks:
 - artifact path outside repo by default;
 - `FANOUT_ARTIFACT_DIR` override;
 - tier2 unavailable fallback to tier1;
+- same-file details merge into one worker packet;
+- baseline-context overlaps stay parallel and post-change-required overlaps serialize;
 - report contains boxed DAG, files, metrics, and tier/model section;
 - `.pi-subagents/` remains ignored.
 
@@ -564,10 +544,10 @@ These findings came from the Phase 2 audit and should be addressed before callin
 
 Resolved in this slice:
 
-- `/fanout-plan` is command-backed and dispatches Phase A/Phase B prompts with deterministic preflight context.
+- `/fanout-plan` is command-backed and dispatches Phase A/Phase B prompts with deterministic preflight context plus compiler finalization.
 - Fanout consumes Doubleword provider tier metadata before Pi `ModelRegistry` strips unknown fields, and tier2 availability requires `fanout.async/background/authReady`.
 - `fanout.artifactDir` is documented and `/fanout-config` shows the resolved artifact root.
-- Packet-prep observability now includes `fanout_plan_start` and `fanout_plan_preflight` events.
+- Packet-prep observability now includes `fanout_plan_start`, `fanout_plan_preflight`, detail validation, and compiler validation events.
 - Boxed ASCII DAG rendering now shows simple branch/join structure for common parallel groups.
 - Packet status is ready-only; missing user decisions stop planning without writing artifacts.
 
