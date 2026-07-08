@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 export const EXECUTION_PACKET_SCHEMA = "fanout.execution-packet";
-export const EXECUTION_PACKET_VERSION = 2;
+export const EXECUTION_PACKET_VERSION = 3;
 export const ACTIVE_PACKET_SCHEMA = "fanout.active-packet";
 
 export type PacketStatus = "ready";
@@ -36,6 +36,16 @@ export interface WorkUnitTierAssignment {
 	reason: string;
 }
 
+export interface WorkerPacket {
+	sourcePlanIds: string[];
+	targetAnchors: string[];
+	requiredChanges: string[];
+	contractInputs: string[];
+	readDependencies: string[];
+	forbiddenChanges: string[];
+	handoffContext: string[];
+}
+
 export interface FanoutWorkUnit {
 	id: string;
 	kind: WorkUnitKind;
@@ -48,6 +58,7 @@ export interface FanoutWorkUnit {
 	acceptanceCriteria: string[];
 	rollbackNotes: string[];
 	tier: WorkUnitTierAssignment;
+	workerPacket: WorkerPacket;
 	active?: WorkActiveState;
 }
 
@@ -179,6 +190,7 @@ export function validateExecutionPacket(packet: unknown): PacketValidationResult
 		const kind = typeof unit.kind === "string" ? unit.kind : "";
 		if (!VALID_KINDS.has(kind)) add(errors, "invalid-kind", `kind must be one of ${Array.from(VALID_KINDS).join(", ")}`, `${path}.kind`, id || undefined);
 		validateTierAssignment(unit.tier, `${path}.tier`, errors, id || undefined);
+		validateWorkerPacket(unit.workerPacket, `${path}.workerPacket`, errors, id || undefined);
 
 		const dependencies = stringArray(unit.dependencies, errors, `${path}.dependencies`, "dependencies", id);
 		const ownedFiles = stringArray(unit.ownedFiles, errors, `${path}.ownedFiles`, "ownedFiles", id);
@@ -199,13 +211,13 @@ export function validateExecutionPacket(packet: unknown): PacketValidationResult
 			}
 		}
 
-		if (id) workUnits.push({ id, kind: kind as WorkUnitKind, goal: typeof unit.goal === "string" ? unit.goal : "", dependencies, ownedFiles, readOnlyFiles, steps, validationCommands, acceptanceCriteria, rollbackNotes, tier: unit.tier as WorkUnitTierAssignment, active: unit.active as WorkActiveState | undefined });
+		if (id) workUnits.push({ id, kind: kind as WorkUnitKind, goal: typeof unit.goal === "string" ? unit.goal : "", dependencies, ownedFiles, readOnlyFiles, steps, validationCommands, acceptanceCriteria, rollbackNotes, tier: unit.tier as WorkUnitTierAssignment, workerPacket: unit.workerPacket as WorkerPacket, active: unit.active as WorkActiveState | undefined });
 	}
 
 	const byId = new Map(workUnits.map((unit) => [unit.id, unit]));
 	for (const unit of workUnits) for (const dependency of unit.dependencies) if (!byId.has(dependency)) add(errors, "missing-dependency", `${unit.id} depends on missing unit ${dependency}`, `workUnits.${unit.id}.dependencies`, unit.id);
 
-	const graph = buildGraph(workUnits);
+	const graph = buildExecutionGraph(workUnits);
 	if (graph.topologicalOrder.length !== workUnits.length) add(errors, "cycle", "work unit dependencies contain a cycle", "workUnits");
 	checkOwnershipConflicts(workUnits, graph, errors, warnings);
 	checkEstimateGraph(packet, graph, errors);
@@ -350,6 +362,18 @@ function validateTierAssignment(value: unknown, path: string, errors: PacketVali
 	for (const key of ["provider", "model", "thinking", "reason"]) if (!nonEmptyString(value[key])) add(errors, "invalid-tier", `${path}.${key} is required`, `${path}.${key}`, unitId);
 }
 
+function validateWorkerPacket(value: unknown, path: string, errors: PacketValidationIssue[], unitId?: string): void {
+	if (!isRecord(value)) {
+		add(errors, "missing-worker-packet", "work unit workerPacket object is required", path, unitId);
+		return;
+	}
+	const requiredNonEmpty = new Set(["sourcePlanIds", "requiredChanges", "contractInputs"]);
+	for (const key of ["sourcePlanIds", "targetAnchors", "requiredChanges", "contractInputs", "readDependencies", "forbiddenChanges", "handoffContext"] as const) {
+		const values = stringArray(value[key], errors, `${path}.${key}`, key, unitId);
+		if (requiredNonEmpty.has(key) && values.length === 0) add(errors, "invalid-worker-packet", `${path}.${key} must not be empty`, `${path}.${key}`, unitId);
+	}
+}
+
 function checkTierPolicy(workUnits: FanoutWorkUnit[], tierPlan: unknown, errors: PacketValidationIssue[], warnings: PacketValidationIssue[]): void {
 	const tier2Available = isRecord(tierPlan) && isRecord(tierPlan.tier2) && tierPlan.tier2.status === "available";
 	for (const unit of workUnits) {
@@ -365,7 +389,7 @@ function finish(packet: Record<string, unknown>, errors: PacketValidationIssue[]
 	return { ok, executable: ok, errors, warnings, graph };
 }
 
-function buildGraph(workUnits: FanoutWorkUnit[]): ExecutionGraph {
+export function buildExecutionGraph(workUnits: FanoutWorkUnit[]): ExecutionGraph {
 	const nodes = workUnits.map((unit) => unit.id);
 	const nodeSet = new Set(nodes);
 	const edges: Array<[string, string]> = [];
@@ -427,9 +451,19 @@ function checkOwnershipConflicts(workUnits: FanoutWorkUnit[], graph: ExecutionGr
 		const ownedFiles = owner.ownedFiles.map(normalizeFile).filter(Boolean);
 		for (const reader of workUnits) {
 			if (owner.id === reader.id) continue;
-			for (const readOnlyFile of reader.readOnlyFiles.map(normalizeFile).filter(Boolean)) if (ownedFiles.some((ownedFile) => pathsOverlap(ownedFile, readOnlyFile)) && !hasPath(graph, owner.id, reader.id) && !hasPath(graph, reader.id, owner.id)) add(warnings, "read-write-overlap", `${readOnlyFile} is read by ${reader.id} while overlapping owned files from parallel unit ${owner.id}`, "workUnits", reader.id);
+			for (const readOnlyFile of reader.readOnlyFiles.map(normalizeFile).filter(Boolean)) if (ownedFiles.some((ownedFile) => pathsOverlap(ownedFile, readOnlyFile)) && !hasPath(graph, owner.id, reader.id) && !hasPath(graph, reader.id, owner.id) && !hasBaselineContextRead(reader, readOnlyFile)) add(warnings, "read-write-overlap", `${readOnlyFile} is read by ${reader.id} while overlapping owned files from parallel unit ${owner.id}`, "workUnits", reader.id);
 		}
 	}
+}
+
+function hasBaselineContextRead(unit: FanoutWorkUnit, file: string): boolean {
+	const readDependencies = Array.isArray(unit.workerPacket?.readDependencies) ? unit.workerPacket.readDependencies : [];
+	return readDependencies.some((dependency) => {
+		if (typeof dependency !== "string") return false;
+		const marker = " (baseline-context)";
+		const index = dependency.indexOf(marker);
+		return index > 0 && pathsOverlap(normalizeFile(dependency.slice(0, index)), file);
+	});
 }
 
 function hasPath(graph: ExecutionGraph, from: string, to: string): boolean {

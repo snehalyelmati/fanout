@@ -1,6 +1,6 @@
 {
   "schema": "fanout.execution-packet",
-  "version": 2,
+  "version": 3,
   "status": "ready",
   "objective": "Add a small docs note for Fanout planning",
   "createdAt": "2026-07-03T00:00:00.000Z",
@@ -47,6 +47,25 @@
         "model": "current-session-model",
         "thinking": "auto",
         "reason": "tier2 unavailable; realtime fallback"
+      },
+      "workerPacket": {
+        "sourcePlanIds": [
+          "update-readme"
+        ],
+        "targetAnchors": [
+          "README.md: fixture anchor"
+        ],
+        "requiredChanges": [
+          "Edit README.md with the requested note."
+        ],
+        "contractInputs": [
+          "README explains the planning note clearly."
+        ],
+        "readDependencies": [
+          "docs/ROADMAP.md"
+        ],
+        "forbiddenChanges": [],
+        "handoffContext": []
       }
     },
     {
@@ -79,6 +98,23 @@
         "model": "current-session-model",
         "thinking": "auto",
         "reason": "tier1 control-plane node"
+      },
+      "workerPacket": {
+        "sourcePlanIds": [
+          "update-readme"
+        ],
+        "targetAnchors": [],
+        "requiredChanges": [
+          "Review README.md diff."
+        ],
+        "contractInputs": [
+          "Diff matches the requested scope."
+        ],
+        "readDependencies": [
+          "README.md"
+        ],
+        "forbiddenChanges": [],
+        "handoffContext": []
       }
     }
   ],

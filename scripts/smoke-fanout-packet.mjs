@@ -63,6 +63,9 @@ expectInvalid("whitespace blocker", withPatch(validPacket, (packet) => {
 expectInvalid("tier2 unavailable assignment", withPatch(validPacket, (packet) => {
   packet.workUnits[0].tier.assigned = "tier2";
 }), ["tier2-unavailable-assignment"]);
+expectInvalid("missing worker packet", withPatch(validPacket, (packet) => {
+  delete packet.workUnits[0].workerPacket;
+}), ["missing-worker-packet"]);
 
 const dir = mkdtempSync(join(tmpdir(), "fanout-packet-"));
 try {
@@ -231,6 +234,15 @@ function unit(id, dependencies, ownedFiles, readOnlyFiles) {
       model: "current-session-model",
       thinking: "auto",
       reason: "tier2 unavailable; realtime fallback",
+    },
+    workerPacket: {
+      sourcePlanIds: [id],
+      targetAnchors: ownedFiles.map((file) => `${file}: test anchor`),
+      requiredChanges: [`Plan ${id}.`],
+      contractInputs: [`${id} contract`],
+      readDependencies: readOnlyFiles,
+      forbiddenChanges: [],
+      handoffContext: [],
     },
   };
 }

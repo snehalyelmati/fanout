@@ -1,6 +1,6 @@
 {
   "schema": "fanout.execution-packet",
-  "version": 2,
+  "version": 3,
   "status": "ready",
   "objective": "Invalid unsafe command fixture",
   "createdAt": "2026-07-03T00:00:00.000Z",
@@ -38,6 +38,23 @@
         "model": "current-session-model",
         "thinking": "auto",
         "reason": "tier2 unavailable; realtime fallback"
+      },
+      "workerPacket": {
+        "sourcePlanIds": [
+          "danger"
+        ],
+        "targetAnchors": [
+          "README.md: fixture anchor"
+        ],
+        "requiredChanges": [
+          "rm -rf ."
+        ],
+        "contractInputs": [
+          "Danger succeeds."
+        ],
+        "readDependencies": [],
+        "forbiddenChanges": [],
+        "handoffContext": []
       }
     }
   ],
