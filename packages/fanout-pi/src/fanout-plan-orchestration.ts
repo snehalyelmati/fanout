@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { RequiredReadClassification } from "../../fanout-core/src/fanout-compiler.ts";
 
 export const FANOUT_ORCHESTRATION_MARKER = "fanout.plan.orchestration.v1";
 export const IMPLEMENTATION_PLAN_SCHEMA = "fanout.implementation-plan";
@@ -9,12 +10,16 @@ export interface FanoutPlanRun {
 	runId: string;
 	artifactDir: string;
 	implementationPlanPath: string;
+	implementationDetailsPath: string;
 }
 
 export interface FanoutPhaseState extends FanoutPlanRun {
-	phase: "implementation" | "packet";
+	phase: "implementation" | "details";
 	objective: string;
 	context: Record<string, unknown>;
+	repairAttempted?: boolean;
+	repairDetailsMtimeMs?: number;
+	requiredReadClassifications?: RequiredReadClassification[];
 }
 
 export interface ImplementationPlanValidation {
@@ -26,15 +31,37 @@ export interface ImplementationPlanValidation {
 export function createFanoutPlanRun(objective: string, context: { projectArtifactRoot: string }, now = new Date()): FanoutPlanRun {
 	const runId = `${timestamp(now)}-${slug(objective)}`;
 	const artifactDir = join(context.projectArtifactRoot, runId);
-	return { runId, artifactDir, implementationPlanPath: join(artifactDir, "implementation-plan.json") };
+	return { runId, artifactDir, implementationPlanPath: join(artifactDir, "implementation-plan.json"), implementationDetailsPath: join(artifactDir, "implementation-details.json") };
 }
 
 export function buildImplementationPlanPrompt(objective: string, context: unknown, run: FanoutPlanRun): string {
-	return buildPrompt("fanout-implementation-plan.md", objective, context, run, { implementationPlanPath: run.implementationPlanPath });
+	return buildPrompt("fanout-implementation-plan.md", "implementation", objective, context, run);
 }
 
-export function buildExecutionPacketPrompt(objective: string, context: unknown, run: FanoutPlanRun): string {
-	return buildPrompt("fanout-execution-packet.md", objective, context, run, { implementationPlanPath: run.implementationPlanPath });
+export function buildImplementationDetailsPrompt(objective: string, context: unknown, run: FanoutPlanRun, requiredReadClassifications: RequiredReadClassification[] = []): string {
+	return buildPrompt("fanout-implementation-details.md", "details", objective, context, run, phaseBInput(run, requiredReadClassifications));
+}
+
+export function buildImplementationDetailsRepairPrompt(objective: string, context: unknown, run: FanoutPlanRun, errors: string[], requiredReadClassifications: RequiredReadClassification[] = []): string {
+	return `${buildImplementationDetailsPrompt(objective, context, run, requiredReadClassifications)}
+
+Repair instructions:
+
+You are repairing implementation-details.json only.
+Do not change Phase A.
+Do not edit repo files.
+For each ambiguous Phase A filesToRead overlap:
+- add baseline-context if old/current file is enough
+- add post-change-required if changed file is needed
+Preserve existing anchors, ownership, validations, and forbidden changes.
+Write only implementation-details.json.
+
+Compiler errors to repair:
+
+\`\`\`json
+${JSON.stringify(errors, null, 2)}
+\`\`\`
+`;
 }
 
 export function isFanoutPhasePrompt(prompt: string, state: FanoutPhaseState): boolean {
@@ -92,10 +119,16 @@ export function validateImplementationPlanArtifact(path: string, expected?: { ob
 	return { ok: errors.length === 0, errors, itemCount: items.length };
 }
 
-function buildPrompt(templateName: string, objective: string, context: unknown, run: FanoutPlanRun, extra: Record<string, unknown>): string {
+function buildPrompt(templateName: string, phase: FanoutPhaseState["phase"], objective: string, context: unknown, run: FanoutPlanRun, phaseInput?: unknown): string {
 	const template = readFileSync(new URL(`../prompts/${templateName}`, import.meta.url), "utf8").replace(/^---[\s\S]*?---\s*/, "");
-	const orchestration = { marker: FANOUT_ORCHESTRATION_MARKER, runId: run.runId, phase: templateName.includes("implementation") ? "implementation" : "packet" };
-	return `${template.replace("$ARGUMENTS", objective).trim()}\n\nFanout orchestration marker:\n\n\`\`\`json\n${JSON.stringify(orchestration)}\n\`\`\`\n\nResolved artifact targets:\n\n\`\`\`json\n${JSON.stringify({ ...run, ...extra }, null, 2)}\n\`\`\`\n\nResolved preflight context (adapter-authored source of truth):\n\n\`\`\`json\n${JSON.stringify(context, null, 2)}\n\`\`\`\n`;
+	const orchestration = { marker: FANOUT_ORCHESTRATION_MARKER, runId: run.runId, phase };
+	const detailsInput = phaseInput === undefined ? "" : `\n\nPhase B input:\n\n\`\`\`json\n${JSON.stringify(phaseInput, null, 2)}\n\`\`\`\n`;
+	const defaultInput = phaseInput === undefined ? `\n\nResolved artifact targets:\n\n\`\`\`json\n${JSON.stringify(run, null, 2)}\n\`\`\`\n\nResolved preflight context (adapter-authored source of truth):\n\n\`\`\`json\n${JSON.stringify(context, null, 2)}\n\`\`\`\n` : "";
+	return `${template.replace("$ARGUMENTS", objective).trim()}\n\nFanout orchestration marker:\n\n\`\`\`json\n${JSON.stringify(orchestration)}\n\`\`\`${detailsInput}${defaultInput}`;
+}
+
+function phaseBInput(run: FanoutPlanRun, requiredReadClassifications: RequiredReadClassification[]): unknown {
+	return { artifactTargets: run, requiredReadClassifications };
 }
 
 function timestamp(date: Date): string {

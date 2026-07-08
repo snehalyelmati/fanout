@@ -6,6 +6,7 @@
   "exports": {
     "./batching-discipline": "./src/batching-discipline.ts",
     "./execution-packet": "./src/execution-packet.ts",
+    "./fanout-compiler": "./src/fanout-compiler.ts",
     "./observability": "./src/observability.ts"
   }
 }

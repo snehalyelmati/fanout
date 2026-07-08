@@ -4,33 +4,48 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 const implementationPromptPath = "packages/fanout-pi/prompts/fanout-implementation-plan.md";
-const executionPromptPath = "packages/fanout-pi/prompts/fanout-execution-packet.md";
+const detailsPromptPath = "packages/fanout-pi/prompts/fanout-implementation-details.md";
 const oldPromptPath = "packages/fanout-pi/prompts/fanout-plan.md";
-for (const path of [implementationPromptPath, executionPromptPath]) if (!existsSync(path)) throw new Error(`${path} is missing`);
+const oldExecutionPromptPath = "packages/fanout-pi/prompts/fanout-execution-packet.md";
+for (const path of [implementationPromptPath, detailsPromptPath]) if (!existsSync(path)) throw new Error(`${path} is missing`);
 if (existsSync(oldPromptPath)) throw new Error(`${oldPromptPath} should not be the runtime prompt anymore`);
+if (existsSync(oldExecutionPromptPath)) throw new Error(`${oldExecutionPromptPath} should be replaced by the details prompt`);
 
 const implementationPrompt = readFileSync(implementationPromptPath, "utf8");
-const executionPrompt = readFileSync(executionPromptPath, "utf8");
+const detailsPrompt = readFileSync(detailsPromptPath, "utf8");
 const orchestration = readFileSync("packages/fanout-pi/src/fanout-plan-orchestration.ts", "utf8");
 const fanoutPiIndex = readFileSync("packages/fanout-pi/src/index.ts", "utf8");
 
 const piPkg = JSON.parse(readFileSync("packages/fanout-pi/package.json", "utf8"));
 if (!piPkg.pi?.extensions?.includes("./src/index.ts")) throw new Error("packages/fanout-pi/package.json does not expose ./src/index.ts");
 if (piPkg.pi?.prompts?.some((path) => path.includes("fanout-plan"))) throw new Error("/fanout-plan should be command-backed, not a package prompt");
-for (const phrase of ["Phase A", "implementation-plan.json", "Do not prepare an execution packet", "Do not optimize a DAG", "Planning only", "ask_user_question", "Ambiguity gate", "implementationItems", "validationPlan"]) {
+for (const phrase of ["Phase A", "implementation-plan.json", "what must change and why", "Do not locate anchors", "Planning only", "ask_user_question", "Ambiguity gate", "implementationItems", "validationPlan", "contract-first", "Do not add dependencies for final verification", "not execution DAG edges"]) {
   if (!implementationPrompt.includes(phrase)) throw new Error(`${implementationPromptPath} is missing phrase: ${phrase}`);
 }
-for (const phrase of ["Phase B", "implementationPlanPath", "implementation source of truth", "Do not invent implementation scope", "Every work unit must trace back", "Traces to Phase A items: <ids>", "same writable file/resource", "read/write sibling overlap", "one independently authorable implementation change", "specific upstream artifact, file, or decision", "contract -> max", "final validation/review", "Do not add custom packet fields", "broad reconciliation", "Fanout plan ready", "Validate the DAG", "Resolved preflight context", "scripts/fanout-packet-artifacts.mjs", "Tier/model plan", "Execution flow", "Metrics"]) {
-  if (!executionPrompt.includes(phrase)) throw new Error(`${executionPromptPath} is missing phrase: ${phrase}`);
+for (const phrase of ["Phase B", "implementationPlanPath", "implementation-details.json", "where to edit and the exact edit intent", "deterministic compiler", "Do not invent contracts", "Do not decide execution dependencies", "Do not write packet fields", "anchorText", "symbolName", "lineRangeHint", "baseline-context", "post-change-required", "authorable from the contract", "one details item per independently editable file/resource", "Reuse the same `sourcePlanIds`", "Phase A `filesToRead` entry overlaps", "Every Phase A `filesToChange` entry must be covered", "only as a concrete `post-change-required` file read", "Do not serialize tests, docs, fixtures, or package scripts behind implementation unless", "requiredReadClassifications", "sourcePlanIds", "ownedResources", "validationCommands"]) {
+  if (!detailsPrompt.includes(phrase)) throw new Error(`${detailsPromptPath} is missing phrase: ${phrase}`);
 }
-for (const phrase of ["fanout.plan.orchestration.v1", "buildImplementationPlanPrompt", "buildExecutionPacketPrompt", "validateImplementationPlanArtifact", "references itself"]) {
+for (const forbidden of ["workerPacket", "parallelGroups", "tier assignments"]) {
+  if (implementationPrompt.includes(forbidden)) throw new Error(`${implementationPromptPath} should not mention ${forbidden}`);
+}
+for (const phrase of ["fanout.plan.orchestration.v1", "buildImplementationPlanPrompt", "buildImplementationDetailsPrompt", "buildImplementationDetailsRepairPrompt", "requiredReadClassifications", "validateImplementationPlanArtifact", "references itself"]) {
   if (!orchestration.includes(phrase)) throw new Error(`fanout-plan orchestration is missing phrase: ${phrase}`);
 }
 for (const phrase of ["if (pendingFanoutPlan)", "A Fanout plan is already in progress"]) {
   if (!fanoutPiIndex.includes(phrase)) throw new Error(`fanout-plan command is missing overlap guard phrase: ${phrase}`);
 }
+for (const phrase of ["const finishedFanoutPlan = pendingFanoutPlan", "buildRequiredReadClassifications", "fanout_required_read_classifications", "existsSync(finishedFanoutPlan.implementationDetailsPath)", "displayFanoutPlanReport", "customType: \"fanout-plan\"", "triggerTurn: false"]) {
+  if (!fanoutPiIndex.includes(phrase)) throw new Error(`fanout-plan finalization is missing phrase: ${phrase}`);
+}
+for (const phrase of ["finishedFanoutPlan.repairAttempted && !phaseTurnStarted", "fanout_compiler_repair_requested", "buildImplementationDetailsRepairPrompt", "unclassifiedOverlapPolicy: \"sequential\"", "policy: \"sequential\"", "isAmbiguousReadOverlapFailure", "repairDetailsMtimeMs", "implementationDetailsChangedSinceRepair", "fanout_compiler_repair_artifact_detected"]) {
+  if (!fanoutPiIndex.includes(phrase)) throw new Error(`fanout-plan compiler recovery is missing phrase: ${phrase}`);
+}
+for (const phrase of ["const matchingFanoutPhase = isFanoutPhasePrompt(event.prompt, pendingFanoutPlan)", "if (matchingFanoutPhase) startedFanoutPlan = pendingFanoutPlan", "fanout_phase_prompt_marker_mismatch"]) {
+  if (!fanoutPiIndex.includes(phrase)) throw new Error(`fanout-plan start guard is missing phrase: ${phrase}`);
+}
+if (fanoutPiIndex.includes("activeFanoutPlan")) throw new Error("fanout-plan finalization must not depend on activeFanoutPlan prompt-marker state");
 
-const { buildExecutionPacketPrompt, buildImplementationPlanPrompt, createFanoutPlanRun, isFanoutPhasePrompt, validateImplementationPlanArtifact } = await import("../packages/fanout-pi/src/fanout-plan-orchestration.ts");
+const { buildImplementationDetailsPrompt, buildImplementationDetailsRepairPrompt, buildImplementationPlanPrompt, createFanoutPlanRun, isFanoutPhasePrompt, validateImplementationPlanArtifact } = await import("../packages/fanout-pi/src/fanout-plan-orchestration.ts");
 const helperDir = mkdtempSync(join(tmpdir(), "doubleword-pi-plan-helper-"));
 try {
   const run = createFanoutPlanRun("Update docs", { projectArtifactRoot: helperDir }, new Date("2026-07-08T01:02:03.100Z"));
@@ -38,7 +53,18 @@ try {
   if (run.runId === sameSecondRun.runId) throw new Error(`same-second run ids collided: ${run.runId}`);
   const context = { projectArtifactRoot: helperDir, resolvedTierPlan: { tier1: {}, tier2: {} } };
   if (!isFanoutPhasePrompt(buildImplementationPlanPrompt("Update docs", context, run), { phase: "implementation", objective: "Update docs", context, ...run })) throw new Error("implementation phase marker did not match");
-  if (!isFanoutPhasePrompt(buildExecutionPacketPrompt("Update docs", context, run), { phase: "packet", objective: "Update docs", context, ...run })) throw new Error("packet phase marker did not match");
+  const checklist = [{ readerPlanId: "docs", readFile: "README.md", ownerPlanId: "impl", ownerFile: "README.md" }];
+  const detailsPromptText = buildImplementationDetailsPrompt("Update docs", { ...context, resolvedTierPlan: { leaked: true } }, run, checklist);
+  if (!isFanoutPhasePrompt(detailsPromptText, { phase: "details", objective: "Update docs", context, ...run })) throw new Error("details phase marker did not match");
+  for (const phrase of ["Phase B input", "requiredReadClassifications", "\"readerPlanId\": \"docs\"", "\"implementationPlanPath\""]) {
+    if (!detailsPromptText.includes(phrase)) throw new Error(`details prompt missing phrase: ${phrase}`);
+  }
+  if (detailsPromptText.includes("resolvedTierPlan") || detailsPromptText.includes("leaked")) throw new Error("details prompt leaked full preflight context");
+  const repairPrompt = buildImplementationDetailsRepairPrompt("Update docs", context, run, ["ambiguous Phase A filesToRead overlap"], checklist);
+  if (!isFanoutPhasePrompt(repairPrompt, { phase: "details", objective: "Update docs", context, ...run })) throw new Error("details repair phase marker did not match");
+  for (const phrase of ["repairing implementation-details.json only", "Do not change Phase A", "baseline-context if old/current file is enough", "post-change-required if changed file is needed", "ambiguous Phase A filesToRead overlap"]) {
+    if (!repairPrompt.includes(phrase)) throw new Error(`repair prompt missing phrase: ${phrase}`);
+  }
   mkdirSync(dirname(run.implementationPlanPath), { recursive: true });
 
   const validPlan = {
