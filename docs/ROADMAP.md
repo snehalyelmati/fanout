@@ -11,7 +11,7 @@ Build Fanout as a planning-to-execution bridge, plus a standalone Doubleword pro
 Fanout's workflow is split into three phases:
 
 1. **Research and planning by the user**: users bring whatever research, planning notes, specs, or repo context they prefer. Fanout does not own this phase.
-2. **Execution packet**: `/fanout-plan [objective]` prepares a detailed fanout-agnostic plan, validates the execution DAG during planning, estimates execution, and emits the active user-reviewable packet.
+2. **Execution packet**: `/fanout-plan [objective]` runs two explicit prompts: first a repo-grounded implementation plan, then an optimized execution packet/DAG derived from that plan.
 3. **Execution**: `/fanout-execute` runs the active accepted packet with subagent management, validation, synthesis, and summary metrics.
 
 The Doubleword provider adapts to these inference tiers:
@@ -25,6 +25,7 @@ Fanout should preserve developer velocity by using slower tiers only where laten
 ## Principles
 
 - User-owned research/planning stays decoupled from execution.
+- Implementation-plan artifacts are the boundary between research/planning and DAG optimization.
 - Execution packets are the stable boundary between planning and execution.
 - Stay Pi-native first; avoid a new agent loop unless necessary.
 - Keep Doubleword provider support independent from Fanout.
@@ -51,7 +52,7 @@ Acceptance criteria:
 
 ### Phase 2: Execution packet via `/fanout-plan`
 
-Status: Phase 2B implemented and locally validated; audit follow-ups are resolved, with live `/fanout-plan` verification still pending before calling Phase 2 complete. `/fanout-plan` is command-backed with deterministic preflight, the legacy package prompt registration is removed while `prompts/fanout-plan.md` remains as the internal command template, packet validation lives in `fanout-core`, tier fields/report rendering are implemented, `/fanout-config` configures tier models and shows artifact storage, and `scripts/fanout-packet-artifacts.mjs` writes validated packet artifacts plus the active pointer in Pi-owned storage.
+Status: Phase 2B implemented and locally validated; audit follow-ups are resolved, with live `/fanout-plan` verification still pending before calling Phase 2 complete. `/fanout-plan` is command-backed with deterministic preflight and two explicit internal prompts: `fanout-implementation-plan.md` writes `implementation-plan.json`, then `fanout-execution-packet.md` converts it into the active packet. Packet validation lives in `fanout-core`, tier fields/report rendering are implemented, `/fanout-config` configures tier models and shows artifact storage, and `scripts/fanout-packet-artifacts.mjs` writes validated packet artifacts plus the active pointer in Pi-owned storage.
 
 P0 prompt-DAG dry-run benchmarking graduated `combined-general-conflict-proof` as the current best DAG prompt candidate across known and heldout tasks. This is prompt-quality evidence only; `/fanout-execute` smoke/execution validation remains pending before treating the prompt as a runtime default.
 
@@ -68,24 +69,28 @@ Build the smallest useful packet first:
    - Inspect local files, docs, configs, tests, and history needed for the next decision.
    - Ask only for non-discoverable intent/tradeoffs, one question at a time with a recommended answer.
    - Do not edit project files, patch, migrate, codegen, or run destructive commands; writes are limited to Fanout artifact storage.
-3. **Draft fanout-agnostic work units**
-   - Define work units, owned files/resources, read-only files, dependencies, validation commands, rollback notes, and acceptance criteria.
+3. **Prepare implementation-plan artifact**
+   - Define exact implementation items, likely writable files/resources, read-only context, semantic dependencies, validation, acceptance criteria, and risks.
+   - Do not optimize execution or assign tiers in this phase.
+4. **Draft fanout-agnostic work units**
+   - Convert implementation items into work units, owned files/resources, read-only files, dependencies, validation commands, rollback notes, and acceptance criteria.
    - No provider-specific or Pi-specific execution assumptions in this layer.
-4. **Build the execution DAG**
+5. **Build the execution DAG**
    - Convert work units into nodes and dependency edges.
    - Add validation, reviewer, and synthesis nodes where needed.
-5. **Validate the DAG during planning**
+6. **Validate the DAG during planning**
    - Reject cycles, missing dependencies, overlapping ownership, missing validation, unclear acceptance criteria, unsafe commands, impossible parallelism, tier-policy violations, and budget/deadline violations.
    - Ask user questions until user-only ambiguity is resolved; do not emit packets until ready.
-6. **Optimize the execution plan**
+7. **Optimize the execution plan**
    - Estimate critical path, parallel width, tier choices, expected active wait, background completion time, cost, and risk.
-7. **Emit the active user-facing execution packet**
+8. **Emit the active user-facing execution packet**
    - Include boxed ASCII DAG nodes, worker ownership table, tier/model plan, expected files touched, two-column metrics, validation commands, cancellation/stop rules, and known risks.
    - Save or print the packet in a stable artifact format that `/fanout-execute` can consume as the active packet.
 
 Packet artifacts:
 
 ```text
+~/.pi/agent/fanout/<project-id>/<run-id>/implementation-plan.json
 ~/.pi/agent/fanout/<project-id>/<run-id>/execution-packet.json
 ~/.pi/agent/fanout/<project-id>/<run-id>/execution-plan.md
 ~/.pi/agent/fanout/<project-id>/<run-id>/execution-dag.mmd
@@ -94,7 +99,7 @@ Packet artifacts:
 
 Phase 2 acceptance criteria:
 
-- `/fanout-plan [objective]` produces an active packet without mutating project files.
+- `/fanout-plan [objective]` produces an implementation-plan artifact and active packet without mutating project files.
 - The packet can be reviewed by a human before execution.
 - DAG validation catches cycles, file ownership conflicts, missing validation, and unresolved required decisions before the packet is accepted.
 - Estimates distinguish active wait, background completion, provider tier cost, and workflow savings.

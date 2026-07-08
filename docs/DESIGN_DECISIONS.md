@@ -330,6 +330,14 @@ Decision: Keep raw prompt-DAG generator/evaluator artifacts ignored under `runs/
 
 Reason: Raw artifacts are useful for local audit but too noisy to commit. Tracked summaries preserve the benchmark result, reproducible procedure, and current prompt candidates for future clones and reviews.
 
+## 2026-07-08
+
+### Split `/fanout-plan` into explicit implementation and packet prompts
+
+Decision: Keep one `/fanout-plan` command, but run two explicit prompts with an artifact handoff: Phase A writes `implementation-plan.json`; Phase B reads it and writes the execution packet/DAG.
+
+Reason: Implementation planning and execution workflow optimization are different jobs. The intermediate artifact makes failures debuggable and prevents the DAG optimizer from inventing scope or optimizing for parallel width before the implementation plan is stable.
+
 ## 2026-06-29
 
 ### Add live realtime as a key-gated provider

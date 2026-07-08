@@ -16,8 +16,8 @@ Phase 2B is implemented and locally validated.
 
 Completed:
 
-- `/fanout-plan` is command-backed and dispatches the planning prompt with deterministic preflight context.
-- legacy package prompt registration is removed; `prompts/fanout-plan.md` remains as the internal command template.
+- `/fanout-plan` is command-backed and dispatches Phase A/Phase B prompts with deterministic preflight context.
+- legacy package prompt registration is removed; `prompts/fanout-implementation-plan.md` and `prompts/fanout-execution-packet.md` are the internal command templates.
 - `fanout-core` validates execution packet schema v2.
 - artifact helper writes packet/plan/DAG/active pointer under Pi-owned storage by default.
 - packet smoke fixtures and tests exist.
@@ -31,7 +31,7 @@ Completed:
 - Moved artifact helper defaults to Pi-owned storage via `~/.pi/agent/fanout` or `FANOUT_ARTIFACT_DIR`.
 - Added `--print-run-dir` and `--print-active-path` helper modes.
 - Added boxed ASCII flow, tier/model plan, files section, and two-column metrics to `execution-plan.md` rendering.
-- Updated `/fanout-plan` prompt for decision-complete planning and `ask_user_question` usage.
+- Split `/fanout-plan` into a Phase A implementation-plan prompt and a Phase B execution-packet prompt.
 - Added fanout-pi runtime context injection for active model, thinking level, artifact paths, and resolved tier preflight.
 - Added smoke coverage for packet tier fields, artifact path helper modes, boxed plan report sections, branch/join ASCII DAG rendering, `/fanout-config`, command-backed `/fanout-plan`, and `FANOUT_ARTIFACT_DIR` override.
 - Bumped execution packet schema to version `2` for required tier-aware fields.
@@ -51,7 +51,8 @@ Algorithm:
 explore repo facts
   -> ask one user question at a time for non-discoverable intent/tradeoffs
   -> repeat until decision-complete
-  -> prepare plan + execution packet
+  -> write implementation-plan.json
+  -> convert that plan into work units + execution DAG
   -> validate packet/DAG
   -> fix packet issues internally
   -> finalize ready packet
@@ -62,7 +63,7 @@ Rules:
 - If the answer is discoverable from files/docs/tests/config/git, inspect instead of asking.
 - If user input is needed, ask exactly one question at a time.
 - Each question should include a recommended answer.
-- If the user cancels or declines to decide, stop without writing/updating an active packet.
+- If the user cancels or declines to decide, stop without writing/updating implementation or active packet artifacts.
 
 ### Required question tool
 
@@ -235,9 +236,11 @@ A safe async worker must have:
 - no ownership conflict;
 - no immediate user-blocking result requirement.
 
-## Packet schema updates
+## Implementation-plan and packet schema updates
 
-Phase 2B uses execution packet schema version `2` because `tierPlan`, work-unit `kind`, and per-node `tier` are required.
+Phase A writes `implementation-plan.json` using schema `fanout.implementation-plan` version `1`. It records implementation items, files to change/read, semantic dependencies, validation, acceptance criteria, and risks. It intentionally has no DAG/tier fields.
+
+Phase B uses execution packet schema version `2` because `tierPlan`, work-unit `kind`, and per-node `tier` are required.
 
 Add global tier summary:
 
@@ -481,7 +484,7 @@ Tasks:
 Files likely touched:
 
 - `packages/fanout-core/src/execution-packet.ts`
-- `packages/fanout-pi/prompts/fanout-plan.md`
+- `packages/fanout-pi/prompts/fanout-execution-packet.md`
 
 Tasks:
 
@@ -495,12 +498,15 @@ Tasks:
 
 Files likely touched:
 
-- `packages/fanout-pi/prompts/fanout-plan.md`
+- `packages/fanout-pi/prompts/fanout-implementation-plan.md`
+- `packages/fanout-pi/prompts/fanout-execution-packet.md`
 - `scripts/smoke-planning.mjs`
 
 Tasks:
 
-- require repo exploration before questions; **done**
+- require repo exploration before questions in Phase A; **done**
+- write `implementation-plan.json` before packet optimization; **done**
+- require Phase B to consume the implementation plan; **done**
 - ask one question at a time with recommended option; **done**
 - use `ask_user_question`; **done**
 - do not finalize packet until decision-complete; **done**
@@ -558,7 +564,7 @@ These findings came from the Phase 2 audit and should be addressed before callin
 
 Resolved in this slice:
 
-- `/fanout-plan` is command-backed and dispatches the planning prompt with deterministic preflight context.
+- `/fanout-plan` is command-backed and dispatches Phase A/Phase B prompts with deterministic preflight context.
 - Fanout consumes Doubleword provider tier metadata before Pi `ModelRegistry` strips unknown fields, and tier2 availability requires `fanout.async/background/authReady`.
 - `fanout.artifactDir` is documented and `/fanout-config` shows the resolved artifact root.
 - Packet-prep observability now includes `fanout_plan_start` and `fanout_plan_preflight` events.

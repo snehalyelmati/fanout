@@ -1,18 +1,92 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
-const promptPath = "packages/fanout-pi/prompts/fanout-plan.md";
-if (!existsSync(promptPath)) throw new Error(`${promptPath} is missing`);
+const implementationPromptPath = "packages/fanout-pi/prompts/fanout-implementation-plan.md";
+const executionPromptPath = "packages/fanout-pi/prompts/fanout-execution-packet.md";
+const oldPromptPath = "packages/fanout-pi/prompts/fanout-plan.md";
+for (const path of [implementationPromptPath, executionPromptPath]) if (!existsSync(path)) throw new Error(`${path} is missing`);
+if (existsSync(oldPromptPath)) throw new Error(`${oldPromptPath} should not be the runtime prompt anymore`);
 
-const prompt = readFileSync(promptPath, "utf8");
+const implementationPrompt = readFileSync(implementationPromptPath, "utf8");
+const executionPrompt = readFileSync(executionPromptPath, "utf8");
+const orchestration = readFileSync("packages/fanout-pi/src/fanout-plan-orchestration.ts", "utf8");
+const fanoutPiIndex = readFileSync("packages/fanout-pi/src/index.ts", "utf8");
 
 const piPkg = JSON.parse(readFileSync("packages/fanout-pi/package.json", "utf8"));
 if (!piPkg.pi?.extensions?.includes("./src/index.ts")) throw new Error("packages/fanout-pi/package.json does not expose ./src/index.ts");
-if (piPkg.pi?.prompts?.includes("./prompts/fanout-plan.md")) throw new Error("/fanout-plan should be command-backed, not a package prompt");
-for (const phrase of ["Planning only", "ask_user_question", "Ambiguity gate", "Improve the docs", "Add one sentence to README", "same writable file/resource", "one independently authorable change", "helper modules", "command wiring", "specific upstream artifact, file, or decision", "contract -> max", "final validation/review", "Do not add custom packet fields", "broad reconciliation", "Fanout plan ready", "Validate the DAG", "Resolved preflight context", "packetHelper.printRunDir", "scripts/fanout-packet-artifacts.mjs", "Tier/model plan", "Execution flow", "Metrics"]) {
-  if (!prompt.includes(phrase)) throw new Error(`${promptPath} is missing phrase: ${phrase}`);
+if (piPkg.pi?.prompts?.some((path) => path.includes("fanout-plan"))) throw new Error("/fanout-plan should be command-backed, not a package prompt");
+for (const phrase of ["Phase A", "implementation-plan.json", "Do not prepare an execution packet", "Do not optimize a DAG", "Planning only", "ask_user_question", "Ambiguity gate", "implementationItems", "validationPlan"]) {
+  if (!implementationPrompt.includes(phrase)) throw new Error(`${implementationPromptPath} is missing phrase: ${phrase}`);
+}
+for (const phrase of ["Phase B", "implementationPlanPath", "implementation source of truth", "Do not invent implementation scope", "Every work unit must trace back", "Traces to Phase A items: <ids>", "same writable file/resource", "read/write sibling overlap", "one independently authorable implementation change", "specific upstream artifact, file, or decision", "contract -> max", "final validation/review", "Do not add custom packet fields", "broad reconciliation", "Fanout plan ready", "Validate the DAG", "Resolved preflight context", "scripts/fanout-packet-artifacts.mjs", "Tier/model plan", "Execution flow", "Metrics"]) {
+  if (!executionPrompt.includes(phrase)) throw new Error(`${executionPromptPath} is missing phrase: ${phrase}`);
+}
+for (const phrase of ["fanout.plan.orchestration.v1", "buildImplementationPlanPrompt", "buildExecutionPacketPrompt", "validateImplementationPlanArtifact", "references itself"]) {
+  if (!orchestration.includes(phrase)) throw new Error(`fanout-plan orchestration is missing phrase: ${phrase}`);
+}
+for (const phrase of ["if (pendingFanoutPlan)", "A Fanout plan is already in progress"]) {
+  if (!fanoutPiIndex.includes(phrase)) throw new Error(`fanout-plan command is missing overlap guard phrase: ${phrase}`);
+}
+
+const { buildExecutionPacketPrompt, buildImplementationPlanPrompt, createFanoutPlanRun, isFanoutPhasePrompt, validateImplementationPlanArtifact } = await import("../packages/fanout-pi/src/fanout-plan-orchestration.ts");
+const helperDir = mkdtempSync(join(tmpdir(), "doubleword-pi-plan-helper-"));
+try {
+  const run = createFanoutPlanRun("Update docs", { projectArtifactRoot: helperDir }, new Date("2026-07-08T01:02:03.100Z"));
+  const sameSecondRun = createFanoutPlanRun("Update docs", { projectArtifactRoot: helperDir }, new Date("2026-07-08T01:02:03.900Z"));
+  if (run.runId === sameSecondRun.runId) throw new Error(`same-second run ids collided: ${run.runId}`);
+  const context = { projectArtifactRoot: helperDir, resolvedTierPlan: { tier1: {}, tier2: {} } };
+  if (!isFanoutPhasePrompt(buildImplementationPlanPrompt("Update docs", context, run), { phase: "implementation", objective: "Update docs", context, ...run })) throw new Error("implementation phase marker did not match");
+  if (!isFanoutPhasePrompt(buildExecutionPacketPrompt("Update docs", context, run), { phase: "packet", objective: "Update docs", context, ...run })) throw new Error("packet phase marker did not match");
+  mkdirSync(dirname(run.implementationPlanPath), { recursive: true });
+
+  const validPlan = {
+    schema: "fanout.implementation-plan",
+    version: 1,
+    status: "ready",
+    objective: "Update docs",
+    createdAt: "2026-07-08T01:02:03.100Z",
+    artifactDir: run.artifactDir,
+    userContext: [],
+    discoveredRepoFacts: [],
+    assumptions: [],
+    implementationItems: [{ id: "docs", goal: "Update docs", rationale: "Docs-only change.", filesToChange: ["README.md"], filesToRead: [], dependencies: [], validation: ["rtk npm run check"], acceptanceCriteria: ["README updated"], risks: [] }],
+    validationPlan: ["rtk npm run check"],
+    risks: [],
+  };
+  writePlan(run.implementationPlanPath, validPlan);
+  expectValidPlan(run.implementationPlanPath, { objective: "Update docs", artifactDir: run.artifactDir });
+
+  writePlan(run.implementationPlanPath, { ...validPlan, objective: "Different objective" });
+  expectInvalidPlan(run.implementationPlanPath, { objective: "Update docs", artifactDir: run.artifactDir }, "objective does not match current run");
+  writePlan(run.implementationPlanPath, { ...validPlan, artifactDir: join(helperDir, "wrong") });
+  expectInvalidPlan(run.implementationPlanPath, { objective: "Update docs", artifactDir: run.artifactDir }, "artifactDir does not match current run");
+  const { createdAt, assumptions, risks, ...missingRequired } = validPlan;
+  writePlan(run.implementationPlanPath, missingRequired);
+  expectInvalidPlan(run.implementationPlanPath, { objective: "Update docs", artifactDir: run.artifactDir }, "createdAt is required");
+  writePlan(run.implementationPlanPath, { ...validPlan, implementationItems: [{ ...validPlan.implementationItems[0], dependencies: ["docs"] }] });
+  expectInvalidPlan(run.implementationPlanPath, { objective: "Update docs", artifactDir: run.artifactDir }, "references itself");
+  writePlan(run.implementationPlanPath, { ...validPlan, implementationItems: [{ ...validPlan.implementationItems[0], dependencies: ["missing"] }] });
+  expectInvalidPlan(run.implementationPlanPath, { objective: "Update docs", artifactDir: run.artifactDir }, "references unknown id missing");
+  writePlan(run.implementationPlanPath, { ...validPlan, validationPlan: [42] });
+  expectInvalidPlan(run.implementationPlanPath, { objective: "Update docs", artifactDir: run.artifactDir }, "validationPlan[0] must be a string");
+} finally {
+  rmSync(helperDir, { recursive: true, force: true });
+}
+
+function writePlan(path, plan) {
+  writeFileSync(path, `${JSON.stringify(plan)}\n`);
+}
+
+function expectValidPlan(path, expected) {
+  const validation = validateImplementationPlanArtifact(path, expected);
+  if (!validation.ok || validation.itemCount !== 1) throw new Error(`bad implementation-plan validation: ${JSON.stringify(validation)}`);
+}
+
+function expectInvalidPlan(path, expected, errorSubstring) {
+  const validation = validateImplementationPlanArtifact(path, expected);
+  if (validation.ok || !validation.errors.some((error) => error.includes(errorSubstring))) throw new Error(`expected validation error ${errorSubstring}: ${JSON.stringify(validation)}`);
 }
 
 const dir = mkdtempSync(join(tmpdir(), "doubleword-pi-plan-"));

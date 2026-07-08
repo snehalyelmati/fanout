@@ -8,6 +8,14 @@ import { setDoublewordActiveTurnIndex, setDoublewordRunId } from "../../doublewo
 import { BATCHING_DISCIPLINE, BATCHING_DISCIPLINE_MARKER } from "../../fanout-core/src/batching-discipline.ts";
 import { durationMs, RUN_ID, setObservabilityCwd, writeJsonl } from "../../fanout-core/src/observability.ts";
 import { configureFanoutTier } from "./fanout-config.ts";
+import {
+	buildExecutionPacketPrompt,
+	buildImplementationPlanPrompt,
+	createFanoutPlanRun,
+	type FanoutPhaseState,
+	isFanoutPhasePrompt,
+	validateImplementationPlanArtifact,
+} from "./fanout-plan-orchestration.ts";
 
 const FANOUT_CONTEXT_MARKER = "## Fanout runtime context";
 const TIER2_DEFAULT = { provider: "doubleword", model: "zai-org/GLM-5.2-FP8", thinking: "medium" };
@@ -24,6 +32,8 @@ export default async function (pi: ExtensionAPI) {
 	let activeThinking: unknown;
 	const turnStats = new Map<number, { started: number; toolCallCount: number }>();
 	const toolStarts = new Map<string, { started: number; turnIndex?: number }>();
+	let pendingFanoutPlan: FanoutPhaseState | undefined;
+	let activeFanoutPlan: FanoutPhaseState | undefined;
 
 	setDoublewordRunId(RUN_ID);
 	await registerDoublewordDevProviders(pi, rememberDoublewordModels, { controls: false });
@@ -31,16 +41,23 @@ export default async function (pi: ExtensionAPI) {
 	pi.registerCommand("fanout-plan", {
 		description: "Prepare a decision-complete Fanout execution packet",
 		handler: async (args, ctx) => {
+			if (pendingFanoutPlan) {
+				ctx.ui.notify("A Fanout plan is already in progress. Wait for it to finish, then retry /fanout-plan.", "warning");
+				return;
+			}
 			const objective = args.trim() || "Use the current conversation context.";
 			const context = writeFanoutRuntimeContext(ctx.cwd, activeModel ?? ctx.model, activeThinking ?? pi.getThinkingLevel(), ctx.modelRegistry?.getAll?.());
-			writeJsonl("fanout_plan_start", { objective, artifactRoot: context.artifactRoot, tierDefaults: context.tierDefaults }, ctx.cwd);
+			const run = createFanoutPlanRun(objective, context);
+			pendingFanoutPlan = { phase: "implementation", objective, context, ...run };
+			const prompt = buildImplementationPlanPrompt(objective, context, run);
+			writeJsonl("fanout_plan_start", { objective, artifactRoot: context.artifactRoot, artifactDir: run.artifactDir, implementationPlanPath: run.implementationPlanPath, tierDefaults: context.tierDefaults }, ctx.cwd);
 			writeJsonl("fanout_plan_preflight", { tierPlan: context.resolvedTierPlan, tier2Availability: context.tier2Availability, nodeKindTierPolicy: context.nodeKindTierPolicy }, ctx.cwd);
 			if (!ctx.isIdle()) {
-				pi.sendUserMessage(fanoutPlanPrompt(objective, context), { deliverAs: "followUp" });
+				pi.sendUserMessage(prompt, { deliverAs: "followUp" });
 				ctx.ui.notify("Queued /fanout-plan after the current turn.", "info");
 				return;
 			}
-			pi.sendUserMessage(fanoutPlanPrompt(objective, context));
+			pi.sendUserMessage(prompt);
 		},
 	});
 
@@ -71,6 +88,7 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.on("before_agent_start", (event, ctx) => {
+		if (pendingFanoutPlan && isFanoutPhasePrompt(event.prompt, pendingFanoutPlan)) activeFanoutPlan = pendingFanoutPlan;
 		const batchingPrompt = event.systemPrompt.includes(BATCHING_DISCIPLINE_MARKER) ? event.systemPrompt : `${event.systemPrompt}\n\n${BATCHING_DISCIPLINE}`;
 		return {
 			systemPrompt: batchingPrompt.includes(FANOUT_CONTEXT_MARKER) ? batchingPrompt : `${batchingPrompt}\n\n${fanoutRuntimePrompt(ctx.cwd, activeModel ?? ctx.model, activeThinking ?? pi.getThinkingLevel(), ctx.modelRegistry?.getAll?.())}`,
@@ -95,6 +113,24 @@ export default async function (pi: ExtensionAPI) {
 			ctx.cwd,
 		);
 		agentStarted = undefined;
+
+		const finishedFanoutPlan = activeFanoutPlan;
+		activeFanoutPlan = undefined;
+		if (finishedFanoutPlan?.phase === "implementation") {
+			const validation = validateImplementationPlanArtifact(finishedFanoutPlan.implementationPlanPath, { objective: finishedFanoutPlan.objective, artifactDir: finishedFanoutPlan.artifactDir });
+			writeJsonl("fanout_implementation_plan_validation", { runId: finishedFanoutPlan.runId, artifactDir: finishedFanoutPlan.artifactDir, ...validation }, ctx.cwd);
+			if (!validation.ok) {
+				pendingFanoutPlan = undefined;
+				ctx.ui.notify("Fanout implementation plan was not finalized; execution packet was not queued.", "warning");
+				return;
+			}
+			pendingFanoutPlan = { ...finishedFanoutPlan, phase: "packet" };
+			ctx.ui.notify("Implementation plan ready; preparing execution packet.", "info");
+			pi.sendUserMessage(buildExecutionPacketPrompt(finishedFanoutPlan.objective, finishedFanoutPlan.context, finishedFanoutPlan), { deliverAs: "followUp" });
+		} else if (finishedFanoutPlan?.phase === "packet") {
+			writeJsonl("fanout_plan_end", { runId: finishedFanoutPlan.runId, artifactDir: finishedFanoutPlan.artifactDir }, ctx.cwd);
+			pendingFanoutPlan = undefined;
+		}
 	});
 
 	pi.on("turn_start", (event, ctx) => {
@@ -283,11 +319,6 @@ function thinkingOptions(model: Record<string, unknown> | undefined): string[] {
 
 function findModel(models: Array<Record<string, unknown>>, provider: string, model: string): Record<string, unknown> | undefined {
 	return models.find((entry) => stringField(entry.provider) === provider && stringField(entry.id ?? entry.model) === model);
-}
-
-function fanoutPlanPrompt(objective: string, context: ReturnType<typeof fanoutRuntimeContext>): string {
-	const template = readFileSync(new URL("../prompts/fanout-plan.md", import.meta.url), "utf8").replace(/^---[\s\S]*?---\s*/, "");
-	return `${template.replace("$ARGUMENTS", objective).trim()}\n\nResolved preflight context (adapter-authored source of truth):\n\n\`\`\`json\n${JSON.stringify(context, null, 2)}\n\`\`\`\n`;
 }
 
 function fanoutSettings(cwd: string): Record<string, any> {
