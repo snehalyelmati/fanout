@@ -108,7 +108,7 @@ Phase 2 acceptance criteria:
 
 ### Phase 3: Execution via `/fanout-execute`
 
-Status: planned after Phase 2 packet is reliable.
+Status: design aligned; implementation pending. Detailed component contracts live in [`docs/impl/phase-3-fanout-execute.md`](impl/phase-3-fanout-execute.md).
 
 Goal: execute the active accepted packet, manage workers, validate outputs, and return control with summary plus metrics.
 
@@ -116,25 +116,31 @@ Build order:
 
 1. **Active packet loader and guardrails**
    - Load the active execution packet prepared by `/fanout-plan`.
-   - Refuse stale, invalid, cyclic, or conflict-heavy packets unless regenerated.
+   - Refuse missing pointers, malformed packets, paths outside the project artifact root, dirty/stale worktrees, unsafe validation commands, and non-executable DAGs before mutation.
    - Confirm expected file ownership and validation commands before launch.
-2. **Worker management**
-   - Start with native Pi subagents or an existing popular subagent package; do not build a custom worker framework unless the adapter cannot meet isolation/visibility needs.
-   - Assign each worker explicit objective, owned files, read-only context, dependencies, validation contract, budget, and stop rules.
-3. **DAG execution**
-   - Execute ready nodes in dependency order.
-   - Use isolated workspaces for parallel code edits when needed.
-   - Run node-level validation, reviewer nodes, and final synthesis before accepting changes.
-4. **Async infrastructure**
-   - Prefer direct Doubleword async endpoints first.
-   - Use Doubleword Autobatcher only if it materially improves queueing, failure handling, cancellation, or async throughput.
-5. **Summary and metrics**
-   - Return changed files, validation results, rejected/late worker outputs, retries, cancellations, token/cost totals, active time, background time, poll time, tool time, and follow-up risks.
+2. **Execution run recorder**
+   - Create `<packet-artifact-dir>/executions/<execution-run-id>/` before mutation.
+   - Write `events.jsonl`, `execution-run.json`, and `summary.md` with mandatory metrics for every accepted LLM worker.
+3. **DAG scheduler**
+   - Execute ready nodes in dependency order with deterministic packet-order tie breaking.
+   - Keep scheduling separate from worktrees, workers, patch capture, validation, and repair.
+4. **Worker management**
+   - Run approved work units in isolated git worktrees through curated non-interactive Pi subprocess workers.
+   - Use `--no-context-files` for workers and pass only the packet-approved context bundle.
+5. **Patch, validation, and apply gates**
+   - Capture git patches, enforce owned-file scope, run node validation, and apply only accepted whole-node patches to the active worktree.
+   - Allow only typed bounded tier1 recovery for validation failures and integration conflicts.
+6. **Tier2 retry / tier1 fallback**
+   - Retry only retryable tier2 worker/provider failures.
+   - Fall back to tier1 only when the packet declares `fallback: "tier1"`; count all attempts in metrics.
+7. **Summary and metrics**
+   - Return changed files, validation results, rejected/late worker outputs, retries, cancellations, token/cost totals, active time, background time, poll time, tool time, and artifact links.
 
 Phase 3 acceptance criteria:
 
 - `/fanout-execute` can run the active packet end-to-end with isolated workers and final synthesis.
 - Failed or late workers cannot corrupt the active worktree silently.
+- Every accepted worker has complete provider/model/tier/token/cost/TTFT/poll/tool/duration metrics.
 - The executor records enough metrics to compare against baseline Pi execution.
 - User regains control with a concise summary, validation status, and artifact links.
 

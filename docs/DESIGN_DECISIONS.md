@@ -405,3 +405,23 @@ Reason: Tier is an execution policy, not a model identity. Keeping the toggle co
 Decision: Live async uses a 10 minute wall-clock timeout, sends `max_output_tokens` capped at 16k by default, retries transient poll failures, performs one final GET before timeout failure, and best-effort cancels background responses on timeout or user abort.
 
 Reason: Async Responses jobs can outlive the Pi turn. Local abort must stop immediately, timeout should not discard a just-completed result, and remote cancel should avoid orphaned background work without masking the original abort or timeout.
+
+## 2026-07-09
+
+### Require complete metrics for accepted Fanout workers
+
+Decision: `/fanout-execute` must reject accepted LLM worker results that lack provider, model, tier, token, cost, pricing source, TTFT, poll, tool, and worker-duration metrics. Failed or rejected workers may keep partial diagnostic metrics, but accepted workers cannot use null placeholders or guessed token estimates.
+
+Reason: Phase 3 exists to compare workflow and provider-tier tradeoffs. Accepting patches without complete metrics would make the execution evidence unusable.
+
+### Run Fanout workers with curated subprocess context
+
+Decision: Phase 3 workers run as non-interactive Pi subprocesses in isolated git worktrees with curated Fanout prompts and no automatically loaded context files. The main session owns planning, approval, and user interaction; workers receive only packet-approved context and must not ask for confirmation or broaden scope.
+
+Reason: Global/project context files can contain main-session rules such as planning and waiting for approval. Those rules are correct before `/fanout-execute`, but wrong for an approved worker subprocess.
+
+### Allow only typed bounded execution recovery
+
+Decision: `/fanout-execute` may run bounded tier1 recovery for two typed cases: validation-failure repair and integration-conflict repair. Retry/fallback handles retryable tier2 worker/provider failures. Generic repair agents, scope expansion, ownership expansion, partial patch application, and arbitrary retries remain out of scope.
+
+Reason: Valid worker output can still fail local validation or conflict with already-applied parallel patches. Typed bounded recovery preserves safety while avoiding an open-ended repair loop.
