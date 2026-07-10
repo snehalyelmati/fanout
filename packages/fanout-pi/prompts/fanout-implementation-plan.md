@@ -27,6 +27,8 @@ Hard rules:
 - If the user declines to decide or cancels, stop without writing/updating artifacts.
 - Separate user-provided context from repo-discovered facts.
 - Write `objective` as the resolved task objective after reading referenced files and context; it may be more specific than the invocation text.
+- Copy the adapter-provided `artifactDir` exactly, without Markdown formatting.
+- In `filesToChange` and `filesToRead`, each JSON string value must be a bare repository-relative path. Do not use Markdown backticks, code fences, links, prose, globs, or explanatory text.
 
 Phase A flow:
 
@@ -42,11 +44,13 @@ Phase A flow:
 3. **Prepare the implementation plan**
    - Identify the problem understanding, approach, required behavior/contracts, and public APIs/exports.
    - Name files/modules likely to change and files/resources needed only as context.
-   - Identify validation intent, acceptance criteria, risks, and forbidden scope.
+   - Identify validation intent, acceptance criteria, risks, and forbidden scope. `validation` describes per-item intent and `validationPlan` describes final integrated intent; Phase B supplies literal executable `validationCommands` and top-level `finalValidationCommands`.
    - Identify implementation dependencies as semantic dependencies between plan items.
    - Dependencies are planning constraints and traceability labels, not execution DAG edges.
    - A dependency means the item cannot be authored safely without a specific upstream output, file, or decision.
-   - Do not add dependencies for final verification, ordering preference, or because tests, docs, fixtures, or package scripts should match code later.
+   - Preserve every explicit task-declared validation dependency. When the task says a test, docs, or check item must consume or follow a named upstream result, retain that item in `dependencies` and add the exact upstream file/resource to `filesToRead` when its changed state is needed.
+   - Do not add dependencies for final verification, ordering preference, or because tests, docs, fixtures, or package scripts should match code later. This does not override an explicit task-declared validation dependency.
+   - Preserve an explicit task-declared multi-file ownership bundle or node as one implementation item with its complete `filesToChange` set. Do not split it merely because its files could otherwise be authored independently.
    - Prefer separate tests, docs, fixtures, and package-script items when file ownership permits and they are authorable from the contract.
    - Keep the plan implementation-focused; leave exact edit anchors and execution grouping for Phase B/compiler.
 
@@ -73,10 +77,10 @@ Implementation plan JSON fields:
   - filesToChange: string[]
   - filesToRead: string[]
   - dependencies: string[] of other implementation item ids
-  - validation: string[]
+  - validation: string[] of validation intent
   - acceptanceCriteria: string[]
   - risks: string[]
-- validationPlan: string[]
+- validationPlan: string[] of final validation intent
 - risks: string[]
 
 Final Phase A response:

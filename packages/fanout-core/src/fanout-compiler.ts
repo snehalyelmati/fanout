@@ -14,7 +14,7 @@ import {
 export const IMPLEMENTATION_PLAN_SCHEMA = "fanout.implementation-plan";
 export const IMPLEMENTATION_PLAN_VERSION = 1;
 export const IMPLEMENTATION_DETAILS_SCHEMA = "fanout.implementation-details";
-export const IMPLEMENTATION_DETAILS_VERSION = 1;
+export const IMPLEMENTATION_DETAILS_VERSION = 2;
 
 type ReadDependencyClassification = "baseline-context" | "post-change-required";
 export type UnclassifiedOverlapPolicy = "error" | "sequential";
@@ -108,6 +108,7 @@ interface DetailsArtifact {
 	objective: string;
 	artifactDir: string;
 	sourcePlanPath: string;
+	finalValidationCommands: string[];
 	items: DetailItem[];
 }
 
@@ -177,7 +178,7 @@ export function compileExecutionPacket(input: CompileExecutionPacketInput): Comp
 	}
 
 	const units = groups.map((group) => workUnitForGroup(group, planItems, dependencies.get(group) ?? new Set(), input.tierPlan, input.nodeKindTierPolicy));
-	const finalValidationPlan = unique([...plan.validationPlan, ...details.items.flatMap((item) => item.validationCommands)]);
+	const finalValidationPlan = unique(details.finalValidationCommands);
 	const finalUnit = finalValidationUnit(plan, details, units, finalValidationPlan, input.tierPlan);
 	const workUnits = [...units, finalUnit];
 	const graph = buildExecutionGraph(workUnits);
@@ -258,8 +259,8 @@ function parsePlanItem(value: unknown, index: number, errors: string[]): PlanIte
 		id: stringField(value.id),
 		goal: stringField(value.goal),
 		rationale: stringField(value.rationale),
-		filesToChange: stringArray(value.filesToChange, `${path}.filesToChange`, errors),
-		filesToRead: stringArray(value.filesToRead, `${path}.filesToRead`, errors),
+		filesToChange: bareRepositoryPathArray(value.filesToChange, `${path}.filesToChange`, errors),
+		filesToRead: bareRepositoryPathArray(value.filesToRead, `${path}.filesToRead`, errors),
 		dependencies: stringArray(value.dependencies, `${path}.dependencies`, errors),
 		validation: stringArray(value.validation, `${path}.validation`, errors),
 		acceptanceCriteria: stringArray(value.acceptanceCriteria, `${path}.acceptanceCriteria`, errors),
@@ -280,6 +281,8 @@ function parseDetails(value: unknown, expected: { objective?: string; artifactDi
 	if (expected.artifactDir !== undefined && value.artifactDir !== expected.artifactDir) errors.push("implementation details artifactDir does not match current run");
 	if (expected.sourcePlanPath !== undefined && value.sourcePlanPath !== expected.sourcePlanPath) errors.push("implementation details sourcePlanPath does not match current run");
 	const planIds = new Set(expected.planIds ?? []);
+	const finalValidationCommands = validationCommandArray(value.finalValidationCommands, "implementation details finalValidationCommands", errors);
+	if (finalValidationCommands.length === 0) errors.push("implementation details finalValidationCommands must not be empty");
 	const items = array(value.items, "implementation details items", errors).map((item, index) => parseDetailItem(item, index, errors)).filter((item): item is DetailItem => Boolean(item));
 	if (items.length === 0) errors.push("implementation details items must not be empty");
 	for (const [index, item] of items.entries()) {
@@ -287,7 +290,7 @@ function parseDetails(value: unknown, expected: { objective?: string; artifactDi
 		if (writeResources(item).length === 0) errors.push(`items[${index}] must declare at least one owned resource or writable file`);
 		if (item.existingFileEdits.length === 0 && item.newFiles.length === 0) errors.push(`items[${index}] must include existingFileEdits or newFiles`);
 	}
-	return { objective: stringField(value.objective), artifactDir: stringField(value.artifactDir), sourcePlanPath: stringField(value.sourcePlanPath), items };
+	return { objective: stringField(value.objective), artifactDir: stringField(value.artifactDir), sourcePlanPath: stringField(value.sourcePlanPath), finalValidationCommands, items };
 }
 
 function parseDetailItem(value: unknown, index: number, errors: string[]): DetailItem | undefined {
@@ -303,12 +306,12 @@ function parseDetailItem(value: unknown, index: number, errors: string[]): Detai
 	const readDependencies = array(value.readDependencies, `${path}.readDependencies`, errors).map((dependency, dependencyIndex) => parseReadDependency(dependency, `${path}.readDependencies[${dependencyIndex}]`, errors)).filter((dependency): dependency is ReadDependency => Boolean(dependency));
 	return {
 		sourcePlanIds,
-		ownedResources: stringArray(value.ownedResources, `${path}.ownedResources`, errors),
+		ownedResources: bareRepositoryPathArray(value.ownedResources, `${path}.ownedResources`, errors),
 		existingFileEdits,
 		newFiles,
 		readDependencies,
 		forbiddenChanges: stringArray(value.forbiddenChanges, `${path}.forbiddenChanges`, errors),
-		validationCommands: stringArray(value.validationCommands, `${path}.validationCommands`, errors),
+		validationCommands: validationCommandArray(value.validationCommands, `${path}.validationCommands`, errors),
 	};
 }
 
@@ -321,7 +324,7 @@ function parseExistingFileEdit(value: unknown, path: string, errors: string[]): 
 	if (!nonEmptyString(value.editIntent)) errors.push(`${path}.editIntent is required`);
 	if (![value.anchorText, value.symbolName, value.section, value.lineRangeHint].some(nonEmptyString)) errors.push(`${path} is missing anchorText, symbolName, section, or lineRangeHint`);
 	return {
-		file: stringField(value.file),
+		file: bareRepositoryPath(value.file, `${path}.file`, errors),
 		symbolName: optionalString(value.symbolName),
 		section: optionalString(value.section),
 		anchorText: optionalString(value.anchorText),
@@ -337,7 +340,7 @@ function parseNewFile(value: unknown, path: string, errors: string[]): NewFileDe
 	}
 	if (!nonEmptyString(value.path)) errors.push(`${path}.path is required`);
 	if (!nonEmptyString(value.contentIntent)) errors.push(`${path}.contentIntent is required`);
-	return { path: stringField(value.path), intendedSections: stringArray(value.intendedSections, `${path}.intendedSections`, errors), contentIntent: stringField(value.contentIntent) };
+	return { path: bareRepositoryPath(value.path, `${path}.path`, errors), intendedSections: stringArray(value.intendedSections, `${path}.intendedSections`, errors), contentIntent: stringField(value.contentIntent) };
 }
 
 function parseReadDependency(value: unknown, path: string, errors: string[]): ReadDependency | undefined {
@@ -348,7 +351,7 @@ function parseReadDependency(value: unknown, path: string, errors: string[]): Re
 	if (!nonEmptyString(value.file)) errors.push(`${path}.file is required`);
 	if (value.classification !== "baseline-context" && value.classification !== "post-change-required") errors.push(`${path}.classification is ambiguous; use baseline-context or post-change-required`);
 	if (!nonEmptyString(value.reason)) errors.push(`${path}.reason is required`);
-	return { file: stringField(value.file), classification: value.classification as ReadDependencyClassification, reason: stringField(value.reason) };
+	return { file: bareRepositoryPath(value.file, `${path}.file`, errors), classification: value.classification as ReadDependencyClassification, reason: stringField(value.reason) };
 }
 
 function groupByOwnership(items: DetailItem[]): Group[] {
@@ -378,7 +381,7 @@ function workUnitForGroup(group: Group, planItems: Map<string, PlanItem>, depend
 	const ownedFiles = unique(group.resources);
 	const readOnlyFiles = unique([...relatedPlanItems.flatMap((item) => item.filesToRead), ...groupReadDependencies(group).map((dependency) => dependency.file)]).filter((file) => !ownedFiles.some((owned) => resourcesOverlap(owned, file)));
 	const kind = inferKind(ownedFiles);
-	const validationCommands = unique([...group.items.flatMap((item) => item.validationCommands), ...relatedPlanItems.flatMap((item) => item.validation)]);
+	const validationCommands = unique(group.items.flatMap((item) => item.validationCommands));
 	const tier = tierAssignment(kind, tierPlan, policy);
 	return {
 		id: group.id!,
@@ -399,7 +402,7 @@ function workUnitForGroup(group: Group, planItems: Map<string, PlanItem>, depend
 			contractInputs: contractInputs(relatedPlanItems),
 			readDependencies: readDependencySummaries(groupReadDependencies(group)),
 			forbiddenChanges: unique(group.items.flatMap((item) => item.forbiddenChanges)),
-			handoffContext: unique([...relatedPlanItems.flatMap((item) => item.filesToRead.map((file) => `Read ${file}`)), ...relatedPlanItems.flatMap((item) => item.risks.map((risk) => `Risk: ${risk}`))]),
+			handoffContext: unique([...relatedPlanItems.flatMap((item) => item.filesToRead.map((file) => `Read ${file}`)), ...relatedPlanItems.flatMap((item) => item.validation.map((intent) => `Validation intent: ${intent}`)), ...relatedPlanItems.flatMap((item) => item.risks.map((risk) => `Risk: ${risk}`))]),
 		},
 		active: tier.assigned === "tier2" ? "background" : "active",
 	};
@@ -426,7 +429,7 @@ function finalValidationUnit(plan: PlanArtifact, details: DetailsArtifact, units
 			contractInputs: contractInputs(plan.implementationItems),
 			readDependencies: readDependencySummaries(details.items.flatMap((item) => item.readDependencies)),
 			forbiddenChanges: unique(details.items.flatMap((item) => item.forbiddenChanges)),
-			handoffContext: ["Final validation only; no implementation edits."],
+			handoffContext: unique(["Final validation only; no implementation edits.", ...plan.validationPlan.map((intent) => `Final validation intent: ${intent}`)]),
 		},
 		active: "active",
 	};
@@ -496,8 +499,16 @@ function validatePlanReadOverlaps(groups: Group[], planItems: Map<string, PlanIt
 		const classifications = groupReadDependencies(reader);
 		for (const read of planReads) for (const owner of groups) {
 			if (owner === reader || !groupOwnsFile(owner, read)) continue;
-			const classified = classifications.some((dependency) => resourcesOverlap(dependency.file, read) && groupOwnsFile(owner, dependency.file));
-			if (classified) continue;
+			const matchingClassifications = classifications.filter((dependency) => resourcesOverlap(dependency.file, read) && groupOwnsFile(owner, dependency.file));
+			const requiredDependency = taskDeclaredValidationDependency(reader, owner, read, planItems);
+			const requiredClassifications = requiredDependency
+				? reader.items.filter((item) => item.sourcePlanIds.includes(requiredDependency.readerId)).flatMap((item) => item.readDependencies).filter((dependency) => resourcesOverlap(dependency.file, read) && groupOwnsFile(owner, dependency.file))
+				: [];
+			if (requiredDependency && (requiredClassifications.some((dependency) => dependency.classification === "baseline-context") || !requiredClassifications.some((dependency) => dependency.classification === "post-change-required"))) {
+				errors.push(`ambiguous Phase A filesToRead overlap: task-declared dependency ${requiredDependency.readerId} -> ${requiredDependency.ownerId} overlaps ${read}; classify it as post-change-required, not baseline-context`);
+				continue;
+			}
+			if (matchingClassifications.length > 0) continue;
 			const message = `unclassified read overlap: group ${reader.id} reads ${read} while group ${owner.id} owns ${owner.resources.join(", ")}`;
 			if (policy === "sequential") {
 				dependencies.get(reader)?.add(owner);
@@ -507,6 +518,19 @@ function validatePlanReadOverlaps(groups: Group[], planItems: Map<string, PlanIt
 			}
 		}
 	}
+}
+
+function taskDeclaredValidationDependency(reader: Group, owner: Group, read: string, planItems: Map<string, PlanItem>): { readerId: string; ownerId: string } | undefined {
+	const ownerIds = new Set(groupPlanIds(owner));
+	for (const readerId of groupPlanIds(reader)) {
+		const item = planItems.get(readerId);
+		if (!item?.filesToRead.some((file) => resourcesOverlap(file, read))) continue;
+		for (const ownerId of item.dependencies) {
+			const ownerItem = planItems.get(ownerId);
+			if (ownerIds.has(ownerId) && ownerItem?.filesToChange.some((file) => resourcesOverlap(file, read))) return { readerId, ownerId };
+		}
+	}
+	return undefined;
 }
 
 function groupOwnsFile(group: Group, file: string): boolean {
@@ -560,6 +584,29 @@ function stringArray(value: unknown, path: string, errors: string[]): string[] {
 		else if (item.trim()) result.push(item.trim());
 	}
 	return result;
+}
+
+function bareRepositoryPathArray(value: unknown, path: string, errors: string[]): string[] {
+	return stringArray(value, path, errors).map((item, index) => bareRepositoryPath(item, `${path}[${index}]`, errors));
+}
+
+function bareRepositoryPath(value: unknown, path: string, errors: string[]): string {
+	const result = stringField(value);
+	if (result.includes("`")) errors.push(`${path} must be a bare repository path without Markdown backticks`);
+	return result;
+}
+
+function validationCommandArray(value: unknown, path: string, errors: string[]): string[] {
+	const commands = stringArray(value, path, errors);
+	for (const [index, command] of commands.entries()) {
+		if (command.includes("`")) errors.push(`${path}[${index}] must be a literal executable shell command without Markdown backticks`);
+		if (looksLikeValidationProse(command)) errors.push(`${path}[${index}] must be an executable shell command, not validation prose`);
+	}
+	return commands;
+}
+
+function looksLikeValidationProse(value: string): boolean {
+	return /^(?:Run|Confirm|Review|Repeat|Exercise|Inspect|Ensure)\b/.test(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

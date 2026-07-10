@@ -250,9 +250,9 @@ A safe async worker must have:
 
 ## Implementation-plan, details, and packet schema updates
 
-Phase A writes `implementation-plan.json` using schema `fanout.implementation-plan` version `1`. It records implementation items, files to change/read, semantic dependencies, validation intent, acceptance criteria, risks, and forbidden scope. Its resolved `objective` becomes the authoritative objective for Phase B and deterministic compilation; `/fanout-plan` invocation shorthand remains separately in state and telemetry and is not an exact artifact-validation contract. Semantic dependencies are planning context and traceability labels, not execution DAG edges. It intentionally has no anchor, worker, parallelism, DAG, or tier fields.
+Phase A writes `implementation-plan.json` using schema `fanout.implementation-plan` version `1`. It records implementation items, files to change/read, semantic dependencies, non-executable validation intent, acceptance criteria, risks, and forbidden scope. Its resolved `objective` becomes the authoritative objective for Phase B and deterministic compilation; `/fanout-plan` invocation shorthand remains separately in state and telemetry and is not an exact artifact-validation contract. Phase A validation fields describe coverage and must never be sent to a shell. Semantic dependencies are planning context and traceability labels, not execution DAG edges, except that an explicit task-declared validation dependency with a concrete upstream file read must be carried into Phase B as `post-change-required`. It intentionally has no anchor, worker, parallelism, DAG, or tier fields.
 
-Phase B writes `implementation-details.json` using schema `fanout.implementation-details` version `1`. It records Phase A source ids, owned resources, existing-file anchors, new-file intent, read-dependency classification, forbidden changes, and validation commands. It must not invent contracts/APIs/product scope or packet fields.
+Phase B writes `implementation-details.json` using schema `fanout.implementation-details` version `2`. It records Phase A source ids, owned resources, existing-file anchors, new-file intent, read-dependency classification, forbidden changes, per-item literal executable validation commands, and required top-level `finalValidationCommands` for final integrated validation. Machine-readable path fields are bare repository-relative paths; Markdown backticks belong only in human-readable `forbiddenChanges` prose. It must not invent contracts/APIs/product scope or packet fields.
 
 > **Historical schema-v3 snapshot — superseded by schema v4.** The packet excerpt and compiler rules below preserve the `workerPacket` introduction. Current packets also require the concrete `tierPlan.tier2Fallback` model role described earlier in this document.
 
@@ -274,12 +274,15 @@ The deterministic compiler emitted execution packet schema version `3` because e
 
 Compiler rules:
 
-- Phase B should emit one details item per independently editable file/resource and reuse `sourcePlanIds` when splitting one Phase A item;
+- Phase B should emit one details item per independently editable file/resource and reuse `sourcePlanIds` when splitting one Phase A item, except an explicit task-declared ownership bundle remains one details item/work unit;
 - every Phase A `filesToChange` entry must be covered by a same-id Phase B writable resource;
-- repository paths named by `forbiddenChanges` are wrapped in backticks, with a trailing `/` retained for directories;
+- machine-readable artifact paths are bare repository-relative strings and executable command fields are literal shell commands;
+- each item's `validationCommands` validates only its isolated change; required top-level `finalValidationCommands` run after all accepted changes are integrated;
+- repository paths named in human-readable `forbiddenChanges` prose are wrapped in backticks, with a trailing `/` retained for directories;
 - same owned file/resource compiles into one worker packet by default;
 - missing anchors, source ids, or Phase A contract inputs fail compilation;
 - Phase A semantic dependencies do not serialize file/resource shards;
+- for an explicit task-declared validation dependency with a concrete upstream read, Phase B must use `post-change-required`; a missing or `baseline-context` classification is rejected;
 - Phase A `filesToRead` overlaps with sibling-owned resources must be reclassified in Phase B read dependencies;
 - the adapter includes a computed `requiredReadClassifications` checklist in the Phase B prompt, but Phase B still chooses `baseline-context` vs `post-change-required`;
 - `baseline-context` read overlap does not serialize;

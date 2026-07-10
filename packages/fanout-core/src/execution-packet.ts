@@ -155,6 +155,8 @@ export function validateExecutionPacket(packet: unknown): PacketValidationResult
 	if (Array.isArray(packet.finalValidationPlan)) {
 		for (const [index, value] of packet.finalValidationPlan.entries()) {
 			if (typeof value !== "string") continue;
+			if (value.includes("`")) add(errors, "markdown-command", "finalValidationPlan commands must be literal shell commands without Markdown backticks", `finalValidationPlan[${index}]`);
+			if (looksLikeValidationProse(value)) add(errors, "non-executable-command", "finalValidationPlan entries must be executable shell commands, not validation prose", `finalValidationPlan[${index}]`);
 			const unsafe = unsafeCommand(value);
 			if (unsafe) add(errors, "unsafe-command", `finalValidationPlan contains unsafe command pattern: ${unsafe}`, `finalValidationPlan[${index}]`);
 		}
@@ -206,6 +208,9 @@ export function validateExecutionPacket(packet: unknown): PacketValidationResult
 		const validationCommands = stringArray(unit.validationCommands, errors, `${path}.validationCommands`, "validationCommands", id);
 		const acceptanceCriteria = stringArray(unit.acceptanceCriteria, errors, `${path}.acceptanceCriteria`, "acceptanceCriteria", id);
 		const rollbackNotes = stringArray(unit.rollbackNotes, errors, `${path}.rollbackNotes`, "rollbackNotes", id);
+		for (const [field, values] of [["ownedFiles", ownedFiles], ["readOnlyFiles", readOnlyFiles]] as const) for (const [valueIndex, value] of values.entries()) {
+			if (value.includes("`")) add(errors, "markdown-path", `${field} entries must be bare repository paths without Markdown backticks`, `${path}.${field}[${valueIndex}]`, id || undefined);
+		}
 
 		if (unit.active !== undefined && (typeof unit.active !== "string" || !VALID_ACTIVE_STATES.has(unit.active))) add(errors, "invalid-active-state", "active must be active or background", `${path}.active`, id || undefined);
 		if (ownedFiles.length > 0 && validationCommands.length === 0) add(errors, "missing-validation", "work units that own files need validationCommands", `${path}.validationCommands`, id || undefined);
@@ -213,6 +218,8 @@ export function validateExecutionPacket(packet: unknown): PacketValidationResult
 
 		for (const [field, values] of [["steps", steps], ["validationCommands", validationCommands]] as const) {
 			for (const value of values) {
+				if (field === "validationCommands" && value.includes("`")) add(errors, "markdown-command", "validationCommands must be literal shell commands without Markdown backticks", `${path}.${field}`, id || undefined);
+				if (field === "validationCommands" && looksLikeValidationProse(value)) add(errors, "non-executable-command", "validationCommands must be executable shell commands, not validation prose", `${path}.${field}`, id || undefined);
 				const unsafe = unsafeCommand(value);
 				if (unsafe) add(errors, "unsafe-command", `${field} contains unsafe command pattern: ${unsafe}`, `${path}.${field}`, id || undefined);
 			}
@@ -701,6 +708,10 @@ function formatMetric([label, value]: [string, string]): string {
 export function unsafeCommand(command: string): string | undefined {
 	for (const [name, pattern] of UNSAFE_COMMANDS) if (pattern.test(command)) return name;
 	return unsafeStructuredCommand(command);
+}
+
+function looksLikeValidationProse(value: string): boolean {
+	return /^(?:Run|Confirm|Review|Repeat|Exercise|Inspect|Ensure)\b/.test(value.trim());
 }
 
 function unsafeStructuredCommand(command: string): string | undefined {

@@ -874,11 +874,12 @@ function setupCompiledExecution(name, { authoritativeFailure = false } = {}) {
   };
   const implementationDetails = {
     schema: "fanout.implementation-details",
-    version: 1,
+    version: 2,
     status: "ready",
     objective,
     artifactDir: packetDir,
     sourcePlanPath: join(packetDir, "implementation-plan.json"),
+    finalValidationCommands: authoritativeFailure ? ["rtk node validate-authoritative.mjs"] : [validationCommand],
     items: [{
       sourcePlanIds: ["compiled-edit"],
       ownedResources: ["value.txt"],

@@ -106,7 +106,11 @@ export function validateImplementationPlanArtifact(path: string, expected?: { ar
 			if (ids.has(id)) errors.push(`implementationItems[${index}].id is duplicate`);
 			ids.add(id);
 		}
-		for (const key of ["filesToChange", "filesToRead", "dependencies", "validation", "acceptanceCriteria", "risks"] as const) stringArray(item[key], `implementationItems[${index}].${key}`, errors);
+		for (const key of ["filesToChange", "filesToRead"] as const) {
+			const paths = stringArray(item[key], `implementationItems[${index}].${key}`, errors);
+			for (const [pathIndex, path] of paths.entries()) if (path.includes("`")) errors.push(`implementationItems[${index}].${key}[${pathIndex}] must be a bare repository path without Markdown backticks`);
+		}
+		for (const key of ["dependencies", "validation", "acceptanceCriteria", "risks"] as const) stringArray(item[key], `implementationItems[${index}].${key}`, errors);
 	}
 
 	for (const [index, item] of items.entries()) {

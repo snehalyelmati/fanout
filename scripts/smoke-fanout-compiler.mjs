@@ -20,6 +20,21 @@ for (const forbidden of ["parallelGroups", "tierPlan", "workerPacket"]) {
 
 const base = compile(samplePlan(), sampleDetails());
 expectCompileOk("base", base);
+const markdownCommandPacket = structuredClone(base.packet);
+markdownCommandPacket.workUnits.find((unit) => unit.id === "a").validationCommands = ["`rtk npm run smoke:fanout-compiler`"];
+markdownCommandPacket.finalValidationPlan = ["`rtk npm run smoke:fanout-compiler`"];
+const markdownCommandValidation = validateExecutionPacket(markdownCommandPacket);
+if (markdownCommandValidation.errors.filter((error) => error.code === "markdown-command").length !== 2) throw new Error(`packet validator accepted Markdown-wrapped commands: ${JSON.stringify(markdownCommandValidation.errors)}`);
+const markdownPathPacket = structuredClone(base.packet);
+markdownPathPacket.workUnits.find((unit) => unit.id === "a").ownedFiles = ["`src/a.ts`"];
+markdownPathPacket.workUnits.find((unit) => unit.id === "a").readOnlyFiles = ["`src/context.ts`"];
+const markdownPathValidation = validateExecutionPacket(markdownPathPacket);
+if (markdownPathValidation.errors.filter((error) => error.code === "markdown-path").length !== 2) throw new Error(`packet validator accepted Markdown-wrapped paths: ${JSON.stringify(markdownPathValidation.errors)}`);
+const proseCommandPacket = structuredClone(base.packet);
+proseCommandPacket.workUnits.find((unit) => unit.id === "a").validationCommands = ["Run rtk npm run smoke:fanout-compiler."];
+proseCommandPacket.finalValidationPlan = ["Review the integrated validation."];
+const proseCommandValidation = validateExecutionPacket(proseCommandPacket);
+if (proseCommandValidation.errors.filter((error) => error.code === "non-executable-command").length !== 2) throw new Error(`packet validator accepted validation prose as commands: ${JSON.stringify(proseCommandValidation.errors)}`);
 if (base.packet.workUnits.some((unit) => /contract/i.test(unit.id))) throw new Error(`compiler emitted a default contract node: ${base.packet.workUnits.map((unit) => unit.id).join(",")}`);
 const unavailableWorker = base.packet.workUnits.find((unit) => unit.id === "a");
 const baseFinalValidation = base.packet.workUnits.find((unit) => unit.id === "final-validation");
@@ -96,6 +111,43 @@ expectCompileError("missing filesToChange coverage", missingWriteCoverage, "file
 const missingContracts = compile(samplePlan([item("a", ["src/a.ts"], [], [])]), sampleDetails([detail("a", "src/a.ts")]));
 expectCompileError("missing contracts", missingContracts, "missing contract inputs");
 
+const markdownPlanPaths = compile(samplePlan([{ ...item("a", ["`src/a.ts`"]), filesToRead: ["`src/context.ts`"] }]), sampleDetails([detail("a", "src/a.ts")]));
+expectCompileError("Markdown Phase A write path", markdownPlanPaths, "implementationItems[0].filesToChange[0] must be a bare repository path");
+expectCompileError("Markdown Phase A read path", markdownPlanPaths, "implementationItems[0].filesToRead[0] must be a bare repository path");
+
+const markdownDetails = sampleDetails([{
+  ...detail("a", "src/a.ts"),
+  ownedResources: ["`src/a.ts`"],
+  existingFileEdits: [{ ...detail("a", "src/a.ts").existingFileEdits[0], file: "`src/a.ts`" }],
+  newFiles: [{ path: "`src/new.ts`", intendedSections: ["exports"], contentIntent: "Add a new export." }],
+  readDependencies: [{ file: "`src/context.ts`", classification: "baseline-context", reason: "Read baseline context." }],
+  validationCommands: ["`rtk npm run smoke:fanout-compiler`"],
+}]);
+markdownDetails.finalValidationCommands = ["`rtk npm run smoke:fanout-compiler`"];
+const markdownDetailsResult = compile(samplePlan([item("a", ["src/a.ts", "src/new.ts"])]), markdownDetails);
+for (const field of ["ownedResources[0]", "existingFileEdits[0].file", "newFiles[0].path", "readDependencies[0].file"]) expectCompileError(`Markdown Phase B ${field}`, markdownDetailsResult, `${field} must be a bare repository path`);
+expectCompileError("Markdown worker command", markdownDetailsResult, "validationCommands[0] must be a literal executable shell command");
+expectCompileError("Markdown final command", markdownDetailsResult, "finalValidationCommands[0] must be a literal executable shell command");
+
+const proseDetails = sampleDetails([detail("a", "src/a.ts")]);
+proseDetails.items[0].validationCommands = ["Run rtk npm run smoke:fanout-compiler."];
+proseDetails.finalValidationCommands = ["Confirm the integrated validation."];
+const proseDetailsResult = compile(samplePlan([item("a", ["src/a.ts"])]), proseDetails);
+expectCompileError("worker validation prose", proseDetailsResult, "validationCommands[0] must be an executable shell command, not validation prose");
+expectCompileError("final validation prose", proseDetailsResult, "finalValidationCommands[0] must be an executable shell command, not validation prose");
+
+const intentPlan = samplePlan([{ ...item("a", ["src/a.ts"]), validation: ["Run the focused source validation."] }]);
+intentPlan.validationPlan = ["Run the authoritative integrated validation."];
+const intentDetails = sampleDetails([detail("a", "src/a.ts")]);
+intentDetails.items[0].validationCommands = ["rtk npm run smoke:fanout-compiler"];
+intentDetails.finalValidationCommands = ["rtk npm run check"];
+const intentOnly = compile(intentPlan, intentDetails);
+expectCompileOk("Phase A validation stays non-executable", intentOnly);
+const intentWorker = intentOnly.packet.workUnits.find((unit) => unit.id === "a");
+if (JSON.stringify(intentWorker?.validationCommands) !== JSON.stringify(["rtk npm run smoke:fanout-compiler"])) throw new Error(`Phase A validation intent leaked into worker commands: ${JSON.stringify(intentWorker?.validationCommands)}`);
+if (JSON.stringify(intentOnly.packet.finalValidationPlan) !== JSON.stringify(["rtk npm run check"])) throw new Error(`Phase A final validation intent leaked into executable commands: ${JSON.stringify(intentOnly.packet.finalValidationPlan)}`);
+if (!intentWorker?.workerPacket.handoffContext.includes("Validation intent: Run the focused source validation.")) throw new Error(`Phase A validation intent lost from traceability: ${JSON.stringify(intentWorker?.workerPacket.handoffContext)}`);
+
 const noRequiredClassifications = buildRequiredReadClassifications(samplePlan([item("a", ["src/a.ts"]), item("b", ["src/b.ts"])]));
 if (noRequiredClassifications.length !== 0) throw new Error(`unexpected required read classifications: ${JSON.stringify(noRequiredClassifications)}`);
 
@@ -144,6 +196,48 @@ const postChange = compile(samplePlan([item("a", ["src/a.ts"]), { ...item("b", [
 expectCompileOk("post-change overlap", postChange);
 const postB = postChange.packet.workUnits.find((unit) => unit.id === "b");
 if (!postB?.dependencies.includes("a")) throw new Error("post-change-required overlap did not create dependency");
+
+const declaredValidationPlan = samplePlan([
+  item("runtime-abort", ["index.js"]),
+  { ...item("runtime-tests", ["test.js"], ["runtime-abort"]), filesToRead: ["index.js"] },
+  { ...item("types-abort", ["index.d.ts", "index.test-d.ts"]), filesToRead: ["index.d.ts", "index.test-d.ts"] },
+  item("docs-abort", ["readme.md"]),
+]);
+const declaredBaselineDetails = sampleDetails([
+  detail("runtime-abort", "index.js"),
+  detail("runtime-tests", "test.js", {}, [{ file: "index.js", classification: "baseline-context", reason: "Read the old runtime." }]),
+  bundledTypeDetail(),
+  detail("docs-abort", "readme.md"),
+]);
+declaredBaselineDetails.finalValidationCommands = ["rtk npm test"];
+const declaredBaseline = compile(declaredValidationPlan, declaredBaselineDetails);
+expectCompileError("task-declared validation dependency rejects baseline context", declaredBaseline, "task-declared dependency runtime-tests -> runtime-abort overlaps index.js; classify it as post-change-required");
+
+const declaredMixedDetails = structuredClone(declaredBaselineDetails);
+declaredMixedDetails.items.find((item) => item.sourcePlanIds.includes("runtime-tests")).readDependencies.push({ file: "index.js", classification: "post-change-required", reason: "Also read the integrated runtime." });
+const declaredMixed = compile(declaredValidationPlan, declaredMixedDetails);
+expectCompileError("task-declared validation dependency rejects contradictory classifications", declaredMixed, "classify it as post-change-required, not baseline-context");
+
+const declaredPostChangeDetails = sampleDetails([
+  detail("runtime-abort", "index.js"),
+  detail("runtime-tests", "test.js", {}, [{ file: "index.js", classification: "post-change-required", reason: "The task requires AVA validation against the integrated runtime." }]),
+  bundledTypeDetail(),
+  detail("docs-abort", "readme.md"),
+]);
+declaredPostChangeDetails.finalValidationCommands = ["rtk npm test"];
+const declaredPostChange = compile(declaredValidationPlan, declaredPostChangeDetails);
+expectCompileOk("task-declared validation dependency", declaredPostChange);
+const declaredRuntimeTests = declaredPostChange.packet.workUnits.find((unit) => unit.id === "runtime-tests");
+if (JSON.stringify(declaredRuntimeTests?.dependencies) !== JSON.stringify(["runtime-abort"])) throw new Error(`task-declared validation dependency compiled incorrectly: ${JSON.stringify(declaredRuntimeTests?.dependencies)}`);
+for (const id of ["types-abort", "docs-abort"]) if (declaredRuntimeTests.dependencies.includes(id)) throw new Error(`runtime tests gained unrelated dependency ${id}`);
+expectGroup("task-declared validation dependency preserves initial parallelism", declaredPostChange.packet, ["runtime-abort", "types-abort", "docs-abort"]);
+const declaredTypes = declaredPostChange.packet.workUnits.find((unit) => unit.id === "types-abort");
+if (JSON.stringify(declaredTypes?.ownedFiles) !== JSON.stringify(["index.d.ts", "index.test-d.ts"])) throw new Error(`task-declared type ownership bundle was not preserved: ${JSON.stringify(declaredTypes?.ownedFiles)}`);
+const declaredWorkers = declaredPostChange.packet.workUnits.filter((unit) => unit.id !== "final-validation").map((unit) => unit.id).sort();
+if (JSON.stringify(declaredWorkers) !== JSON.stringify(["docs-abort", "runtime-abort", "runtime-tests", "types-abort"])) throw new Error(`p-map fixture emitted the wrong worker set: ${JSON.stringify(declaredWorkers)}`);
+const declaredFinal = declaredPostChange.packet.workUnits.find((unit) => unit.id === "final-validation");
+if (JSON.stringify(declaredFinal?.dependencies) !== JSON.stringify(["docs-abort", "runtime-abort", "runtime-tests", "types-abort"])) throw new Error(`p-map final validation dependencies are wrong: ${JSON.stringify(declaredFinal?.dependencies)}`);
+if (JSON.stringify(declaredPostChange.packet.finalValidationPlan) !== JSON.stringify(["rtk npm test"])) throw new Error(`p-map final validation command is wrong: ${JSON.stringify(declaredPostChange.packet.finalValidationPlan)}`);
 
 const sequentialFallback = compileSequential(samplePlan([item("a", ["src/a.ts"]), { ...item("b", ["src/b.ts"]), filesToRead: ["src/a.ts"] }]), sampleDetails([
   detail("a", "src/a.ts"),
@@ -205,11 +299,12 @@ function item(id, filesToChange, dependencies = [], acceptanceCriteria = [`${id}
 function sampleDetails(items = [detail("a", "src/a.ts"), detail("b", "src/b.ts")]) {
   return {
     schema: "fanout.implementation-details",
-    version: 1,
+    version: 2,
     status: "ready",
     objective: "Compiler smoke",
     artifactDir: "/tmp/fanout-compiler-smoke",
     sourcePlanPath: "/tmp/fanout-compiler-smoke/implementation-plan.json",
+    finalValidationCommands: ["rtk npm run smoke:fanout-compiler"],
     items,
   };
 }
@@ -226,6 +321,14 @@ function detail(sourcePlanId, file, overrides = {}, readDependencies = []) {
     forbiddenChanges: ["Do not change unrelated files."],
     validationCommands: ["rtk npm run smoke:fanout-compiler"],
   };
+}
+
+function bundledTypeDetail() {
+  const result = detail("types-abort", "index.d.ts");
+  result.ownedResources.push("index.test-d.ts");
+  result.existingFileEdits.push({ file: "index.test-d.ts", symbolName: "pMapIterable type assertions", section: "inference", anchorText: "expectType<AsyncIterable<string>>", lineRangeHint: "1-5", editIntent: "Assert signal-aware iterable inference." });
+  result.validationCommands = ["rtk npx tsd"];
+  return result;
 }
 
 function tierPlan() {

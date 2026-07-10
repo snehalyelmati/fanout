@@ -19,10 +19,10 @@ const fanoutPiIndex = readFileSync("packages/fanout-pi/src/index.ts", "utf8");
 const piPkg = JSON.parse(readFileSync("packages/fanout-pi/package.json", "utf8"));
 if (!piPkg.pi?.extensions?.includes("./src/index.ts")) throw new Error("packages/fanout-pi/package.json does not expose ./src/index.ts");
 if (piPkg.pi?.prompts?.some((path) => path.includes("fanout-plan"))) throw new Error("/fanout-plan should be command-backed, not a package prompt");
-for (const phrase of ["Phase A", "implementation-plan.json", "what must change and why", "Do not locate anchors", "Planning only", "ask_user_question", "Ambiguity gate", "implementationItems", "validationPlan", "contract-first", "Do not add dependencies for final verification", "not execution DAG edges", "resolved task objective", "Implementation plan written; validating…"]) {
+for (const phrase of ["Phase A", "implementation-plan.json", "what must change and why", "Do not locate anchors", "Planning only", "ask_user_question", "Ambiguity gate", "implementationItems", "validationPlan", "contract-first", "Do not add dependencies for final verification", "not execution DAG edges", "resolved task objective", "Copy the adapter-provided `artifactDir` exactly", "bare repository-relative path", "explicit task-declared validation dependency", "exact upstream file/resource", "explicit task-declared multi-file ownership bundle or node", "top-level `finalValidationCommands`", "Implementation plan written; validating…"]) {
   if (!implementationPrompt.includes(phrase)) throw new Error(`${implementationPromptPath} is missing phrase: ${phrase}`);
 }
-for (const phrase of ["Phase B", "implementationPlanPath", "implementation-details.json", "where to edit and the exact edit intent", "deterministic compiler", "Do not invent contracts", "Do not decide execution dependencies", "Do not write packet fields", "anchorText", "symbolName", "lineRangeHint", "baseline-context", "post-change-required", "authorable from the contract", "one details item per independently editable file/resource", "Reuse the same `sourcePlanIds`", "Phase A `filesToRead` entry overlaps", "Every Phase A `filesToChange` entry must be covered", "only as a concrete `post-change-required` file read", "Do not serialize tests, docs, fixtures, or package scripts behind implementation unless", "requiredReadClassifications", "sourcePlanIds", "ownedResources", "validationCommands", "Copy `objective` exactly", "Implementation details written; validating…"]) {
+for (const phrase of ["Phase B", "implementationPlanPath", "implementation-details.json", "where to edit and the exact edit intent", "deterministic compiler", "Do not invent contracts", "Do not decide execution dependencies", "Do not write packet fields", "anchorText", "symbolName", "lineRangeHint", "baseline-context", "post-change-required", "authorable from the contract", "one details item per independently editable file/resource", "explicit task-declared multi-file ownership bundle or node", "overrides the default per-resource split preference", "Reuse the same `sourcePlanIds`", "Phase A `filesToRead` entry overlaps", "Every Phase A `filesToChange` entry must be covered", "only as a concrete `post-change-required` file read", "explicit task-declared validation dependency", "matching upstream `filesToRead`", "same `sourcePlanIds`", "Copy adapter-provided `artifactDir` and `sourcePlanPath` exactly", "bare repository-relative path", "literal executable shell command", "Do not wrap it in Markdown backticks or a code fence", "applicable repository command-prefix rules", "such as `rtk`", "final integrated validation", "distinct from every item's `validationCommands`", "Use schema `fanout.implementation-details`, version `2`, status `ready`", "finalValidationCommands", "Do not serialize tests, docs, fixtures, or package scripts behind implementation unless", "requiredReadClassifications", "sourcePlanIds", "ownedResources", "validationCommands", "Copy `objective` exactly", "Implementation details written; validating…"]) {
   if (!detailsPrompt.includes(phrase)) throw new Error(`${detailsPromptPath} is missing phrase: ${phrase}`);
 }
 for (const forbidden of ["workerPacket", "parallelGroups", "tier assignments"]) {
@@ -107,11 +107,12 @@ try {
   expectValidPlan(run.implementationPlanPath, { artifactDir: run.artifactDir });
   const validDetails = {
     schema: "fanout.implementation-details",
-    version: 1,
+    version: 2,
     status: "ready",
     objective: "Resolved docs objective",
     artifactDir: run.artifactDir,
     sourcePlanPath: run.implementationPlanPath,
+    finalValidationCommands: ["rtk npm run check"],
     items: [{
       sourcePlanIds: ["docs"],
       ownedResources: ["README.md"],
@@ -122,6 +123,7 @@ try {
       validationCommands: ["rtk npm run check"],
     }],
   };
+  if (validDetails.finalValidationCommands.length !== 1 || validDetails.finalValidationCommands[0] !== "rtk npm run check") throw new Error(`bad final validation command fixture: ${JSON.stringify(validDetails.finalValidationCommands)}`);
   const detailsValidation = validateImplementationDetailsArtifact(validDetails, { objective: "Resolved docs objective", artifactDir: run.artifactDir, sourcePlanPath: run.implementationPlanPath });
   if (!detailsValidation.ok) throw new Error(`resolved Phase B objective was rejected: ${JSON.stringify(detailsValidation)}`);
   const wrongDetailsValidation = validateImplementationDetailsArtifact({ ...validDetails, objective: "Invocation shorthand" }, { objective: "Resolved docs objective", artifactDir: run.artifactDir, sourcePlanPath: run.implementationPlanPath });
@@ -137,6 +139,8 @@ try {
   expectInvalidPlan(run.implementationPlanPath, { artifactDir: run.artifactDir }, "references unknown id missing");
   writePlan(run.implementationPlanPath, { ...validPlan, validationPlan: [42] });
   expectInvalidPlan(run.implementationPlanPath, { artifactDir: run.artifactDir }, "validationPlan[0] must be a string");
+  writePlan(run.implementationPlanPath, { ...validPlan, implementationItems: [{ ...validPlan.implementationItems[0], filesToChange: ["`README.md`"] }] });
+  expectInvalidPlan(run.implementationPlanPath, { artifactDir: run.artifactDir }, "filesToChange[0] must be a bare repository path");
 } finally {
   rmSync(helperDir, { recursive: true, force: true });
 }
