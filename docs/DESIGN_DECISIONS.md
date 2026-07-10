@@ -537,3 +537,9 @@ Reason: A strong control-plane model should not force every realtime execution f
 Decision: Tier 1 always uses Pi's current model and thinking level. `/fanout-config tier1` changes that Pi state through `setModel()` and `setThinkingLevel()` rather than persisting an independent `fanout.tiers.tier1` override. Legacy overrides are ignored and removed when Tier 1 is next configured. Fanout reads supported thinking levels from Pi instead of maintaining its own interpretation of provider maps.
 
 Reason: One model source of truth prevents the interactive session and Tier 1 control plane from drifting, while Pi's registry already owns provider models, capability maps, clamping, authentication, and model-change events.
+
+### Allow users to disable Tier 2 routing
+
+Decision: Tier 2 remains enabled by default when its configured model is usable, but `/fanout-config tier2` may explicitly set `fanout.tiers.tier2.enabled` to `false`. Newly planned packets then assign eligible workers to the concrete realtime `tier2Fallback` role. Selecting a Tier 2 model re-enables async routing; existing accepted packets keep their concrete assignments.
+
+Reason: Users need a simple way to run the control plane and worker plane with two realtime models without editing JSON manually or weakening packet determinism.

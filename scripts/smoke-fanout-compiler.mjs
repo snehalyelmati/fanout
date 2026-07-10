@@ -23,7 +23,7 @@ expectCompileOk("base", base);
 if (base.packet.workUnits.some((unit) => /contract/i.test(unit.id))) throw new Error(`compiler emitted a default contract node: ${base.packet.workUnits.map((unit) => unit.id).join(",")}`);
 const unavailableWorker = base.packet.workUnits.find((unit) => unit.id === "a");
 const baseFinalValidation = base.packet.workUnits.find((unit) => unit.id === "final-validation");
-if (unavailableWorker?.tier.model !== "fallback-worker" || unavailableWorker.tier.assigned !== "tier1") throw new Error(`tier2-unavailable worker did not use tier2Fallback: ${JSON.stringify(unavailableWorker?.tier)}`);
+if (unavailableWorker?.tier.provider !== "current" || unavailableWorker.tier.model !== "fallback-worker" || unavailableWorker.tier.thinking !== "low" || unavailableWorker.tier.assigned !== "tier1") throw new Error(`tier2-disabled worker did not use the concrete tier2Fallback assignment: ${JSON.stringify(unavailableWorker?.tier)}`);
 if (baseFinalValidation?.tier.model !== "current-session-model") throw new Error(`tier1-only final validation used fallback model: ${JSON.stringify(baseFinalValidation?.tier)}`);
 
 const directoryDetail = detail("a", "generated/file.txt");
@@ -231,7 +231,7 @@ function detail(sourcePlanId, file, overrides = {}, readDependencies = []) {
 function tierPlan() {
   return {
     tier1: { provider: "current", model: "current-session-model", thinking: "auto", source: "current Pi active model", status: "available", reason: "control plane, review, synthesis" },
-    tier2: { provider: "doubleword", model: "zai-org/GLM-5.2-FP8", thinking: "medium", source: "default settings", status: "unavailable", reason: "async unavailable", fallback: "tier1" },
+    tier2: { provider: "doubleword", model: "zai-org/GLM-5.2-FP8", thinking: "medium", source: "fanout.tiers.tier2", status: "unavailable", reason: "tier2 disabled in fanout.tiers.tier2.enabled", fallback: "tier1" },
     tier2Fallback: { provider: "current", model: "fallback-worker", thinking: "low", source: "fanout.execution.tier2Fallback", status: "available", reason: "realtime fallback for tier2 execution" },
   };
 }

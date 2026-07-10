@@ -39,10 +39,17 @@ for (const phrase of ["SelectList", "Fanout model routing", "not a third tier", 
 try {
   await testCurrentDisplay();
   await testQualifiedTier2Save();
+  await testDisableTier2();
+  await testDisableTier2WithoutModels();
+  await testProjectTier2Override();
+  await testUnrelatedProjectSettingsUseGlobalRole();
+  await testProjectFallbackInheritanceMarker();
+  await testMalformedProjectSettingsArePreserved();
   await testNoQualifiedModels();
   await testCancelDoesNotWrite();
   await testTier1PassThrough();
   await testTier1SwitchFailurePreservesSettings();
+  await testTier1CleanupFailureReportsChangedModel();
   await testPiThinkingLevels();
   await testGenericAsyncProvider();
   await testExplicitFallback();
@@ -76,6 +83,7 @@ async function testCurrentDisplay() {
 
 async function testQualifiedTier2Save() {
   const settingsPath = join(dir, "qualified.json");
+  writeFileSync(settingsPath, JSON.stringify({ fanout: { tiers: { tier2: { enabled: false } } } }));
   const calls = [];
   const ctx = makeContext(models, (title, options) => {
     calls.push({ title, options });
@@ -87,15 +95,117 @@ async function testQualifiedTier2Save() {
   await configureFanoutTier("tier2", ctx, undefined, "auto", settingsPath, join(dir, "artifacts"), resolved);
   const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
   const tier2 = settings.fanout?.tiers?.tier2;
-  assert(tier2?.provider === "doubleword" && tier2.model === "zai-org/GLM-5.2-FP8" && tier2.thinking === "medium" && tier2.enabled === "auto", `bad tier2 settings: ${JSON.stringify(settings)}`);
+  assert(tier2?.provider === "doubleword" && tier2.model === "zai-org/GLM-5.2-FP8" && tier2.thinking === "medium" && tier2.enabled === true, `bad tier2 settings: ${JSON.stringify(settings)}`);
   const provider = calls.find((call) => call.title?.includes("provider"));
   const model = calls.find((call) => call.title?.includes("model"));
   const thinking = calls.find((call) => call.title?.includes("thinking"));
   const main = calls.find((call) => call.title?.startsWith("Select a model role"));
-  assert(provider.options.length === 1 && provider.options[0].startsWith("doubleword ·"), `unqualified provider was listed: ${JSON.stringify(provider)}`);
+  assert(provider.options.length === 2 && provider.options[0] === "Disable Tier 2 — use realtime fallback" && provider.options[1].startsWith("doubleword ·"), `unqualified provider was listed: ${JSON.stringify(provider)}`);
   assert(model.options.length === 1 && model.options[0].includes("reasoning: yes") && model.options[0].includes("thinking: off/low/medium") && model.options[0].includes("tier2: available"), `model metadata missing or unqualified model listed: ${JSON.stringify(model)}`);
   assert(thinking.title.endsWith("Esc to go back") && thinking.options.includes("medium") && !thinking.options.includes("high"), `bad thinking selector: ${JSON.stringify(thinking)}`);
   assert(main.options.includes("Tier 2 · doubleword/zai-org/GLM-5.2-FP8 · medium · available"), `saved value did not refresh main menu: ${JSON.stringify(main)}`);
+}
+
+async function testDisableTier2() {
+  const settingsPath = join(dir, "disabled.json");
+  writeFileSync(settingsPath, JSON.stringify({ theme: "dark", fanout: { tiers: { tier2: { provider: "doubleword", model: "worker", thinking: "low", enabled: true } } } }));
+  const calls = [];
+  const ctx = makeContext(models, (title, options) => {
+    calls.push({ title, options });
+    if (title.includes("provider")) return "Disable Tier 2 — use realtime fallback";
+    return undefined;
+  }, calls);
+  await configureFanoutTier("tier2", ctx, undefined, "auto", settingsPath, undefined, resolved);
+  const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+  const tier2 = settings.fanout?.tiers?.tier2;
+  assert(settings.theme === "dark" && tier2?.provider === "doubleword" && tier2.model === "worker" && tier2.thinking === "low" && tier2.enabled === false, `disabling tier2 did not preserve settings: ${JSON.stringify(settings)}`);
+  assert(calls.some((call) => call.type === "info" && call.message.includes("Eligible workers will use the realtime Tier 2 fallback")), `missing disabled routing notice: ${JSON.stringify(calls)}`);
+  const main = calls.find((call) => call.title?.startsWith("Select a model role"));
+  assert(main?.options.includes("Tier 2 · Disabled"), `disabled tier2 did not refresh main screen: ${JSON.stringify(main)}`);
+}
+
+async function testDisableTier2WithoutModels() {
+  const settingsPath = join(dir, "disabled-empty.json");
+  const calls = [];
+  const ctx = makeContext([], (title) => title.includes("provider") ? "Disable Tier 2 — use realtime fallback" : undefined, calls);
+  await configureFanoutTier("tier2", ctx, undefined, "auto", settingsPath, undefined, resolved, []);
+  const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+  assert(settings.fanout?.tiers?.tier2?.enabled === false, `tier2 could not be disabled without models: ${JSON.stringify(settings)}`);
+  assert(calls.some((call) => call.type === "warning" && call.message.includes("No available tier2 models")), `missing no-model warning: ${JSON.stringify(calls)}`);
+}
+
+async function testProjectTier2Override() {
+  const globalPath = join(dir, "layered-global.json");
+  const projectPath = join(dir, "project", ".pi", "settings.json");
+  mkdirSync(join(dir, "project", ".pi"), { recursive: true });
+  writeFileSync(globalPath, JSON.stringify({ fanout: { tiers: { tier2: { provider: "doubleword", model: "global-worker", enabled: true } } } }));
+  writeFileSync(projectPath, JSON.stringify({ fanout: { tiers: { tier2: { provider: "doubleword", model: "project-worker", thinking: "low", enabled: true } } } }));
+
+  const disableCtx = makeContext(models, (title) => title.includes("provider") ? "Disable Tier 2 — use realtime fallback" : undefined);
+  await configureFanoutTier("tier2", disableCtx, undefined, "auto", globalPath, undefined, resolved, models, undefined, projectPath);
+  const disabledGlobal = JSON.parse(readFileSync(globalPath, "utf8")).fanout.tiers.tier2;
+  const disabledProject = JSON.parse(readFileSync(projectPath, "utf8")).fanout.tiers.tier2;
+  assert(disabledGlobal.enabled === true && disabledGlobal.model === "global-worker", `project disable changed global tier2: ${JSON.stringify(disabledGlobal)}`);
+  assert(disabledProject.enabled === false && disabledProject.model === "project-worker" && disabledProject.thinking === "low", `project tier2 override was not disabled: ${JSON.stringify(disabledProject)}`);
+
+  const enableCtx = makeContext(models, (title, options) => {
+    if (title.includes("provider")) return options.find((option) => option.startsWith("doubleword ·"));
+    if (title.includes("model")) return options.find((option) => option.startsWith("zai-org/GLM-5.2-FP8 ·"));
+    if (title.includes("thinking")) return "medium";
+    return undefined;
+  });
+  await configureFanoutTier("tier2", enableCtx, undefined, "auto", globalPath, undefined, resolved, models, undefined, projectPath);
+  const enabledGlobal = JSON.parse(readFileSync(globalPath, "utf8")).fanout.tiers.tier2;
+  const enabledProject = JSON.parse(readFileSync(projectPath, "utf8")).fanout.tiers.tier2;
+  assert(enabledGlobal.enabled === true && enabledGlobal.model === "global-worker", `project re-enable changed global tier2: ${JSON.stringify(enabledGlobal)}`);
+  assert(enabledProject.enabled === true && enabledProject.model === "zai-org/GLM-5.2-FP8" && enabledProject.thinking === "medium", `project tier2 override was not re-enabled: ${JSON.stringify(enabledProject)}`);
+}
+
+async function testUnrelatedProjectSettingsUseGlobalRole() {
+  const globalPath = join(dir, "unrelated-project-global.json");
+  const projectPath = join(dir, "unrelated-project.json");
+  const project = JSON.stringify({ theme: "dark", fanout: { execution: { maxConcurrency: 3 } } });
+  writeFileSync(globalPath, JSON.stringify({ theme: "light" }));
+  writeFileSync(projectPath, project);
+  const ctx = makeContext(models, (title) => title.includes("provider") ? "Disable Tier 2 — use realtime fallback" : undefined);
+  await configureFanoutTier("tier2", ctx, undefined, "auto", globalPath, undefined, resolved, models, undefined, projectPath);
+  const global = JSON.parse(readFileSync(globalPath, "utf8"));
+  assert(global.theme === "light" && global.fanout?.tiers?.tier2?.enabled === false, `role without a project override was not written globally: ${JSON.stringify(global)}`);
+  assert(readFileSync(projectPath, "utf8") === project, "unrelated project settings were changed");
+}
+
+async function testProjectFallbackInheritanceMarker() {
+  const globalPath = join(dir, "fallback-layered-global.json");
+  const projectPath = join(dir, "fallback-layered-project.json");
+  const globalFallback = { provider: "other", model: "other-model", thinking: "off" };
+  writeFileSync(globalPath, JSON.stringify({ fanout: { execution: { tier2Fallback: globalFallback } } }));
+  writeFileSync(projectPath, JSON.stringify({ fanout: { execution: { maxConcurrency: 4, tier2Fallback: { provider: "openai-codex", model: "gpt-5.6-sol", thinking: "minimal" } } } }));
+  const calls = [];
+  const ctx = makeContext(models, (title, options) => {
+    calls.push({ title, options });
+    return title.includes("provider") ? "Use Tier 1" : undefined;
+  }, calls);
+  const explicitResolved = { ...resolved, tier2Fallback: { provider: "openai-codex", model: "gpt-5.6-sol", thinking: "minimal", source: "fanout.execution.tier2Fallback", status: "available" } };
+  await configureFanoutTier("fallback", ctx, undefined, "auto", globalPath, undefined, explicitResolved, models, undefined, projectPath);
+  const global = JSON.parse(readFileSync(globalPath, "utf8"));
+  const project = JSON.parse(readFileSync(projectPath, "utf8"));
+  assert(JSON.stringify(global.fanout.execution.tier2Fallback) === JSON.stringify(globalFallback), `project fallback reset changed global fallback: ${JSON.stringify(global)}`);
+  assert(project.fanout.execution.maxConcurrency === 4 && JSON.stringify(project.fanout.execution.tier2Fallback) === JSON.stringify({ inherit: "tier1" }), `project fallback reset did not persist inheritance marker: ${JSON.stringify(project)}`);
+  const main = calls.find((call) => call.title?.startsWith("Select a model role"));
+  assert(main?.options.includes("Tier 2 fallback · Use Tier 1"), `project fallback reset did not refresh UI truthfully: ${JSON.stringify(main)}`);
+}
+
+async function testMalformedProjectSettingsArePreserved() {
+  const globalPath = join(dir, "malformed-project-global.json");
+  const projectPath = join(dir, "malformed-project.json");
+  const global = JSON.stringify({ fanout: { tiers: { tier2: { enabled: true } } } });
+  const malformed = `{"fanout":`;
+  writeFileSync(globalPath, global);
+  writeFileSync(projectPath, malformed);
+  const calls = [];
+  await configureFanoutTier("tier2", makeContext(models, () => undefined, calls), undefined, "auto", globalPath, undefined, resolved, models, undefined, projectPath);
+  assert(readFileSync(globalPath, "utf8") === global && readFileSync(projectPath, "utf8") === malformed, "malformed project settings were changed");
+  assert(calls.some((call) => call.type === "error" && call.message.includes(projectPath) && call.message.includes("were not changed")), `malformed project settings error was not actionable: ${JSON.stringify(calls)}`);
 }
 
 async function testNoQualifiedModels() {
@@ -116,7 +226,7 @@ async function testCancelDoesNotWrite() {
   const ctx = makeContext(models, (title, options) => {
     if (title.includes("provider")) {
       providerSelected = true;
-      return options[0];
+      return options.find((option) => option.startsWith("doubleword ·"));
     }
     return undefined;
   });
@@ -170,6 +280,29 @@ async function testTier1SwitchFailurePreservesSettings() {
     assert(calls.some((call) => call.type === "error" && call.message.includes(testCase.expectedError)), `${testCase.name} tier1 switch failure was not actionable: ${JSON.stringify(calls)}`);
     assert(!calls.some((call) => call.type === "info" && call.message.includes("Current Pi model")), `${testCase.name} tier1 switch emitted false success`);
   }
+}
+
+async function testTier1CleanupFailureReportsChangedModel() {
+  const settingsPath = join(dir, "tier1-cleanup-failure.json");
+  writeFileSync(settingsPath, JSON.stringify({ fanout: { tiers: { tier1: { provider: "old", model: "old" } } } }));
+  const calls = [];
+  let selected;
+  const ctx = makeContext(models, (title, options) => {
+    if (title.includes("provider")) return options.find((option) => option.startsWith("other ·"));
+    if (title.includes("model")) return options.find((option) => option.startsWith("other-model ·"));
+    if (title.includes("thinking")) return "off";
+    return undefined;
+  }, calls);
+  await configureFanoutTier("tier1", ctx, undefined, "auto", settingsPath, undefined, resolved, models, async (model, thinking) => {
+    selected = { model, thinking };
+    rmSync(settingsPath);
+    mkdirSync(settingsPath);
+    return true;
+  });
+  assert(selected?.model?.id === "other-model" && selected.thinking === "off", `tier1 model did not change before cleanup failure: ${JSON.stringify(selected)}`);
+  assert(calls.some((call) => call.type === "warning" && call.message.includes("Tier 1 changed") && call.message.includes("legacy setting could not be removed")), `tier1 cleanup failure did not report partial success: ${JSON.stringify(calls)}`);
+  assert(!calls.some((call) => call.type === "error" && call.message.includes("were not changed")), `tier1 cleanup failure falsely reported no change: ${JSON.stringify(calls)}`);
+  rmSync(settingsPath, { recursive: true });
 }
 
 async function testPiThinkingLevels() {
@@ -273,6 +406,7 @@ async function testInvalidSettingsShapesArePreserved() {
     { name: "execution-primitive", role: "fallback", value: { fanout: { execution: 1 } } },
     { name: "invalid-execution-while-configuring-tier1", role: "tier1", value: { fanout: { execution: [] } } },
     { name: "invalid-tiers-while-clearing-fallback", role: "fallback", value: { fanout: { tiers: [] } } },
+    { name: "invalid-tier2-while-disabling", role: "tier2-disable", value: { fanout: { tiers: { tier2: [] } } } },
   ];
   for (const testCase of cases) {
     const settingsPath = join(dir, `${testCase.name}.json`);
@@ -298,12 +432,13 @@ async function configureForSettingsFailure(role, settingsPath) {
   const ctx = makeContext(models, (title, options) => {
     calls.push({ title, options });
     if (role === "fallback" && title.includes("provider")) return "Use Tier 1";
+    if (role === "tier2-disable" && title.includes("provider")) return "Disable Tier 2 — use realtime fallback";
     if (title.includes("provider")) return options.find((option) => option.startsWith("other ·"));
     if (title.includes("model")) return options.find((option) => option.startsWith("other-model ·"));
     if (title.includes("thinking")) return "off";
     return undefined;
   }, calls);
-  await configureFanoutTier(role, ctx, undefined, "auto", settingsPath, undefined, resolved);
+  await configureFanoutTier(role === "tier2-disable" ? "tier2" : role, ctx, undefined, "auto", settingsPath, undefined, resolved);
   return calls;
 }
 
@@ -438,7 +573,10 @@ async function testTuiSubmenuEscape() {
           let result;
           const component = factory({ requestRender() {} }, theme, tuiKeybindings(), (value) => { result = value; });
           if (dialog === cancelAt || dialog === cancelAt + 1) component.handleInput("\x1b");
-          else component.handleInput("\r");
+          else {
+            if (dialog === 1) component.handleInput("j");
+            component.handleInput("\r");
+          }
           return result;
         },
       },

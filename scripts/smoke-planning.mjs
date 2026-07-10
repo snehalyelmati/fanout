@@ -156,6 +156,7 @@ function expectInvalidPlan(path, expected, errorSubstring) {
 }
 
 const dir = mkdtempSync(join(tmpdir(), "doubleword-pi-plan-"));
+const repoRoot = process.cwd();
 
 function readEvents(logFile) {
   return readFileSync(logFile, "utf8")
@@ -165,13 +166,18 @@ function readEvents(logFile) {
     .map((line) => JSON.parse(line));
 }
 
-function run(name, promptText, settings) {
+function run(name, promptText, settings, projectSettings) {
   const logFile = join(dir, `${name}.jsonl`);
   const agentDir = join(dir, `${name}-agent`);
+  const projectDir = join(dir, `${name}-project`);
   mkdirSync(agentDir, { recursive: true });
   if (settings) writeFileSync(join(agentDir, "settings.json"), `${JSON.stringify(settings, null, 2)}\n`, "utf8");
-  const result = spawnSync("pi", ["--no-extensions", "-e", ".", "--model", "doubleword-stub/deepseek-v4-flash", "-p", promptText], {
-    cwd: process.cwd(),
+  if (projectSettings) {
+    mkdirSync(join(projectDir, ".pi"), { recursive: true });
+    writeFileSync(join(projectDir, ".pi", "settings.json"), `${JSON.stringify(projectSettings, null, 2)}\n`, "utf8");
+  }
+  const result = spawnSync("pi", ["--no-extensions", "-e", repoRoot, "--model", "doubleword-stub/deepseek-v4-flash", "-p", promptText], {
+    cwd: projectSettings ? projectDir : repoRoot,
     env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, DOUBLEWORD_OBSERVABILITY_FILE: logFile, DOUBLEWORD_RUN_ID: `smoke-planning-${name}` },
     encoding: "utf8",
   });
@@ -189,10 +195,14 @@ function run(name, promptText, settings) {
   return { events, input, logFile };
 }
 
+function event(runResult, name) {
+  const found = runResult.events.find((item) => item.event === name);
+  if (!found) throw new Error(`${runResult.logFile}: missing ${name} event`);
+  return found;
+}
+
 function preflight(runResult) {
-  const event = runResult.events.find((item) => item.event === "fanout_plan_preflight");
-  if (!event) throw new Error(`${runResult.logFile}: missing fanout_plan_preflight event`);
-  return event;
+  return event(runResult, "fanout_plan_preflight");
 }
 
 try {
@@ -214,6 +224,30 @@ try {
   }
   if (unavailable.tierPlan?.tier2Fallback?.provider !== unavailable.tierPlan?.tier1?.provider || unavailable.tierPlan?.tier2Fallback?.model !== unavailable.tierPlan?.tier1?.model || unavailable.tierPlan?.tier2Fallback?.source !== "tier1 inheritance") {
     throw new Error(`missing fallback config did not inherit resolved tier1: ${JSON.stringify(unavailable.tierPlan)}`);
+  }
+
+  const layered = run("fanout-plan-layered-settings", "/fanout-plan Prepare a docs-only change plan", {
+    defaultThinkingLevel: "low",
+    fanout: {
+      tiers: { tier2: { provider: "doubleword-stub", model: "glm-5-2", thinking: "medium", enabled: true } },
+      execution: { tier2Fallback: { provider: "doubleword-stub", model: "glm-5-2", thinking: "medium" } },
+    },
+  }, {
+    fanout: {
+      tiers: { tier2: { enabled: false } },
+      execution: { tier2Fallback: { inherit: "tier1" } },
+    },
+  });
+  const layeredPreflight = preflight(layered);
+  const layeredStart = event(layered, "fanout_plan_start");
+  if (layeredPreflight.tierPlan?.tier2?.status !== "unavailable" || layeredPreflight.tier2Availability?.available !== false || !String(layeredPreflight.tier2Availability?.reason).includes("disabled")) {
+    throw new Error(`project tier2 override did not win through layered settings: ${JSON.stringify(layeredPreflight)}`);
+  }
+  if (layeredPreflight.tierPlan?.tier2Fallback?.provider !== layeredPreflight.tierPlan?.tier1?.provider || layeredPreflight.tierPlan?.tier2Fallback?.model !== layeredPreflight.tierPlan?.tier1?.model || layeredPreflight.tierPlan?.tier2Fallback?.source !== "tier1 inheritance" || !String(layeredPreflight.tierPlan?.tier2Fallback?.reason).includes("explicit inheritance marker")) {
+    throw new Error(`project inheritance marker did not mask global fallback: ${JSON.stringify(layeredPreflight.tierPlan)}`);
+  }
+  if (JSON.stringify(layeredStart.tierDefaults?.tier2Fallback) !== JSON.stringify({ inherit: "tier1" })) {
+    throw new Error(`layered fallback defaults exposed stale provider/model fields: ${JSON.stringify(layeredStart.tierDefaults?.tier2Fallback)}`);
   }
 
   const stubTier2 = run("fanout-plan-tier2-stub", "/fanout-plan Prepare a docs-only change plan", {

@@ -116,7 +116,7 @@ An explicit fallback may select any runnable realtime model from Pi's registry. 
 
 ## Settings
 
-Fanout exposes Pi settings for users to override Tier 2, the Tier 2 fallback, and execution concurrency. In `fanout-pi`, `/fanout-config` first shows the three model roles as wrapping multiline entries with descriptions and current values, then provides the dependent provider → model → supported-thinking flow. Arrow keys or `j`/`k` navigate every Fanout selector, Enter configures, and Escape returns or closes without a partial write.
+Fanout exposes Pi settings for users to override Tier 2, the Tier 2 fallback, and execution concurrency. In `fanout-pi`, `/fanout-config` first shows the three model roles as wrapping multiline entries with descriptions and current values, then provides the dependent provider → model → supported-thinking flow. The Tier 2 provider screen starts with **Disable Tier 2 — use realtime fallback**; choosing it preserves the selected Tier 2 model settings but routes eligible workers to the realtime Tier 2 fallback in newly planned packets. Selecting a Tier 2 provider/model later re-enables Tier 2. Arrow keys or `j`/`k` navigate every Fanout selector, Enter configures, and Escape returns or closes without a partial write.
 
 Example:
 
@@ -128,7 +128,7 @@ Example:
         "provider": "doubleword",
         "model": "zai-org/GLM-5.2-FP8",
         "thinking": "medium",
-        "enabled": "auto",
+        "enabled": false,
         "reason": "async background worker model"
       }
     },
@@ -144,7 +144,7 @@ Example:
 }
 ```
 
-`execution.tier2Fallback` configures the fallback model role. Its absence means “inherit Tier 1”; choosing **Use Tier 1** removes only that override, even when the model registry is empty. `/fanout-config tier1` changes Pi's current model and thinking level and removes any legacy `fanout.tiers.tier1` override; `/fanout-config tier2` and `/fanout-config fallback` persist their independent roles. Settings are read before modification; malformed or unreadable existing settings abort the change rather than being replaced. `maxConcurrency` remains the only execution-policy setting consumed directly by `/fanout-execute`. Retry counts and repair limits remain fixed MVP policy.
+`tiers.tier2.enabled: false` explicitly disables async Tier 2; absent or `true` enables it when the selected model's required capabilities are available. `execution.tier2Fallback` configures the fallback model role. Its absence means “inherit Tier 1”. Choosing **Use Tier 1** deletes a global fallback override; at the project layer it writes `{ "inherit": "tier1" }` so a merged global fallback cannot reappear, even when the model registry is empty. `/fanout-config tier1` changes Pi's current model and thinking level and removes any legacy `fanout.tiers.tier1` override; `/fanout-config tier2` persists its model selection or disabled state, and `/fanout-config fallback` persists the independent fallback role. Configuration writes to global Pi settings by default; when the selected role already has a project `.pi/settings.json` override, Fanout updates that effective project layer instead so it cannot shadow the requested change. Settings are read before modification, and malformed or unreadable effective settings abort before a model switch or settings write. If Pi switches Tier 1 successfully but the later legacy-setting cleanup fails, Fanout keeps the model change and reports that partial success accurately. `maxConcurrency` remains the only execution-policy setting consumed directly by `/fanout-execute`. Retry counts and repair limits remain fixed MVP policy.
 
 Use `reason`, not `reasoning`, for user-facing explanation. Pi model metadata already uses `reasoning` as a boolean capability.
 
@@ -213,6 +213,7 @@ resolveTierModels(ctx, settings):
 
 4. Check tier2 availability
    tier2 available if:
+     - settings.fanout.tiers.tier2.enabled is not false
      - provider is discoverable in Pi model registry
      - model exists
      - auth/API key is configured
@@ -498,4 +499,4 @@ model.fanout.background === true
 model.fanout.authReady === true
 ```
 
-Doubleword metadata is restored before Pi registry filtering can discard provider-specific fields. If any flag is absent or false, Tier 2 is unavailable and eligible execution nodes use the resolved Tier 2 fallback role on the realtime tier. `/fanout-config` applies the same filter to Tier 2 choices; Tier 1 and Tier 2 fallback choices remain unrestricted because they are realtime roles.
+Doubleword metadata is restored before Pi registry filtering can discard provider-specific fields. If Tier 2 is explicitly disabled or any flag is absent or false, Tier 2 is unavailable and eligible execution nodes use the resolved Tier 2 fallback role on the realtime tier. `/fanout-config` applies the same filter to Tier 2 model choices, while keeping the disable action available even when no Tier 2 model qualifies; Tier 1 and Tier 2 fallback choices remain unrestricted because they are realtime roles.

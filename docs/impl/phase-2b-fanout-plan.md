@@ -156,7 +156,7 @@ Requirements:
 
 Implementation status:
 
-- `/fanout-config` provides wrapping multiline Tier 1, Tier 2, and Tier 2 fallback role entries, then provider → model → thinking selection. Arrow keys and `j`/`k` navigate every Fanout selector; the displayed help includes those keys. Tier 1 passes through to Pi's `setModel()` and `setThinkingLevel()`; Tier 2 and optional `fanout.execution.tier2Fallback` persist to global Pi settings. **Use Tier 1** removes only the fallback override.
+- `/fanout-config` provides wrapping multiline Tier 1, Tier 2, and Tier 2 fallback role entries, then provider → model → thinking selection. The Tier 2 provider screen also offers **Disable Tier 2 — use realtime fallback**, including when no async model qualifies; selecting a Tier 2 model re-enables it. Arrow keys and `j`/`k` navigate every Fanout selector; the displayed help includes those keys. Tier 1 passes through to Pi's `setModel()` and `setThinkingLevel()`; Tier 2 and optional `fanout.execution.tier2Fallback` persist globally by default, or to an existing project override for that role so project precedence cannot shadow the change. **Use Tier 1** deletes the global fallback override or writes a project inheritance marker that masks a global fallback. Effective settings are validated before switching Tier 1; a post-switch legacy-cleanup failure is reported as partial success rather than as an unchanged model.
 
 ## Tier/model resolution algorithm
 
@@ -181,6 +181,7 @@ Implementation summary:
    - thinking default: medium
 
 4. Check tier2 availability
+   - `fanout.tiers.tier2.enabled !== false`
    - provider/model discoverable
    - `fanout.authReady === true`
    - `fanout.async === true`

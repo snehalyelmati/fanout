@@ -24,6 +24,7 @@ export async function configureFanoutTier(
 	resolvedTierPlan: ResolvedTierPlan = {},
 	registryModels?: Array<Record<string, unknown>>,
 	setCurrentModel?: SetCurrentModel,
+	projectSettingsPath?: string,
 ): Promise<void> {
 	if (artifactRoot) ctx.ui.notify(`Fanout artifacts: ${artifactRoot}`, "info");
 	const active = modelInfo(currentModel);
@@ -39,7 +40,14 @@ export async function configureFanoutTier(
 		directRole = undefined;
 		if (!role) return;
 
-		const saved = await configureRole(role, ctx, settingsPath, active, current, registryModels, setCurrentModel);
+		let roleSettingsPath: string;
+		try {
+			roleSettingsPath = effectiveSettingsPath(settingsPath, projectSettingsPath, role);
+		} catch (error) {
+			notifySettingsError(ctx, projectSettingsPath ?? settingsPath, error);
+			return;
+		}
+		const saved = await configureRole(role, ctx, roleSettingsPath, active, current, registryModels, setCurrentModel, roleSettingsPath === projectSettingsPath);
 		if (saved === SETTINGS_ERROR) return;
 		if (!saved) continue;
 		current[role] = saved;
@@ -156,16 +164,20 @@ async function configureRole(
 	current: Required<ResolvedTierPlan>,
 	configuredModels?: Array<Record<string, unknown>>,
 	setCurrentModel?: SetCurrentModel,
+	projectOverride = false,
 ): Promise<TierSummary | undefined | typeof SETTINGS_ERROR> {
 	const allModels = configuredModels ?? ctx.modelRegistry.getAll() as Array<Record<string, unknown>>;
 	const models = allModels.filter(hasModelId).filter((model) => role !== "tier2" || tier2Available(model));
-	if (models.length === 0 && role !== "tier2Fallback") {
-		ctx.ui.notify(role === "tier2" ? "No available tier2 models. A tier2 model must advertise fanout.async, fanout.background, and fanout.authReady." : `No registry models available to configure ${displayRole(role)}.`, "warning");
+	if (models.length === 0 && role !== "tier2Fallback" && role !== "tier2") {
+		ctx.ui.notify(`No registry models available to configure ${displayRole(role)}.`, "warning");
 		return undefined;
+	}
+	if (models.length === 0 && role === "tier2") {
+		ctx.ui.notify("No available tier2 models. A tier2 model must advertise fanout.async, fanout.background, and fanout.authReady.", "warning");
 	}
 
 	const providers = uniqueStrings(models.map((model) => stringField(model.provider)).filter((provider) => provider !== "unknown")).sort();
-	if (providers.length === 0 && role !== "tier2Fallback") {
+	if (providers.length === 0 && role !== "tier2Fallback" && role !== "tier2") {
 		ctx.ui.notify(`No providers available to configure ${displayRole(role)}.`, "warning");
 		return undefined;
 	}
@@ -175,13 +187,24 @@ async function configureRole(
 		value: provider,
 		label: `${provider} · ${models.filter((model) => stringField(model.provider) === provider).length} model(s)`,
 	}));
+	if (role === "tier2") providerChoices.unshift({ value: "disable-tier2", label: "Disable Tier 2 — use realtime fallback" });
 	if (role === "tier2Fallback") providerChoices.unshift({ value: "inherit-tier1", label: "Use Tier 1" });
 	const providerChoice = await selectOption(ctx, `${displayRole(role)} provider · Esc to go back`, providerChoices.map((choice) => choice.label));
 	const provider = providerChoices.find((choice) => choice.label === providerChoice)?.value;
 	if (!provider) return undefined;
+	if (provider === "disable-tier2") {
+		try {
+			disableTier2(settingsPath);
+		} catch (error) {
+			notifySettingsError(ctx, settingsPath, error);
+			return SETTINGS_ERROR;
+		}
+		ctx.ui.notify("Tier 2 disabled. Eligible workers will use the realtime Tier 2 fallback in newly planned packets.", "info");
+		return { ...current.tier2, status: "unavailable", reason: "tier2 disabled in fanout.tiers.tier2.enabled" };
+	}
 	if (provider === "inherit-tier1") {
 		try {
-			clearTier2FallbackSetting(settingsPath);
+			inheritTier1Fallback(settingsPath, projectOverride);
 		} catch (error) {
 			notifySettingsError(ctx, settingsPath, error);
 			return SETTINGS_ERROR;
@@ -222,14 +245,15 @@ async function configureRole(
 			ctx.ui.notify(`Could not switch the current Pi model to ${provider}/${model}. Check model authentication.`, "error");
 			return undefined;
 		}
+		const saved = { provider, model, thinking, source: "current Pi active model", status: "available", reason: "realtime control plane" };
 		try {
 			clearTier1Setting(settingsPath);
 		} catch (error) {
-			notifySettingsError(ctx, settingsPath, error);
-			return SETTINGS_ERROR;
+			ctx.ui.notify(`Current Pi model and Tier 1 changed to ${provider}/${model} (${thinking}), but the legacy setting could not be removed from ${settingsPath}: ${error instanceof Error ? error.message : String(error)}`, "warning");
+			return saved;
 		}
 		ctx.ui.notify(`Current Pi model and Tier 1 set to ${provider}/${model} (${thinking})`, "info");
-		return { provider, model, thinking, source: "current Pi active model", status: "available", reason: "realtime control plane" };
+		return saved;
 	}
 
 	try {
@@ -237,7 +261,7 @@ async function configureRole(
 			provider,
 			model,
 			thinking,
-			enabled: role === "tier2" ? "auto" : undefined,
+			enabled: role === "tier2" ? true : undefined,
 			reason: role === "tier2" ? "async background worker model" : "realtime fallback for tier2 execution",
 		});
 	} catch (error) {
@@ -261,6 +285,7 @@ function roleLabel(role: ModelRole, summary: TierSummary): string {
 
 function roleDetail(role: ModelRole, summary: TierSummary): string {
 	if (role === "tier2Fallback" && summary.source === "tier1 inheritance") return "Use Tier 1";
+	if (role === "tier2" && typeof summary.reason === "string" && summary.reason.includes("tier2 disabled")) return "Disabled";
 	const availability = role === "tier2" ? ` · ${stringField(summary.status)}` : "";
 	return `${stringField(summary.provider)}/${stringField(summary.model)} · ${stringField(summary.thinking)}${availability}`;
 }
@@ -298,6 +323,14 @@ function modelId(model: Record<string, unknown>): string | undefined {
 	return undefined;
 }
 
+function effectiveSettingsPath(globalPath: string, projectPath: string | undefined, role: ModelRole): string {
+	if (!projectPath || !existsSync(projectPath)) return globalPath;
+	const settings = readSettings(projectPath);
+	const container = role === "tier2Fallback" ? settings.fanout?.execution : settings.fanout?.tiers;
+	const key = role === "tier2Fallback" ? "tier2Fallback" : role;
+	return isPlainObject(container) && Object.prototype.hasOwnProperty.call(container, key) ? projectPath : globalPath;
+}
+
 function writeFanoutRoleSetting(settingsPath: string, role: ModelRole, value: Record<string, unknown>): void {
 	const container = role === "tier2Fallback" ? "execution" : "tiers";
 	const settings = readSettings(settingsPath);
@@ -316,9 +349,25 @@ function clearTier1Setting(settingsPath: string): void {
 	writeSettings(settingsPath, settings);
 }
 
-function clearTier2FallbackSetting(settingsPath: string): void {
+function disableTier2(settingsPath: string): void {
 	const settings = readSettings(settingsPath);
-	if (settings.fanout?.execution) delete settings.fanout.execution.tier2Fallback;
+	settings.fanout ??= {};
+	settings.fanout.tiers ??= {};
+	const tier2 = settings.fanout.tiers.tier2;
+	if (tier2 !== undefined && !isPlainObject(tier2)) throw new Error("fanout.tiers.tier2 must be a JSON object");
+	settings.fanout.tiers.tier2 = { ...tier2, enabled: false };
+	writeSettings(settingsPath, settings);
+}
+
+function inheritTier1Fallback(settingsPath: string, projectOverride: boolean): void {
+	const settings = readSettings(settingsPath);
+	if (projectOverride) {
+		settings.fanout ??= {};
+		settings.fanout.execution ??= {};
+		settings.fanout.execution.tier2Fallback = { inherit: "tier1" };
+	} else if (settings.fanout?.execution) {
+		delete settings.fanout.execution.tier2Fallback;
+	}
 	writeSettings(settingsPath, settings);
 }
 

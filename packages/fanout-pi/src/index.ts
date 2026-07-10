@@ -103,6 +103,7 @@ export default async function (pi: ExtensionAPI) {
 					if (changed) pi.setThinkingLevel(thinking as ThinkingLevel);
 					return changed;
 				},
+				join(ctx.cwd, ".pi", "settings.json"),
 			);
 		},
 	});
@@ -431,7 +432,7 @@ function fanoutRuntimeContext(cwd: string, model: unknown, thinking: unknown, mo
 	const tierDefaults = {
 		tier1: { provider: "auto", model: "auto", thinking: "auto", reason: "current active Pi realtime model" },
 		tier2: { provider: TIER2_DEFAULT.provider, model: TIER2_DEFAULT.model, thinking: TIER2_DEFAULT.thinking, enabled: "auto", reason: "async background worker model", ...tier2Settings },
-		tier2Fallback: Object.keys(tier2FallbackSettings).length > 0 ? tier2FallbackSettings : { inherit: "tier1" },
+		tier2Fallback: tier2FallbackSettings.inherit === "tier1" ? { inherit: "tier1" } : Object.keys(tier2FallbackSettings).length > 0 ? tier2FallbackSettings : { inherit: "tier1" },
 	};
 	const tier1 = resolveTier1(active, activeThinking);
 	const tier2 = resolveTier2(tierDefaults.tier2, registryModels, Object.keys(tier2Settings).length > 0);
@@ -496,14 +497,14 @@ function resolveTier2Fallback(config: Record<string, unknown>, tier1: Record<str
 	const provider = optionalString(config.provider);
 	const model = optionalString(config.model);
 	const modelRecord = provider && model ? findModel(models, provider, model) : undefined;
-	if (!provider || !model || !modelRecord) {
+	if (config.inherit === "tier1" || !provider || !model || !modelRecord) {
 		return {
 			provider: stringField(tier1.provider),
 			model: stringField(tier1.model),
 			thinking: stringField(tier1.thinking),
 			source: "tier1 inheritance",
 			status: "available",
-			reason: provider && model ? "configured fallback unavailable; inherited tier1" : "realtime fallback for tier2 execution; inherits tier1",
+			reason: config.inherit === "tier1" ? "realtime fallback for tier2 execution; explicit inheritance marker" : provider && model ? "configured fallback unavailable; inherited tier1" : "realtime fallback for tier2 execution; inherits tier1",
 		};
 	}
 	return {
