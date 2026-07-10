@@ -51,6 +51,20 @@ Current result: passed locally. Coverage includes active-pointer and packet reje
 
 Caveat: worker usage and cost in this smoke are synthetic fake-provider fixtures. P2 controlled real Pi workers and P4 live tier-routing measurements remain pending; no observed latency or cost claim is added here.
 
+## P2 — Manual p-map AbortSignal E2E
+
+Date prepared: 2026-07-10
+
+Status: ready for the first complete manual product-debugging run; no live execution result has been recorded.
+
+Runbook: [`docs/benchmarks/p-map-abort-signal-manual-e2e.md`](benchmarks/p-map-abort-signal-manual-e2e.md)
+
+Purpose: exercise `/fanout-config` → `/fanout-plan` → `/fanout-execute --dry-run` → `/fanout-execute` manually against a fixed `sindresorhus/p-map` task before building a benchmark harness or routing variations. The run prioritizes correctness, UX, recovery, artifact quality, and observability. It uses local baseline `c3c261e2189f94d1a09724e8f03d5345af518017` and the decision-complete `pMapIterable` AbortSignal task brief under ignored `runs/` storage.
+
+The user operates Pi and authorizes every live or cost-incurring step. Preserve failed artifacts, diagnose the owning component before edits, and record results only after comparing Fanout reports with the nested repository Git state and independent `npm test` output.
+
+Deferred until this manual path is reliable: automated execution harnesses, policy/model variations, and provider-tier cost or latency comparisons. Add a running-experiment ledger row only after observed artifacts and metrics exist.
+
 ## Current baseline: B0 — Pi session traces, GLM 5.2 pricing
 
 Date: 2026-06-25
