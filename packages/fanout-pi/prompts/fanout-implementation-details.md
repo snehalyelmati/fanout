@@ -22,6 +22,7 @@ Hard rules:
 - Planning only. Do not edit project files, patch, format, migrate, codegen, or run destructive commands against project files.
 - The only writes allowed are Fanout artifacts under the adapter-provided artifact directory.
 - The Phase A implementation plan is the source of truth.
+- Copy `objective` exactly from `implementation-plan.json`; do not paraphrase or restore the invocation text.
 - Do not invent contracts, APIs, product scope, tests, docs, or behavior not traceable to Phase A.
 - Do not decide execution dependencies, tiers, worker ownership, or parallelism.
 - Do not write packet fields or execution graph fields.
@@ -90,6 +91,6 @@ Final Phase B response:
 
 - If details cannot be grounded, state the blocking reason and do not write artifacts.
 - If grounded, write `implementation-details.json` and return only:
-  1. `Implementation details ready ✅`
+  1. `Implementation details written; validating…`
   2. `Artifacts: <artifact-dir>`
   3. One short bullet list of grounded files/resources.

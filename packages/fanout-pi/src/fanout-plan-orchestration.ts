@@ -15,6 +15,7 @@ export interface FanoutPlanRun {
 
 export interface FanoutPhaseState extends FanoutPlanRun {
 	phase: "implementation" | "details";
+	invocation: string;
 	objective: string;
 	context: Record<string, unknown>;
 	repairAttempted?: boolean;
@@ -68,7 +69,7 @@ export function isFanoutPhasePrompt(prompt: string, state: FanoutPhaseState): bo
 	return prompt.includes(FANOUT_ORCHESTRATION_MARKER) && prompt.includes(`"runId":"${state.runId}"`) && prompt.includes(`"phase":"${state.phase}"`);
 }
 
-export function validateImplementationPlanArtifact(path: string, expected?: { objective?: string; artifactDir?: string }): ImplementationPlanValidation {
+export function validateImplementationPlanArtifact(path: string, expected?: { artifactDir?: string }): ImplementationPlanValidation {
 	const errors: string[] = [];
 	if (!existsSync(path)) return { ok: false, errors: [`missing ${path}`], itemCount: 0 };
 
@@ -84,7 +85,6 @@ export function validateImplementationPlanArtifact(path: string, expected?: { ob
 	if (plan.version !== IMPLEMENTATION_PLAN_VERSION) errors.push(`version must be ${IMPLEMENTATION_PLAN_VERSION}`);
 	if (plan.status !== "ready") errors.push("status must be ready");
 	for (const key of ["objective", "createdAt", "artifactDir"] as const) if (!nonEmptyString(plan[key])) errors.push(`${key} is required`);
-	if (expected?.objective !== undefined && plan.objective !== expected.objective) errors.push("objective does not match current run");
 	if (expected?.artifactDir !== undefined && plan.artifactDir !== expected.artifactDir) errors.push("artifactDir does not match current run");
 	for (const key of ["userContext", "discoveredRepoFacts", "assumptions", "validationPlan", "risks"] as const) stringArray(plan[key], key, errors);
 

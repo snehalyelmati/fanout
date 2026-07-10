@@ -501,3 +501,11 @@ Reason: A validation command can have side effects. Applying the pre-validation 
 Decision: Packet resource paths may be normalized into repository-relative form, but filenames reported by Git are validated without trimming whitespace or converting backslashes. An observed filename is rejected if normalization would change its identity. Phase B wraps repository paths inside `forbiddenChanges` in backticks and retains trailing `/` directory intent; execution also recognizes common unquoted legacy directory forms so those constraints remain enforceable at the ownership gate.
 
 Reason: On POSIX, backslashes and leading/trailing spaces are valid filename bytes. Lossy normalization could make an undeclared root file appear to be an owned descendant while `git apply` still targets the original filename.
+
+## 2026-07-10
+
+### Treat Phase A as the resolved objective source
+
+Decision: `/fanout-plan` preserves the invocation text for traceability, but Phase A owns the resolved objective after reading referenced context. Phase B must copy that objective exactly, while the adapter validates Phase A against its artifact directory rather than the invocation string.
+
+Reason: File references and shorthand invocations are inputs to planning, not necessarily the final execution objective. Exact invocation equality rejected correct, more specific plans.

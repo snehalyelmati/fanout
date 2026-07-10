@@ -16,7 +16,7 @@ Phase 2B is implemented and locally validated.
 
 Completed:
 
-- `/fanout-plan` is command-backed and dispatches Phase A/Phase B prompts with deterministic preflight context.
+- `/fanout-plan` is command-backed and dispatches Phase A/Phase B prompts with deterministic preflight context. Phase A's resolved objective is authoritative for Phase B and compilation; the invocation text is retained separately for traceability.
 - legacy package prompt registration is removed; `prompts/fanout-implementation-plan.md` and `prompts/fanout-implementation-details.md` are the internal command templates.
 - `fanout-core` compiles implementation details into execution packet schema v3 and validates the result.
 - artifact helper writes packet/plan/DAG/active pointer under Pi-owned storage by default.
@@ -242,7 +242,7 @@ A safe async worker must have:
 
 ## Implementation-plan, details, and packet schema updates
 
-Phase A writes `implementation-plan.json` using schema `fanout.implementation-plan` version `1`. It records implementation items, files to change/read, semantic dependencies, validation intent, acceptance criteria, risks, and forbidden scope. Semantic dependencies are planning context and traceability labels, not execution DAG edges. It intentionally has no anchor, worker, parallelism, DAG, or tier fields.
+Phase A writes `implementation-plan.json` using schema `fanout.implementation-plan` version `1`. It records implementation items, files to change/read, semantic dependencies, validation intent, acceptance criteria, risks, and forbidden scope. Its resolved `objective` becomes the authoritative objective for Phase B and deterministic compilation; `/fanout-plan` invocation shorthand remains separately in state and telemetry and is not an exact artifact-validation contract. Semantic dependencies are planning context and traceability labels, not execution DAG edges. It intentionally has no anchor, worker, parallelism, DAG, or tier fields.
 
 Phase B writes `implementation-details.json` using schema `fanout.implementation-details` version `1`. It records Phase A source ids, owned resources, existing-file anchors, new-file intent, read-dependency classification, forbidden changes, and validation commands. It must not invent contracts/APIs/product scope or packet fields.
 

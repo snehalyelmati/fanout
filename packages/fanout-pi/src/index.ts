@@ -51,12 +51,12 @@ export default async function (pi: ExtensionAPI) {
 				ctx.ui.notify("A Fanout plan is already in progress. Wait for it to finish, then retry /fanout-plan.", "warning");
 				return;
 			}
-			const objective = args.trim() || "Use the current conversation context.";
+			const invocation = args.trim() || "Use the current conversation context.";
 			const context = writeFanoutRuntimeContext(ctx.cwd, activeModel ?? ctx.model, activeThinking ?? pi.getThinkingLevel(), ctx.modelRegistry?.getAll?.());
-			const run = createFanoutPlanRun(objective, context);
-			pendingFanoutPlan = { phase: "implementation", objective, context, ...run };
-			const prompt = buildImplementationPlanPrompt(objective, context, run);
-			writeJsonl("fanout_plan_start", { objective, artifactRoot: context.artifactRoot, artifactDir: run.artifactDir, implementationPlanPath: run.implementationPlanPath, implementationDetailsPath: run.implementationDetailsPath, tierDefaults: context.tierDefaults }, ctx.cwd);
+			const run = createFanoutPlanRun(invocation, context);
+			pendingFanoutPlan = { phase: "implementation", invocation, objective: invocation, context, ...run };
+			const prompt = buildImplementationPlanPrompt(invocation, context, run);
+			writeJsonl("fanout_plan_start", { objective: invocation, artifactRoot: context.artifactRoot, artifactDir: run.artifactDir, implementationPlanPath: run.implementationPlanPath, implementationDetailsPath: run.implementationDetailsPath, tierDefaults: context.tierDefaults }, ctx.cwd);
 			writeJsonl("fanout_plan_preflight", { tierPlan: context.resolvedTierPlan, tier2Availability: context.tier2Availability, nodeKindTierPolicy: context.nodeKindTierPolicy }, ctx.cwd);
 			if (!ctx.isIdle()) {
 				pi.sendUserMessage(prompt, { deliverAs: "followUp" });
@@ -176,7 +176,7 @@ export default async function (pi: ExtensionAPI) {
 		startedFanoutPlan = undefined;
 		if (finishedFanoutPlan?.phase === "implementation") {
 			if (!existsSync(finishedFanoutPlan.implementationPlanPath) && !phaseTurnStarted) return;
-			const validation = validateImplementationPlanArtifact(finishedFanoutPlan.implementationPlanPath, { objective: finishedFanoutPlan.objective, artifactDir: finishedFanoutPlan.artifactDir });
+			const validation = validateImplementationPlanArtifact(finishedFanoutPlan.implementationPlanPath, { artifactDir: finishedFanoutPlan.artifactDir });
 			writeJsonl("fanout_implementation_plan_validation", { runId: finishedFanoutPlan.runId, artifactDir: finishedFanoutPlan.artifactDir, ...validation }, ctx.cwd);
 			if (!validation.ok) {
 				pendingFanoutPlan = undefined;
@@ -184,11 +184,12 @@ export default async function (pi: ExtensionAPI) {
 				return;
 			}
 			const implementationPlan = readJsonFile(finishedFanoutPlan.implementationPlanPath);
+			const planObjective = isRecord(implementationPlan) ? stringField(implementationPlan.objective) : "unknown";
 			const requiredReadClassifications = buildRequiredReadClassifications(implementationPlan);
-			pendingFanoutPlan = { ...finishedFanoutPlan, phase: "details", requiredReadClassifications };
-			writeJsonl("fanout_required_read_classifications", { runId: finishedFanoutPlan.runId, artifactDir: finishedFanoutPlan.artifactDir, count: requiredReadClassifications.length, requiredReadClassifications }, ctx.cwd);
-			ctx.ui.notify("Implementation plan ready; grounding edit details.", "info");
-			pi.sendUserMessage(buildImplementationDetailsPrompt(finishedFanoutPlan.objective, finishedFanoutPlan.context, finishedFanoutPlan, requiredReadClassifications), { deliverAs: "followUp" });
+			pendingFanoutPlan = { ...finishedFanoutPlan, phase: "details", objective: planObjective, requiredReadClassifications };
+			writeJsonl("fanout_required_read_classifications", { runId: finishedFanoutPlan.runId, objective: planObjective, artifactDir: finishedFanoutPlan.artifactDir, count: requiredReadClassifications.length, requiredReadClassifications }, ctx.cwd);
+			ctx.ui.notify("Implementation plan validated; grounding edit details.", "info");
+			pi.sendUserMessage(buildImplementationDetailsPrompt(planObjective, finishedFanoutPlan.context, finishedFanoutPlan, requiredReadClassifications), { deliverAs: "followUp" });
 		} else if (finishedFanoutPlan?.phase === "details") {
 			const repairArtifactChanged = finishedFanoutPlan.repairAttempted === true && implementationDetailsChangedSinceRepair(finishedFanoutPlan);
 			if (finishedFanoutPlan.repairAttempted && !phaseTurnStarted && !repairArtifactChanged) return;

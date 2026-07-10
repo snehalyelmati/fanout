@@ -26,6 +26,7 @@ Hard rules:
 - If user intent/tradeoffs are still unclear, use `ask_user_question` and ask exactly one question at a time, with a recommended answer.
 - If the user declines to decide or cancels, stop without writing/updating artifacts.
 - Separate user-provided context from repo-discovered facts.
+- Write `objective` as the resolved task objective after reading referenced files and context; it may be more specific than the invocation text.
 
 Phase A flow:
 
@@ -82,6 +83,6 @@ Final Phase A response:
 
 - If more user input is required, ask the next single question instead of producing a report.
 - If decision-complete, write `implementation-plan.json` and return only:
-  1. `Implementation plan ready ✅`
+  1. `Implementation plan written; validating…`
   2. `Artifacts: <artifact-dir>`
   3. One short bullet list of implementation items.
