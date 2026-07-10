@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
+import { fileURLToPath } from "node:url";
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerDoublewordDevProviders } from "../../doubleword-provider/src/dev.ts";
 import { setDoublewordActiveTurnIndex, setDoublewordRunId } from "../../doubleword-provider/src/index.ts";
@@ -10,6 +11,7 @@ import { buildRequiredReadClassifications, compileExecutionPacket, validateImple
 import { writeExecutionPacketArtifacts } from "../../fanout-core/src/execution-packet.ts";
 import { durationMs, RUN_ID, setObservabilityCwd, writeJsonl } from "../../fanout-core/src/observability.ts";
 import { configureFanoutTier } from "./fanout-config.ts";
+import { executeFanout, type ExecuteFanoutResult } from "./fanout-execute.ts";
 import {
 	buildImplementationDetailsPrompt,
 	buildImplementationDetailsRepairPrompt,
@@ -37,6 +39,7 @@ export default async function (pi: ExtensionAPI) {
 	const toolStarts = new Map<string, { started: number; turnIndex?: number }>();
 	let pendingFanoutPlan: FanoutPhaseState | undefined;
 	let startedFanoutPlan: FanoutPhaseState | undefined;
+	let fanoutExecutionInProgress = false;
 
 	setDoublewordRunId(RUN_ID);
 	await registerDoublewordDevProviders(pi, rememberDoublewordModels, { controls: false });
@@ -69,6 +72,53 @@ export default async function (pi: ExtensionAPI) {
 		handler: async (args, ctx) => {
 			const context = fanoutRuntimeContext(ctx.cwd, activeModel ?? ctx.model, activeThinking ?? pi.getThinkingLevel(), ctx.modelRegistry?.getAll?.());
 			await configureFanoutTier(args, ctx, activeModel ?? ctx.model, activeThinking ?? pi.getThinkingLevel(), globalSettingsPath(), context.artifactRoot);
+		},
+	});
+
+	pi.registerCommand("fanout-execute", {
+		description: "Execute the active accepted Fanout packet",
+		handler: async (args, ctx) => {
+			const argument = args.trim();
+			if (argument && argument !== "--dry-run") {
+				ctx.ui.notify("Usage: /fanout-execute [--dry-run]. Explicit packet paths are not supported.", "warning");
+				return;
+			}
+			if (fanoutExecutionInProgress) {
+				ctx.ui.notify("A Fanout execution is already in progress.", "warning");
+				return;
+			}
+			if (!ctx.isIdle()) {
+				ctx.ui.notify("Wait for the current turn to finish, then retry /fanout-execute.", "warning");
+				return;
+			}
+
+			fanoutExecutionInProgress = true;
+			ctx.ui.setStatus("fanout-execute", "fanout:executing");
+			try {
+				const context = fanoutRuntimeContext(ctx.cwd, activeModel ?? ctx.model, activeThinking ?? pi.getThinkingLevel(), ctx.modelRegistry?.getAll?.());
+				const result = await executeFanout({
+					cwd: ctx.cwd,
+					activePointerPath: context.activePointerPath,
+					projectArtifactRoot: context.projectArtifactRoot,
+					extensionEntry: fileURLToPath(import.meta.url),
+					dryRun: argument === "--dry-run",
+					maxConcurrency: positiveIntegerSetting(context.executionDefaults.maxConcurrency, 2),
+					confirm: (title, message) => ctx.ui.confirm(title, message),
+				});
+				displayFanoutExecutionReport(pi, ctx.cwd, result);
+				const message = result.status === "succeeded"
+					? `${result.dryRun ? "Fanout dry run" : "Fanout execution"} succeeded. Artifacts: ${result.paths.runDir}`
+					: result.status === "aborted"
+						? `Fanout execution aborted. Artifacts: ${result.paths.runDir}`
+						: `Fanout execution failed: ${result.error ?? "see execution artifacts"}. Artifacts: ${result.paths.runDir}`;
+				ctx.ui.notify(message, result.status === "failed" ? "error" : "info");
+			} catch (error) {
+				writeJsonl("fanout_execute_error", { error: error instanceof Error ? error.message : String(error) }, ctx.cwd);
+				ctx.ui.notify(`Fanout execution could not start: ${error instanceof Error ? error.message : String(error)}`, "error");
+			} finally {
+				fanoutExecutionInProgress = false;
+				ctx.ui.setStatus("fanout-execute", undefined);
+			}
 		},
 	});
 
@@ -291,6 +341,7 @@ function fanoutRuntimeContext(cwd: string, model: unknown, thinking: unknown, mo
 	const activeThinking = optionalString(thinking) ?? "auto";
 	const tier1Settings = recordField(settings.tiers?.tier1);
 	const tier2Settings = recordField(settings.tiers?.tier2);
+	const executionSettings = recordField(settings.execution);
 	const tierDefaults = {
 		tier1: { provider: "auto", model: "auto", thinking: "auto", reason: "current active Pi realtime model", ...tier1Settings },
 		tier2: { provider: TIER2_DEFAULT.provider, model: TIER2_DEFAULT.model, thinking: TIER2_DEFAULT.thinking, enabled: "auto", reason: "async background worker model", ...tier2Settings },
@@ -315,7 +366,17 @@ function fanoutRuntimeContext(cwd: string, model: unknown, thinking: unknown, mo
 			printActivePath: `rtk env FANOUT_ARTIFACT_DIR=${JSON.stringify(artifactRoot)} node --disable-warning=ExperimentalWarning scripts/fanout-packet-artifacts.mjs --print-active-path`,
 			validatePacket: `rtk env FANOUT_ARTIFACT_DIR=${JSON.stringify(artifactRoot)} node --disable-warning=ExperimentalWarning scripts/fanout-packet-artifacts.mjs <artifact-dir>/execution-packet.json --out <artifact-dir> --active ${JSON.stringify(join(projectArtifactRoot, "active-packet.json"))}`,
 		},
-		executionDefaults: { tier2Retries: 2, fallbackTier: "tier1", revalidateOnly: true, ...recordField(settings.execution) },
+		executionDefaults: {
+			maxConcurrency: executionSettings.maxConcurrency ?? 2,
+			failFast: false,
+			tier2MaxAttempts: 2,
+			tier1CleanRerunMaxAttempts: 1,
+			tier1FallbackMaxAttempts: 1,
+			maxValidationRepairAttempts: 2,
+			maxIntegrationRepairAttempts: 2,
+			fallbackTier: "tier1",
+			revalidateOnly: true,
+		},
 	};
 }
 
@@ -419,6 +480,21 @@ function displayFanoutPlanReport(pi: ExtensionAPI, cwd: string, runId: string, a
 	}
 }
 
+function displayFanoutExecutionReport(pi: ExtensionAPI, cwd: string, result: ExecuteFanoutResult): void {
+	const sendMessage = (pi as ExtensionAPI & { sendMessage?: (message: Record<string, unknown>, options?: Record<string, unknown>) => void }).sendMessage;
+	if (typeof sendMessage !== "function") return;
+	try {
+		sendMessage.call(pi, {
+			customType: "fanout-execute",
+			content: readFileSync(result.paths.summaryPath, "utf8"),
+			display: true,
+			details: { runId: result.runId, status: result.status, packetPath: result.packetPath, ...result.paths },
+		}, { deliverAs: "followUp", triggerTurn: false });
+	} catch (error) {
+		writeJsonl("fanout_execute_report_display_error", { runId: result.runId, error: error instanceof Error ? error.message : String(error) }, cwd);
+	}
+}
+
 function readFanoutSettings(path: string): Record<string, any> {
 	try {
 		if (!existsSync(path)) return {};
@@ -468,4 +544,8 @@ function optionalString(value: unknown): string | undefined {
 
 function stringField(value: unknown): string {
 	return optionalString(value) ?? "unknown";
+}
+
+function positiveIntegerSetting(value: unknown, fallback: number): number {
+	return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
 }
