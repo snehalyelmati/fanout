@@ -8,7 +8,7 @@ Source: validated Phase 3 component notes in [`docs/phase3_notes.md`](../phase3_
 
 - `/fanout-execute` loads the active pointer by default; `--dry-run` performs loader/preflight checks and writes audit artifacts without confirmation, workers, or repo mutation.
 - The recorder derives its run directory from `dirname(packetPath)`, never from the packet's `artifactDir` field.
-- Preflight requires a clean active git worktree, artifact storage outside that repo, safe packet paths, and an available Pi worker command. Packet schema v3 records no planned HEAD/tree, so execution cannot prove that a clean checkout is not stale.
+- Preflight requires a clean active git worktree, artifact storage outside that repo, safe packet paths, and an available Pi worker command. Packet schema v4 records no planned HEAD/tree, so execution cannot prove that a clean checkout is not stale.
 - Every attempt starts in a fresh detached worktree. An ordered ledger replays accepted patches and conflict-repair owned-file snapshots, then commits that state as a local baseline so downstream diffs contain only the current unit; the active branch is never committed by Fanout, and Fanout-managed checkout/index/commit operations run with repository Git hooks disabled.
 - Node validation commands must leave the captured patch and detached `HEAD` unchanged; a validator that changes either is rejected before active-worktree apply.
 - One exclusive lock under the canonical git directory prevents concurrent Fanout runs against the same worktree, and the active-worktree `git apply --check`/`git apply` pair is serialized across parallel workers within the run. Fanout releases its own lock normally but never automatically deletes an existing lock as stale.
@@ -481,7 +481,7 @@ Policy:
 - Repair output violates ownership.
 - Repair output misses metrics.
 
-## Component 7: Tier2 retry and tier1 fallback policy
+## Component 7: Tier2 retry and realtime fallback policy
 
 ### Design
 
@@ -491,18 +491,18 @@ Definitions:
 
 - Clean rerun: same original assigned tier, same prompt, fresh worktree, only for transient subprocess/timeout failures.
 - Retry: same tier, same prompt, fresh worktree; for tier2 this is the clean rerun counted by `tier2MaxAttempts`.
-- Fallback: tier2 to tier1, same work unit, fresh worktree.
-- Repair: tier1 narrow fix after validation/apply failure.
+- Fallback: tier2 to the packet's concrete realtime `tier2Fallback` model, same work unit, fresh worktree. The work-unit `fallback: "tier1"` value names the realtime execution tier; it does not require the Tier 1 control-plane model.
+- Repair: Tier 1 narrow fix after validation/apply failure.
 
 ### Defaults
 
 - `tier2MaxAttempts = 2` total: original tier2 attempt plus one clean rerun/retry.
 - `tier1CleanRerunMaxAttempts = 1` rerun for nodes originally assigned to tier1.
-- `tier1FallbackMaxAttempts = 1` fallback attempt after retryable tier2 exhaustion.
+- `tier1FallbackMaxAttempts = 1` realtime fallback attempt after retryable tier2 exhaustion; the retained option name reflects the two-tier execution policy.
 - `maxValidationRepairAttempts = 2` and `maxIntegrationRepairAttempts = 2`.
 - No dynamic or user-configurable attempt budgets initially; `/fanout-execute` reads only `fanout.execution.maxConcurrency`.
 
-Execution uses the concrete provider/model/thinking assignment stored in each packet node. It does not run a separate provider-availability preflight and does not switch remaining tier2 nodes globally. Retry and optional fallback are decided independently for the node whose subprocess failed.
+Execution uses the concrete provider/model/thinking assignment stored in each packet node plus the packet's required `tierPlan.tier2Fallback` summary. Packet schema v4 is required; older packets are rejected and must be replanned rather than migrated. Execution does not run a separate provider-availability preflight or switch remaining tier2 nodes globally. Retry and optional fallback are decided independently for the node whose subprocess failed.
 
 ### Clean rerun and retryable failures
 
@@ -525,7 +525,7 @@ Retryable tier1 subprocess failures:
 
 ### Not handled by retry/fallback
 
-These outcomes do not trigger clean rerun, tier2 retry, or tier1 fallback:
+These outcomes do not trigger clean rerun, tier2 retry, or realtime fallback:
 
 - Missing mandatory metrics: hard fail.
 - Ownership violation: hard fail.
@@ -538,9 +538,9 @@ These outcomes do not trigger clean rerun, tier2 retry, or tier1 fallback:
 
 ### Fallback policy
 
-If tier2 attempts are exhausted due to retryable failures, run one tier1 fallback attempt only when `workUnit.tier.fallback === "tier1"`. Fallback uses the same work unit intent and worker packet. If fallback succeeds, normal patch gates continue. If fallback fails, the node fails.
+If tier2 attempts are exhausted due to retryable failures, run one realtime fallback attempt only when `workUnit.tier.fallback === "tier1"`. The executor uses `packet.tierPlan.tier2Fallback` for provider/model/thinking, preserves the same work-unit intent and worker packet, and records the concrete fallback model. The fallback role inherits Tier 1 by default but may be configured independently. If fallback succeeds, normal patch gates continue; if it fails, the node fails.
 
-No fallback for unsafe output or missing metrics.
+No fallback applies to unsafe output or missing metrics. Typed validation-failure and integration-conflict repairs always use `packet.tierPlan.tier1`, never `tier2Fallback`.
 
 ### Attempt worktree policy
 
@@ -565,7 +565,7 @@ Every attempt is recorded. Totals include all known tokens, costs, and durations
   -> confirm launch with user
   -> scheduler runs ready nodes
       -> node executor creates worktree
-      -> worker subprocess attempts/retries/fallbacks
+      -> worker subprocess attempts/retries/tier2Fallback
       -> import metrics
       -> capture patch
       -> enforce ownership
@@ -614,13 +614,13 @@ Every attempt is recorded. Totals include all known tokens, costs, and durations
 
 - One clean rerun for transient original-tier subprocess failures.
 - Tier2 retry classification.
-- Tier1 fallback.
-- Validation-failure repair.
-- Integration-conflict repair.
+- Realtime `tier2Fallback` execution after retryable Tier 2 exhaustion.
+- Tier 1 validation-failure repair.
+- Tier 1 integration-conflict repair.
 
 ## Acceptance criteria
 
-- `/fanout-execute` loads the active packet and refuses malformed or unsafe input and a dirty active worktree before mutation; packet v3 does not support a stronger stale-HEAD check.
+- `/fanout-execute` loads the active packet and refuses malformed or unsafe input and a dirty active worktree before mutation; packet v4 does not support a stronger stale-HEAD check.
 - The execution directory, empty `events.jsonl`, and initial `execution-run.json` are created before mutation; `summary.md` is written when the run finishes.
 - Scheduler executes an acyclic packet in dependency order with deterministic ready-node ordering.
 - Mutating workers run in isolated git worktrees.

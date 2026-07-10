@@ -689,20 +689,27 @@ async function testRetryAndRecovery() {
   fallbackUnit.validationCommands = ["rtk node validate.mjs"];
   const fallbackPacket = makePacket([fallbackUnit], fallback.packetDir, { finalValidationPlan: ["rtk node validate.mjs"] });
   fallbackPacket.tierPlan.tier2 = { provider: "fake", model: "async-worker", thinking: "off", source: "smoke", status: "available", reason: "retry smoke", fallback: "tier1" };
+  fallbackPacket.tierPlan.tier2Fallback = { provider: "fake", model: "realtime-fallback", thinking: "off", source: "smoke", status: "available", reason: "realtime fallback smoke" };
   writeExecutionPacketArtifacts(fallbackPacket, fallback.packetDir, { activePointerPath: fallback.activePointerPath });
   const fallbackResult = await executeFanout({ ...fallback.options, piCommand: fakePi, runId: "fallback-smoke" });
   assert(fallbackResult.status === "succeeded" && readFileSync(join(fallback.repo, "value.txt"), "utf8").trim() === "good", `tier2 fallback failed: ${fallbackResult.error}`);
   assert(fallbackResult.snapshot.eventCounts.worker_attempt_started === 3 && fallbackResult.snapshot.eventCounts.worker_retry_scheduled === 1 && fallbackResult.snapshot.eventCounts.worker_fallback_started === 1, "tier2 retry/fallback counts are wrong");
+  const fallbackEvents = readJsonl(fallbackResult.paths.eventsPath);
+  assert(fallbackEvents.some((event) => event.event === "worker_fallback_started" && event.model === "realtime-fallback"), "tier2 exhaustion did not schedule the configured fallback model");
+  assert(fallbackEvents.some((event) => event.event === "worker_attempt_started" && event.kind === "fallback" && event.model === "realtime-fallback"), "fallback attempt did not run the configured realtime model");
 
   const repair = setupPolicyRepo("validation-repair");
   const repairUnit = makeUnit("validation-repair", [], ["value.txt"], ["validate.mjs"]);
   repairUnit.validationCommands = ["rtk node validate.mjs"];
   const repairPacket = makePacket([repairUnit], repair.packetDir, { finalValidationPlan: ["rtk node validate.mjs"] });
+  repairPacket.tierPlan.tier2Fallback = { provider: "fake", model: "realtime-fallback", thinking: "off", source: "smoke", status: "available", reason: "must not run typed repair" };
   writeExecutionPacketArtifacts(repairPacket, repair.packetDir, { activePointerPath: repair.activePointerPath });
   const repairResult = await executeFanout({ ...repair.options, piCommand: fakePi, runId: "validation-repair-smoke" });
   assert(repairResult.status === "succeeded" && readFileSync(join(repair.repo, "value.txt"), "utf8").trim() === "good", `validation repair failed: ${repairResult.error}`);
   assert(repairResult.snapshot.eventCounts.validation_repair_started === 1 && repairResult.snapshot.eventCounts.validation_repair_finished === 1, "validation repair events are wrong");
   assert(repairResult.snapshot.totals.totalTokens === 30 && repairResult.snapshot.nodes[0].worker?.totalTokens === 15, "validation repair did not account for rejected worker usage");
+  const repairEvents = readJsonl(repairResult.paths.eventsPath);
+  assert(repairEvents.some((event) => event.event === "worker_attempt_started" && event.kind === "validation-repair" && event.model === "worker"), "typed validation repair did not retain tier1 control-plane model");
 
   const integration = setupPolicyRepo("integration-repair");
   writeFileSync(join(integration.repo, "validate.mjs"), `import { readFileSync, realpathSync, writeFileSync } from "node:fs";\nimport { resolve } from "node:path";\nconst active = ${JSON.stringify(integration.repo)};\nif (readFileSync("value.txt", "utf8").trim() !== "good") process.exit(1);\nif (realpathSync(process.cwd()) !== realpathSync(active) && process.cwd().includes("/workers/integration-repair-")) writeFileSync(resolve(active, "value.txt"), "conflict\\n");\n`);
@@ -714,10 +721,13 @@ async function testRetryAndRecovery() {
   const afterIntegration = makeUnit("after-integration", ["integration-repair"], ["result.txt"], ["value.txt", "validate-result.mjs"]);
   afterIntegration.validationCommands = ["rtk node validate-result.mjs"];
   const integrationPacket = makePacket([integrationUnit, afterIntegration], integration.packetDir, { finalValidationPlan: ["rtk node validate.mjs", "rtk node validate-result.mjs"] });
+  integrationPacket.tierPlan.tier2Fallback = { provider: "fake", model: "realtime-fallback", thinking: "off", source: "smoke", status: "available", reason: "must not run integration repair" };
   writeExecutionPacketArtifacts(integrationPacket, integration.packetDir, { activePointerPath: integration.activePointerPath });
   const integrationResult = await executeFanout({ ...integration.options, piCommand: fakePi, runId: "integration-repair-smoke" });
   assert(integrationResult.status === "succeeded" && readFileSync(join(integration.repo, "value.txt"), "utf8").trim() === "good" && readFileSync(join(integration.repo, "result.txt"), "utf8").trim() === "saw:good", `integration repair or downstream state propagation failed: ${integrationResult.error}`);
   assert(integrationResult.snapshot.eventCounts.patch_apply_conflict === 1 && integrationResult.snapshot.eventCounts.integration_repair_finished === 1, "integration repair events are wrong");
+  const integrationEvents = readJsonl(integrationResult.paths.eventsPath);
+  assert(integrationEvents.some((event) => event.event === "worker_attempt_started" && event.kind === "integration-repair" && event.model === "worker"), "typed integration repair did not retain tier1 control-plane model");
 
   const combinedRepair = setupPolicyRepo("integration-validation-repair");
   writeFileSync(join(combinedRepair.repo, "validate.mjs"), `import { readFileSync, realpathSync, writeFileSync } from "node:fs";\nimport { resolve } from "node:path";\nconst active = ${JSON.stringify(combinedRepair.repo)};\nif (readFileSync("value.txt", "utf8").trim() !== "good") process.exit(1);\nif (realpathSync(process.cwd()) !== realpathSync(active) && process.cwd().includes("/001-original/worktree")) writeFileSync(resolve(active, "value.txt"), "conflict\\n");\n`);
@@ -881,7 +891,8 @@ function setupCompiledExecution(name, { authoritativeFailure = false } = {}) {
   };
   const tierPlan = {
     tier1: { provider: "fake", model: "worker", thinking: "off", source: "smoke", status: "available", reason: "compiler execution smoke" },
-    tier2: { provider: "fake", model: "async-worker", thinking: "off", source: "smoke", status: "unavailable", reason: "compiler execution smoke uses tier1", fallback: "tier1" },
+    tier2: { provider: "fake", model: "async-worker", thinking: "off", source: "smoke", status: "unavailable", reason: "compiler execution smoke uses fallback", fallback: "tier1" },
+    tier2Fallback: { provider: "fake", model: "worker", thinking: "off", source: "tier1 inheritance", status: "available", reason: "realtime fallback for tier2 execution" },
   };
   const compiled = compileExecutionPacket({
     implementationPlan,
@@ -914,6 +925,7 @@ function makePacket(workUnits, artifactDir, overrides = {}) {
     tierPlan: {
       tier1: { provider: "fake", model: "worker", thinking: "off", source: "smoke", status: "available", reason: "smoke worker" },
       tier2: { provider: "fake", model: "async-worker", thinking: "off", source: "smoke", status: "unavailable", reason: "not needed", fallback: "tier1" },
+      tier2Fallback: { provider: "fake", model: "worker", thinking: "off", source: "tier1 inheritance", status: "available", reason: "realtime fallback for tier2 execution" },
     },
     userContext: overrides.userContext ?? ["approved smoke context"],
     discoveredRepoFacts: overrides.discoveredRepoFacts ?? ["temporary git repository"],

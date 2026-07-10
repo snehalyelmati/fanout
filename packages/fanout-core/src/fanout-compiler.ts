@@ -437,7 +437,7 @@ function tierAssignment(kind: WorkUnitKind, tierPlan: FanoutTierPlan, policy?: C
 	const tier1Only = new Set(policy?.tier1Only ?? Array.from(DEFAULT_TIER1_ONLY));
 	const preferred: TierName = !tier1Only.has(kind) && tier2Eligible.has(kind) ? "tier2" : "tier1";
 	const assigned: TierName = preferred === "tier2" && tierPlan.tier2.status === "available" ? "tier2" : "tier1";
-	const tier = assigned === "tier2" ? tierPlan.tier2 : tierPlan.tier1;
+	const tier = assigned === "tier2" ? tierPlan.tier2 : preferred === "tier2" ? tierPlan.tier2Fallback : tierPlan.tier1;
 	return {
 		preferred,
 		assigned,

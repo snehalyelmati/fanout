@@ -52,7 +52,7 @@ Acceptance criteria:
 
 ### Phase 2: Execution packet via `/fanout-plan`
 
-Status: Phase 2B implemented and locally validated; audit follow-ups are resolved, with live `/fanout-plan` verification still pending before calling Phase 2 complete. `/fanout-plan` is command-backed with deterministic preflight and two explicit internal prompts: `fanout-implementation-plan.md` writes `implementation-plan.json`, then `fanout-implementation-details.md` writes `implementation-details.json`, then the artifact-driven adapter invokes the `fanout-core` compiler to emit execution packet schema v3. Packet validation/report rendering live in `fanout-core`, tier fields are compiler-assigned, `/fanout-config` configures tier models and shows artifact storage, and `scripts/fanout-packet-artifacts.mjs` writes validated packet artifacts plus the active pointer in Pi-owned storage.
+Status: Phase 2B implemented and locally validated; audit follow-ups are resolved, with live `/fanout-plan` verification still pending before calling Phase 2 complete. `/fanout-plan` is command-backed with deterministic preflight and two explicit internal prompts: `fanout-implementation-plan.md` writes `implementation-plan.json`, then `fanout-implementation-details.md` writes `implementation-details.json`, then the artifact-driven adapter invokes the `fanout-core` compiler to emit execution packet schema v4. Packet validation/report rendering live in `fanout-core`, tier fields are compiler-assigned, `/fanout-config` configures tier models and shows artifact storage, and `scripts/fanout-packet-artifacts.mjs` writes validated packet artifacts plus the active pointer in Pi-owned storage.
 
 P0 prompt-DAG dry-run benchmarking graduated `combined-general-conflict-proof` as the current best DAG prompt candidate across known and heldout tasks. This is prompt-quality evidence only; `/fanout-execute` smoke/execution validation remains pending before treating the prompt as a runtime default.
 
@@ -118,7 +118,7 @@ Implemented order:
 1. **Active packet loader and guardrails**
    - Load the active execution packet prepared by `/fanout-plan`.
    - Refuse missing pointers, malformed packets, paths outside the project artifact root, dirty active worktrees, missing committed `HEAD`, unsafe validation commands or repository paths, unavailable worker commands, and non-executable DAGs before mutation.
-   - Packet schema v3 has no planned HEAD/tree field, so preflight does not claim to detect a clean but stale checkout.
+   - Packet schema v4 has no planned HEAD/tree field, so preflight does not claim to detect a clean but stale checkout.
    - Hold one canonical git-worktree execution lock for the run; never delete an existing lock automatically as stale.
    - Show the objective, work-unit count, concurrency, apply behavior, and audit path before asking the user to confirm launch.
 2. **Execution run recorder**
@@ -136,10 +136,11 @@ Implemented order:
    - Keep Git-observed filenames identity-preserving at the ownership gate; reject lossy path normalization.
    - Reject validation commands that change the captured patch or move the detached worker `HEAD`.
    - Serialize active-worktree apply checks and applies so parallel workers cannot race the integration state.
-   - Allow only typed bounded tier1 recovery for validation failures and integration conflicts.
-6. **Tier2 retry / tier1 fallback**
+   - Allow only typed bounded Tier 1 recovery for validation failures and integration conflicts.
+6. **Tier2 retry / realtime fallback**
    - Use fixed MVP retry/repair limits and retry only classified transient process/provider failures; only `maxConcurrency` is user-configurable.
-   - Fall back per node to one tier1 attempt only after retryable tier2 exhaustion and only when that work unit declares `fallback: "tier1"`; do not perform a global provider-availability fallback.
+   - After retryable Tier 2 exhaustion, run at most one realtime attempt with the packet's concrete `tierPlan.tier2Fallback` model, and only when the work unit declares `fallback: "tier1"`; this legacy tier label means the realtime execution tier, not necessarily the Tier 1 control-plane model.
+   - Do not switch remaining nodes globally. Tier 1 remains reserved for control-plane work and typed validation/integration recovery.
 7. **Summary and metrics**
    - Return node and final-validation results, retry/fallback outcomes, token/cost totals, run time, poll time, tool time, patch stats, and artifact links.
 

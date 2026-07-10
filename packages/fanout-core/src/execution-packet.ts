@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 export const EXECUTION_PACKET_SCHEMA = "fanout.execution-packet";
-export const EXECUTION_PACKET_VERSION = 3;
+export const EXECUTION_PACKET_VERSION = 4;
 export const ACTIVE_PACKET_SCHEMA = "fanout.active-packet";
 
 export type PacketStatus = "ready";
@@ -24,6 +24,7 @@ export interface TierModelSummary {
 export interface FanoutTierPlan {
 	tier1: TierModelSummary;
 	tier2: TierModelSummary & { fallback?: TierName };
+	tier2Fallback: TierModelSummary;
 }
 
 export interface WorkUnitTierAssignment {
@@ -142,7 +143,7 @@ export function validateExecutionPacket(packet: unknown): PacketValidationResult
 	if (!isRecord(packet)) return { ok: false, executable: false, errors: [{ code: "packet-not-object", message: "packet must be an object" }], warnings };
 
 	if (packet.schema !== EXECUTION_PACKET_SCHEMA) add(errors, "invalid-schema", `schema must be ${EXECUTION_PACKET_SCHEMA}`, "schema");
-	if (packet.version !== EXECUTION_PACKET_VERSION) add(errors, "invalid-version", `version must be ${EXECUTION_PACKET_VERSION}`, "version");
+	if (packet.version !== EXECUTION_PACKET_VERSION) add(errors, "invalid-version", `version must be ${EXECUTION_PACKET_VERSION}; rerun /fanout-plan to replace older packets`, "version");
 	if (typeof packet.status !== "string" || !VALID_STATUSES.has(packet.status)) add(errors, "invalid-status", "status must be ready", "status");
 	if (!nonEmptyString(packet.objective)) add(errors, "missing-objective", "objective is required", "objective");
 	if (!nonEmptyString(packet.createdAt)) add(errors, "missing-created-at", "createdAt is required", "createdAt");
@@ -347,7 +348,9 @@ function validateTierPlan(value: unknown, errors: PacketValidationIssue[]): void
 	}
 	validateTierSummary(value.tier1, "tierPlan.tier1", errors);
 	validateTierSummary(value.tier2, "tierPlan.tier2", errors);
+	validateTierSummary(value.tier2Fallback, "tierPlan.tier2Fallback", errors);
 	if (isRecord(value.tier1) && value.tier1.status !== "available") add(errors, "tier1-unavailable", "tier1 is required and must be available", "tierPlan.tier1.status");
+	if (isRecord(value.tier2Fallback) && value.tier2Fallback.status !== "available") add(errors, "tier2-fallback-unavailable", "tier2Fallback is required and must be available", "tierPlan.tier2Fallback.status");
 }
 
 function validateTierSummary(value: unknown, path: string, errors: PacketValidationIssue[]): void {
@@ -387,6 +390,14 @@ function checkTierPolicy(workUnits: FanoutWorkUnit[], tierPlan: unknown, errors:
 		if (!tier2Available && unit.tier.assigned === "tier2") add(errors, "tier2-unavailable-assignment", `${unit.id} is assigned to tier2 but tier2 is unavailable`, `workUnits.${unit.id}.tier`, unit.id);
 		if (unit.tier.assigned === "tier2" && !TIER2_ELIGIBLE_KINDS.has(unit.kind)) add(errors, "tier2-ineligible-kind", `${unit.kind} nodes must run on tier1`, `workUnits.${unit.id}.tier`, unit.id);
 		if (unit.tier.preferred === "tier2" && unit.tier.assigned === "tier1" && tier2Available) add(warnings, "tier2-candidate-on-tier1", `${unit.id} preferred tier2 but is assigned tier1 while tier2 is available`, `workUnits.${unit.id}.tier`, unit.id);
+		const expected = isRecord(tierPlan)
+			? unit.tier.assigned === "tier2"
+				? tierPlan.tier2
+				: unit.tier.preferred === "tier2"
+					? tierPlan.tier2Fallback
+					: tierPlan.tier1
+			: undefined;
+		if (isRecord(expected) && ["provider", "model", "thinking"].some((key) => unit.tier[key] !== expected[key])) add(errors, "tier-model-mismatch", `${unit.id} does not use the concrete model for its assigned role`, `workUnits.${unit.id}.tier`, unit.id);
 	}
 }
 
@@ -540,13 +551,24 @@ function checkEstimateGraph(packet: Record<string, unknown>, graph: ExecutionGra
 }
 
 function renderTierPlan(packet: FanoutExecutionPacket): string {
-	const lines = ["Tier/model plan", "===============", "", "Tier1 realtime", ...tierLines(packet.tierPlan.tier1), "", "Tier2 async", ...tierLines(packet.tierPlan.tier2)];
-	if (packet.tierPlan.tier2.status === "unavailable") lines.push("", "Fallback", "  if tier2 unavailable: use tier1 for executable worker nodes");
+	const lines = [
+		"Tier/model plan",
+		"===============",
+		"",
+		"Tier1 realtime control plane",
+		...tierLines(packet.tierPlan.tier1),
+		"",
+		"Tier2 async workers",
+		...tierLines(packet.tierPlan.tier2),
+		"",
+		"Tier2 fallback realtime execution",
+		...tierLines(packet.tierPlan.tier2Fallback),
+	];
 	return `${lines.join("\n")}\n`;
 }
 
 function tierLines(tier: TierModelSummary & { fallback?: string }): string[] {
-	const lines = [`  provider : ${tier.provider}`, `  model    : ${tier.model}`, `  thinking : ${tier.thinking}`, `  status   : ${tier.status}`, `  reason   : ${tier.reason}`];
+	const lines = [`  provider : ${tier.provider}`, `  model    : ${tier.model}`, `  thinking : ${tier.thinking}`, `  source   : ${tier.source}`, `  status   : ${tier.status}`, `  reason   : ${tier.reason}`];
 	if (tier.fallback) lines.push(`  fallback : ${tier.fallback}`);
 	return lines;
 }

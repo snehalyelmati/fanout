@@ -668,6 +668,8 @@ Deferred/skipped:
 ---
 Phase 3 component: Tier2 retry / tier1 fallback policy
 
+> **Historical schema-v3 note — superseded 2026-07-10.** The component text below preserves the original Tier2 → Tier1-control-model fallback decision for chronology; it is not the current execution contract. Schema v4 uses the packet's concrete realtime `tierPlan.tier2Fallback` model after retryable Tier 2 exhaustion, while typed validation and integration repairs remain on Tier 1. See [`docs/impl/phase-3-fanout-execute.md`](impl/phase-3-fanout-execute.md#component-7-tier2-retry-and-realtime-fallback-policy).
+
 ```text
 Design alignment:
 - Retry/fallback decisions are deterministic. No LLM for policy decisions.

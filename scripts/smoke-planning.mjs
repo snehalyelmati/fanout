@@ -204,8 +204,15 @@ try {
   if (unavailable.tierPlan?.tier2?.status !== "unavailable" || unavailable.tierPlan?.tier2?.fallback !== "tier1" || unavailable.tier2Availability?.available !== false || unavailable.nodeKindTierPolicy?.fallbackTier !== "tier1" || !String(unavailable.tier2Availability?.reason).includes("disabled")) {
     throw new Error(`bad unavailable tier2 fallback: ${JSON.stringify(unavailable)}`);
   }
+  if (unavailable.tierPlan?.tier2Fallback?.provider !== unavailable.tierPlan?.tier1?.provider || unavailable.tierPlan?.tier2Fallback?.model !== unavailable.tierPlan?.tier1?.model || unavailable.tierPlan?.tier2Fallback?.source !== "tier1 inheritance") {
+    throw new Error(`missing fallback config did not inherit resolved tier1: ${JSON.stringify(unavailable.tierPlan)}`);
+  }
+
   const stubTier2 = run("fanout-plan-tier2-stub", "/fanout-plan Prepare a docs-only change plan", {
-    fanout: { tiers: { tier2: { provider: "doubleword-stub", model: "glm-5-2", thinking: "medium" } } },
+    fanout: {
+      tiers: { tier2: { provider: "doubleword-stub", model: "glm-5-2", thinking: "medium" } },
+      execution: { tier2Fallback: { provider: "doubleword-stub", model: "deepseek-v4-flash", thinking: "off" } },
+    },
   });
   const available = preflight(stubTier2);
   if (
@@ -219,7 +226,11 @@ try {
     available.tier2Availability?.fanout?.async !== true ||
     available.tier2Availability?.fanout?.background !== true ||
     available.tier2Availability?.fanout?.authReady !== true ||
-    "fallback" in available.tierPlan.tier2
+    "fallback" in available.tierPlan.tier2 ||
+    available.tierPlan?.tier2Fallback?.provider !== "doubleword-stub" ||
+    available.tierPlan?.tier2Fallback?.model !== "deepseek-v4-flash" ||
+    available.tierPlan?.tier2Fallback?.thinking !== "off" ||
+    available.tierPlan?.tier2Fallback?.source !== "fanout.execution.tier2Fallback"
   ) {
     throw new Error(`bad available tier2 preflight: ${JSON.stringify(available)}`);
   }

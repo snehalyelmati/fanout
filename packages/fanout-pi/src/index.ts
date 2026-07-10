@@ -374,7 +374,7 @@ function modelKey(provider: string, model: string): string {
 
 function fanoutRuntimePrompt(cwd: string, model: unknown, thinking: unknown, models?: unknown): string {
 	const context = fanoutRuntimeContext(cwd, model, thinking, models);
-	return `${FANOUT_CONTEXT_MARKER}\n\n- artifactRoot: ${context.artifactRoot}\n- projectArtifactRoot: ${context.projectArtifactRoot}\n- runtimeContextFile: ${context.runtimeContextFile}\n- activePointerPath: ${context.activePointerPath}\n- tier1: ${context.resolvedTierPlan.tier1.provider}/${context.resolvedTierPlan.tier1.model} (${context.resolvedTierPlan.tier1.thinking})\n- tier2: ${context.resolvedTierPlan.tier2.provider}/${context.resolvedTierPlan.tier2.model} (${context.resolvedTierPlan.tier2.status}; ${context.tier2Availability.reason})\n- question tool: ask_user_question is required for /fanout-plan clarification.\n`;
+	return `${FANOUT_CONTEXT_MARKER}\n\n- artifactRoot: ${context.artifactRoot}\n- projectArtifactRoot: ${context.projectArtifactRoot}\n- runtimeContextFile: ${context.runtimeContextFile}\n- activePointerPath: ${context.activePointerPath}\n- tier1: ${context.resolvedTierPlan.tier1.provider}/${context.resolvedTierPlan.tier1.model} (${context.resolvedTierPlan.tier1.thinking})\n- tier2: ${context.resolvedTierPlan.tier2.provider}/${context.resolvedTierPlan.tier2.model} (${context.resolvedTierPlan.tier2.status}; ${context.tier2Availability.reason})\n- tier2 fallback: ${context.resolvedTierPlan.tier2Fallback.provider}/${context.resolvedTierPlan.tier2Fallback.model} (${context.resolvedTierPlan.tier2Fallback.thinking})\n- question tool: ask_user_question is required for /fanout-plan clarification.\n`;
 }
 
 function writeFanoutRuntimeContext(cwd: string, model: unknown, thinking: unknown, models?: unknown): ReturnType<typeof fanoutRuntimeContext> {
@@ -407,12 +407,15 @@ function fanoutRuntimeContext(cwd: string, model: unknown, thinking: unknown, mo
 	const tier1Settings = recordField(settings.tiers?.tier1);
 	const tier2Settings = recordField(settings.tiers?.tier2);
 	const executionSettings = recordField(settings.execution);
+	const tier2FallbackSettings = recordField(executionSettings.tier2Fallback);
 	const tierDefaults = {
 		tier1: { provider: "auto", model: "auto", thinking: "auto", reason: "current active Pi realtime model", ...tier1Settings },
 		tier2: { provider: TIER2_DEFAULT.provider, model: TIER2_DEFAULT.model, thinking: TIER2_DEFAULT.thinking, enabled: "auto", reason: "async background worker model", ...tier2Settings },
+		tier2Fallback: Object.keys(tier2FallbackSettings).length > 0 ? tier2FallbackSettings : { inherit: "tier1" },
 	};
 	const tier1 = resolveTier1(tierDefaults.tier1, active, activeThinking, registryModels, Object.keys(tier1Settings).length > 0);
 	const tier2 = resolveTier2(tierDefaults.tier2, registryModels, Object.keys(tier2Settings).length > 0);
+	const tier2Fallback = resolveTier2Fallback(tier2FallbackSettings, tier1.summary, registryModels);
 	return {
 		artifactRoot,
 		projectId,
@@ -422,7 +425,7 @@ function fanoutRuntimeContext(cwd: string, model: unknown, thinking: unknown, mo
 		activeModel: active,
 		activeThinking,
 		tierDefaults,
-		resolvedTierPlan: { tier1: tier1.summary, tier2: tier2.summary },
+		resolvedTierPlan: { tier1: tier1.summary, tier2: tier2.summary, tier2Fallback },
 		tier2Availability: tier2.availability,
 		nodeKindTierPolicy: { tier2Eligible: TIER2_ELIGIBLE_KINDS, tier1Only: TIER1_ONLY_KINDS, fallbackTier: "tier1" },
 		packetHelper: {
@@ -455,7 +458,7 @@ function resolveTier1(config: Record<string, unknown>, active: ReturnType<typeof
 	const requestedThinking = optionalString(config.thinking) && config.thinking !== "auto" ? String(config.thinking) : activeThinking;
 	const thinking = resolveThinking(modelRecord ?? findModel(models, provider, model), requestedThinking, activeThinking);
 	const source = configured && useConfigured && modelRecord ? "fanout.tiers.tier1" : "current Pi active model";
-	return { summary: { provider, model, thinking, source, status: "available", reason: "control plane, review, synthesis, fallback" } };
+	return { summary: { provider, model, thinking, source, status: "available", reason: "realtime control plane for planning, safety, review, synthesis, and final decisions" } };
 }
 
 function resolveTier2(config: Record<string, unknown>, models: Array<Record<string, unknown>>, configured: boolean) {
@@ -471,6 +474,30 @@ function resolveTier2(config: Record<string, unknown>, models: Array<Record<stri
 	return {
 		availability: { available, reason, fanout: { async: fanout.async === true, background: fanout.background === true, authReady: fanout.authReady === true } },
 		summary: { provider, model, thinking, source, status: available ? "available" : "unavailable", reason: available ? "parallel async worker nodes" : reason, fallback: available ? undefined : "tier1" },
+	};
+}
+
+function resolveTier2Fallback(config: Record<string, unknown>, tier1: Record<string, unknown>, models: Array<Record<string, unknown>>) {
+	const provider = optionalString(config.provider);
+	const model = optionalString(config.model);
+	const modelRecord = provider && model ? findModel(models, provider, model) : undefined;
+	if (!provider || !model || !modelRecord) {
+		return {
+			provider: stringField(tier1.provider),
+			model: stringField(tier1.model),
+			thinking: stringField(tier1.thinking),
+			source: "tier1 inheritance",
+			status: "available",
+			reason: provider && model ? "configured fallback unavailable; inherited tier1" : "realtime fallback for tier2 execution; inherits tier1",
+		};
+	}
+	return {
+		provider,
+		model,
+		thinking: resolveThinking(modelRecord, optionalString(config.thinking) ?? "auto", "auto"),
+		source: "fanout.execution.tier2Fallback",
+		status: "available",
+		reason: "realtime fallback for tier2 execution",
 	};
 }
 

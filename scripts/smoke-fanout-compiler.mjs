@@ -21,6 +21,10 @@ for (const forbidden of ["parallelGroups", "tierPlan", "workerPacket"]) {
 const base = compile(samplePlan(), sampleDetails());
 expectCompileOk("base", base);
 if (base.packet.workUnits.some((unit) => /contract/i.test(unit.id))) throw new Error(`compiler emitted a default contract node: ${base.packet.workUnits.map((unit) => unit.id).join(",")}`);
+const unavailableWorker = base.packet.workUnits.find((unit) => unit.id === "a");
+const baseFinalValidation = base.packet.workUnits.find((unit) => unit.id === "final-validation");
+if (unavailableWorker?.tier.model !== "fallback-worker" || unavailableWorker.tier.assigned !== "tier1") throw new Error(`tier2-unavailable worker did not use tier2Fallback: ${JSON.stringify(unavailableWorker?.tier)}`);
+if (baseFinalValidation?.tier.model !== "current-session-model") throw new Error(`tier1-only final validation used fallback model: ${JSON.stringify(baseFinalValidation?.tier)}`);
 
 const directoryDetail = detail("a", "generated/file.txt");
 directoryDetail.ownedResources = ["generated/"];
@@ -30,7 +34,9 @@ if (!directoryOwnership.packet.workUnits.some((unit) => unit.ownedFiles.includes
 
 const tier2Worker = compile(samplePlan([item("a", ["src/a.ts"])]), sampleDetails([detail("a", "src/a.ts")]), { tier2Eligible: ["implement"], tier1Only: ["final-validation"], fallbackTier: "tier1" }, availableTierPlan());
 expectCompileOk("tier2 worker", tier2Worker);
-expectTier("tier2 worker assignment", tier2Worker.packet.workUnits.find((unit) => unit.id === "a"), "tier2", "tier2", "background");
+const availableWorker = tier2Worker.packet.workUnits.find((unit) => unit.id === "a");
+expectTier("tier2 worker assignment", availableWorker, "tier2", "tier2", "background");
+if (availableWorker?.tier.model !== "zai-org/GLM-5.2-FP8") throw new Error(`tier2-available worker did not retain tier2 model: ${JSON.stringify(availableWorker?.tier)}`);
 
 const tier1Veto = compile(samplePlan([item("docs", ["README.md"])]), sampleDetails([detail("docs", "README.md")]), { tier2Eligible: ["docs"], tier1Only: ["docs"], fallbackTier: "tier1" }, availableTierPlan());
 expectCompileOk("tier1 veto", tier1Veto);
@@ -224,15 +230,17 @@ function detail(sourcePlanId, file, overrides = {}, readDependencies = []) {
 
 function tierPlan() {
   return {
-    tier1: { provider: "current", model: "current-session-model", thinking: "auto", source: "current Pi active model", status: "available", reason: "control plane, review, synthesis, fallback" },
+    tier1: { provider: "current", model: "current-session-model", thinking: "auto", source: "current Pi active model", status: "available", reason: "control plane, review, synthesis" },
     tier2: { provider: "doubleword", model: "zai-org/GLM-5.2-FP8", thinking: "medium", source: "default settings", status: "unavailable", reason: "async unavailable", fallback: "tier1" },
+    tier2Fallback: { provider: "current", model: "fallback-worker", thinking: "low", source: "fanout.execution.tier2Fallback", status: "available", reason: "realtime fallback for tier2 execution" },
   };
 }
 
 function availableTierPlan() {
   return {
-    tier1: { provider: "current", model: "current-session-model", thinking: "auto", source: "current Pi active model", status: "available", reason: "control plane, review, synthesis, fallback" },
+    tier1: { provider: "current", model: "current-session-model", thinking: "auto", source: "current Pi active model", status: "available", reason: "control plane, review, synthesis" },
     tier2: { provider: "doubleword", model: "zai-org/GLM-5.2-FP8", thinking: "medium", source: "default settings", status: "available", reason: "parallel async worker nodes" },
+    tier2Fallback: { provider: "current", model: "fallback-worker", thinking: "low", source: "fanout.execution.tier2Fallback", status: "available", reason: "realtime fallback for tier2 execution" },
   };
 }
 

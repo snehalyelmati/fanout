@@ -93,6 +93,18 @@ expectInvalid("tier2 unavailable assignment", withPatch(validPacket, (packet) =>
 expectInvalid("missing worker packet", withPatch(validPacket, (packet) => {
   delete packet.workUnits[0].workerPacket;
 }), ["missing-worker-packet"]);
+expectInvalid("schema v3 requires replanning", withPatch(validPacket, (packet) => {
+  packet.version = 3;
+}), ["invalid-version"]);
+expectInvalid("missing tier2 fallback summary", withPatch(validPacket, (packet) => {
+  delete packet.tierPlan.tier2Fallback;
+}), ["invalid-tier-summary"]);
+expectInvalid("unavailable tier2 fallback summary", withPatch(validPacket, (packet) => {
+  packet.tierPlan.tier2Fallback.status = "unavailable";
+}), ["tier2-fallback-unavailable"]);
+expectInvalid("fallback worker model mismatch", withPatch(validPacket, (packet) => {
+  packet.workUnits[0].tier.model = "wrong-fallback";
+}), ["tier-model-mismatch"]);
 
 const dir = mkdtempSync(join(tmpdir(), "fanout-packet-"));
 try {
@@ -104,7 +116,7 @@ try {
   const active = JSON.parse(readFileSync(activePointerPath, "utf8"));
   if (active.schema !== "fanout.active-packet" || active.packetPath !== paths.packetPath) throw new Error(`bad active pointer: ${JSON.stringify(active)}`);
   const plan = readFileSync(paths.planPath, "utf8");
-  for (const pattern of [/Tier\/model plan/, /Execution flow/, /\| goal :/, /\| tier :/, /\| owns :/, /Work units.*DAG depth/, /Tier1 nodes.*Tier2 nodes/, /Planned writes/]) {
+  for (const pattern of [/Tier\/model plan/, /Tier2 fallback realtime execution/, /Execution flow/, /\| goal :/, /\| tier :/, /\| owns :/, /Work units.*DAG depth/, /Tier1 nodes.*Tier2 nodes/, /Planned writes/]) {
     if (!pattern.test(plan)) throw new Error(`execution-plan.md missing pattern: ${pattern}`);
   }
 

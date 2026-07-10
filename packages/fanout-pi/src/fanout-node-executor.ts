@@ -133,8 +133,8 @@ export class FanoutNodeExecutor {
 		}
 
 		if (assigned.tier !== "tier2" || !outcome?.retryable || unit.tier.fallback !== "tier1") return outcome ?? hardFailure(unit, assigned, "worker attempts did not run", "process");
-		const fallback = tierOne(this.#packet);
-		await this.#event("worker_fallback_started", { nodeId: unit.id, fromTier: "tier2", tier: "tier1" });
+		const fallback = tierTwoFallback(this.#packet);
+		await this.#event("worker_fallback_started", { nodeId: unit.id, fromTier: "tier2", tier: "tier1", provider: fallback.provider, model: fallback.model });
 		const result = await this.#runWorkerAttempt(unit, fallback, "fallback");
 		await this.#event(result.ok ? "worker_fallback_finished" : "worker_fallback_failed", { nodeId: unit.id, attemptId: result.attemptId, error: result.error });
 		return result;
@@ -502,6 +502,10 @@ function tierForUnit(unit: FanoutWorkUnit): WorkerTier {
 
 function tierOne(packet: FanoutExecutionPacket): WorkerTier {
 	return { tier: "tier1", provider: packet.tierPlan.tier1.provider, model: packet.tierPlan.tier1.model, thinking: packet.tierPlan.tier1.thinking };
+}
+
+function tierTwoFallback(packet: FanoutExecutionPacket): WorkerTier {
+	return { tier: "tier1", provider: packet.tierPlan.tier2Fallback.provider, model: packet.tierPlan.tier2Fallback.model, thinking: packet.tierPlan.tier2Fallback.thinking };
 }
 
 function hardFailure(unit: FanoutWorkUnit, tier: WorkerTier, error: string, failureKind: FailureKind): WorkerAttempt {

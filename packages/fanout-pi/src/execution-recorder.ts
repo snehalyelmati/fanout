@@ -265,7 +265,7 @@ export function renderExecutionSummary(snapshot: ExecutionRunSnapshot): string {
 		`- Worker attempts: ${snapshot.eventCounts.worker_attempt_started ?? 0}`,
 		`- Clean reruns: ${snapshot.eventCounts.worker_clean_rerun_scheduled ?? 0}`,
 		`- Tier2 retries: ${snapshot.eventCounts.worker_retry_scheduled ?? 0}`,
-		`- Tier1 fallbacks: ${snapshot.eventCounts.worker_fallback_started ?? 0}`,
+		`- Realtime tier2Fallback attempts: ${snapshot.eventCounts.worker_fallback_started ?? 0}`,
 		`- Rejected patches: ${snapshot.eventCounts.patch_rejected ?? 0}`,
 		`- Final validation: ${snapshot.finalValidation ? `${snapshot.finalValidation.status}; ${snapshot.finalValidation.commandCount} commands; ${formatMs(snapshot.finalValidation.durationMs)}` : "not reached"}`,
 		"",

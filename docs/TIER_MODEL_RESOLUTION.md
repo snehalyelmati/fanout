@@ -1,9 +1,10 @@
 # Tier Model Resolution
 
-Fanout currently supports two execution tiers only:
+Fanout supports two execution tiers and three configurable model roles:
 
-- **Tier 1 / realtime**
-- **Tier 2 / async**
+- **Tier 1 / realtime control plane**
+- **Tier 2 / async workers**
+- **Tier 2 fallback / realtime execution fallback** — a model role, not a third tier
 
 Batch execution is intentionally out of scope for now.
 
@@ -18,7 +19,7 @@ parallel executable work -> tier2
 orchestration / user interaction / final synthesis -> tier1
 ```
 
-If tier2 is unavailable, Fanout falls back to tier1 and reports that clearly.
+If tier2 is unavailable, Fanout assigns eligible execution work to the concrete Tier 2 fallback role and reports that clearly. The fallback role inherits Tier 1 unless independently configured.
 
 ## Tier Purposes
 
@@ -40,7 +41,7 @@ Use tier1 for:
 - final response
 - any node blocked on user input
 - any node with unclear ownership or safety
-- fallback when tier2 is unavailable or fails
+- typed Tier 1 validation and integration recovery
 
 Default model:
 
@@ -99,7 +100,19 @@ auth/API key is available
 async capability is supported
 ```
 
-If tier2 is unavailable, use tier1.
+If tier2 is unavailable, use the Tier 2 fallback role.
+
+### Tier 2 fallback / realtime
+
+Tier 2 fallback is a separate realtime execution model role. It is used only when Tier 2 is unavailable during compilation or exhausts retryable attempts during execution.
+
+Default:
+
+```text
+inherit the resolved Tier 1 provider/model/thinking
+```
+
+An explicit fallback may select any runnable realtime model from Pi's registry. It does not replace Tier 1 for planning, safety, review, synthesis, final decisions, or typed Tier 1 recovery.
 
 ## Settings
 
@@ -173,6 +186,8 @@ medium
 
 unless unsupported by the provider/model.
 
+Tier 2 fallback thinking inherits Tier 1 by default. An explicit fallback uses its configured supported thinking level.
+
 ## Resolution Algorithm
 
 ```text
@@ -213,27 +228,27 @@ resolveTierModels(ctx, settings):
    else:
       tier2 status = unavailable
 
-6. Assign global tier status
-   if tier2 available:
-      tier2 = resolved doubleword/GLM-5.2 config
-      status = available
+6. Resolve Tier 2 fallback
+   if settings.fanout.execution.tier2Fallback names a registry model:
+      resolve that realtime provider/model/thinking
    else:
-      tier2 = tier1 fallback
-      status = unavailable
-      reason = "tier2 provider/model/auth/async unavailable"
+      inherit the resolved Tier 1 provider/model/thinking
 
 7. Assign nodes
-   if node is async-eligible and tier2 available:
-      assigned = tier2
+   if node is tier1-only/control-plane:
+      assigned model role = tier1
+   else if node is async-eligible and tier2 available:
+      assigned model role = tier2
    else:
-      assigned = tier1
+      assigned execution tier = tier1
+      assigned model role = tier2Fallback
 
-8. Store concrete provider/model/thinking per node in packet.
+8. Store all three concrete model summaries plus concrete provider/model/thinking per node in packet.
 
-9. Emit plan report tier/model section.
+9. Emit plan report tier/model-role section.
 ```
 
-Bad tier2 config never fails planning. Even if user config names an unavailable tier2 provider/model, Fanout falls back to tier1 and reports the issue.
+Bad tier2 config never fails planning. Even if user config names an unavailable tier2 provider/model, Fanout uses the resolved Tier 2 fallback role and reports the issue.
 
 Tier1 is different: tier1 is mandatory. If neither config nor active Pi model can resolve tier1, planning must fail clearly.
 
@@ -245,14 +260,14 @@ Tier assignment rule:
 
 ```text
 for each DAG node:
-  if tier2 unavailable:
-    assign tier1
+  if node is tier1-only/control-plane:
+    assign tier1 model role
 
-  else if node is safe async worker:
+  else if tier2 is available and node is a safe async worker:
     assign tier2
 
   else:
-    assign tier1
+    assign tier1 execution with the tier2Fallback model role
 ```
 
 A node is a safe async worker when:
@@ -317,7 +332,7 @@ During `/fanout-plan`:
 2. Resolve/check tier2.
 3. If tier2 unavailable:
    - keep planning
-   - assign tier2-eligible nodes to tier1 fallback
+   - assign tier2-eligible nodes to the concrete tier2Fallback realtime model
    - report tier2 unavailable
 4. Do not fail planning because tier2 is unavailable.
 ```
@@ -328,11 +343,11 @@ Plan report must include a clear section:
 Tier/model plan
 ===============
 
-Tier1 realtime
+Tier1 realtime control plane
   provider : <active provider>
   model    : <active model>
   thinking : <resolved thinking>
-  reason   : planning, review, synthesis, fallback
+  reason   : planning, safety, review, synthesis, final decisions
 
 Tier2 async
   provider : doubleword
@@ -341,8 +356,11 @@ Tier2 async
   status   : available | unavailable
   reason   : background implementation workers
 
-Fallback
-  if tier2 unavailable: use tier1 for executable worker nodes
+Tier2 fallback realtime execution
+  provider : <fallback provider>
+  model    : <fallback model>
+  thinking : <fallback thinking>
+  source   : tier1 inheritance | fanout.execution.tier2Fallback
 ```
 
 If unavailable:
@@ -351,7 +369,7 @@ If unavailable:
 Tier2 async
   status   : unavailable
   reason   : provider/model/auth/async capability unavailable
-  fallback : all tier2 candidates assigned to tier1
+  fallback : all tier2 candidates assigned to tier2Fallback on the realtime tier
 ```
 
 ## Execution Phase Fallback
@@ -365,7 +383,7 @@ Execution behavior:
 2. Revalidate safety only.
 3. Run each node with its concrete packet-assigned provider/model/thinking.
 4. If that node has a classified transient tier2 subprocess/provider failure, run one clean tier2 rerun.
-5. If that node exhausts retryable tier2 attempts and declares `fallback: "tier1"`, run one tier1 fallback attempt.
+5. If that node exhausts retryable tier2 attempts and declares `fallback: "tier1"`, run one realtime attempt with the packet's concrete `tier2Fallback` model.
 6. Record every attempt and fallback; do not reassign other nodes or change the DAG.
 ```
 
@@ -386,14 +404,14 @@ maxIntegrationRepairAttempts = 2
 Execution fallback report:
 
 ```text
-tier2 unavailable after 2 total attempts; the node fell back to one tier1 attempt
+tier2 unavailable after 2 total attempts; the node fell back to one realtime tier2Fallback attempt
 ```
 
-Execution may fallback from tier2 to tier1, but should not change the DAG shape or reassign file ownership.
+Execution may fallback from tier2 to the realtime tier using `tier2Fallback`, but it must not change the DAG shape or file ownership. Typed validation/integration repairs continue to use the Tier 1 control-plane model.
 
 ## Execution Packet
 
-Tier-aware packets use execution packet schema version `3`. The accepted packet should store concrete provider/model/thinking per node plus per-unit `workerPacket` handoff context from the compiler.
+Tier-aware packets use execution packet schema version `4`. Schema v4 requires a concrete `tier2Fallback` summary in addition to Tier 1 and Tier 2. Older packets fail validation and require replanning; there is no migration machinery. The accepted packet stores concrete provider/model/thinking per node plus per-unit `workerPacket` handoff context from the compiler.
 
 Example node:
 
@@ -432,9 +450,9 @@ Fallback example:
     "preferred": "tier2",
     "assigned": "tier1",
     "fallback": "tier1",
-    "provider": "<active-provider>",
-    "model": "<active-model>",
-    "thinking": "<active-thinking>",
+    "provider": "<tier2-fallback-provider>",
+    "model": "<tier2-fallback-model>",
+    "thinking": "<tier2-fallback-thinking>",
     "reason": "tier2 unavailable; realtime fallback"
   }
 }
@@ -451,7 +469,7 @@ The packet should also include a global tier model summary to avoid repeating al
       "thinking": "<active-thinking>",
       "source": "current Pi active model",
       "status": "available",
-      "reason": "control plane, review, synthesis, fallback"
+      "reason": "control plane, safety, review, synthesis, final decisions"
     },
     "tier2": {
       "provider": "doubleword",
@@ -460,23 +478,27 @@ The packet should also include a global tier model summary to avoid repeating al
       "source": "default settings",
       "status": "available",
       "reason": "parallel async worker nodes"
+    },
+    "tier2Fallback": {
+      "provider": "openai-codex",
+      "model": "gpt-5.6-mini",
+      "thinking": "low",
+      "source": "fanout.execution.tier2Fallback",
+      "status": "available",
+      "reason": "realtime fallback for tier2 execution"
     }
   }
 }
 ```
 
-## Open Implementation Detail
+## Implemented capability detection
 
-The only remaining required capability hook is deterministic async support detection.
-
-Do not infer async support from provider or model names.
-
-Use an explicit capability such as:
+Tier 2 eligibility is deterministic and never inferred from provider or model names. A registry model is eligible only when its preserved Fanout metadata advertises all three flags:
 
 ```ts
-providerCapabilities.supportsAsync === true
+model.fanout.async === true
+model.fanout.background === true
+model.fanout.authReady === true
 ```
 
-or equivalent provider registry metadata.
-
-If that metadata is unavailable, tier2 should be treated as unavailable and Fanout should fall back to tier1.
+Doubleword metadata is restored before Pi registry filtering can discard provider-specific fields. If any flag is absent or false, Tier 2 is unavailable and eligible execution nodes use the resolved Tier 2 fallback role on the realtime tier. `/fanout-config` applies the same filter to Tier 2 choices; Tier 1 and Tier 2 fallback choices remain unrestricted because they are realtime roles.

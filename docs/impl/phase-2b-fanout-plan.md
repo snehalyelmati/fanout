@@ -5,7 +5,7 @@
 Upgrade `/fanout-plan` from prompt + helper script into a Pi-aware planning flow that:
 
 - asks user questions until the plan is decision-complete;
-- resolves tier1/tier2 model choices deterministically;
+- resolves Tier 1, Tier 2, and Tier 2 fallback model roles deterministically;
 - writes plan artifacts outside the repo in Pi-owned storage;
 - emits a compact, readable approval report with boxed ASCII DAG nodes;
 - leaves `/fanout-execute` for Phase 3.
@@ -19,7 +19,7 @@ Completed:
 - `/fanout-plan` is command-backed and dispatches Phase A/Phase B prompts with deterministic preflight context. Phase A's resolved objective is authoritative for Phase B and compilation; the invocation text is retained separately for traceability.
 - main-session planning observability is stored under Pi-owned Fanout storage rather than the target repository and correlates `sessionRunId` with each `planRunId`.
 - legacy package prompt registration is removed; `prompts/fanout-implementation-plan.md` and `prompts/fanout-implementation-details.md` are the internal command templates.
-- `fanout-core` compiles implementation details into execution packet schema v3 and validates the result.
+- `fanout-core` compiles implementation details into execution packet schema v4 and validates the result. Later schema-v3 sections below remain as history for the `workerPacket` introduction.
 - artifact helper writes packet/plan/DAG/active pointer under Pi-owned storage by default.
 - packet smoke fixtures and tests exist.
 - `/fanout-config` provides provider -> model -> thinking selection.
@@ -35,7 +35,7 @@ Completed:
 - Split `/fanout-plan` into a Phase A implementation-plan prompt, Phase B implementation-details prompt, and deterministic `fanout-core` compiler.
 - Added fanout-pi runtime context injection for active model, thinking level, artifact paths, and resolved tier preflight.
 - Added smoke coverage for packet tier fields, artifact path helper modes, boxed plan report sections, branch/join ASCII DAG rendering, `/fanout-config`, command-backed `/fanout-plan`, and `FANOUT_ARTIFACT_DIR` override.
-- Bumped execution packet schema to version `3` for required per-unit `workerPacket` handoff fields.
+- Bumped execution packet schema to version `3` for required per-unit `workerPacket` handoff fields, then to version `4` for the concrete `tierPlan.tier2Fallback` role. Schema-v3 records below are retained as implementation history.
 - Active pointer now stores an absolute packet path.
 - Fixed missing `fanout.artifactDir` fallback so runtime context defaults to Pi-owned storage and `/fanout-config` shows the resolved artifact root.
 - Fixed live Phase B finalization so `/fanout-plan` advances from pending run state plus artifacts instead of requiring prompt-marker handoff state, and displays the deterministic `execution-plan.md` report in chat.
@@ -134,7 +134,7 @@ Tier2 default:
 doubleword / zai-org/GLM-5.2-FP8
 ```
 
-Tier2 is optional at runtime. If unavailable, all tier2 candidates fall back to tier1 and the report must say so clearly.
+Tier2 is optional at runtime. If unavailable, tier2-eligible nodes use the resolved realtime `tier2Fallback` model role and the report must say so clearly. That role inherits Tier 1 by default but is not a third execution tier.
 
 ## Tier/model settings UX
 
@@ -181,16 +181,21 @@ Implementation summary:
    - thinking default: medium
 
 4. Check tier2 availability
-   - provider discoverable
-   - model exists
-   - auth/API key available
-   - explicit async capability supported
+   - provider/model discoverable
+   - `fanout.authReady === true`
+   - `fanout.async === true`
+   - `fanout.background === true`
 
-5. Assign global tier status
+5. Resolve Tier 2 fallback
+   - configured `fanout.execution.tier2Fallback` if present
+   - otherwise inherit the resolved Tier 1 model
+
+6. Assign global tier status
    - if tier2 available, use tier2 for safe worker nodes
-   - otherwise mark tier2 unavailable and assign those nodes to tier1 fallback
+   - otherwise mark tier2 unavailable and assign those nodes to the realtime Tier 2 fallback role
+   - keep control-plane and typed recovery nodes on Tier 1
 
-6. Store resolved provider/model/thinking per node.
+7. Store resolved provider/model/thinking per node and all three role summaries in packet schema v4.
 ```
 
 Do not infer async support from provider/model names. If explicit capability metadata is unavailable, tier2 is unavailable.
@@ -201,12 +206,12 @@ Use tier2 as much as safely possible.
 
 ```text
 for each DAG node:
-  if tier2 unavailable:
+  if node is tier1-only:
     assigned = tier1
-  else if node is a safe async worker:
+  else if tier2 is available:
     assigned = tier2
   else:
-    assigned = tier1
+    assigned = realtime tier2Fallback
 ```
 
 Tier2-eligible node kinds:
@@ -248,7 +253,9 @@ Phase A writes `implementation-plan.json` using schema `fanout.implementation-pl
 
 Phase B writes `implementation-details.json` using schema `fanout.implementation-details` version `1`. It records Phase A source ids, owned resources, existing-file anchors, new-file intent, read-dependency classification, forbidden changes, and validation commands. It must not invent contracts/APIs/product scope or packet fields.
 
-The deterministic compiler emits execution packet schema version `3` because each work unit now carries a required `workerPacket` handoff:
+> **Historical schema-v3 snapshot — superseded by schema v4.** The packet excerpt and compiler rules below preserve the `workerPacket` introduction. Current packets also require the concrete `tierPlan.tier2Fallback` model role described earlier in this document.
+
+The deterministic compiler emitted execution packet schema version `3` because each work unit gained a required `workerPacket` handoff:
 
 ```json
 {
@@ -302,7 +309,7 @@ Tier1 realtime
   provider : <active provider>
   model    : <active model>
   thinking : <resolved thinking>
-  reason   : planning, review, synthesis, fallback
+  reason   : planning, review, synthesis, typed recovery
 
 Tier2 async
   provider : doubleword
@@ -311,8 +318,11 @@ Tier2 async
   status   : available | unavailable
   reason   : background implementation workers
 
-Fallback
-  if tier2 unavailable: use tier1 for executable worker nodes
+Tier2 fallback realtime
+  provider : <configured provider or tier1 provider>
+  model    : <configured model or tier1 model>
+  thinking : <resolved thinking>
+  reason   : tier2-unavailable compilation and exhausted retryable tier2 execution
 ```
 
 ### Boxed ASCII execution flow
@@ -440,7 +450,9 @@ Tasks:
 - remove repo `runs/fanout` assumptions; **done**
 - keep boundary/symlink protections for configured artifact root; **done**
 
-### Step 3: packet schema v3
+### Step 3: packet schema v3 (historical; superseded by v4)
+
+This completed step records the `workerPacket` schema-v3 migration. Current packet validation requires schema v4 and its concrete `tierPlan.tier2Fallback` summary.
 
 Files likely touched:
 
@@ -526,7 +538,7 @@ Additional targeted checks:
 
 - artifact path outside repo by default;
 - `FANOUT_ARTIFACT_DIR` override;
-- tier2 unavailable fallback to tier1;
+- tier2 unavailable routing to the resolved realtime Tier 2 fallback role;
 - same-file details merge into one worker packet;
 - baseline-context overlaps stay parallel and post-change-required overlaps serialize;
 - report contains boxed DAG, files, metrics, and tier/model section;
@@ -534,12 +546,9 @@ Additional targeted checks:
 
 ## Non-goals
 
-- `/fanout-execute`
 - tier3/batch
-- live async execution
-- custom worker orchestration
-- packet-prep observability expansion
-- complex provider registry if Pi cannot expose async capability metadata yet
+- automated live benchmark variations
+- schema-v3 packet migration (replan to produce schema v4 instead)
 
 ## Audit findings to address next
 

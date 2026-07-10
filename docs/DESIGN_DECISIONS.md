@@ -336,6 +336,8 @@ Reason: Raw artifacts are useful for local audit but too noisy to commit. Tracke
 
 ### Split `/fanout-plan` into explicit implementation and detail prompts
 
+Status: The two-phase planning decision remains current; its schema-v3 output was superseded on 2026-07-10 by [the schema-v4 `tier2Fallback` decision](#separate-the-tier-2-fallback-model-role-from-tier-1).
+
 Decision: Keep one `/fanout-plan` command, but run two explicit prompts plus a deterministic compiler: Phase A writes `implementation-plan.json`; Phase B reads it and writes `implementation-details.json`; `fanout-core` validates, groups owned resources, derives dependencies from concrete `post-change-required` reads, computes parallel groups/tiers, and emits execution packet schema v3 with per-unit `workerPacket` handoff context.
 
 Reason: Implementation planning, repo grounding, and execution compilation are different jobs. The intermediate artifacts make failures debuggable, keep Phase B from inventing scope or DAG shape, and let code enforce ownership/dependency rules consistently.
@@ -480,6 +482,8 @@ Reason: Canonical git-directory identity makes sessions launched from different 
 
 ### Keep Phase 3 attempt budgets fixed
 
+Status: The fixed attempt budgets remain current; the Tier 1 control-model fallback was superseded on 2026-07-10 by [the realtime `tier2Fallback` model-role decision](#separate-the-tier-2-fallback-model-role-from-tier-1).
+
 Decision: `fanout.execution.maxConcurrency` is the only user execution setting consumed by `/fanout-execute`. The MVP policy fixes tier1 and tier2 to one original attempt plus one clean rerun, permits one tier1 fallback after retryable tier2 exhaustion when the work unit declares it, and permits at most two validation-repair and two integration-repair attempts. Provider availability is not preflighted and a node failure never globally reroutes remaining tier2 nodes.
 
 Reason: Fixed per-node budgets keep scheduling, cost accounting, and recovery deterministic while the first execution path is validated. Provider/model launch errors remain typed subprocess outcomes rather than a reason to mutate the accepted packet's assignments.
@@ -515,3 +519,9 @@ Reason: File references and shorthand invocations are inputs to planning, not ne
 Decision: The Fanout adapter routes its common session and bundled Doubleword telemetry to Pi-owned project artifact storage unless `DOUBLEWORD_OBSERVABILITY_FILE` explicitly overrides it. Common adapter events use `sessionRunId`, bundled provider events retain the legacy field name `runId`, and both values identify the same Pi session; planning events add `planRunId`. Execution audit schemas remain unchanged.
 
 Reason: Repository-local startup telemetry dirtied target worktrees and then failed Fanout's own clean-worktree preflight. Separate identifiers keep session and planning scope unambiguous.
+
+### Separate the Tier 2 fallback model role from Tier 1
+
+Decision: Keep two execution tiers but store three concrete model roles in execution packet schema v4: Tier 1 realtime control plane, Tier 2 async workers, and Tier 2 fallback realtime execution. The fallback role inherits Tier 1 unless `fanout.execution.tier2Fallback` selects another registry model. Tier2-unavailable compilation and exhausted retryable Tier 2 attempts use the fallback role; Tier 1 control work and typed recovery continue using Tier 1. Schema v3 packets require replanning and are not migrated.
+
+Reason: A strong control-plane model should not force every realtime execution fallback to use the same expensive model. A packet-level concrete fallback keeps execution deterministic without adding a third tier, per-node profiles, or runtime replanning.
