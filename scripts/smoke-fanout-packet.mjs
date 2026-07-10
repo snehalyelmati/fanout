@@ -120,6 +120,22 @@ try {
     if (!pattern.test(plan)) throw new Error(`execution-plan.md missing pattern: ${pattern}`);
   }
 
+  const readSummaryPacket = withPatch(validPacket, (packet) => {
+    packet.workUnits = [
+      unit("directory-owner", [], ["src/"], []),
+      unit("self-reader", [], ["self.txt"], ["self.txt"]),
+      unit("reader-a", [], [], ["src/a.ts", "./src/a.ts"]),
+      unit("reader-b", [], [], ["./src/a.ts"]),
+    ];
+    packet.estimates.criticalPath = ["directory-owner"];
+    packet.estimates.parallelGroups = [["directory-owner", "self-reader", "reader-a", "reader-b"]];
+  });
+  const readSummaryPlan = renderExecutionPlanMarkdown(readSummaryPacket);
+  for (const pattern of [/### External read-only context\n- none/, /### Cross-unit reads of planned writes/, /- reader-a reads src\/a\.ts/, /- reader-b reads src\/a\.ts/, /Cross-unit read refs\s+2/]) {
+    if (!pattern.test(readSummaryPlan)) throw new Error(`execution-plan.md did not distinguish read references: ${pattern}`);
+  }
+  if (readSummaryPlan.includes("self-reader reads self.txt") || readSummaryPlan.includes("./src/a.ts") || (readSummaryPlan.match(/reader-a reads src\/a\.ts/g) ?? []).length !== 1) throw new Error(`execution-plan.md did not dedupe or exclude self reads: ${readSummaryPlan}`);
+
   const branchPacket = withPatch(validPacket, (packet) => {
     const root = unit("inspect", [], [], ["README.md"]);
     root.kind = "inspect";

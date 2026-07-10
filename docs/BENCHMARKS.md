@@ -53,9 +53,9 @@ Caveat: worker usage and cost in this smoke are synthetic fake-provider fixtures
 
 ## P2 — Manual p-map AbortSignal E2E
 
-Date prepared: 2026-07-10
+Date prepared: 2026-07-10; last run update: 2026-07-11
 
-Status: ready for the first complete manual product-debugging run; no live execution result has been recorded.
+Status: in progress. A Sol-medium planning pass now compiles an executable packet after fixing Phase B writable-resource coverage. Semantic review accepted the packet ownership, dependency, safety, and validation contract, but exposed an inconsistent execution-plan summary that omitted reads of files owned by other units. The renderer now labels external read-only context and cross-unit reads separately; the next pass will rerun planning with Sol medium and Terra medium fallback before dry-run and live execution. No live execution result has been recorded yet.
 
 Runbook: [`docs/benchmarks/p-map-abort-signal-manual-e2e.md`](benchmarks/p-map-abort-signal-manual-e2e.md)
 

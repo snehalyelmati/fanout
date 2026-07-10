@@ -389,10 +389,13 @@ Planned writes
 - scripts/fanout-packet-artifacts.mjs
 - scripts/smoke-fanout-packet.mjs
 
-Read-only context
+External read-only context
 - README.md
 - docs/ROADMAP.md
 - package.json
+
+Cross-unit reads of planned writes
+- tests reads packages/fanout-core/src/execution-packet.ts
 ```
 
 ### Two-column metrics
@@ -403,10 +406,11 @@ Metrics
 
 Work units            5        DAG depth              4
 Max parallel width    2        Planned write files    3
-Read-only files       3        Validation commands    3
+External read-only    3        Cross-unit read refs   1
 Tier1 nodes           2        Tier2 nodes            3
-Active wait           ~5-10m   Background work        none
-Tier plan             mixed    Status                 ready
+Validation commands   3        Active wait           ~5-10m
+Background work       none     Tier plan              mixed
+Status                ready
 ```
 
 ### Next step

@@ -128,6 +128,8 @@ Expected ownership and validation:
 | `runtime-tests` | `test.js` | `runtime-abort` | `npx ava` |
 | final validation | none | all workers | `npm test` |
 
+Evaluate this contract semantically rather than by textual equality with the table. Safe, non-mutating validation commands may be added when they are traceable to task requirements and preserve the authoritative final validation. Command wrappers such as `rtk` are operational conveniences, not packet-correctness requirements. Record harmless presentation differences separately; reject only behavior that changes ownership, dependencies, safety boundaries, required behavior, or authoritative validation. Generated summaries must either agree with the authoritative packet or clearly label omitted detail.
+
 Only these files may be writable:
 
 ```text

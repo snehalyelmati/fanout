@@ -506,6 +506,14 @@ Decision: Packet resource paths may be normalized into repository-relative form,
 
 Reason: On POSIX, backslashes and leading/trailing spaces are valid filename bytes. Lossy normalization could make an undeclared root file appear to be an owned descendant while `git apply` still targets the original filename.
 
+## 2026-07-11
+
+### Review generated execution packets semantically
+
+Decision: Review generated plans against required behavior, ownership, dependencies, safety boundaries, and authoritative validation rather than textual equality with benchmark examples. Safe, non-mutating, task-traceable additions are acceptable. Command wrappers are operational conveniences, not correctness requirements. Rendered summaries may omit detail only when the omission is clearly labeled and the authoritative packet remains unambiguous.
+
+Reason: Model-grounded plans can express the same safe execution contract with harmless command or presentation differences. Treating those differences as failures overfits the benchmark, while unlabeled contradictions still make review unreliable.
+
 ## 2026-07-10
 
 ### Treat Phase A as the resolved objective source

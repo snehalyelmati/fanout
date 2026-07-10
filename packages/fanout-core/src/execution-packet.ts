@@ -663,15 +663,13 @@ function boxNode(unit: FanoutWorkUnit): string[] {
 }
 
 function renderFilesSection(packet: FanoutExecutionPacket): string {
-	const planned = unique(packet.workUnits.flatMap((unit) => unit.ownedFiles)).sort();
-	const readOnly = unique(packet.workUnits.flatMap((unit) => unit.readOnlyFiles)).filter((file) => !planned.includes(file)).sort();
-	return `### Planned writes\n${bullets(planned)}\n\n### Read-only context\n${bullets(readOnly)}\n`;
+	const files = fileSummary(packet);
+	return `### Planned writes\n${bullets(files.planned)}\n\n### External read-only context\n${bullets(files.externalReadOnly)}\n\n### Cross-unit reads of planned writes\n${bullets(files.crossUnitReads)}\n`;
 }
 
 function renderMetrics(packet: FanoutExecutionPacket, validation: PacketValidationResult): string {
 	const graph = validation.graph;
-	const planned = unique(packet.workUnits.flatMap((unit) => unit.ownedFiles));
-	const readOnly = unique(packet.workUnits.flatMap((unit) => unit.readOnlyFiles));
+	const files = fileSummary(packet);
 	const validationCommands = unique([...packet.finalValidationPlan, ...packet.workUnits.flatMap((unit) => unit.validationCommands)]);
 	const tier1 = packet.workUnits.filter((unit) => unit.tier.assigned === "tier1").length;
 	const tier2 = packet.workUnits.filter((unit) => unit.tier.assigned === "tier2").length;
@@ -679,16 +677,39 @@ function renderMetrics(packet: FanoutExecutionPacket, validation: PacketValidati
 		["Work units", String(packet.workUnits.length)],
 		["DAG depth", String(graph?.criticalPath.length ?? 0)],
 		["Max parallel width", String(Math.max(0, ...(graph?.parallelGroups.map((group) => group.length) ?? [0])))],
-		["Planned write files", String(planned.length)],
-		["Read-only files", String(readOnly.length)],
-		["Validation commands", String(validationCommands.length)],
+		["Planned write files", String(files.planned.length)],
+		["External read-only", String(files.externalReadOnly.length)],
+		["Cross-unit read refs", String(files.crossUnitReads.length)],
 		["Tier1 nodes", String(tier1)],
 		["Tier2 nodes", String(tier2)],
+		["Validation commands", String(validationCommands.length)],
 		["Active wait", packet.estimates.activeWait],
 		["Background work", packet.estimates.backgroundCompletion],
 		["Tier plan", tier2 > 0 ? "mixed" : "tier1"],
 		["Status", validation.executable ? "ready" : packet.status],
 	]);
+}
+
+function fileSummary(packet: FanoutExecutionPacket): { planned: string[]; externalReadOnly: string[]; crossUnitReads: string[] } {
+	const planned = uniqueRenderPaths(packet.workUnits.flatMap((unit) => unit.ownedFiles)).sort();
+	const overlapsPlanned = (file: string) => planned.some((owned) => pathsOverlap(normalizeFile(owned), normalizeFile(file)));
+	const externalReadOnly = uniqueRenderPaths(packet.workUnits.flatMap((unit) => unit.readOnlyFiles)).filter((file) => !overlapsPlanned(file)).sort();
+	const crossUnitReads = packet.workUnits.flatMap((unit) => uniqueRenderPaths(unit.readOnlyFiles)
+		.filter((file) => overlapsPlanned(file) && !unit.ownedFiles.some((owned) => pathsOverlap(normalizeFile(owned), normalizeFile(file))))
+		.map((file) => `${unit.id} reads ${file}`));
+	return { planned, externalReadOnly, crossUnitReads };
+}
+
+function uniqueRenderPaths(paths: string[]): string[] {
+	const seen = new Set<string>();
+	const result: string[] = [];
+	for (const path of paths) {
+		const normalized = normalizeFile(path);
+		if (!normalized || seen.has(normalized)) continue;
+		seen.add(normalized);
+		result.push(/[\\/]$/.test(path.trim()) ? `${normalized}/` : normalized);
+	}
+	return result;
 }
 
 function twoColumnMetrics(items: Array<[string, string]>): string {
