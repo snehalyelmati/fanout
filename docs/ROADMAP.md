@@ -12,7 +12,7 @@ Fanout's workflow is split into three phases:
 
 1. **Research and planning by the user**: users bring whatever research, planning notes, specs, or repo context they prefer. Fanout does not own this phase.
 2. **Execution packet**: `/fanout-plan [objective]` runs two explicit prompts plus a compiler: first a solve/plan artifact, then repo-grounded implementation details, then deterministic packet/DAG compilation.
-3. **Execution**: `/fanout-execute` runs the active accepted packet with subagent management, validation, synthesis, and summary metrics.
+3. **Execution**: `/fanout-execute` runs the active accepted packet with worker management, validation, patch integration, and summary metrics.
 
 The Doubleword provider adapts to these inference tiers:
 
@@ -108,37 +108,43 @@ Phase 2 acceptance criteria:
 
 ### Phase 3: Execution via `/fanout-execute`
 
-Status: design aligned; implementation pending. Detailed component contracts live in [`docs/impl/phase-3-fanout-execute.md`](impl/phase-3-fanout-execute.md).
+Status: MVP implemented; controlled live Pi worker validation remains pending. Detailed component contracts and implementation notes live in [`docs/impl/phase-3-fanout-execute.md`](impl/phase-3-fanout-execute.md).
 
-Goal: execute the active accepted packet, manage workers, validate outputs, and return control with summary plus metrics.
+Goal: execute the active accepted packet, manage workers, validate outputs, run authoritative final validation, and return control with summary plus metrics.
 
-Build order:
+Implemented order:
 
 1. **Active packet loader and guardrails**
    - Load the active execution packet prepared by `/fanout-plan`.
-   - Refuse missing pointers, malformed packets, paths outside the project artifact root, dirty/stale worktrees, unsafe validation commands, and non-executable DAGs before mutation.
-   - Confirm expected file ownership and validation commands before launch.
+   - Refuse missing pointers, malformed packets, paths outside the project artifact root, dirty active worktrees, missing committed `HEAD`, unsafe validation commands or repository paths, unavailable worker commands, and non-executable DAGs before mutation.
+   - Packet schema v3 has no planned HEAD/tree field, so preflight does not claim to detect a clean but stale checkout.
+   - Hold one canonical git-worktree execution lock for the run; never delete an existing lock automatically as stale.
+   - Show the objective, work-unit count, concurrency, apply behavior, and audit path before asking the user to confirm launch.
 2. **Execution run recorder**
-   - Create `<packet-artifact-dir>/executions/<execution-run-id>/` before mutation.
-   - Write `events.jsonl`, `execution-run.json`, and `summary.md` with mandatory metrics for every accepted LLM worker.
+   - Derive `<packet-artifact-dir>` from the loaded packet path and create `<packet-artifact-dir>/executions/<execution-run-id>/` before mutation.
+   - Write `events.jsonl`, `execution-run.json`, and a deterministic `summary.md` with mandatory metrics, event counts, final-validation status, and accepted changed files.
 3. **DAG scheduler**
    - Execute ready nodes in dependency order with deterministic packet-order tie breaking.
    - Keep scheduling separate from worktrees, workers, patch capture, validation, and repair.
 4. **Worker management**
    - Run approved work units in isolated git worktrees through curated non-interactive Pi subprocess workers.
-   - Use `--no-context-files` for workers and pass only the packet-approved context bundle.
+   - Use `--no-context-files` and explicitly inject only applicable repo-local `AGENTS.md`/`CLAUDE.md` instructions into the curated prompt, while leaving automatic Pi extension discovery enabled under `--approve`; enabled extensions are a separate trusted runtime boundary.
+   - Rebuild previously accepted integration state in each fresh downstream worktree and commit it only as that worktree's detached diff baseline.
 5. **Patch, validation, and apply gates**
    - Capture git patches, enforce owned-file scope, run node validation, and apply only accepted whole-node patches to the active worktree.
+   - Keep Git-observed filenames identity-preserving at the ownership gate; reject lossy path normalization.
+   - Reject validation commands that change the captured patch or move the detached worker `HEAD`.
+   - Serialize active-worktree apply checks and applies so parallel workers cannot race the integration state.
    - Allow only typed bounded tier1 recovery for validation failures and integration conflicts.
 6. **Tier2 retry / tier1 fallback**
-   - Retry only retryable tier2 worker/provider failures.
-   - Fall back to tier1 only when the packet declares `fallback: "tier1"`; count all attempts in metrics.
+   - Use fixed MVP retry/repair limits and retry only classified transient process/provider failures; only `maxConcurrency` is user-configurable.
+   - Fall back per node to one tier1 attempt only after retryable tier2 exhaustion and only when that work unit declares `fallback: "tier1"`; do not perform a global provider-availability fallback.
 7. **Summary and metrics**
-   - Return changed files, validation results, rejected/late worker outputs, retries, cancellations, token/cost totals, active time, background time, poll time, tool time, and artifact links.
+   - Return node and final-validation results, retry/fallback outcomes, token/cost totals, run time, poll time, tool time, patch stats, and artifact links.
 
 Phase 3 acceptance criteria:
 
-- `/fanout-execute` can run the active packet end-to-end with isolated workers and final synthesis.
+- `/fanout-execute` can run the active packet end-to-end with isolated workers and deterministic final validation.
 - Failed or late workers cannot corrupt the active worktree silently.
 - Every accepted worker has complete provider/model/tier/token/cost/TTFT/poll/tool/duration metrics.
 - The executor records enough metrics to compare against baseline Pi execution.

@@ -55,7 +55,7 @@ Phase B flow:
    - Every details item must trace to one or more Phase A ids.
    - Every Phase A `filesToChange` entry must be covered by at least one same-id details item writable resource.
    - Every existing-file edit needs at least one anchor field.
-   - Keep forbidden changes explicit.
+   - Keep forbidden changes explicit. Wrap every repository path in backticks, and retain a trailing `/` for directories (for example: "Do not change `src/generated/`.").
 
 Implementation details JSON fields:
 

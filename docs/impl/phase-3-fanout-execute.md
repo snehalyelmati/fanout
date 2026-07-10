@@ -1,8 +1,23 @@
 # Phase 3: `/fanout-execute` implementation design
 
-Status: design aligned; implementation pending.
+Status: MVP implemented; controlled live Pi worker validation pending.
 
 Source: validated Phase 3 component notes in [`docs/phase3_notes.md`](../phase3_notes.md).
+
+## Implementation notes
+
+- `/fanout-execute` loads the active pointer by default; `--dry-run` performs loader/preflight checks and writes audit artifacts without confirmation, workers, or repo mutation.
+- The recorder derives its run directory from `dirname(packetPath)`, never from the packet's `artifactDir` field.
+- Preflight requires a clean active git worktree, artifact storage outside that repo, safe packet paths, and an available Pi worker command. Packet schema v3 records no planned HEAD/tree, so execution cannot prove that a clean checkout is not stale.
+- Every attempt starts in a fresh detached worktree. An ordered ledger replays accepted patches and conflict-repair owned-file snapshots, then commits that state as a local baseline so downstream diffs contain only the current unit; the active branch is never committed by Fanout, and Fanout-managed checkout/index/commit operations run with repository Git hooks disabled.
+- Node validation commands must leave the captured patch and detached `HEAD` unchanged; a validator that changes either is rejected before active-worktree apply.
+- One exclusive lock under the canonical git directory prevents concurrent Fanout runs against the same worktree, and the active-worktree `git apply --check`/`git apply` pair is serialized across parallel workers within the run. Fanout releases its own lock normally but never automatically deletes an existing lock as stale.
+- The parent explicitly reads applicable repo-local `AGENTS.md`/`CLAUDE.md` files from the root and ancestor directories of each unit's owned/read-only paths and injects them into the curated prompt; Pi's automatic context-file loader remains disabled.
+- Mandatory token and cost metrics come from Pi JSON assistant usage. Doubleword acceptance additionally requires equal provider-reported input/output/total/cost values and the exact pricing source `doubleword-model-metadata`, so compatibility word-count estimates and synthetic stub usage are rejected. Tier2 poll metrics require matching poll events or an explicit provider-reported zero. TTFT uses provider timing when present and otherwise the parent's measured first assistant output.
+- Retry, fallback, and typed-repair limits are fixed MVP policy; `maxConcurrency` is the only execution setting currently read by `/fanout-execute`.
+- A unit with no owned files is the explicit no-op case and may succeed with an empty patch. A mutating unit with an empty patch fails.
+- Any failed or skipped scheduler node maps the execution run to `failed`; there is no separate partial run status.
+- The packet's final-validation worker remains part of the DAG, but the deterministic `finalValidationPlan` rerun in the active worktree is authoritative for overall success.
 
 ## Goal
 
@@ -138,6 +153,8 @@ Policy:
 
 - Missing worker metrics means the worker result cannot be accepted.
 - Missing pricing for a known provider/model/tier is a metrics import failure.
+- Generic providers use Pi JSON usage with pricing source `pi-json-usage`. Doubleword requires matching `provider_end` records with `usageSource === "provider"`, `pricingSource === "doubleword-model-metadata"`, and equal input/output/total/cost usage values; estimated, mismatched, or synthetic stub usage fails import.
+- Tier2 poll metrics require matching `async_poll` records or matching `provider_end` records that explicitly report `pollCount: 0`.
 - Do not guess tokens from text length.
 - Do not invent TTFT, poll, or tool timings.
 - Do not write nulls for required accepted-worker metrics.
@@ -152,8 +169,10 @@ Policy:
 - per-node status/timestamps/durations;
 - node status enum: `pending | ready | running | succeeded | failed | skipped`;
 - accepted worker metrics;
-- patch stats;
+- patch stats, including accepted `changedFiles` for deterministic reporting;
 - validation stats;
+- canonical event counts used for attempt/retry/fallback/rejection reporting;
+- optional run-level `finalValidation` stats when the authoritative final plan is reached;
 - validation status enum: `passed | failed`;
 - totals for duration, tokens, cost, tool time, poll time, validation time, and git patch stats.
 
@@ -212,11 +231,11 @@ A node is ready when it is pending and every dependency succeeded.
 - No priority scheduling initially.
 - If a node fails, mark it failed and recursively mark dependents skipped.
 - Independent nodes may continue unless `failFast` is enabled.
-- Final status is failed/partial if any node failed or was skipped.
+- Final status is failed if any node failed or was skipped.
 
 ### Patch/apply boundary
 
-A dependent node becomes ready only after upstream `runNode` succeeds, including successful patch application to the active worktree. Downstream worktrees are created from the active worktree after upstream patches land.
+A dependent node becomes ready only after upstream `runNode` succeeds, including successful patch application to the active worktree. Downstream worktrees reconstruct the ordered accepted integration state after upstream patches land.
 
 Parallel independent nodes can run in separate worktrees. Their patches are still checked against the current active worktree with `git apply --check` before apply. Packet ownership should prevent most conflicts; the patch gate is authoritative.
 
@@ -243,27 +262,33 @@ runDag(packet, {
 
 ### Worker command contract
 
-Target shape:
+Implemented shape (`--thinking` is included only for supported explicit levels):
 
 ```text
 pi \
   --no-context-files \
+  --approve \
   -e <fanout-extension-entry> \
   --model <provider>/<model> \
+  --mode json \
+  --session-dir <worker-attempt-dir>/session \
+  [--thinking <level>] \
   -p @<worker-dir>/prompt.md
 ```
 
-The exact Pi prompt-file flag is confirmed during implementation. The contract is:
+The contract is:
 
 - non-interactive print run;
 - cwd is the isolated worker worktree;
 - one deterministic prompt;
+- JSON event output for mandatory usage import;
+- attempt-scoped session persistence;
 - process exits after one work unit;
 - parent captures artifacts.
 
 ### Context policy
 
-Worker subprocesses do not automatically load global/project context files. The parent builds a curated prompt/context bundle.
+Worker subprocesses do not automatically load global/project context files. The parent builds a curated prompt/context bundle and explicitly injects applicable repo-local `AGENTS.md`/`CLAUDE.md` files found at the repository root and along ancestor directories for the unit's owned/read-only paths. Automatic Pi extension discovery deliberately remains enabled, and `--approve` trusts project-local Pi resources so provider/model extensions can register non-interactively. Enabled extensions and their hooks are therefore a separate trusted runtime boundary from the curated prompt.
 
 Reason: global instructions may require planning and user confirmation. Those rules are correct for the main session but wrong for an approved non-interactive worker.
 
@@ -289,13 +314,13 @@ Prompt bundle includes:
 - validation commands;
 - acceptance criteria;
 - stop rules;
-- curated repo-local instructions if needed;
+- applicable repo-local `AGENTS.md`/`CLAUDE.md` instructions explicitly selected by the parent;
 - no main chat history unless summarized into `workerPacket` or handoff context.
 
 ### Per-node flow
 
 1. Scheduler calls `runNode(workUnit)`.
-2. `runNode` creates an isolated git worktree based on the current active worktree state.
+2. `runNode` creates an isolated git worktree with the current accepted integration ledger reconstructed as its detached baseline.
 3. Build deterministic worker prompt.
 4. Spawn child Pi in the worker worktree.
 5. Capture stdout/stderr/session/observability artifacts.
@@ -341,7 +366,7 @@ Optional Doubleword bridge:
 
 ```text
 DOUBLEWORD_OBSERVABILITY_FILE=$FANOUT_OBSERVABILITY_FILE
-DOUBLEWORD_RUN_ID=$FANOUT_RUN_ID-$FANOUT_NODE_ID
+DOUBLEWORD_RUN_ID=<execution-run-id>-<node-artifact-id>-<attempt-id>
 ```
 
 ### Worker success requirements
@@ -390,15 +415,19 @@ Worker edits only its isolated worktree. Active worktree patch application is at
 ### Ownership rules
 
 - Normalize paths relative to repo root.
+- Validate Git-observed changed paths without trimming or separator conversion; reject filenames whose identity cannot be compared losslessly with packet resources.
 - Directory ownership covers descendants.
 - Exact file ownership covers only that file.
 - Writes outside owned files are hard failures.
 - Forbidden file/resource touches are hard failures.
+- Backticked forbidden paths are authoritative; common legacy prose forms are also recognized, including trailing-slash directories, directory/folder wording, `under`/`inside`/`within`, and `/**` suffixes.
 - No recovery for ownership violations.
 
 ### Validation
 
 Run `workUnit.validationCommands` in the worker worktree after ownership passes. Capture command, exit code, stdout/stderr, and duration. Packet validation should reject unsafe commands, but execution still records command failures.
+
+After validation, recompute the worktree diff and verify that it exactly matches the captured patch and that detached `HEAD` did not move. Reject the attempt if validation changed either, so Fanout never validates one tree and applies another.
 
 ### Apply gate
 
@@ -470,7 +499,10 @@ Definitions:
 - `tier2MaxAttempts = 2` total: original tier2 attempt plus one clean rerun/retry.
 - `tier1CleanRerunMaxAttempts = 1` rerun for nodes originally assigned to tier1.
 - `tier1FallbackMaxAttempts = 1` fallback attempt after retryable tier2 exhaustion.
-- No dynamic budgets initially.
+- `maxValidationRepairAttempts = 2` and `maxIntegrationRepairAttempts = 2`.
+- No dynamic or user-configurable attempt budgets initially; `/fanout-execute` reads only `fanout.execution.maxConcurrency`.
+
+Execution uses the concrete provider/model/thinking assignment stored in each packet node. It does not run a separate provider-availability preflight and does not switch remaining tier2 nodes globally. Retry and optional fallback are decided independently for the node whose subprocess failed.
 
 ### Clean rerun and retryable failures
 
@@ -527,6 +559,7 @@ Every attempt is recorded. Totals include all known tokens, costs, and durations
   -> resolve Fanout runtime context
   -> load active packet pointer
   -> load and validate execution packet
+  -> acquire canonical git-worktree execution lock
   -> create execution run recorder
   -> preflight repo/artifacts/commands
   -> confirm launch with user
@@ -587,8 +620,8 @@ Every attempt is recorded. Totals include all known tokens, costs, and durations
 
 ## Acceptance criteria
 
-- `/fanout-execute` loads the active packet and refuses malformed/stale/unsafe input before mutation.
-- Execution artifacts are created before mutation and include `events.jsonl`, `execution-run.json`, and `summary.md`.
+- `/fanout-execute` loads the active packet and refuses malformed or unsafe input and a dirty active worktree before mutation; packet v3 does not support a stronger stale-HEAD check.
+- The execution directory, empty `events.jsonl`, and initial `execution-run.json` are created before mutation; `summary.md` is written when the run finishes.
 - Scheduler executes an acyclic packet in dependency order with deterministic ready-node ordering.
 - Mutating workers run in isolated git worktrees.
 - No worker patch can touch files outside its owned files.
@@ -610,6 +643,6 @@ Every attempt is recorded. Totals include all known tokens, costs, and durations
 ## Decisions updated by this design
 
 - Accepted LLM worker metrics are mandatory, not best-effort/null.
-- Worker subprocesses use curated prompt context with `--no-context-files` instead of automatically inheriting global/project context files.
+- Worker subprocesses use `--no-context-files` instead of automatically inheriting global or all project context files; the parent injects applicable repo-local instructions into the curated prompt, while Pi extension discovery remains enabled under `--approve` as a separate trusted runtime boundary.
 - Allow typed bounded recovery hooks for validation failure and integration conflict repair.
 - No generic retry/repair agent.

@@ -300,6 +300,8 @@ Reason: Blocked packets are poor UX for normal file-change planning. The packet 
 
 ### Reuse existing worker infrastructure before custom orchestration
 
+Status: Superseded on 2026-07-09 by the isolated subprocess decision below.
+
 Decision: `/fanout-execute` should start with native Pi subagents or an existing popular subagent package. Build custom worker orchestration only if isolation, queueing, cancellation, or visibility cannot be handled by existing infrastructure.
 
 Reason: Worker frameworks are expensive to build and maintain. The execution packet should prove the scheduler contract before Fanout adds its own orchestration loop.
@@ -416,12 +418,86 @@ Reason: Phase 3 exists to compare workflow and provider-tier tradeoffs. Acceptin
 
 ### Run Fanout workers with curated subprocess context
 
-Decision: Phase 3 workers run as non-interactive Pi subprocesses in isolated git worktrees with curated Fanout prompts and no automatically loaded context files. The main session owns planning, approval, and user interaction; workers receive only packet-approved context and must not ask for confirmation or broaden scope.
+Decision: Phase 3 workers run as non-interactive Pi subprocesses in isolated git worktrees with curated Fanout prompts and no automatically loaded context files. The main session owns planning, approval, and user interaction; the worker prompt receives packet-approved context plus applicable repo-local `AGENTS.md`/`CLAUDE.md` instructions explicitly selected from root/ancestor directories for owned and read-only paths. Workers must not ask for confirmation or broaden scope. Automatically discovered Pi extensions are a separate trusted runtime boundary, as recorded below. This supersedes the earlier preference for native Pi subagents or a third-party worker package.
 
-Reason: Global/project context files can contain main-session rules such as planning and waiting for approval. Those rules are correct before `/fanout-execute`, but wrong for an approved worker subprocess.
+Reason: The Phase 3 contract needs a fresh git worktree per attempt, attempt-scoped stdout/stderr/session/observability artifacts, mandatory metrics, and exact subprocess lifecycle classification. The available main-session loop does not expose those boundaries as one native subagent primitive. Automatic context discovery may also load global or unrelated instructions containing main-session rules such as planning and waiting for approval; explicit repo-path-based selection preserves applicable project constraints without inheriting that broader interactive context.
 
 ### Allow only typed bounded execution recovery
 
 Decision: `/fanout-execute` may run bounded tier1 recovery for two typed cases: validation-failure repair and integration-conflict repair. Retry/fallback handles retryable tier2 worker/provider failures. Generic repair agents, scope expansion, ownership expansion, partial patch application, and arbitrary retries remain out of scope.
 
 Reason: Valid worker output can still fail local validation or conflict with already-applied parallel patches. Typed bounded recovery preserves safety while avoiding an open-ended repair loop.
+
+### Anchor execution artifacts to the loaded packet path
+
+Decision: The execution recorder derives `<packet-artifact-dir>` from `dirname(packetPath)` and ignores the packet's `artifactDir` field when choosing where to write `executions/<run-id>/`.
+
+Reason: The validated pointer identifies the packet source of truth. Reusing an independently supplied artifact path would let packet content redirect audit writes away from that source.
+
+### Require a clean active worktree without claiming stale-HEAD detection
+
+Decision: `/fanout-execute` preflight requires a clean active git worktree, execution artifacts outside the repo, safe packet paths, and an available worker command. Execution packet schema v3 does not record a planned commit or tree, so Phase 3 does not claim to detect a clean checkout whose HEAD changed after planning.
+
+Reason: A clean baseline makes integrated patches attributable and prevents accidental mixing with user edits. Strong freshness validation requires a future packet schema field rather than an inference from timestamps.
+
+### Rebuild accepted integration state in fresh detached worktrees
+
+Decision: Every worker, retry, fallback, and repair attempt gets a fresh detached worktree. An ordered integration ledger rebuilds accepted state there and commits it only as a local baseline before the current attempt runs. Fanout disables repository Git hooks and configured filesystem-monitor commands during managed worktree creation, staging, baseline commits, intent-to-add patch capture, and execution preflight. Normal results replay their accepted patch; a conflict-repair result records final snapshots of its owned changed files so later worktrees reproduce the state against which that repair was made.
+
+Reason: `git worktree add ... HEAD` does not include uncommitted changes already applied to the active worktree, and a repaired patch may be based on a newer conflicting file state rather than bare `HEAD`. The ordered ledger plus detached baseline commit gives patch capture an exact diff boundary while preserving attempt isolation and downstream visibility. Disabling hooks and filesystem monitors prevents repository-configured commands from adding unrecorded state to that boundary.
+
+### Serialize active-worktree patch application
+
+Status: Lock location and stale-lock handling refined on 2026-07-10 by the canonical git-worktree lock decision below; the serialized in-run apply gate remains current.
+
+Decision: `/fanout-execute` acquires the exclusive canonical git-worktree lock described below before preflight. Within that run, parallel workers may execute concurrently, but each active-worktree `git apply --check` and matching `git apply` runs inside one serialized apply gate.
+
+Reason: The check and apply must observe the same integrated state. The project lock prevents separate Pi sessions from integrating divergent packet runs into the same worktree, while the in-run gate prevents parallel nodes from interleaving their checks and applies.
+
+### Use Pi JSON usage as the worker pricing source
+
+Decision: Worker tokens and estimated cost come from Pi JSON assistant `message_end` usage. Generic providers are recorded with pricing source `pi-json-usage`; Doubleword workers additionally require matching `provider_end` events whose provider-supplied input, output, total, and cost values equal the Pi message values and whose pricing provenance is `doubleword-model-metadata`. Doubleword fallback word-count estimates and synthetic stub usage cannot be accepted. Tier2 poll metrics require matching `async_poll` records or matching provider completion records that explicitly report zero polls. TTFT uses provider `provider_ttft` timing when available and otherwise the parent's measured time to first assistant output.
+
+Reason: Pi JSON provides the provider-agnostic usage shape, while Doubleword observability distinguishes API-reported tokens from compatibility estimates and identifies the price table. The measured TTFT fallback is a local clock fact; no token or timing values are inferred to fill gaps.
+
+### Define no-op, partial-failure, and final-validation semantics
+
+Decision: A work unit with zero owned files may succeed with an empty patch; a mutating unit may not. Any failed or skipped DAG node maps the run to `failed` rather than a separate partial status. The final-validation worker remains a DAG node, but the deterministic `finalValidationPlan` rerun in the active worktree is authoritative for overall execution success.
+
+Reason: The compiler already emits read-only final-validation units, while mutating units must produce reviewable changes. One failed terminal status keeps reporting unambiguous, and the controller-run validation observes the exact integrated tree returned to the user.
+
+### Keep automatic Pi extension discovery for workers
+
+Decision: Worker subprocesses explicitly load the Fanout extension, keep Pi's automatic extension discovery enabled, and pass `--approve` so trusted project-local Pi resources can load without an interactive trust prompt. `--no-context-files` disables Pi's automatic `AGENTS.md`/`CLAUDE.md` context loading; the parent separately selects and injects the applicable repo-local instruction files into the worker prompt. Enabled extensions and their hooks/tools are trusted runtime code, not packet-approved prompt context.
+
+Reason: Packet-assigned providers and models may be registered by installed or project extensions, so `--no-extensions` would make valid worker assignments unavailable. This expands the worker trust boundary and must remain explicit; worktree isolation and patch ownership gates do not sandbox extension side effects.
+
+### Lock by canonical git-worktree identity
+
+Decision: Normal and dry execution acquire `fanout-execution.lock` under the canonical absolute git directory for the active worktree, falling back to the project artifact root only when git-directory resolution is unavailable. The owner removes its lock on normal return. An existing lock is authoritative and is never deleted automatically based on PID or an inferred stale state.
+
+Reason: Canonical git-directory identity makes sessions launched from different subdirectories share the same worktree lock, while distinct linked worktrees can proceed independently. Automatic stale deletion risks PID reuse and concurrent mutation; recovery requires the user to verify that no execution is active before removing the reported lock path.
+
+### Keep Phase 3 attempt budgets fixed
+
+Decision: `fanout.execution.maxConcurrency` is the only user execution setting consumed by `/fanout-execute`. The MVP policy fixes tier1 and tier2 to one original attempt plus one clean rerun, permits one tier1 fallback after retryable tier2 exhaustion when the work unit declares it, and permits at most two validation-repair and two integration-repair attempts. Provider availability is not preflighted and a node failure never globally reroutes remaining tier2 nodes.
+
+Reason: Fixed per-node budgets keep scheduling, cost accounting, and recovery deterministic while the first execution path is validated. Provider/model launch errors remain typed subprocess outcomes rather than a reason to mutate the accepted packet's assignments.
+
+### Render execution reports from audit state
+
+Decision: `summary.md` is rendered deterministically from `execution-run.json`: canonical event counts supply attempt/retry/fallback/rejection counts, accepted patch stats supply changed-file names, and run-level final-validation stats supply the authoritative validation outcome and link. No LLM synthesis rewrites execution results.
+
+Reason: The user-facing report must agree with `events.jsonl`, the snapshot totals, accepted patches, and `final-validation.json`. Snapshot-derived reporting makes failures and wasted attempts inspectable without introducing another model-authored interpretation layer.
+
+### Require node validation to preserve the captured patch
+
+Decision: After node validation commands finish, `/fanout-execute` verifies that the isolated worktree diff still exactly matches the captured patch and that its detached `HEAD` did not move. Any validator-created, reverted, deleted, or committed change rejects the attempt before active-worktree apply.
+
+Reason: A validation command can have side effects. Applying the pre-validation patch after testing a different tree would make the validation evidence false, even when the command exited successfully.
+
+### Keep Git-observed paths lossless at the ownership boundary
+
+Decision: Packet resource paths may be normalized into repository-relative form, but filenames reported by Git are validated without trimming whitespace or converting backslashes. An observed filename is rejected if normalization would change its identity. Phase B wraps repository paths inside `forbiddenChanges` in backticks and retains trailing `/` directory intent; execution also recognizes common unquoted legacy directory forms so those constraints remain enforceable at the ownership gate.
+
+Reason: On POSIX, backslashes and leading/trailing spaces are valid filename bytes. Lossy normalization could make an undeclared root file appear to be an owned descendant while `git apply` still targets the original filename.

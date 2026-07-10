@@ -103,7 +103,7 @@ If tier2 is unavailable, use tier1.
 
 ## Settings
 
-Fanout should expose Pi settings for users to override tier defaults. In `fanout-pi`, `/fanout-config` provides a minimal dependent selector flow: choose provider, then choose a model from that provider, then choose a thinking level supported by the selected model.
+Fanout exposes Pi settings for users to override tier defaults and execution concurrency. In `fanout-pi`, `/fanout-config` provides a minimal dependent selector flow: choose provider, then choose a model from that provider, then choose a thinking level supported by the selected model.
 
 Example:
 
@@ -126,13 +126,13 @@ Example:
       }
     },
     "execution": {
-      "tier2Retries": 2,
-      "fallbackTier": "tier1",
-      "revalidateOnly": true
+      "maxConcurrency": 2
     }
   }
 }
 ```
+
+`maxConcurrency` is the only execution setting currently consumed by `/fanout-execute`. Retry, fallback, validation-repair, and integration-repair limits are fixed MVP policy rather than user settings.
 
 Use `reason`, not `reasoning`, for user-facing explanation. Pi model metadata already uses `reasoning` as a boolean capability.
 
@@ -363,23 +363,30 @@ Execution behavior:
 ```text
 1. Load accepted packet.
 2. Revalidate safety only.
-3. Revalidate provider/model/thinking availability.
-4. If tier2 is available, run tier2 nodes there.
-5. If tier2 fails transiently, retry a small number of times.
-6. If still failing, fallback remaining tier2 nodes to tier1.
-7. Record/report fallback.
+3. Run each node with its concrete packet-assigned provider/model/thinking.
+4. If that node has a classified transient tier2 subprocess/provider failure, run one clean tier2 rerun.
+5. If that node exhausts retryable tier2 attempts and declares `fallback: "tier1"`, run one tier1 fallback attempt.
+6. Record every attempt and fallback; do not reassign other nodes or change the DAG.
 ```
 
-Default retries:
+Execution does not run a separate provider/model availability preflight. An unavailable provider or invalid model fails that worker subprocess and is not treated as a global signal to reroute remaining nodes.
+
+Accepted generic-provider workers use Pi JSON usage with pricing source `pi-json-usage`. Accepted Doubleword workers require matching provider-reported usage with the exact pricing source `doubleword-model-metadata`; `doubleword-stub` synthetic usage remains useful for provider smoke tests but cannot satisfy `/fanout-execute` acceptance metrics.
+
+Fixed MVP attempt policy:
 
 ```text
-tier2Retries = 2
+tier2MaxAttempts = 2 (original attempt plus one clean rerun)
+tier1CleanRerunMaxAttempts = 1 additional rerun
+tier1FallbackMaxAttempts = 1 fallback attempt
+maxValidationRepairAttempts = 2
+maxIntegrationRepairAttempts = 2
 ```
 
 Execution fallback report:
 
 ```text
-tier2 unavailable during execution after 2 retries; remaining tier2 nodes fell back to tier1
+tier2 unavailable after 2 total attempts; the node fell back to one tier1 attempt
 ```
 
 Execution may fallback from tier2 to tier1, but should not change the DAG shape or reassign file ownership.

@@ -2,13 +2,13 @@
 
 This is the primary running document for Doubleword cost/time experiments. Update it whenever workflow changes, routing changes, pricing changes, or benchmark datasets change.
 
-Benchmark procedure: [`docs/benchmarks/fanout-execution-benchmark-procedure.md`](benchmarks/fanout-execution-benchmark-procedure.md) defines the staged path from read-only Fanout DAG prompt experiments to future `/fanout-execute` and TermBench-style execution benchmarks.
+Benchmark procedure: [`docs/benchmarks/fanout-execution-benchmark-procedure.md`](benchmarks/fanout-execution-benchmark-procedure.md) defines the staged path from read-only Fanout DAG prompt experiments through `/fanout-execute` and TermBench-style execution benchmarks.
 
 ## P0 — Fanout prompt-DAG dry-run benchmark
 
 Date: 2026-07-07
 
-Purpose: tune `/fanout-plan` DAG prompt wording before `/fanout-execute` exists. This measures prompt-produced DAG quality only, not executable task success.
+Purpose: tune `/fanout-plan` DAG prompt wording before `/fanout-execute` existed. This measures prompt-produced DAG quality only, not executable task success.
 
 Tracked summaries:
 
@@ -34,6 +34,22 @@ Current graduated prompt: `combined-general-conflict-proof`.
 | Stop condition | Passed |
 
 Caveat: P0 uses generated DAGs and evaluator rubrics. Revalidate the winning prompt under P1/P2 execution benchmarks before treating it as an executable-runtime default.
+
+## P1 — `/fanout-execute` packet smoke benchmark
+
+Date: 2026-07-09
+
+Purpose: validate deterministic Phase 3 controller mechanics with fake Pi subprocesses before controlled live-provider execution. This is runtime safety/contract evidence, not a model-quality, latency, or provider-cost baseline.
+
+Command:
+
+```bash
+rtk npm run smoke:fanout-execute
+```
+
+Current result: passed locally. Coverage includes active-pointer and packet rejection, clean-worktree/artifact guardrails, canonical execution locking, confirmation and dry-run behavior, deterministic DAG concurrency/failure propagation, fresh worktrees, compiler-produced packets, mandatory metric provenance, patch/rename/directory ownership, validation stability, process-tree termination, retry/fallback, typed recovery, compensating rollback, downstream integrated state, and authoritative final validation.
+
+Caveat: worker usage and cost in this smoke are synthetic fake-provider fixtures. P2 controlled real Pi workers and P4 live tier-routing measurements remain pending; no observed latency or cost claim is added here.
 
 ## Current baseline: B0 — Pi session traces, GLM 5.2 pricing
 

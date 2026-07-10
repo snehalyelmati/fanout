@@ -266,6 +266,7 @@ Compiler rules:
 
 - Phase B should emit one details item per independently editable file/resource and reuse `sourcePlanIds` when splitting one Phase A item;
 - every Phase A `filesToChange` entry must be covered by a same-id Phase B writable resource;
+- repository paths named by `forbiddenChanges` are wrapped in backticks, with a trailing `/` retained for directories;
 - same owned file/resource compiles into one worker packet by default;
 - missing anchors, source ids, or Phase A contract inputs fail compilation;
 - Phase A semantic dependencies do not serialize file/resource shards;
