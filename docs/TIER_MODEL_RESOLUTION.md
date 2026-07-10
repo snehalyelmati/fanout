@@ -63,7 +63,7 @@ pi.on("model_select", (event) => {
 })
 ```
 
-If the active model cannot be read, Fanout should use configured tier1 settings if present. Otherwise planning fails clearly because tier1 is required.
+Tier 1 has no independent Fanout override. Changing Tier 1 through `/fanout-config tier1` calls Pi's `setModel()` and `setThinkingLevel()` so the active session and Tier 1 cannot drift. If the active model cannot be read, planning fails clearly because Tier 1 is required.
 
 ### Tier 2 / async
 
@@ -116,7 +116,7 @@ An explicit fallback may select any runnable realtime model from Pi's registry. 
 
 ## Settings
 
-Fanout exposes Pi settings for users to override tier defaults and execution concurrency. In `fanout-pi`, `/fanout-config` first shows the three model roles with descriptions and current values, then provides the dependent provider → model → supported-thinking flow. Arrow keys navigate, Enter configures, and Escape returns or closes without a partial write.
+Fanout exposes Pi settings for users to override Tier 2, the Tier 2 fallback, and execution concurrency. In `fanout-pi`, `/fanout-config` first shows the three model roles as wrapping multiline entries with descriptions and current values, then provides the dependent provider → model → supported-thinking flow. Arrow keys or `j`/`k` navigate every Fanout selector, Enter configures, and Escape returns or closes without a partial write.
 
 Example:
 
@@ -124,12 +124,6 @@ Example:
 {
   "fanout": {
     "tiers": {
-      "tier1": {
-        "provider": "auto",
-        "model": "auto",
-        "thinking": "auto",
-        "reason": "current active Pi realtime model"
-      },
       "tier2": {
         "provider": "doubleword",
         "model": "zai-org/GLM-5.2-FP8",
@@ -150,7 +144,7 @@ Example:
 }
 ```
 
-`execution.tier2Fallback` configures the fallback model role. Its absence means “inherit Tier 1”; choosing **Use Tier 1** removes only that override, even when the model registry is empty. `/fanout-config tier1`, `/fanout-config tier2`, and `/fanout-config fallback` open a role directly before returning to the routing screen. Settings are read before modification; malformed or unreadable existing settings abort the change rather than being replaced. `maxConcurrency` remains the only execution-policy setting consumed directly by `/fanout-execute`. Retry counts and repair limits remain fixed MVP policy.
+`execution.tier2Fallback` configures the fallback model role. Its absence means “inherit Tier 1”; choosing **Use Tier 1** removes only that override, even when the model registry is empty. `/fanout-config tier1` changes Pi's current model and thinking level and removes any legacy `fanout.tiers.tier1` override; `/fanout-config tier2` and `/fanout-config fallback` persist their independent roles. Settings are read before modification; malformed or unreadable existing settings abort the change rather than being replaced. `maxConcurrency` remains the only execution-policy setting consumed directly by `/fanout-execute`. Retry counts and repair limits remain fixed MVP policy.
 
 Use `reason`, not `reasoning`, for user-facing explanation. Pi model metadata already uses `reasoning` as a boolean capability.
 
@@ -161,8 +155,10 @@ Tier settings should include a configurable thinking level.
 Use Pi/provider thinking levels rather than inventing a Fanout-specific enum:
 
 ```text
-off | minimal | low | medium | high | xhigh
+off | minimal | low | medium | high | xhigh | max
 ```
+
+Fanout reads models from Pi's model registry and uses Pi's `getSupportedThinkingLevels(model)`. Standard levels through `high` remain supported when omitted from `thinkingLevelMap`, `null` disables a level, and `xhigh`/`max` require explicit mappings.
 
 Resolution rule:
 
@@ -199,18 +195,14 @@ Tier 2 fallback thinking inherits Tier 1 by default. An explicit fallback uses i
 resolveTierModels(ctx, settings):
 
 1. Resolve tier1
-   if settings.fanout.tiers.tier1.provider/model exists:
-      tier1 = configured tier1
-   else if ctx.model exists:
+   if ctx.model exists:
       tier1 = current active Pi model
    else:
       fail planning: "Cannot resolve tier1 model"
+   ignore legacy settings.fanout.tiers.tier1 values
 
 2. Resolve tier1 thinking
-   if configured:
-      use configured value if supported, otherwise clamp/fallback
-   else:
-      use current Pi thinking level if available
+   use current Pi thinking level
    if model is non-reasoning:
       thinking = off
 
@@ -255,7 +247,7 @@ resolveTierModels(ctx, settings):
 
 Bad tier2 config never fails planning. Even if user config names an unavailable tier2 provider/model, Fanout uses the resolved Tier 2 fallback role and reports the issue.
 
-Tier1 is different: tier1 is mandatory. If neither config nor active Pi model can resolve tier1, planning must fail clearly.
+Tier1 is different: tier1 is mandatory and always comes from the active Pi model. If Pi has no active model, planning must fail clearly.
 
 ## Node Tier Assignment
 

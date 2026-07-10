@@ -149,14 +149,14 @@ Requirements:
 
 - Provider choices come from Pi model/provider discovery.
 - Model choices are filtered to the selected provider.
-- Thinking choices come from selected model metadata and should only show supported levels.
-- Tier1 defaults to the current active Pi realtime model unless the user overrides it.
+- Thinking choices use Pi's supported-level resolution for the selected model metadata.
+- Tier1 is always the current active Pi realtime model and thinking level; changing it through Fanout changes Pi's active state.
 - Tier2 defaults to `doubleword/zai-org/GLM-5.2-FP8` when available.
 - If Pi's built-in settings UI cannot express dependent selectors, `fanout-pi` should provide a small Fanout-specific config command/UI rather than a static free-form JSON-only experience.
 
 Implementation status:
 
-- `/fanout-config` provides descriptive Tier 1, Tier 2, and Tier 2 fallback role selection, Escape/back navigation, then provider → model → thinking selection. It persists `fanout.tiers.tier1`, `fanout.tiers.tier2`, and optional `fanout.execution.tier2Fallback` to global Pi settings; **Use Tier 1** removes only the fallback override.
+- `/fanout-config` provides wrapping multiline Tier 1, Tier 2, and Tier 2 fallback role entries, then provider → model → thinking selection. Arrow keys and `j`/`k` navigate every Fanout selector; the displayed help includes those keys. Tier 1 passes through to Pi's `setModel()` and `setThinkingLevel()`; Tier 2 and optional `fanout.execution.tier2Fallback` persist to global Pi settings. **Use Tier 1** removes only the fallback override.
 
 ## Tier/model resolution algorithm
 
@@ -166,14 +166,13 @@ Implementation summary:
 
 ```text
 1. Resolve tier1
-   - configured tier1 if present
-   - else current active Pi model from ctx.model/model_select
-   - else fail planning clearly
+   - current active Pi model from ctx.model/model_select
+   - ignore legacy fanout.tiers.tier1 overrides
+   - fail planning clearly if Pi has no active model
 
 2. Resolve tier1 thinking
-   - configured value if supported
-   - else current Pi thinking setting if available
-   - else provider/session default
+   - current Pi thinking setting
+   - clamp through Pi's model capability handling
    - non-reasoning model => off
 
 3. Resolve tier2 candidate

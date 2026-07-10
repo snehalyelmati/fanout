@@ -531,3 +531,9 @@ Reason: Reporting configuration success for an unusable model hid deterministic 
 Decision: Keep two execution tiers but store three concrete model roles in execution packet schema v4: Tier 1 realtime control plane, Tier 2 async workers, and Tier 2 fallback realtime execution. The fallback role inherits Tier 1 unless `fanout.execution.tier2Fallback` selects another registry model. Tier2-unavailable compilation and exhausted retryable Tier 2 attempts use the fallback role; Tier 1 control work and typed recovery continue using Tier 1. Schema v3 packets require replanning and are not migrated.
 
 Reason: A strong control-plane model should not force every realtime execution fallback to use the same expensive model. A packet-level concrete fallback keeps execution deterministic without adding a third tier, per-node profiles, or runtime replanning.
+
+### Keep Tier 1 synchronized with Pi
+
+Decision: Tier 1 always uses Pi's current model and thinking level. `/fanout-config tier1` changes that Pi state through `setModel()` and `setThinkingLevel()` rather than persisting an independent `fanout.tiers.tier1` override. Legacy overrides are ignored and removed when Tier 1 is next configured. Fanout reads supported thinking levels from Pi instead of maintaining its own interpretation of provider maps.
+
+Reason: One model source of truth prevents the interactive session and Tier 1 control plane from drifting, while Pi's registry already owns provider models, capability maps, clamping, authentication, and model-change events.

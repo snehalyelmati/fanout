@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { configureFanoutTier } from "../packages/fanout-pi/src/fanout-config.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "fanout-config-"));
@@ -8,14 +9,21 @@ const qualified = {
   provider: "doubleword",
   id: "zai-org/GLM-5.2-FP8",
   reasoning: true,
-  thinkingLevelMap: { off: "off", low: "low", medium: "medium", high: null, xhigh: null },
+  thinkingLevelMap: { off: "off", minimal: null, low: "low", medium: "medium", high: null, xhigh: null },
   fanout: { async: true, background: true, authReady: true },
+};
+const partialThinking = {
+  provider: "openai-codex",
+  id: "gpt-5.6-sol",
+  reasoning: true,
+  thinkingLevelMap: { minimal: "low", xhigh: "xhigh", max: "max" },
 };
 const models = [
   { provider: "other", reasoning: false },
   { provider: "other", id: "other-model", reasoning: false },
   { provider: "doubleword", id: "unavailable-model", reasoning: true, fanout: { async: true, background: false, authReady: true } },
   qualified,
+  partialThinking,
 ];
 const resolved = {
   tier1: { provider: "openai-codex", model: "gpt-5.6-sol", thinking: "minimal", status: "available" },
@@ -24,7 +32,7 @@ const resolved = {
 };
 
 const configSource = readFileSync("packages/fanout-pi/src/fanout-config.ts", "utf8");
-for (const phrase of ["SelectList", "Fanout model routing", "not a third tier", "Realtime control plane", "Realtime execution fallback", "↑↓ navigate · Enter configure · Esc close"]) {
+for (const phrase of ["SelectList", "Fanout model routing", "not a third tier", "Realtime control plane", "Realtime execution fallback", "↑↓/j/k navigate · Enter configure · Esc close", "↑↓/j/k navigate · Enter select · Esc back"]) {
   if (!configSource.includes(phrase)) throw new Error(`descriptive routing selector is missing: ${phrase}`);
 }
 
@@ -33,7 +41,10 @@ try {
   await testQualifiedTier2Save();
   await testNoQualifiedModels();
   await testCancelDoesNotWrite();
-  await testTier1Unrestricted();
+  await testTier1PassThrough();
+  await testTier1SwitchFailurePreservesSettings();
+  await testPiThinkingLevels();
+  await testGenericAsyncProvider();
   await testExplicitFallback();
   await testFallbackInheritance();
   await testFallbackInheritanceWithoutModels();
@@ -41,6 +52,9 @@ try {
   await testInvalidSettingsShapesArePreserved();
   await testUnreadableSettingsPathIsPreserved();
   await testDescriptiveTuiEscape();
+  await testMainTuiJkSelection();
+  await testTuiJkNavigation();
+  await testTuiSubmenuEscape();
   console.log("fanout config smoke passed");
 } finally {
   rmSync(dir, { recursive: true, force: true });
@@ -110,9 +124,11 @@ async function testCancelDoesNotWrite() {
   assert(providerSelected && !existsSync(settingsPath), "cancelled submenu wrote partial settings");
 }
 
-async function testTier1Unrestricted() {
+async function testTier1PassThrough() {
   const settingsPath = join(dir, "tier1.json");
+  writeFileSync(settingsPath, JSON.stringify({ theme: "dark", fanout: { tiers: { tier1: { provider: "old", model: "old" }, tier2: { provider: "doubleword", model: "worker" } } } }));
   const calls = [];
+  let selected;
   const ctx = makeContext(models, (title, options) => {
     calls.push({ title, options });
     if (title.includes("provider")) return options.find((option) => option.startsWith("other ·"));
@@ -120,12 +136,77 @@ async function testTier1Unrestricted() {
     if (title.includes("thinking")) return "off";
     return undefined;
   }, calls);
-  await configureFanoutTier("tier1", ctx, undefined, "auto", settingsPath, undefined, resolved);
-  const tier1 = JSON.parse(readFileSync(settingsPath, "utf8")).fanout.tiers.tier1;
+  await configureFanoutTier("tier1", ctx, undefined, "auto", settingsPath, undefined, resolved, models, async (model, thinking) => {
+    selected = { model, thinking };
+    return true;
+  });
+  const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
   const provider = calls.find((call) => call.title?.includes("provider"));
   const model = calls.find((call) => call.title?.includes("model"));
-  assert(tier1.provider === "other" && tier1.model === "other-model", `tier1 filtering was incorrectly restricted: ${JSON.stringify(tier1)}`);
+  const main = calls.find((call) => call.title?.startsWith("Select a model role"));
+  assert(selected?.model?.id === "other-model" && selected.thinking === "off", `tier1 did not pass through to Pi: ${JSON.stringify(selected)}`);
+  assert(settings.theme === "dark" && settings.fanout.tiers.tier1 === undefined && settings.fanout.tiers.tier2.model === "worker", `tier1 override was not removed safely: ${JSON.stringify(settings)}`);
   assert(provider.options.includes("other · 1 model(s)") && model.options.length === 1 && !model.options.some((option) => option.startsWith("unknown ·")), `registry entry without model id was listed: ${JSON.stringify(calls)}`);
+  assert(main.options.includes("Tier 1 · other/other-model · off") && main.options.includes("Tier 2 fallback · Use Tier 1"), `tier1 or inherited fallback did not refresh: ${JSON.stringify(main)}`);
+}
+
+async function testTier1SwitchFailurePreservesSettings() {
+  for (const testCase of [
+    { name: "false", change: async () => false, expectedError: "Check model authentication" },
+    { name: "throw", change: async () => { throw new Error("switch exploded"); }, expectedError: "switch exploded" },
+  ]) {
+    const settingsPath = join(dir, `tier1-${testCase.name}.json`);
+    const original = JSON.stringify({ fanout: { tiers: { tier1: { provider: "old", model: "old" }, tier2: { provider: "doubleword", model: "worker" } } } });
+    writeFileSync(settingsPath, original);
+    const calls = [];
+    const ctx = makeContext(models, (title, options) => {
+      if (title.includes("provider")) return options.find((option) => option.startsWith("other ·"));
+      if (title.includes("model")) return options.find((option) => option.startsWith("other-model ·"));
+      if (title.includes("thinking")) return "off";
+      return undefined;
+    }, calls);
+    await configureFanoutTier("tier1", ctx, undefined, "auto", settingsPath, undefined, resolved, models, testCase.change);
+    assert(readFileSync(settingsPath, "utf8") === original, `${testCase.name} tier1 switch failure changed settings`);
+    assert(calls.some((call) => call.type === "error" && call.message.includes(testCase.expectedError)), `${testCase.name} tier1 switch failure was not actionable: ${JSON.stringify(calls)}`);
+    assert(!calls.some((call) => call.type === "info" && call.message.includes("Current Pi model")), `${testCase.name} tier1 switch emitted false success`);
+  }
+}
+
+async function testPiThinkingLevels() {
+  const settingsPath = join(dir, "pi-thinking.json");
+  const calls = [];
+  let selected;
+  const ctx = makeContext(models, (title, options) => {
+    calls.push({ title, options });
+    if (title.includes("provider")) return options.find((option) => option.startsWith("openai-codex ·"));
+    if (title.includes("model")) return options.find((option) => option.startsWith("gpt-5.6-sol ·"));
+    if (title.includes("thinking")) return "max";
+    return undefined;
+  }, calls);
+  await configureFanoutTier("tier1", ctx, undefined, "auto", settingsPath, undefined, resolved, models, async (model, thinking) => {
+    selected = { model, thinking };
+    return true;
+  });
+  const levels = calls.find((call) => call.title?.includes("thinking"))?.options;
+  assert(JSON.stringify(levels) === JSON.stringify(["off", "minimal", "low", "medium", "high", "xhigh", "max"]), `Pi thinking levels were not preserved: ${JSON.stringify(levels)}`);
+  assert(selected?.model?.id === "gpt-5.6-sol" && selected.thinking === "max", `max thinking was not passed through: ${JSON.stringify(selected)}`);
+  assert(!existsSync(settingsPath), "tier1 pass-through created an empty settings file");
+}
+
+async function testGenericAsyncProvider() {
+  const settingsPath = join(dir, "generic-async.json");
+  const generic = { provider: "generic-async", id: "worker", reasoning: false, fanout: { async: true, background: true, authReady: true } };
+  const calls = [];
+  const ctx = makeContext([...models, generic], (title, options) => {
+    calls.push({ title, options });
+    if (title.includes("provider")) return options.find((option) => option.startsWith("generic-async ·"));
+    if (title.includes("model")) return options.find((option) => option.startsWith("worker ·"));
+    if (title.includes("thinking")) return "off";
+    return undefined;
+  }, calls);
+  await configureFanoutTier("tier2", ctx, undefined, "auto", settingsPath, undefined, resolved, [...models, generic]);
+  const tier2 = JSON.parse(readFileSync(settingsPath, "utf8")).fanout.tiers.tier2;
+  assert(tier2.provider === "generic-async" && tier2.model === "worker" && tier2.thinking === "off", `generic async provider was not configurable: ${JSON.stringify(tier2)}`);
 }
 
 async function testExplicitFallback() {
@@ -244,8 +325,8 @@ async function testDescriptiveTuiEscape() {
       notify() {},
       async custom(factory) {
         let result;
-        const component = factory({ requestRender() {} }, theme, {}, (value) => { result = value; closed = value === null; });
-        rendered = component.render(120).join("\n");
+        const component = factory({ requestRender() {} }, theme, tuiKeybindings(), (value) => { result = value; closed = value === null; });
+        rendered = component.render(70).join("\n");
         component.handleInput("\x1b");
         return result;
       },
@@ -253,8 +334,130 @@ async function testDescriptiveTuiEscape() {
     modelRegistry: { getAll: () => models },
   };
   await configureFanoutTier("", ctx, undefined, "auto", settingsPath, undefined, resolved);
-  for (const phrase of ["Realtime control plane", "Async worker plane", "Realtime execution fallback"]) assert(rendered.includes(phrase), `TUI did not render role description: ${phrase}\n${rendered}`);
+  for (const phrase of ["openai-codex/gpt-5.6-sol · minimal", "Realtime control plane", "Async worker plane", "Realtime execution fallback", "↑↓/j/k navigate · Enter configure · Esc close"]) assert(rendered.includes(phrase), `TUI did not render multiline role detail: ${phrase}\n${rendered}`);
+  const renderedLines = rendered.split("\n");
+  assert(renderedLines.length > 10, `role selector was not multiline:\n${rendered}`);
+  for (const heading of ["  Tier 2", "  Tier 2 fallback"]) {
+    const index = renderedLines.indexOf(heading);
+    assert(index > 0 && renderedLines[index - 1] === "", `role block was not separated before ${heading.trim()}:\n${rendered}`);
+  }
+  assert(renderedLines.every((line) => visibleWidth(line) <= 70), `role selector exceeded its render width:\n${rendered}`);
   assert(closed && !existsSync(settingsPath), "Escape did not close the TUI without writing");
+}
+
+async function testMainTuiJkSelection() {
+  const settingsPath = join(dir, "tui-main-jk.json");
+  const rendered = [];
+  let dialog = 0;
+  const theme = { fg: (_color, text) => text, bold: (text) => text };
+  const ctx = {
+    mode: "tui",
+    ui: {
+      notify() {},
+      async custom(factory) {
+        dialog++;
+        let result;
+        const component = factory({ requestRender() {} }, theme, tuiKeybindings(), (value) => { result = value; });
+        rendered.push(component.render(80).join("\n"));
+        if (dialog === 1) {
+          component.handleInput("k");
+          component.handleInput("\r");
+        } else component.handleInput("\x1b");
+        return result;
+      },
+    },
+    modelRegistry: { getAll: () => models },
+  };
+  await configureFanoutTier("", ctx, undefined, "auto", settingsPath, undefined, resolved, models);
+  assert(dialog === 3 && rendered[1]?.includes("Tier 2 fallback provider"), `k did not wrap to Tier 2 fallback from the routing screen: ${JSON.stringify(rendered)}`);
+  assert(!existsSync(settingsPath), "cancel after main j navigation wrote settings");
+}
+
+async function testTuiJkNavigation() {
+  const settingsPath = join(dir, "tui-jk.json");
+  const genericModels = ["worker-a", "worker-b"].map((id) => ({
+    provider: "generic-async",
+    id,
+    reasoning: true,
+    thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+    fanout: { async: true, background: true, authReady: true },
+  }));
+  const registryModels = [qualified, ...genericModels];
+  const rendered = [];
+  let dialog = 0;
+  const theme = { fg: (_color, text) => text, bold: (text) => text };
+  const ctx = {
+    mode: "tui",
+    ui: {
+      notify() {},
+      async custom(factory) {
+        dialog++;
+        let result;
+        const component = factory({ requestRender() {} }, theme, tuiKeybindings(), (value) => { result = value; });
+        rendered.push(component.render(80).join("\n"));
+        if (dialog === 1) {
+          component.handleInput("k");
+          component.handleInput("\x1b[B");
+          component.handleInput("\x1b[A");
+        } else if (dialog === 2) {
+          component.handleInput("j");
+        } else if (dialog === 3) {
+          component.handleInput("k");
+          component.handleInput("\x1b[A");
+        }
+        else {
+          component.handleInput("j");
+          component.handleInput("k");
+          component.handleInput("\x1b");
+          return result;
+        }
+        component.handleInput("\r");
+        return result;
+      },
+    },
+    modelRegistry: { getAll: () => registryModels },
+  };
+  await configureFanoutTier("tier2", ctx, undefined, "auto", settingsPath, undefined, resolved, registryModels);
+  const tier2 = JSON.parse(readFileSync(settingsPath, "utf8")).fanout.tiers.tier2;
+  assert(tier2.provider === "generic-async" && tier2.model === "worker-b" && tier2.thinking === "xhigh", `j/k/arrow navigation did not select the expected model and thinking: ${JSON.stringify(tier2)}`);
+  assert(rendered.slice(0, 3).every((text) => text.includes("↑↓/j/k navigate · Enter select · Esc back")), `submenu j/k guidance was missing: ${JSON.stringify(rendered)}`);
+  assert(rendered[3]?.includes("↑↓/j/k navigate · Enter configure · Esc close"), `routing j/k guidance was missing: ${JSON.stringify(rendered)}`);
+}
+
+async function testTuiSubmenuEscape() {
+  for (const cancelAt of [1, 2, 3]) {
+    const settingsPath = join(dir, `tui-cancel-${cancelAt}.json`);
+    let dialog = 0;
+    const theme = { fg: (_color, text) => text, bold: (text) => text };
+    const ctx = {
+      mode: "tui",
+      ui: {
+        notify() {},
+        async custom(factory) {
+          dialog++;
+          let result;
+          const component = factory({ requestRender() {} }, theme, tuiKeybindings(), (value) => { result = value; });
+          if (dialog === cancelAt || dialog === cancelAt + 1) component.handleInput("\x1b");
+          else component.handleInput("\r");
+          return result;
+        },
+      },
+      modelRegistry: { getAll: () => [qualified] },
+    };
+    await configureFanoutTier("tier2", ctx, undefined, "auto", settingsPath, undefined, resolved, [qualified]);
+    assert(dialog === cancelAt + 1 && !existsSync(settingsPath), `Escape at submenu ${cancelAt} did not cancel safely`);
+  }
+}
+
+function tuiKeybindings() {
+  return {
+    matches(data, action) {
+      return (action === "tui.select.up" && data === "\x1b[A") ||
+        (action === "tui.select.down" && data === "\x1b[B") ||
+        (action === "tui.select.confirm" && data === "\r") ||
+        (action === "tui.select.cancel" && data === "\x1b");
+    },
+  };
 }
 
 function makeContext(registryModels, choose, calls = []) {

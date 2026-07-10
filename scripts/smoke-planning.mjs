@@ -31,7 +31,7 @@ for (const forbidden of ["workerPacket", "parallelGroups", "tier assignments"]) 
 for (const phrase of ["fanout.plan.orchestration.v1", "buildImplementationPlanPrompt", "buildImplementationDetailsPrompt", "buildImplementationDetailsRepairPrompt", "requiredReadClassifications", "validateImplementationPlanArtifact", "references itself"]) {
   if (!orchestration.includes(phrase)) throw new Error(`fanout-plan orchestration is missing phrase: ${phrase}`);
 }
-for (const phrase of ["if (pendingFanoutPlan)", "A Fanout plan is already in progress"]) {
+for (const phrase of ["if (pendingFanoutPlan)", "A Fanout plan is already in progress", "Fanout planning requires an active Pi model", "fanout_plan_rejected"]) {
   if (!fanoutPiIndex.includes(phrase)) throw new Error(`fanout-plan command is missing overlap guard phrase: ${phrase}`);
 }
 for (const phrase of ["const finishedFanoutPlan = pendingFanoutPlan", "buildRequiredReadClassifications", "const planObjective", "objective: planObjective", "fanout_required_read_classifications", "existsSync(finishedFanoutPlan.implementationDetailsPath)", "displayFanoutPlanReport", "customType: \"fanout-plan\"", "triggerTurn: false", "fanout_plan_failed", "pi.on(\"message_update\"", "pi.on(\"message_end\"", "assistant_usage"]) {
@@ -44,6 +44,7 @@ for (const phrase of ["const matchingFanoutPhase = isFanoutPhasePrompt(event.pro
   if (!fanoutPiIndex.includes(phrase)) throw new Error(`fanout-plan start guard is missing phrase: ${phrase}`);
 }
 if (fanoutPiIndex.includes("activeFanoutPlan")) throw new Error("fanout-plan finalization must not depend on activeFanoutPlan prompt-marker state");
+if (fanoutPiIndex.indexOf("if (!tier1Resolved") > fanoutPiIndex.indexOf("const run = createFanoutPlanRun")) throw new Error("fanout-plan resolves artifacts before rejecting a missing active model");
 
 const { buildImplementationDetailsPrompt, buildImplementationDetailsRepairPrompt, buildImplementationPlanPrompt, createFanoutPlanRun, isFanoutPhasePrompt, validateImplementationPlanArtifact } = await import("../packages/fanout-pi/src/fanout-plan-orchestration.ts");
 const { validateImplementationDetailsArtifact } = await import("../packages/fanout-core/src/fanout-compiler.ts");
@@ -197,10 +198,17 @@ function preflight(runResult) {
 try {
   const plain = run("plain", "Prepare a docs-only change plan");
   const planned = run("fanout-plan", "/fanout-plan Prepare a docs-only change plan", {
-    fanout: { tiers: { tier2: { provider: "doubleword-stub", model: "glm-5-2", thinking: "medium", enabled: false } } },
+    defaultThinkingLevel: "low",
+    fanout: { tiers: {
+      tier1: { provider: "doubleword-stub", model: "glm-5-2", thinking: "medium" },
+      tier2: { provider: "doubleword-stub", model: "glm-5-2", thinking: "medium", enabled: false },
+    } },
   });
   const unavailable = preflight(planned);
   if (typeof unavailable.sessionRunId !== "string" || typeof unavailable.planRunId !== "string" || "runId" in unavailable) throw new Error(`planning identities were not separated: ${JSON.stringify(unavailable)}`);
+  if (unavailable.tierPlan?.tier1?.provider !== "doubleword-stub" || unavailable.tierPlan?.tier1?.model !== "deepseek-v4-flash" || unavailable.tierPlan?.tier1?.thinking !== "low" || unavailable.tierPlan?.tier1?.source !== "current Pi active model") {
+    throw new Error(`legacy tier1 override replaced the current Pi model: ${JSON.stringify(unavailable.tierPlan)}`);
+  }
   if (unavailable.tierPlan?.tier2?.status !== "unavailable" || unavailable.tierPlan?.tier2?.fallback !== "tier1" || unavailable.tier2Availability?.available !== false || unavailable.nodeKindTierPolicy?.fallbackTier !== "tier1" || !String(unavailable.tier2Availability?.reason).includes("disabled")) {
     throw new Error(`bad unavailable tier2 fallback: ${JSON.stringify(unavailable)}`);
   }

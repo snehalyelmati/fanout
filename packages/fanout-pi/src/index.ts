@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { basename, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
+import { getSupportedThinkingLevels, type ThinkingLevel } from "@earendil-works/pi-ai";
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerDoublewordDevProviders } from "../../doubleword-provider/src/dev.ts";
 import { setDoublewordActiveTurnIndex, setDoublewordObservabilityFile, setDoublewordRunId } from "../../doubleword-provider/src/index.ts";
@@ -64,6 +65,11 @@ export default async function (pi: ExtensionAPI) {
 			}
 			const invocation = args.trim() || "Use the current conversation context.";
 			const context = writeFanoutRuntimeContext(ctx.cwd, activeModel ?? ctx.model, activeThinking ?? pi.getThinkingLevel(), ctx.modelRegistry?.getAll?.());
+			if (!tier1Resolved(context.resolvedTierPlan.tier1)) {
+				writeJsonl("fanout_plan_rejected", { phase: "preflight", reason: "no active Pi model" }, ctx.cwd);
+				ctx.ui.notify("Fanout planning requires an active Pi model. Select one with /model, then retry /fanout-plan.", "error");
+				return;
+			}
 			const run = createFanoutPlanRun(invocation, context);
 			pendingFanoutPlan = { phase: "implementation", invocation, objective: invocation, context, metrics: createPlanningMetrics(), ...run };
 			const prompt = buildImplementationPlanPrompt(invocation, context, run);
@@ -83,7 +89,21 @@ export default async function (pi: ExtensionAPI) {
 		handler: async (args, ctx) => {
 			const context = fanoutRuntimeContext(ctx.cwd, activeModel ?? ctx.model, activeThinking ?? pi.getThinkingLevel(), ctx.modelRegistry?.getAll?.());
 			const registryModels = augmentRegistryModels((ctx.modelRegistry?.getAll?.() ?? []).filter(isRecord));
-			await configureFanoutTier(args, ctx, activeModel ?? ctx.model, activeThinking ?? pi.getThinkingLevel(), globalSettingsPath(), context.artifactRoot, context.resolvedTierPlan, registryModels);
+			await configureFanoutTier(
+				args,
+				ctx,
+				activeModel ?? ctx.model,
+				activeThinking ?? pi.getThinkingLevel(),
+				globalSettingsPath(),
+				context.artifactRoot,
+				context.resolvedTierPlan,
+				registryModels,
+				async (model, thinking) => {
+					const changed = await pi.setModel(model as any);
+					if (changed) pi.setThinkingLevel(thinking as ThinkingLevel);
+					return changed;
+				},
+			);
 		},
 	});
 
@@ -405,16 +425,15 @@ function fanoutRuntimeContext(cwd: string, model: unknown, thinking: unknown, mo
 	const projectArtifactRoot = join(artifactRoot, projectId);
 	const active = modelInfo(model);
 	const activeThinking = optionalString(thinking) ?? "auto";
-	const tier1Settings = recordField(settings.tiers?.tier1);
 	const tier2Settings = recordField(settings.tiers?.tier2);
 	const executionSettings = recordField(settings.execution);
 	const tier2FallbackSettings = recordField(executionSettings.tier2Fallback);
 	const tierDefaults = {
-		tier1: { provider: "auto", model: "auto", thinking: "auto", reason: "current active Pi realtime model", ...tier1Settings },
+		tier1: { provider: "auto", model: "auto", thinking: "auto", reason: "current active Pi realtime model" },
 		tier2: { provider: TIER2_DEFAULT.provider, model: TIER2_DEFAULT.model, thinking: TIER2_DEFAULT.thinking, enabled: "auto", reason: "async background worker model", ...tier2Settings },
 		tier2Fallback: Object.keys(tier2FallbackSettings).length > 0 ? tier2FallbackSettings : { inherit: "tier1" },
 	};
-	const tier1 = resolveTier1(tierDefaults.tier1, active, activeThinking, registryModels, Object.keys(tier1Settings).length > 0);
+	const tier1 = resolveTier1(active, activeThinking);
 	const tier2 = resolveTier2(tierDefaults.tier2, registryModels, Object.keys(tier2Settings).length > 0);
 	const tier2Fallback = resolveTier2Fallback(tier2FallbackSettings, tier1.summary, registryModels);
 	return {
@@ -449,17 +468,12 @@ function fanoutRuntimeContext(cwd: string, model: unknown, thinking: unknown, mo
 	};
 }
 
-function resolveTier1(config: Record<string, unknown>, active: ReturnType<typeof modelInfo>, activeThinking: string, models: Array<Record<string, unknown>>, configured: boolean) {
-	const configuredProvider = optionalString(config.provider);
-	const configuredModel = optionalString(config.model);
-	const useConfigured = configuredProvider && configuredProvider !== "auto" && configuredModel && configuredModel !== "auto";
-	const modelRecord = useConfigured ? findModel(models, configuredProvider, configuredModel) : findModel(models, active.provider, active.model);
-	const provider = useConfigured && modelRecord ? configuredProvider : active.provider;
-	const model = useConfigured && modelRecord ? configuredModel : active.model;
-	const requestedThinking = optionalString(config.thinking) && config.thinking !== "auto" ? String(config.thinking) : activeThinking;
-	const thinking = resolveThinking(modelRecord ?? findModel(models, provider, model), requestedThinking, activeThinking);
-	const source = configured && useConfigured && modelRecord ? "fanout.tiers.tier1" : "current Pi active model";
-	return { summary: { provider, model, thinking, source, status: "available", reason: "realtime control plane for planning, safety, review, synthesis, and final decisions" } };
+function resolveTier1(active: ReturnType<typeof modelInfo>, activeThinking: string) {
+	return { summary: { provider: active.provider, model: active.model, thinking: activeThinking, source: "current Pi active model", status: "available", reason: "realtime control plane for planning, safety, review, synthesis, and final decisions" } };
+}
+
+function tier1Resolved(summary: Record<string, unknown>): boolean {
+	return optionalString(summary.provider) !== undefined && optionalString(summary.model) !== undefined;
 }
 
 function resolveTier2(config: Record<string, unknown>, models: Array<Record<string, unknown>>, configured: boolean) {
@@ -521,13 +535,7 @@ function resolveThinking(model: Record<string, unknown> | undefined, requested: 
 }
 
 function thinkingOptions(model: Record<string, unknown> | undefined): string[] {
-	if (!model || model.reasoning !== true) return ["off"];
-	const map = model.thinkingLevelMap;
-	if (isRecord(map)) {
-		const supported = ["off", "minimal", "low", "medium", "high", "xhigh"].filter((level) => map[level] !== null && map[level] !== undefined);
-		if (supported.length) return supported;
-	}
-	return ["off", "minimal", "low", "medium", "high", "xhigh"];
+	return model ? getSupportedThinkingLevels(model as any) : ["off"];
 }
 
 function findModel(models: Array<Record<string, unknown>>, provider: string, model: string): Record<string, unknown> | undefined {

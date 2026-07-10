@@ -1,9 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 
 type ModelRole = "tier1" | "tier2" | "tier2Fallback";
 type TierSummary = { provider?: unknown; model?: unknown; thinking?: unknown; source?: unknown; status?: unknown; reason?: unknown };
 type ResolvedTierPlan = { tier1?: TierSummary; tier2?: TierSummary; tier2Fallback?: TierSummary };
+type SetCurrentModel = (model: Record<string, unknown>, thinking: string) => Promise<boolean>;
 
 const ROLE_DESCRIPTIONS: Record<ModelRole, string> = {
 	tier1: "Realtime control plane for planning, safety, review, synthesis, final decisions, and user interaction.",
@@ -21,6 +23,7 @@ export async function configureFanoutTier(
 	artifactRoot?: string,
 	resolvedTierPlan: ResolvedTierPlan = {},
 	registryModels?: Array<Record<string, unknown>>,
+	setCurrentModel?: SetCurrentModel,
 ): Promise<void> {
 	if (artifactRoot) ctx.ui.notify(`Fanout artifacts: ${artifactRoot}`, "info");
 	const active = modelInfo(currentModel);
@@ -36,9 +39,13 @@ export async function configureFanoutTier(
 		directRole = undefined;
 		if (!role) return;
 
-		const saved = await configureRole(role, ctx, settingsPath, active, current, registryModels);
+		const saved = await configureRole(role, ctx, settingsPath, active, current, registryModels, setCurrentModel);
 		if (saved === SETTINGS_ERROR) return;
-		if (saved) current[role] = saved;
+		if (!saved) continue;
+		current[role] = saved;
+		if (role === "tier1" && current.tier2Fallback.source === "tier1 inheritance") {
+			current.tier2Fallback = { ...saved, source: "tier1 inheritance", reason: "realtime fallback for tier2 execution; inherits tier1" };
+		}
 	}
 }
 
@@ -46,6 +53,7 @@ async function selectRoutingRole(ctx: any, current: Required<ResolvedTierPlan>):
 	const items = (["tier1", "tier2", "tier2Fallback"] as ModelRole[]).map((role) => ({
 		value: role,
 		label: roleLabel(role, current[role]),
+		detail: roleDetail(role, current[role]),
 		description: ROLE_DESCRIPTIONS[role],
 	}));
 	if (ctx.mode !== "tui" || typeof ctx.ui.custom !== "function") {
@@ -53,26 +61,39 @@ async function selectRoutingRole(ctx: any, current: Required<ResolvedTierPlan>):
 		return items.find((item) => item.label === choice)?.value;
 	}
 
-	const [{ DynamicBorder }, { Container, SelectList, Text }] = await Promise.all([
+	const [{ DynamicBorder }, { Container, Text, matchesKey, wrapTextWithAnsi }] = await Promise.all([
 		import("@earendil-works/pi-coding-agent"),
 		import("@earendil-works/pi-tui"),
 	]);
-	const result = await ctx.ui.custom((tui: any, theme: any, _keybindings: any, done: (value: ModelRole | null) => void) => {
+	const result = await ctx.ui.custom((tui: any, theme: any, keybindings: any, done: (value: ModelRole | null) => void) => {
+		let selectedIndex = 0;
+		const list = {
+			render(width: number) {
+				const lines: string[] = [];
+				for (let index = 0; index < items.length; index++) {
+					const item = items[index];
+					const selected = index === selectedIndex;
+					lines.push((selected ? theme.fg("accent", "→ ") : "  ") + (selected ? theme.fg("accent", theme.bold(displayRole(item.value))) : displayRole(item.value)));
+					for (const line of wrapTextWithAnsi(selected ? theme.fg("text", item.detail) : theme.fg("muted", item.detail), Math.max(1, width - 4))) lines.push(`    ${line}`);
+					for (const line of wrapTextWithAnsi(selected ? theme.fg("text", item.description) : theme.fg("dim", item.description), Math.max(1, width - 4))) lines.push(`    ${line}`);
+					if (index < items.length - 1) lines.push("");
+				}
+				return lines;
+			},
+			invalidate() {},
+			handleInput(data: string) {
+				if (keybindings.matches(data, "tui.select.up") || matchesKey(data, "k")) selectedIndex = selectedIndex === 0 ? items.length - 1 : selectedIndex - 1;
+				else if (keybindings.matches(data, "tui.select.down") || matchesKey(data, "j")) selectedIndex = selectedIndex === items.length - 1 ? 0 : selectedIndex + 1;
+				else if (keybindings.matches(data, "tui.select.confirm")) done(items[selectedIndex].value);
+				else if (keybindings.matches(data, "tui.select.cancel")) done(null);
+			},
+		};
 		const container = new Container();
 		container.addChild(new DynamicBorder((text: string) => theme.fg("accent", text)));
 		container.addChild(new Text(theme.fg("accent", theme.bold("Fanout model routing")), 1, 0));
 		container.addChild(new Text("Fanout uses two execution tiers. Tier 2 fallback is a separate realtime model role, not a third tier.", 1, 1));
-		const list = new SelectList(items, items.length, {
-			selectedPrefix: (text: string) => theme.fg("accent", text),
-			selectedText: (text: string) => theme.fg("accent", text),
-			description: (text: string) => theme.fg("muted", text),
-			scrollInfo: (text: string) => theme.fg("dim", text),
-			noMatch: (text: string) => theme.fg("warning", text),
-		});
-		list.onSelect = (item: { value: ModelRole }) => done(item.value);
-		list.onCancel = () => done(null);
 		container.addChild(list);
-		container.addChild(new Text(theme.fg("dim", "↑↓ navigate · Enter configure · Esc close"), 1, 0));
+		container.addChild(new Text(theme.fg("dim", "↑↓/j/k navigate · Enter configure · Esc close"), 1, 0));
 		container.addChild(new DynamicBorder((text: string) => theme.fg("accent", text)));
 		return {
 			render: (width: number) => container.render(width),
@@ -86,6 +107,47 @@ async function selectRoutingRole(ctx: any, current: Required<ResolvedTierPlan>):
 	return result ?? undefined;
 }
 
+async function selectOption(ctx: any, title: string, choices: string[]): Promise<string | undefined> {
+	if (ctx.mode !== "tui" || typeof ctx.ui.custom !== "function") return ctx.ui.select(title, choices);
+	const [{ DynamicBorder }, { Container, SelectList, Text, matchesKey }] = await Promise.all([
+		import("@earendil-works/pi-coding-agent"),
+		import("@earendil-works/pi-tui"),
+	]);
+	return await ctx.ui.custom((tui: any, theme: any, _keybindings: any, done: (value: string | undefined) => void) => {
+		const items = choices.map((choice) => ({ value: choice, label: choice }));
+		const list = new SelectList(items, Math.min(items.length, 10), {
+			selectedPrefix: (text: string) => theme.fg("accent", text),
+			selectedText: (text: string) => theme.fg("accent", text),
+			description: (text: string) => theme.fg("muted", text),
+			scrollInfo: (text: string) => theme.fg("dim", text),
+			noMatch: (text: string) => theme.fg("warning", text),
+		});
+		list.onSelect = (item: { value: string }) => done(item.value);
+		list.onCancel = () => done(undefined);
+		const move = (offset: number) => {
+			const selected = list.getSelectedItem();
+			const index = Math.max(0, items.findIndex((item) => item.value === selected?.value));
+			list.setSelectedIndex((index + offset + items.length) % items.length);
+		};
+		const container = new Container();
+		container.addChild(new DynamicBorder((text: string) => theme.fg("accent", text)));
+		container.addChild(new Text(theme.fg("accent", theme.bold(title)), 1, 0));
+		container.addChild(list);
+		container.addChild(new Text(theme.fg("dim", "↑↓/j/k navigate · Enter select · Esc back"), 1, 0));
+		container.addChild(new DynamicBorder((text: string) => theme.fg("accent", text)));
+		return {
+			render: (width: number) => container.render(width),
+			invalidate: () => container.invalidate(),
+			handleInput: (data: string) => {
+				if (matchesKey(data, "k")) move(-1);
+				else if (matchesKey(data, "j")) move(1);
+				else list.handleInput(data);
+				tui.requestRender();
+			},
+		};
+	});
+}
+
 async function configureRole(
 	role: ModelRole,
 	ctx: any,
@@ -93,6 +155,7 @@ async function configureRole(
 	active: ReturnType<typeof modelInfo>,
 	current: Required<ResolvedTierPlan>,
 	configuredModels?: Array<Record<string, unknown>>,
+	setCurrentModel?: SetCurrentModel,
 ): Promise<TierSummary | undefined | typeof SETTINGS_ERROR> {
 	const allModels = configuredModels ?? ctx.modelRegistry.getAll() as Array<Record<string, unknown>>;
 	const models = allModels.filter(hasModelId).filter((model) => role !== "tier2" || tier2Available(model));
@@ -113,7 +176,7 @@ async function configureRole(
 		label: `${provider} · ${models.filter((model) => stringField(model.provider) === provider).length} model(s)`,
 	}));
 	if (role === "tier2Fallback") providerChoices.unshift({ value: "inherit-tier1", label: "Use Tier 1" });
-	const providerChoice = await ctx.ui.select(`${displayRole(role)} provider · Esc to go back`, providerChoices.map((choice) => choice.label));
+	const providerChoice = await selectOption(ctx, `${displayRole(role)} provider · Esc to go back`, providerChoices.map((choice) => choice.label));
 	const provider = providerChoices.find((choice) => choice.label === providerChoice)?.value;
 	if (!provider) return undefined;
 	if (provider === "inherit-tier1") {
@@ -131,15 +194,43 @@ async function configureRole(
 	const modelChoices = providerModels.map((model) => ({ value: modelId(model)!, label: modelLabel(model) }));
 	const preferredModel = role === "tier2" && provider === "doubleword" ? "zai-org/GLM-5.2-FP8" : provider === active.provider ? active.model : undefined;
 	modelChoices.sort((left, right) => left.value === preferredModel ? -1 : right.value === preferredModel ? 1 : left.value.localeCompare(right.value));
-	const modelChoice = await ctx.ui.select(`${displayRole(role)} model · Esc to go back`, modelChoices.map((choice) => choice.label));
+	const modelChoice = await selectOption(ctx, `${displayRole(role)} model · Esc to go back`, modelChoices.map((choice) => choice.label));
 	const model = modelChoices.find((choice) => choice.label === modelChoice)?.value;
 	if (!model) return undefined;
 
 	const selectedModel = providerModels.find((candidate) => modelId(candidate) === model);
 	const thinkingChoices = thinkingOptions(selectedModel);
 	const preferredThinking = role === "tier2" && thinkingChoices.includes("medium") ? "medium" : thinkingChoices[0];
-	const thinking = await ctx.ui.select(`${displayRole(role)} thinking · Esc to go back`, [preferredThinking, ...thinkingChoices.filter((item) => item !== preferredThinking)]);
-	if (!thinking) return undefined;
+	const thinking = await selectOption(ctx, `${displayRole(role)} thinking · Esc to go back`, [preferredThinking, ...thinkingChoices.filter((item) => item !== preferredThinking)]);
+	if (!thinking || !selectedModel) return undefined;
+
+	if (role === "tier1") {
+		try {
+			if (existsSync(settingsPath)) readSettings(settingsPath);
+		} catch (error) {
+			notifySettingsError(ctx, settingsPath, error);
+			return SETTINGS_ERROR;
+		}
+		let changed = false;
+		try {
+			changed = setCurrentModel ? await setCurrentModel(selectedModel, thinking) : false;
+		} catch (error) {
+			ctx.ui.notify(`Could not switch the current Pi model to ${provider}/${model}: ${error instanceof Error ? error.message : String(error)}`, "error");
+			return undefined;
+		}
+		if (!changed) {
+			ctx.ui.notify(`Could not switch the current Pi model to ${provider}/${model}. Check model authentication.`, "error");
+			return undefined;
+		}
+		try {
+			clearTier1Setting(settingsPath);
+		} catch (error) {
+			notifySettingsError(ctx, settingsPath, error);
+			return SETTINGS_ERROR;
+		}
+		ctx.ui.notify(`Current Pi model and Tier 1 set to ${provider}/${model} (${thinking})`, "info");
+		return { provider, model, thinking, source: "current Pi active model", status: "available", reason: "realtime control plane" };
+	}
 
 	try {
 		writeFanoutRoleSetting(settingsPath, role, {
@@ -147,7 +238,7 @@ async function configureRole(
 			model,
 			thinking,
 			enabled: role === "tier2" ? "auto" : undefined,
-			reason: role === "tier1" ? "configured realtime control-plane model" : role === "tier2" ? "async background worker model" : "realtime fallback for tier2 execution",
+			reason: role === "tier2" ? "async background worker model" : "realtime fallback for tier2 execution",
 		});
 	} catch (error) {
 		notifySettingsError(ctx, settingsPath, error);
@@ -158,16 +249,20 @@ async function configureRole(
 		provider,
 		model,
 		thinking,
-		source: role === "tier2Fallback" ? "fanout.execution.tier2Fallback" : `fanout.tiers.${role}`,
+		source: role === "tier2Fallback" ? "fanout.execution.tier2Fallback" : "fanout.tiers.tier2",
 		status: "available",
-		reason: role === "tier1" ? "realtime control plane" : role === "tier2" ? "parallel async worker nodes" : "realtime fallback for tier2 execution",
+		reason: role === "tier2" ? "parallel async worker nodes" : "realtime fallback for tier2 execution",
 	};
 }
 
 function roleLabel(role: ModelRole, summary: TierSummary): string {
-	if (role === "tier2Fallback" && summary.source === "tier1 inheritance") return "Tier 2 fallback · Use Tier 1";
+	return `${displayRole(role)} · ${roleDetail(role, summary)}`;
+}
+
+function roleDetail(role: ModelRole, summary: TierSummary): string {
+	if (role === "tier2Fallback" && summary.source === "tier1 inheritance") return "Use Tier 1";
 	const availability = role === "tier2" ? ` · ${stringField(summary.status)}` : "";
-	return `${displayRole(role)} · ${stringField(summary.provider)}/${stringField(summary.model)} · ${stringField(summary.thinking)}${availability}`;
+	return `${stringField(summary.provider)}/${stringField(summary.model)} · ${stringField(summary.thinking)}${availability}`;
 }
 
 function displayRole(role: ModelRole): string {
@@ -213,6 +308,14 @@ function writeFanoutRoleSetting(settingsPath: string, role: ModelRole, value: Re
 	writeSettings(settingsPath, settings);
 }
 
+function clearTier1Setting(settingsPath: string): void {
+	if (!existsSync(settingsPath)) return;
+	const settings = readSettings(settingsPath);
+	if (!settings.fanout?.tiers || !("tier1" in settings.fanout.tiers)) return;
+	delete settings.fanout.tiers.tier1;
+	writeSettings(settingsPath, settings);
+}
+
 function clearTier2FallbackSetting(settingsPath: string): void {
 	const settings = readSettings(settingsPath);
 	if (settings.fanout?.execution) delete settings.fanout.execution.tier2Fallback;
@@ -248,13 +351,7 @@ function clean(value: Record<string, unknown>): Record<string, unknown> {
 }
 
 function thinkingOptions(model: Record<string, unknown> | undefined): string[] {
-	if (!model || model.reasoning !== true) return ["off"];
-	const map = model.thinkingLevelMap;
-	if (typeof map === "object" && map !== null) {
-		const supported = ["off", "minimal", "low", "medium", "high", "xhigh"].filter((level) => (map as Record<string, unknown>)[level] !== null && (map as Record<string, unknown>)[level] !== undefined);
-		if (supported.length) return supported;
-	}
-	return ["off", "minimal", "low", "medium", "high", "xhigh"];
+	return model ? getSupportedThinkingLevels(model as any) : ["off"];
 }
 
 function modelInfo(model: unknown) {
