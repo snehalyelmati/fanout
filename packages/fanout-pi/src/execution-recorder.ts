@@ -184,7 +184,7 @@ export class ExecutionRecorder {
 		this.#writeSnapshot();
 	}
 
-	finish(status: FinishedExecutionRunStatus): Readonly<ExecutionRunSnapshot> {
+	finish(status: FinishedExecutionRunStatus, options: { dryRun?: boolean } = {}): Readonly<ExecutionRunSnapshot> {
 		if (status !== "succeeded" && status !== "failed" && status !== "aborted") throw new Error("Finished execution status must be succeeded, failed, or aborted");
 		if (this.#state.status !== "running") throw new Error(`Execution run ${this.#state.runId} already finished with status ${this.#state.status}`);
 		const finishedAt = this.#timestamp();
@@ -192,7 +192,7 @@ export class ExecutionRecorder {
 		this.#state.finishedAt = finishedAt;
 		this.#state.totals.durationMs = elapsedMs(this.#state.startedAt, finishedAt);
 		this.#writeSnapshot();
-		writeFileSync(this.summaryPath, renderExecutionSummary(this.#state), { encoding: "utf8", flag: "wx" });
+		writeFileSync(this.summaryPath, renderExecutionSummary(this.#state, options), { encoding: "utf8", flag: "wx" });
 		return this.snapshot();
 	}
 
@@ -228,11 +228,12 @@ export function createExecutionRecorder(options: ExecutionRecorderOptions): Exec
 	return new ExecutionRecorder(options);
 }
 
-export function renderExecutionSummary(snapshot: ExecutionRunSnapshot): string {
+export function renderExecutionSummary(snapshot: ExecutionRunSnapshot, options: { dryRun?: boolean } = {}): string {
 	const totals = snapshot.totals;
 	const lines = [
-		"# Fanout Execution Summary",
+		options.dryRun ? "# Fanout Dry Run Summary" : "# Fanout Execution Summary",
 		"",
+		...(options.dryRun ? ["- Mode: **dry run**; workers and final validation were not run"] : []),
 		`- Status: **${markdownCell(snapshot.status)}**`,
 		`- Run: \`${inlineCode(snapshot.runId)}\``,
 		`- Packet: [${markdownCell(snapshot.packetPath.split("/").at(-1) ?? "execution-packet.json")}](<${snapshot.packetPath}>)`,
@@ -267,7 +268,7 @@ export function renderExecutionSummary(snapshot: ExecutionRunSnapshot): string {
 		`- Tier2 retries: ${snapshot.eventCounts.worker_retry_scheduled ?? 0}`,
 		`- Realtime tier2Fallback attempts: ${snapshot.eventCounts.worker_fallback_started ?? 0}`,
 		`- Rejected patches: ${snapshot.eventCounts.patch_rejected ?? 0}`,
-		`- Final validation: ${snapshot.finalValidation ? `${snapshot.finalValidation.status}; ${snapshot.finalValidation.commandCount} commands; ${formatMs(snapshot.finalValidation.durationMs)}` : "not reached"}`,
+		`- Final validation: ${snapshot.finalValidation ? `${snapshot.finalValidation.status}; ${snapshot.finalValidation.commandCount} commands; ${formatMs(snapshot.finalValidation.durationMs)}` : options.dryRun ? "not run (dry run)" : "not reached"}`,
 		"",
 	);
 

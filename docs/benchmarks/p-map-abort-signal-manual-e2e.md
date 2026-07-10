@@ -257,6 +257,7 @@ Maintain this table during the session:
 
 | ID | Step | Classification | Symptom/reproduction | Owner/files | Severity | Decision/fix | Validation/status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| P2-OBS-1 | Dry-run gate | observability gap | Dry run `2026-07-10T19-53-13-301Z-675e78e1` succeeded with zero workers and no final validation, but `summary.md` used the generic execution title and could be mistaken for a completed live run. | `packages/fanout-pi/src/execution-recorder.ts`, `packages/fanout-pi/src/fanout-execute.ts` | medium | User approved the narrow fix: label dry-run summaries and state that workers/final validation were not run; keep execution-run schema v1 unchanged. | Focused smoke and full repository checks pass; fresh dry run pending. |
 
 Allowed classifications:
 

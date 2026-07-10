@@ -514,6 +514,12 @@ Decision: Review generated plans against required behavior, ownership, dependenc
 
 Reason: Model-grounded plans can express the same safe execution contract with harmless command or presentation differences. Treating those differences as failures overfits the benchmark, while unlabeled contradictions still make review unreliable.
 
+### Label dry-run execution summaries explicitly
+
+Decision: Keep execution-run schema v1 unchanged, but render dry-run `summary.md` artifacts as `Fanout Dry Run Summary` and state that workers and final validation were intentionally not run. Live execution summaries retain their existing format.
+
+Reason: A dry run may succeed while every node remains pending and final validation is absent. An explicit label prevents that preflight result from being mistaken for a completed live execution without duplicating packet data or changing the run schema.
+
 ## 2026-07-10
 
 ### Treat Phase A as the resolved objective source

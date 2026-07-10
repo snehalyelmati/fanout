@@ -73,7 +73,7 @@ async function executeLoadedFanout(
 
 		if (options.dryRun) {
 			recorder.appendEvent("execution_finished", { status: "succeeded", dryRun: true });
-			const snapshot = recorder.finish("succeeded");
+			const snapshot = recorder.finish("succeeded", { dryRun: true });
 			return { status: "succeeded", runId, packetPath: loaded.packetPath, paths: recorder.paths, snapshot, dryRun: true };
 		}
 
@@ -119,7 +119,7 @@ async function executeLoadedFanout(
 		return { status: "succeeded", runId, packetPath: loaded.packetPath, paths: recorder.paths, snapshot, dag, finalValidation };
 	} catch (error) {
 		const message = errorMessage(error);
-		if (recorder.snapshot().status === "running") return finishFailed(recorder, loaded.packetPath, runId, message, dag, finalValidation);
+		if (recorder.snapshot().status === "running") return finishFailed(recorder, loaded.packetPath, runId, message, dag, finalValidation, options.dryRun === true);
 		throw error;
 	}
 }
@@ -131,10 +131,11 @@ function finishFailed(
 	error: string,
 	dag?: DagRunResult,
 	finalValidation?: ValidationResult,
+	dryRun = false,
 ): ExecuteFanoutResult {
 	recorder.appendEvent("execution_finished", { status: "failed", error });
-	const snapshot = recorder.finish("failed");
-	return { status: "failed", runId, packetPath, paths: recorder.paths, snapshot, dag, finalValidation, error };
+	const snapshot = recorder.finish("failed", { dryRun });
+	return { status: "failed", runId, packetPath, paths: recorder.paths, snapshot, dag, finalValidation, error, dryRun: dryRun || undefined };
 }
 
 function runPreflight(

@@ -290,7 +290,9 @@ function testRecorder() {
   assert(snapshot.totals.inputTokens === 12 && snapshot.totals.totalTokens === 18, "recorder totals omitted failed-attempt usage");
   assert(snapshot.totals.toolDurationMs === 4 && snapshot.totals.pollDurationMs === 6, "recorder timing totals are wrong");
   assert(snapshot.totals.filesChanged === 1 && snapshot.totals.validationDurationMs === 5, "recorder local totals are wrong");
-  assert(existsSync(recorder.summaryPath) && readFileSync(recorder.summaryPath, "utf8").includes("Fanout Execution Summary"), "recorder summary was not written");
+  const recorderSummary = readFileSync(recorder.summaryPath, "utf8");
+  assert(existsSync(recorder.summaryPath) && recorderSummary.includes("Fanout Execution Summary"), "recorder summary was not written");
+  assert(!recorderSummary.includes("dry run") && recorderSummary.includes("Final validation: not reached"), "default execution summary changed to dry-run semantics");
   const recordedEvents = readJsonl(recorder.eventsPath);
   assert(recordedEvents.some((event) => event.event === "node_succeeded"), "recorder event log is incomplete");
 }
@@ -532,6 +534,8 @@ async function testDirtyWorktreeGuard() {
     runId: "dirty-worktree-smoke",
   });
   assert(result.status === "failed" && result.error?.includes("must be clean"), "dirty active worktree was not rejected by preflight");
+  const summary = readFileSync(result.paths.summaryPath, "utf8");
+  assert(result.dryRun === true && summary.includes("Fanout Dry Run Summary") && summary.includes("Final validation: not run (dry run)"), "failed dry run was not labeled in its summary");
   assert(!readJsonl(result.paths.eventsPath).some((event) => event.event === "confirmation_requested"), "dirty-worktree rejection reached confirmation");
   assert(readFileSync(join(repo, "value.txt"), "utf8") === "dirty\n", "dirty-worktree rejection changed the user's file");
   assert(!existsSync(fsmonitorMarker), "preflight executed the repository fsmonitor command");
@@ -607,6 +611,11 @@ async function testEndToEnd() {
     runId: "dry-run-smoke",
   });
   assert(dryRun.status === "succeeded" && readFileSync(join(repo, "state.txt"), "utf8") === "initial\n", "dry run mutated the repository or failed");
+  assert(dryRun.dryRun === true && !dryRun.finalValidation && dryRun.snapshot.nodes.every((node) => node.status === "pending") && !dryRun.snapshot.eventCounts.worker_attempt_started, "dry run executed work or lost its mode");
+  const dryRunSummary = readFileSync(dryRun.paths.summaryPath, "utf8");
+  for (const value of ["# Fanout Dry Run Summary", "Mode: **dry run**", "workers and final validation were not run", "Final validation: not run (dry run)"]) {
+    assert(dryRunSummary.includes(value), `dry-run summary is missing ${value}`);
+  }
 
   let releaseConfirmation;
   let confirmationReached;
@@ -672,7 +681,8 @@ async function testEndToEnd() {
     assert(existsSync(path), `end-to-end artifact was not written: ${path}`);
   }
   const summary = readFileSync(result.paths.summaryPath, "utf8");
-  for (const value of ["Execution outcomes", "Final validation: passed", "Changed files", "state.txt", "result.txt", "final-validation.json"]) assert(summary.includes(value), `execution summary is missing ${value}`);
+  for (const value of ["Fanout Execution Summary", "Execution outcomes", "Final validation: passed", "Changed files", "state.txt", "result.txt", "final-validation.json"]) assert(summary.includes(value), `execution summary is missing ${value}`);
+  assert(!summary.includes("dry run"), "live execution summary used dry-run wording");
   const events = readJsonl(result.paths.eventsPath);
   assert(events.filter((event) => event.event === "patch_applied").length === 2, "end-to-end patches were not both recorded");
   assert(events.at(-1)?.event === "execution_finished", "end-to-end run did not record execution_finished");

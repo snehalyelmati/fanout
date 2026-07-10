@@ -47,7 +47,7 @@ Command:
 rtk npm run smoke:fanout-execute
 ```
 
-Current result: passed locally. Coverage includes active-pointer and packet rejection, clean-worktree/artifact guardrails, canonical execution locking, confirmation and dry-run behavior, deterministic DAG concurrency/failure propagation, fresh worktrees, compiler-produced packets, mandatory metric provenance, patch/rename/directory ownership, validation stability, process-tree termination, retry/fallback, typed recovery, compensating rollback, downstream integrated state, and authoritative final validation. The 2026-07-10 schema-v4 update additionally proves a separate Tier 2 fallback model is used after retry exhaustion while Tier 1-only nodes and typed recovery retain the Tier 1 control-plane model.
+Current result: passed locally. Coverage includes active-pointer and packet rejection, clean-worktree/artifact guardrails, canonical execution locking, confirmation and explicitly labeled dry-run behavior, deterministic DAG concurrency/failure propagation, fresh worktrees, compiler-produced packets, mandatory metric provenance, patch/rename/directory ownership, validation stability, process-tree termination, retry/fallback, typed recovery, compensating rollback, downstream integrated state, and authoritative final validation. The 2026-07-10 schema-v4 update additionally proves a separate Tier 2 fallback model is used after retry exhaustion while Tier 1-only nodes and typed recovery retain the Tier 1 control-plane model.
 
 Caveat: worker usage and cost in this smoke are synthetic fake-provider fixtures. P2 controlled real Pi workers and P4 live tier-routing measurements remain pending; no observed latency or cost claim is added here.
 
@@ -55,7 +55,7 @@ Caveat: worker usage and cost in this smoke are synthetic fake-provider fixtures
 
 Date prepared: 2026-07-10; last run update: 2026-07-11
 
-Status: in progress. A Sol-medium planning pass now compiles an executable packet after fixing Phase B writable-resource coverage. Semantic review accepted the packet ownership, dependency, safety, and validation contract, but exposed an inconsistent execution-plan summary that omitted reads of files owned by other units. The renderer now labels external read-only context and cross-unit reads separately; the next pass will rerun planning with Sol medium and Terra medium fallback before dry-run and live execution. No live execution result has been recorded yet.
+Status: in progress. A fresh Sol-medium planning pass produced an executable packet whose workers use the Terra-medium realtime fallback. Semantic and independent reviews accepted its ownership, dependency, safety, routing, and validation contract. Dry run `2026-07-10T19-53-13-301Z-675e78e1` passed preflight in 732 ms with zero workers, tokens, cost, or repository changes, and exposed that the generic execution summary did not identify itself as a dry run. The approved narrow fix labels dry-run summaries explicitly; live execution remains gated on a clean follow-up dry run and user authorization. No live execution result has been recorded yet.
 
 Runbook: [`docs/benchmarks/p-map-abort-signal-manual-e2e.md`](benchmarks/p-map-abort-signal-manual-e2e.md)
 
