@@ -93,6 +93,8 @@ function streamStub(tier: "realtime" | "async", model: Model<Api>, context: Cont
 				turnIndex,
 				durationMs: durationMs(started),
 				usage: output.usage,
+				usageSource: "synthetic-stub",
+				pricingSource: "doubleword-stub-model-metadata",
 			});
 			stream.end();
 		} catch (error) {

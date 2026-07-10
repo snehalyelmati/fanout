@@ -168,6 +168,7 @@ try {
   assert(has("async_poll_retry", liveEvent), `missing live async_poll_retry event\n${readFileSync(successLogFile, "utf8")}`);
   assert(has("async_poll", liveEvent), `missing live async_poll event\n${readFileSync(successLogFile, "utf8")}`);
   assert(has("provider_end", (event) => event.provider === "doubleword" && event.model === "deepseek-ai/DeepSeek-V4-Flash" && event.tier === "async"), `missing provider_end for doubleword/deepseek-ai/DeepSeek-V4-Flash\n${readFileSync(successLogFile, "utf8")}`);
+  assert(has("provider_end", (event) => event.usageSource === "provider" && event.pricingSource === "doubleword-model-metadata"), `missing async provider usage provenance\n${readFileSync(successLogFile, "utf8")}`);
 
   const timeoutResult = await runPi(baseUrl, {
     logFile: timeoutLogFile,

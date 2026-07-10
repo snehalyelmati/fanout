@@ -96,6 +96,10 @@ function tierCost(id: string, tier: "realtime" | "async"): ModelCost {
 	return KNOWN_TIER_COSTS[id.toLowerCase()]?.[tier] ?? ZERO_COST;
 }
 
+export function tierPricingSource(id: string, tier: "realtime" | "async"): string | undefined {
+	return KNOWN_TIER_COSTS[id.toLowerCase()]?.[tier] ? "doubleword-model-metadata" : undefined;
+}
+
 export function withTierCost<T extends Model<Api> | ProviderModel>(model: T, tier: "realtime" | "async"): T {
 	return { ...model, cost: tierCost(model.id, tier) };
 }

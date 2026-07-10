@@ -50,7 +50,7 @@ try {
   const port = await listen();
   process.env.DOUBLEWORD_BASE_URL = `http://127.0.0.1:${port}`;
 
-  const { discoverLiveModels, REALTIME_STUB_MODELS, DOUBLEWORD_THINKING_LEVEL_MAP } = await import("../packages/doubleword-provider/src/models.ts");
+  const { discoverLiveModels, REALTIME_STUB_MODELS, DOUBLEWORD_THINKING_LEVEL_MAP, tierPricingSource } = await import("../packages/doubleword-provider/src/models.ts");
   const { responsesRequestBody } = await import("../packages/doubleword-provider/src/live.ts");
 
   const models = await discoverLiveModels();
@@ -73,6 +73,8 @@ try {
   assert(ocr?.reasoning === false, `OCR should not be reasoning-capable: ${JSON.stringify(ocr)}`);
   assert(embedding?.reasoning === false, `embedding should not be reasoning-capable: ${JSON.stringify(embedding)}`);
   assert(REALTIME_STUB_MODELS.every((model) => model.fanout?.authReady === true), `stub authReady should be true: ${JSON.stringify(REALTIME_STUB_MODELS)}`);
+  assert(tierPricingSource("deepseek-ai/DeepSeek-V4-Flash", "async") === "doubleword-model-metadata", "known tier pricing provenance is missing");
+  assert(tierPricingSource("mock-provider/Metadata-Model", "async") === undefined, "unknown model falsely claimed Doubleword pricing metadata");
 
   const piModel = { ...gen, api: "doubleword-api", provider: "doubleword", baseUrl: process.env.DOUBLEWORD_BASE_URL };
   const context = { messages: [{ role: "user", content: "hello", timestamp: Date.now() }] };

@@ -69,6 +69,7 @@ try {
       [`${provider}.provider_ttft`, has(events, "provider_ttft", (event) => event.provider === provider && typeof event.ttftMs === "number")],
       [`${provider}.provider_end`, has(events, "provider_end", (event) => event.provider === provider && typeof event.durationMs === "number")],
       [`${provider}.usage.cost.total`, has(events, "provider_end", (event) => event.provider === provider && typeof event.usage?.cost?.total === "number")],
+      [`${provider}.usage.provenance`, has(events, "provider_end", (event) => event.provider === provider && event.usageSource === "synthetic-stub" && event.pricingSource === "doubleword-stub-model-metadata")],
     ]),
     ...realtimeModels.map(({ model, inputRate, outputRate }) => [
       `realtime.${model}.cost`,
