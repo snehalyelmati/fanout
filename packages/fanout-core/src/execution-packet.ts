@@ -117,13 +117,14 @@ const VALID_TIER_STATUSES = new Set(["available", "unavailable"]);
 const VALID_KINDS = new Set(["plan", "clarify", "packet-validation", "dag-safety", "implement", "test", "docs", "inspect", "validate-shard", "review-shard", "final-review", "synthesis", "final-validation", "final-response"]);
 const TIER2_ELIGIBLE_KINDS = new Set(["implement", "test", "docs", "inspect", "validate-shard", "review-shard"]);
 const UNSAFE_COMMANDS: Array<[string, RegExp]> = [
-	["rm-recursive-force", /(^|\s)rm\s+(?=[^\n;]*?(?:-[^\s;]*[rR][^\s;]*|--recursive)\b)(?=[^\n;]*?(?:-[^\s;]*f[^\s;]*|--force)\b)/],
+	["rm-recursive-force", /(^|[^\w./-])(?:[^\s;|&]*\/)*rm\s+(?=[^\n;]*?(?:-[^\s;]*[rR][^\s;]*|--recursive)\b)(?=[^\n;]*?(?:-[^\s;]*f[^\s;]*|--force)\b)/],
 	["sudo", /(^|\s)sudo\b/],
 	["git-reset-hard", /\bgit\s+reset\s+--hard\b/],
 	["git-clean", /\bgit\s+clean\b/],
+	["git-commit", /\bgit\s+commit\b/],
 	["git-push", /\bgit\s+push\b/],
 	["npm-publish", /\bnpm\s+publish\b/],
-	["curl-pipe-shell", /\b(curl|wget)\b[^\n|;]*\|\s*(sh|bash)\b/],
+	["curl-pipe-shell", /\b(curl|wget)\b[^\n|;]*\|\s*(?:[^\s;|&]*\/)*(sh|bash)\b/],
 	["chmod-recursive", /\bchmod\s+-R\b/],
 	["chown-recursive", /\bchown\s+-R\b/],
 	["mkfs", /\bmkfs(\.|\s|$)/],
@@ -182,8 +183,10 @@ export function validateExecutionPacket(packet: unknown): PacketValidationResult
 			add(errors, "work-unit-not-object", "work unit must be an object", path);
 			continue;
 		}
-		const id = typeof unit.id === "string" ? unit.id.trim() : "";
+		const rawId = typeof unit.id === "string" ? unit.id : "";
+		const id = rawId.trim();
 		if (!id) add(errors, "missing-unit-id", "work unit id is required", `${path}.id`);
+		else if (rawId !== id) add(errors, "noncanonical-unit-id", "work unit id must not have leading or trailing whitespace", `${path}.id`, id);
 		else if (ids.has(id)) add(errors, "duplicate-unit-id", `duplicate work unit id: ${id}`, `${path}.id`, id);
 		else ids.add(id);
 		if (!nonEmptyString(unit.goal)) add(errors, "missing-unit-goal", "work unit goal is required", `${path}.goal`, id || undefined);
@@ -193,6 +196,9 @@ export function validateExecutionPacket(packet: unknown): PacketValidationResult
 		validateWorkerPacket(unit.workerPacket, `${path}.workerPacket`, errors, id || undefined);
 
 		const dependencies = stringArray(unit.dependencies, errors, `${path}.dependencies`, "dependencies", id);
+		if (Array.isArray(unit.dependencies)) for (const [dependencyIndex, dependency] of unit.dependencies.entries()) {
+			if (typeof dependency === "string" && dependency !== dependency.trim()) add(errors, "noncanonical-dependency", "dependency ids must not have leading or trailing whitespace", `${path}.dependencies[${dependencyIndex}]`, id || undefined);
+		}
 		const ownedFiles = stringArray(unit.ownedFiles, errors, `${path}.ownedFiles`, "ownedFiles", id);
 		const readOnlyFiles = stringArray(unit.readOnlyFiles, errors, `${path}.readOnlyFiles`, "readOnlyFiles", id);
 		const steps = stringArray(unit.steps, errors, `${path}.steps`, "steps", id);
@@ -670,9 +676,48 @@ function formatMetric([label, value]: [string, string]): string {
 	return `${label.padEnd(21)}${value}`;
 }
 
-function unsafeCommand(command: string): string | undefined {
+export function unsafeCommand(command: string): string | undefined {
 	for (const [name, pattern] of UNSAFE_COMMANDS) if (pattern.test(command)) return name;
+	return unsafeStructuredCommand(command);
+}
+
+function unsafeStructuredCommand(command: string): string | undefined {
+	const gitOptionsWithValue = new Set(["-C", "-c", "--config-env", "--exec-path", "--git-dir", "--namespace", "--work-tree"]);
+	for (const segment of command.split(/&&|\|\||[;|\n]/)) {
+		const tokens = segment.match(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\S+/g)?.map(shellToken) ?? [];
+		for (let commandIndex = 0; commandIndex < tokens.length; commandIndex++) {
+			const executable = executableName(tokens[commandIndex]);
+			if (executable === "sudo") return "sudo";
+			if (executable === "rm") {
+				const args = tokens.slice(commandIndex + 1);
+				const recursive = args.some((token) => token === "--recursive" || token.startsWith("--recursive=") || /^-[^-]*[rR]/.test(token));
+				const force = args.some((token) => token === "--force" || token.startsWith("--force=") || /^-[^-]*f/.test(token));
+				if (recursive && force) return "rm-recursive-force";
+			}
+			if (executable === "npm" && tokens.slice(commandIndex + 1).some((token) => token.toLowerCase() === "publish" || token.toLowerCase() === "pub")) return "npm-publish";
+			if (executable !== "git") continue;
+			let index = commandIndex + 1;
+			while (index < tokens.length && tokens[index].startsWith("-")) {
+				const option = tokens[index];
+				const name = option.split("=", 1)[0];
+				index += gitOptionsWithValue.has(name) && !option.includes("=") ? 2 : 1;
+			}
+			const subcommand = tokens[index]?.toLowerCase();
+			if (subcommand === "reset" && tokens.slice(index + 1).some((token) => token === "--hard" || token.startsWith("--hard="))) return "git-reset-hard";
+			if (subcommand === "clean") return "git-clean";
+			if (subcommand === "commit") return "git-commit";
+			if (subcommand === "push") return "git-push";
+		}
+	}
 	return undefined;
+}
+
+function shellToken(value: string): string {
+	return value.length >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) ? value.slice(1, -1) : value;
+}
+
+function executableName(value: string): string {
+	return value.replace(/\\/g, "/").split("/").at(-1)?.toLowerCase().replace(/\.(?:exe|cmd|bat)$/, "") ?? "";
 }
 
 function add(issues: PacketValidationIssue[], code: string, message: string, path?: string, unitId?: string): void {

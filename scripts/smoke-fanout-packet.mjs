@@ -34,9 +34,36 @@ const validPacket = readExecutionPacket(validPacketPath);
 expectInvalid("rm -fr unsafe variant", withPatch(validPacket, (packet) => {
   packet.workUnits[0].steps = ["rm -fr ."];
 }), ["unsafe-command"]);
+expectInvalid("absolute rm executable", withPatch(validPacket, (packet) => {
+  packet.workUnits[0].steps = ["/bin/rm -rf ."];
+}), ["unsafe-command"]);
+expectInvalid("absolute sudo executable", withPatch(validPacket, (packet) => {
+  packet.finalValidationPlan = ["/usr/bin/sudo true"];
+}), ["unsafe-command"]);
 expectInvalid("unsafe final validation", withPatch(validPacket, (packet) => {
   packet.finalValidationPlan = ["rm --recursive --force ."];
 }), ["unsafe-command"]);
+expectInvalid("git global option reset", withPatch(validPacket, (packet) => {
+  packet.finalValidationPlan = ["rtk git -C . reset --hard"];
+}), ["unsafe-command"]);
+expectInvalid("committing final validation", withPatch(validPacket, (packet) => {
+  packet.finalValidationPlan = ["rtk git commit -am validation"];
+}), ["unsafe-command"]);
+expectInvalid("npm publish with global options", withPatch(validPacket, (packet) => {
+  packet.finalValidationPlan = ["npm --prefix . publish"];
+}), ["unsafe-command"]);
+expectInvalid("npm publish with arbitrary global option", withPatch(validPacket, (packet) => {
+  packet.finalValidationPlan = ["npm --user-agent fanout publish"];
+}), ["unsafe-command"]);
+expectInvalid("Windows npm publish executable", withPatch(validPacket, (packet) => {
+  packet.finalValidationPlan = ["\"C:\\Program Files\\nodejs\\npm.cmd\" --prefix . publish"];
+}), ["unsafe-command"]);
+expectInvalid("noncanonical work unit id", withPatch(validPacket, (packet) => {
+  packet.workUnits[0].id += " ";
+}), ["noncanonical-unit-id"]);
+expectInvalid("noncanonical dependency id", withPatch(validPacket, (packet) => {
+  packet.workUnits[1].dependencies[0] += " ";
+}), ["noncanonical-dependency"]);
 expectInvalid("critical path mismatch", withPatch(validPacket, (packet) => {
   packet.estimates.criticalPath = ["final-review"];
 }), ["critical-path-mismatch"]);

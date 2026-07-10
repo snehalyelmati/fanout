@@ -514,7 +514,7 @@ function groupOwnsFile(group: Group, file: string): boolean {
 }
 
 function writeResources(item: DetailItem): string[] {
-	return unique([...item.ownedResources, ...item.existingFileEdits.map((edit) => edit.file), ...item.newFiles.map((file) => file.path)]).map(normalizeResource).filter(Boolean);
+	return unique([...item.ownedResources, ...item.existingFileEdits.map((edit) => edit.file), ...item.newFiles.map((file) => file.path)]).map(normalizeOwnedResource).filter(Boolean);
 }
 
 function itemSteps(item: DetailItem): string[] {
@@ -582,6 +582,12 @@ function normalizeResource(value: string): string {
 	let normalized = value.trim().replace(/\\/g, "/");
 	while (normalized.startsWith("./")) normalized = normalized.slice(2);
 	return normalized.replace(/\/+$/g, "");
+}
+
+function normalizeOwnedResource(value: string): string {
+	const directory = /[\\/]$/.test(value.trim());
+	const normalized = normalizeResource(value);
+	return directory && normalized ? `${normalized}/` : normalized;
 }
 
 function resourcesOverlap(left: string, right: string): boolean {

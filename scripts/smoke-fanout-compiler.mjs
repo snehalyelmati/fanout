@@ -22,6 +22,12 @@ const base = compile(samplePlan(), sampleDetails());
 expectCompileOk("base", base);
 if (base.packet.workUnits.some((unit) => /contract/i.test(unit.id))) throw new Error(`compiler emitted a default contract node: ${base.packet.workUnits.map((unit) => unit.id).join(",")}`);
 
+const directoryDetail = detail("a", "generated/file.txt");
+directoryDetail.ownedResources = ["generated/"];
+const directoryOwnership = compile(samplePlan([item("a", ["generated/file.txt"])]), sampleDetails([directoryDetail]));
+expectCompileOk("directory ownership", directoryOwnership);
+if (!directoryOwnership.packet.workUnits.some((unit) => unit.ownedFiles.includes("generated/"))) throw new Error("compiler discarded explicit directory ownership intent");
+
 const tier2Worker = compile(samplePlan([item("a", ["src/a.ts"])]), sampleDetails([detail("a", "src/a.ts")]), { tier2Eligible: ["implement"], tier1Only: ["final-validation"], fallbackTier: "tier1" }, availableTierPlan());
 expectCompileOk("tier2 worker", tier2Worker);
 expectTier("tier2 worker assignment", tier2Worker.packet.workUnits.find((unit) => unit.id === "a"), "tier2", "tier2", "background");
