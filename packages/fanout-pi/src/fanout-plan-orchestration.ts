@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RequiredReadClassification } from "../../fanout-core/src/fanout-compiler.ts";
+import type { PlanningMetrics } from "./planning-observability.ts";
 
 export const FANOUT_ORCHESTRATION_MARKER = "fanout.plan.orchestration.v1";
 export const IMPLEMENTATION_PLAN_SCHEMA = "fanout.implementation-plan";
@@ -18,6 +19,7 @@ export interface FanoutPhaseState extends FanoutPlanRun {
 	invocation: string;
 	objective: string;
 	context: Record<string, unknown>;
+	metrics: PlanningMetrics;
 	repairAttempted?: boolean;
 	repairDetailsMtimeMs?: number;
 	requiredReadClassifications?: RequiredReadClassification[];

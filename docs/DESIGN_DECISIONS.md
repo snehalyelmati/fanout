@@ -509,3 +509,9 @@ Reason: On POSIX, backslashes and leading/trailing spaces are valid filename byt
 Decision: `/fanout-plan` preserves the invocation text for traceability, but Phase A owns the resolved objective after reading referenced context. Phase B must copy that objective exactly, while the adapter validates Phase A against its artifact directory rather than the invocation string.
 
 Reason: File references and shorthand invocations are inputs to planning, not necessarily the final execution objective. Exact invocation equality rejected correct, more specific plans.
+
+### Keep main-session Fanout telemetry outside target repositories
+
+Decision: The Fanout adapter routes its common session and bundled Doubleword telemetry to Pi-owned project artifact storage unless `DOUBLEWORD_OBSERVABILITY_FILE` explicitly overrides it. Common adapter events use `sessionRunId`, bundled provider events retain the legacy field name `runId`, and both values identify the same Pi session; planning events add `planRunId`. Execution audit schemas remain unchanged.
+
+Reason: Repository-local startup telemetry dirtied target worktrees and then failed Fanout's own clean-worktree preflight. Separate identifiers keep session and planning scope unambiguous.

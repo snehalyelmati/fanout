@@ -47,7 +47,7 @@ Command:
 rtk npm run smoke:fanout-execute
 ```
 
-Current result: passed locally. Coverage includes active-pointer and packet rejection, clean-worktree/artifact guardrails, canonical execution locking, confirmation and dry-run behavior, deterministic DAG concurrency/failure propagation, fresh worktrees, compiler-produced packets, mandatory metric provenance, patch/rename/directory ownership, validation stability, process-tree termination, retry/fallback, typed recovery, compensating rollback, downstream integrated state, and authoritative final validation.
+Current result: passed locally. Coverage includes active-pointer and packet rejection, clean-worktree/artifact guardrails, canonical execution locking, confirmation and dry-run behavior, deterministic DAG concurrency/failure propagation, fresh worktrees, compiler-produced packets, mandatory metric provenance, patch/rename/directory ownership, validation stability, process-tree termination, retry/fallback, typed recovery, compensating rollback, downstream integrated state, and authoritative final validation. The 2026-07-10 schema-v4 update additionally proves a separate Tier 2 fallback model is used after retry exhaustion while Tier 1-only nodes and typed recovery retain the Tier 1 control-plane model.
 
 Caveat: worker usage and cost in this smoke are synthetic fake-provider fixtures. P2 controlled real Pi workers and P4 live tier-routing measurements remain pending; no observed latency or cost claim is added here.
 
@@ -397,6 +397,7 @@ Add one row per meaningful workflow or routing change.
 | D8 | 2026-06-25 | Planned Parallel RPE direction | simulator docs + manual Pi trace reviews | design/evaluation only | n/a | no runtime TAT claim | Generic tier2 DAG and duplicate implementations deferred; next step is prefix-based safe-work-unit evaluation |
 | E1 | 2026-06-25 | Safe work unit prefix evaluation | Pi trace prefix + prediction artifact fixture | offline evaluator | safety precision primary | no runtime TAT claim | Reports safe independent, dependent, unsafe, and inconclusive verdicts from prefix context plus suffix evidence |
 | E2 | 2026-06-26 | TAT bucket code-shard evaluation | 15 full `pi-mono` traces, 3 per TAT bucket | offline safe-unit evaluator + tier2 wait estimate | safety precision primary | 5-40m tier2 background by DAG depth | 49 code-edit units; long decomposable traces often compress remaining realtime loops to shallow tier2 DAGs |
+| P1-fallback-role | 2026-07-10 | Separate Tier 2 fallback model role and packet schema v4 | fake-provider execution smoke | Tier 1 control plane + Tier 2 async + independent realtime fallback | synthetic | synthetic | Retry exhaustion uses the configured fallback model; Tier 1-only and typed-repair paths remain on Tier 1. No live cost/TAT claim. |
 
 ## E1 - Safe work unit prefix evaluation
 

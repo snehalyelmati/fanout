@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 const dir = mkdtempSync(join(tmpdir(), "doubleword-pi-"));
 const logFile = join(dir, "observability.jsonl");
@@ -37,6 +37,40 @@ function sameCost(actual, expected) {
   return Math.abs(actual - expected) <= Number.EPSILON;
 }
 
+function testExternalFanoutObservability() {
+  const repo = join(dir, "repo");
+  const artifactRoot = join(dir, "fanout-artifacts");
+  const init = spawnSync("git", ["init", "--quiet", repo], { encoding: "utf8" });
+  if (init.status !== 0) throw new Error(`git init failed: ${init.stderr}`);
+  const env = { ...process.env, FANOUT_ARTIFACT_DIR: artifactRoot, DOUBLEWORD_RUN_ID: "external-observability" };
+  delete env.DOUBLEWORD_OBSERVABILITY_FILE;
+  const result = spawnSync("pi", ["-e", resolve("packages/fanout-pi/src/index.ts"), "--model", "doubleword-stub/deepseek-v4-flash", "-p", "Respond 'hello', do not say anything else."], {
+    cwd: repo,
+    env,
+    encoding: "utf8",
+  });
+  if (result.status !== 0 || !result.stdout.includes("Doubleword stub response.")) throw new Error(`external observability run failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+  const status = spawnSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" });
+  if (status.status !== 0 || status.stdout.trim()) throw new Error(`Fanout dirtied target repository: ${status.stdout}${status.stderr}`);
+  if (existsSync(join(repo, "runs"))) throw new Error("Fanout created repository-local runs/");
+  const externalLog = findFile(artifactRoot, "observability.jsonl");
+  if (!externalLog) throw new Error("Fanout did not create external observability.jsonl");
+  const events = readFileSync(externalLog, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  if (!events.some((event) => event.event === "session_start" && event.sessionRunId && event.observabilityPath === externalLog)) throw new Error(`external session telemetry missing: ${readFileSync(externalLog, "utf8")}`);
+  if (!events.some((event) => event.event === "provider_end" && event.runId === "external-observability")) throw new Error(`bundled provider did not share external telemetry: ${readFileSync(externalLog, "utf8")}`);
+}
+
+function findFile(directory, name) {
+  if (!existsSync(directory)) return undefined;
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      const found = findFile(path, name);
+      if (found) return found;
+    } else if (entry.name === name) return path;
+  }
+}
+
 function realtimeCostMatches(event, model, inputRate, outputRate) {
   if (event.provider !== "doubleword-stub" || event.model !== model || event.tier !== "realtime") return false;
   const usage = event.usage;
@@ -48,6 +82,7 @@ function realtimeCostMatches(event, model, inputRate, outputRate) {
 }
 
 try {
+  testExternalFanoutObservability();
   run("doubleword-stub", "deepseek-v4-flash");
   run("doubleword-stub", "deepseek-v4-flash", { DOUBLEWORD_EXECUTION_MODE: "async" });
 

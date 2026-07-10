@@ -96,6 +96,7 @@ Packet artifacts:
 ~/.pi/agent/fanout/<project-id>/<run-id>/execution-plan.md
 ~/.pi/agent/fanout/<project-id>/<run-id>/execution-dag.mmd
 ~/.pi/agent/fanout/<project-id>/active-packet.json
+~/.pi/agent/fanout/<project-id>/observability/<session-run-id>/observability.jsonl
 ```
 
 Phase 2 acceptance criteria:
@@ -104,7 +105,7 @@ Phase 2 acceptance criteria:
 - The packet can be reviewed by a human before execution.
 - DAG validation catches cycles, file ownership conflicts, missing validation, and unresolved required decisions before the packet is accepted.
 - Estimates distinguish active wait, background completion, provider tier cost, and workflow savings.
-- Observability logs packet preparation time, model tiers, token usage, DAG depth/width, validation iterations, and rejected/accepted work units. *(Pending after Phase 2B local validation; add when live Pi planning flow is exercised.)*
+- Pi-owned observability correlates `sessionRunId`/`planRunId` and logs invocation plus Phase A's authoritative resolved objective, model tiers, token/cache usage, cost, local TTFT, total and per-phase duration, per-tool timings, union-of-tool-active wall time, non-tool wall time, validation failures, `fanout_plan_end`/`fanout_plan_failed`, and the resulting artifact path without dirtying the target repository. DAG depth/width and rejected/accepted execution work remain in packet/execution artifacts rather than the common planning log.
 
 ### Phase 3: Execution via `/fanout-execute`
 

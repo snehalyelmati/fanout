@@ -34,7 +34,7 @@ for (const phrase of ["fanout.plan.orchestration.v1", "buildImplementationPlanPr
 for (const phrase of ["if (pendingFanoutPlan)", "A Fanout plan is already in progress"]) {
   if (!fanoutPiIndex.includes(phrase)) throw new Error(`fanout-plan command is missing overlap guard phrase: ${phrase}`);
 }
-for (const phrase of ["const finishedFanoutPlan = pendingFanoutPlan", "buildRequiredReadClassifications", "const planObjective", "objective: planObjective", "fanout_required_read_classifications", "existsSync(finishedFanoutPlan.implementationDetailsPath)", "displayFanoutPlanReport", "customType: \"fanout-plan\"", "triggerTurn: false"]) {
+for (const phrase of ["const finishedFanoutPlan = pendingFanoutPlan", "buildRequiredReadClassifications", "const planObjective", "objective: planObjective", "fanout_required_read_classifications", "existsSync(finishedFanoutPlan.implementationDetailsPath)", "displayFanoutPlanReport", "customType: \"fanout-plan\"", "triggerTurn: false", "fanout_plan_failed", "pi.on(\"message_update\"", "pi.on(\"message_end\"", "assistant_usage"]) {
   if (!fanoutPiIndex.includes(phrase)) throw new Error(`fanout-plan finalization is missing phrase: ${phrase}`);
 }
 for (const phrase of ["finishedFanoutPlan.repairAttempted && !phaseTurnStarted", "fanout_compiler_repair_requested", "buildImplementationDetailsRepairPrompt", "unclassifiedOverlapPolicy: \"sequential\"", "policy: \"sequential\"", "isAmbiguousReadOverlapFailure", "repairDetailsMtimeMs", "implementationDetailsChangedSinceRepair", "fanout_compiler_repair_artifact_detected"]) {
@@ -47,6 +47,23 @@ if (fanoutPiIndex.includes("activeFanoutPlan")) throw new Error("fanout-plan fin
 
 const { buildImplementationDetailsPrompt, buildImplementationDetailsRepairPrompt, buildImplementationPlanPrompt, createFanoutPlanRun, isFanoutPhasePrompt, validateImplementationPlanArtifact } = await import("../packages/fanout-pi/src/fanout-plan-orchestration.ts");
 const { validateImplementationDetailsArtifact } = await import("../packages/fanout-core/src/fanout-compiler.ts");
+const { createPlanningMetrics, planningMetricsSummary, recordPlanningAssistant, recordPlanningToolInterval } = await import("../packages/fanout-pi/src/planning-observability.ts");
+const metrics = createPlanningMetrics();
+const assistantUsage = recordPlanningAssistant(metrics, { role: "assistant", provider: "stub", model: "planner", usage: { input: 10, output: 4, cacheRead: 3, cacheWrite: 2, totalTokens: 19, cost: { total: 0.25 } } });
+const metricsSummary = planningMetricsSummary(metrics, "medium");
+if (assistantUsage?.pricingSource !== "pi-json-usage" || metricsSummary.inputTokens !== 10 || metricsSummary.outputTokens !== 4 || metricsSummary.cacheReadTokens !== 3 || metricsSummary.cacheWriteTokens !== 2 || metricsSummary.totalTokens !== 19 || metricsSummary.estimatedCostUsd !== 0.25 || metricsSummary.nonToolDurationMs < 0) throw new Error(`bad planning metrics: ${JSON.stringify(metricsSummary)}`);
+for (const testCase of [
+  { name: "partial overlap", intervals: [[10, 30], [20, 40]], now: 50, tool: 30, nonTool: 20 },
+  { name: "nested reverse completion", intervals: [[20, 40], [10, 50]], now: 60, tool: 40, nonTool: 20 },
+  { name: "touching", intervals: [[0, 10], [10, 20]], now: 30, tool: 20, nonTool: 10 },
+  { name: "disjoint", intervals: [[5, 10], [20, 25]], now: 30, tool: 10, nonTool: 20 },
+]) {
+  const toolMetrics = createPlanningMetrics();
+  toolMetrics.started = 0;
+  for (const [started, ended] of testCase.intervals) recordPlanningToolInterval(toolMetrics, started, ended);
+  const summary = planningMetricsSummary(toolMetrics, "off", testCase.now);
+  if (summary.toolDurationMs !== testCase.tool || summary.nonToolDurationMs !== testCase.nonTool) throw new Error(`${testCase.name} tool union is wrong: ${JSON.stringify(summary)}`);
+}
 const helperDir = mkdtempSync(join(tmpdir(), "doubleword-pi-plan-helper-"));
 try {
   const run = createFanoutPlanRun("Update docs", { projectArtifactRoot: helperDir }, new Date("2026-07-08T01:02:03.100Z"));
@@ -183,10 +200,10 @@ try {
     fanout: { tiers: { tier2: { provider: "doubleword-stub", model: "glm-5-2", thinking: "medium", enabled: false } } },
   });
   const unavailable = preflight(planned);
+  if (typeof unavailable.sessionRunId !== "string" || typeof unavailable.planRunId !== "string" || "runId" in unavailable) throw new Error(`planning identities were not separated: ${JSON.stringify(unavailable)}`);
   if (unavailable.tierPlan?.tier2?.status !== "unavailable" || unavailable.tierPlan?.tier2?.fallback !== "tier1" || unavailable.tier2Availability?.available !== false || unavailable.nodeKindTierPolicy?.fallbackTier !== "tier1" || !String(unavailable.tier2Availability?.reason).includes("disabled")) {
     throw new Error(`bad unavailable tier2 fallback: ${JSON.stringify(unavailable)}`);
   }
-
   const stubTier2 = run("fanout-plan-tier2-stub", "/fanout-plan Prepare a docs-only change plan", {
     fanout: { tiers: { tier2: { provider: "doubleword-stub", model: "glm-5-2", thinking: "medium" } } },
   });

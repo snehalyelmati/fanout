@@ -17,6 +17,7 @@ Phase 2B is implemented and locally validated.
 Completed:
 
 - `/fanout-plan` is command-backed and dispatches Phase A/Phase B prompts with deterministic preflight context. Phase A's resolved objective is authoritative for Phase B and compilation; the invocation text is retained separately for traceability.
+- main-session planning observability is stored under Pi-owned Fanout storage rather than the target repository and correlates `sessionRunId` with each `planRunId`.
 - legacy package prompt registration is removed; `prompts/fanout-implementation-plan.md` and `prompts/fanout-implementation-details.md` are the internal command templates.
 - `fanout-core` compiles implementation details into execution packet schema v3 and validates the result.
 - artifact helper writes packet/plan/DAG/active pointer under Pi-owned storage by default.
@@ -40,6 +41,7 @@ Completed:
 - Fixed live Phase B finalization so `/fanout-plan` advances from pending run state plus artifacts instead of requiring prompt-marker handoff state, and displays the deterministic `execution-plan.md` report in chat.
 - Added contract-first anti-serialization guidance to Phase A/B prompts so tests, docs, fixtures, and package scripts can remain authorable from the contract without adding an execution-packet contract node.
 - Changed compiler scheduling to file/resource-owned work units: Phase A semantic dependencies stay as traceability context, and only Phase B `post-change-required` file reads create execution DAG edges.
+- Added planning telemetry for usage/cache tokens, cost, local TTFT, wall duration, union-of-tool-active wall time, non-tool wall time, per-phase duration, `fanout_plan_end`, and `fanout_plan_failed`; validation failures keep the prior active pointer and report actionable artifact/error details.
 - Validation currently passes: `rtk npm run smoke:fanout-compiler`, `rtk npm run smoke:fanout-packet`, `rtk npm run smoke:fanout-config`, `rtk npm run smoke:planning`, `rtk npm run check`, `rtk git diff --check`.
 
 ## Decisions locked
@@ -548,7 +550,7 @@ Resolved in this slice:
 - `/fanout-plan` is command-backed and dispatches Phase A/Phase B prompts with deterministic preflight context plus compiler finalization.
 - Fanout consumes Doubleword provider tier metadata before Pi `ModelRegistry` strips unknown fields, and tier2 availability requires `fanout.async/background/authReady`.
 - `fanout.artifactDir` is documented and `/fanout-config` shows the resolved artifact root.
-- Packet-prep observability now includes `fanout_plan_start`, `fanout_plan_preflight`, detail validation, and compiler validation events.
+- Packet-prep observability is external to the target repository and includes `sessionRunId`/`planRunId`, `fanout_plan_start`, `fanout_plan_preflight`, assistant usage/cache/cost and local TTFT, per-tool events, detail/compiler validation, `fanout_plan_end`, `fanout_plan_failed`, and wall/tool/non-tool/phase timing summaries. `toolDurationMs` is the union of tool-active wall-clock intervals, so overlapping calls are not double-counted.
 - Boxed ASCII DAG rendering now shows simple branch/join structure for common parallel groups.
 - Packet status is ready-only; missing user decisions stop planning without writing artifacts.
 
