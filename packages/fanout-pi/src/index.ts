@@ -82,7 +82,8 @@ export default async function (pi: ExtensionAPI) {
 		description: "Configure Fanout tier models",
 		handler: async (args, ctx) => {
 			const context = fanoutRuntimeContext(ctx.cwd, activeModel ?? ctx.model, activeThinking ?? pi.getThinkingLevel(), ctx.modelRegistry?.getAll?.());
-			await configureFanoutTier(args, ctx, activeModel ?? ctx.model, activeThinking ?? pi.getThinkingLevel(), globalSettingsPath(), context.artifactRoot);
+			const registryModels = augmentRegistryModels((ctx.modelRegistry?.getAll?.() ?? []).filter(isRecord));
+			await configureFanoutTier(args, ctx, activeModel ?? ctx.model, activeThinking ?? pi.getThinkingLevel(), globalSettingsPath(), context.artifactRoot, context.resolvedTierPlan, registryModels);
 		},
 	});
 

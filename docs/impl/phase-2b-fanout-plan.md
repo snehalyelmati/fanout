@@ -22,7 +22,7 @@ Completed:
 - `fanout-core` compiles implementation details into execution packet schema v4 and validates the result. Later schema-v3 sections below remain as history for the `workerPacket` introduction.
 - artifact helper writes packet/plan/DAG/active pointer under Pi-owned storage by default.
 - packet smoke fixtures and tests exist.
-- `/fanout-config` provides provider -> model -> thinking selection.
+- `/fanout-config` provides descriptive role selection followed by provider -> model -> thinking selection.
 - final plan wording leaves `/fanout-execute` for Phase 3.
 
 ## Progress log
@@ -42,6 +42,7 @@ Completed:
 - Added contract-first anti-serialization guidance to Phase A/B prompts so tests, docs, fixtures, and package scripts can remain authorable from the contract without adding an execution-packet contract node.
 - Changed compiler scheduling to file/resource-owned work units: Phase A semantic dependencies stay as traceability context, and only Phase B `post-change-required` file reads create execution DAG edges.
 - Added planning telemetry for usage/cache tokens, cost, local TTFT, wall duration, union-of-tool-active wall time, non-tool wall time, per-phase duration, `fanout_plan_end`, and `fanout_plan_failed`; validation failures keep the prior active pointer and report actionable artifact/error details.
+- Tier 2 capability filtering now requires explicit `fanout.async`, `fanout.background`, and `fanout.authReady` metadata; `/fanout-config` exposes descriptions, Escape/back navigation, fallback inheritance, and explicit fallback selection.
 - Validation currently passes: `rtk npm run smoke:fanout-compiler`, `rtk npm run smoke:fanout-packet`, `rtk npm run smoke:fanout-config`, `rtk npm run smoke:planning`, `rtk npm run check`, `rtk git diff --check`.
 
 ## Decisions locked
@@ -155,7 +156,7 @@ Requirements:
 
 Implementation status:
 
-- `/fanout-config` now provides a minimal provider → model → thinking selector and persists `fanout.tiers.tier1` / `fanout.tiers.tier2` to global Pi settings.
+- `/fanout-config` provides descriptive Tier 1, Tier 2, and Tier 2 fallback role selection, Escape/back navigation, then provider → model → thinking selection. It persists `fanout.tiers.tier1`, `fanout.tiers.tier2`, and optional `fanout.execution.tier2Fallback` to global Pi settings; **Use Tier 1** removes only the fallback override.
 
 ## Tier/model resolution algorithm
 
@@ -570,9 +571,9 @@ Remaining audit findings: none.
 
 These are intentionally left after Phase 2B and should be handled before or during Phase 3:
 
-1. Verify `/fanout-plan` in a live Pi session, including interactive `ask_user_question` behavior and artifact writes under the injected runtime context.
-2. Implement `/fanout-execute` in Phase 3 as a revalidation/execution flow, not replanning.
-3. Add `fanout_packet_ready` observability if needed beyond current smoke coverage.
+1. Verify the updated `/fanout-config` TUI and `/fanout-plan` Phase A → Phase B flow in a live Pi session, including interactive `ask_user_question`, external telemetry, and schema-v4 artifact writes.
+2. Run `/fanout-execute --dry-run` against the resulting packet before requesting authorization for live execution.
+3. Add a distinct `fanout_packet_ready` event only if downstream evidence shows `fanout_plan_end` is insufficient.
 
 Resolved dependencies:
 

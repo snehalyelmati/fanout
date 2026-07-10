@@ -438,7 +438,7 @@ Reason: The validated pointer identifies the packet source of truth. Reusing an 
 
 ### Require a clean active worktree without claiming stale-HEAD detection
 
-Decision: `/fanout-execute` preflight requires a clean active git worktree, execution artifacts outside the repo, safe packet paths, and an available worker command. Execution packet schema v3 does not record a planned commit or tree, so Phase 3 does not claim to detect a clean checkout whose HEAD changed after planning.
+Decision: `/fanout-execute` preflight requires a clean active git worktree, execution artifacts outside the repo, safe packet paths, and an available worker command. Execution packet schema v4 does not record a planned commit or tree, so Phase 3 does not claim to detect a clean checkout whose HEAD changed after planning.
 
 Reason: A clean baseline makes integrated patches attributable and prevents accidental mixing with user edits. Strong freshness validation requires a future packet schema field rather than an inference from timestamps.
 
@@ -519,6 +519,12 @@ Reason: File references and shorthand invocations are inputs to planning, not ne
 Decision: The Fanout adapter routes its common session and bundled Doubleword telemetry to Pi-owned project artifact storage unless `DOUBLEWORD_OBSERVABILITY_FILE` explicitly overrides it. Common adapter events use `sessionRunId`, bundled provider events retain the legacy field name `runId`, and both values identify the same Pi session; planning events add `planRunId`. Execution audit schemas remain unchanged.
 
 Reason: Repository-local startup telemetry dirtied target worktrees and then failed Fanout's own clean-worktree preflight. Separate identifiers keep session and planning scope unambiguous.
+
+### Configure tier2 only with currently usable models
+
+Decision: `/fanout-config` lists tier2 models only when `fanout.async`, `fanout.background`, and `fanout.authReady` are all true. Tier1 remains unrestricted, and unavailable tier2 configuration does not add a planning confirmation step.
+
+Reason: Reporting configuration success for an unusable model hid deterministic realtime `tier2Fallback` routing and made the selected routing policy misleading.
 
 ### Separate the Tier 2 fallback model role from Tier 1
 

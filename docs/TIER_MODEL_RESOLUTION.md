@@ -116,7 +116,7 @@ An explicit fallback may select any runnable realtime model from Pi's registry. 
 
 ## Settings
 
-Fanout exposes Pi settings for users to override tier defaults and execution concurrency. In `fanout-pi`, `/fanout-config` provides a minimal dependent selector flow: choose provider, then choose a model from that provider, then choose a thinking level supported by the selected model.
+Fanout exposes Pi settings for users to override tier defaults and execution concurrency. In `fanout-pi`, `/fanout-config` first shows the three model roles with descriptions and current values, then provides the dependent provider → model → supported-thinking flow. Arrow keys navigate, Enter configures, and Escape returns or closes without a partial write.
 
 Example:
 
@@ -139,13 +139,18 @@ Example:
       }
     },
     "execution": {
-      "maxConcurrency": 2
+      "maxConcurrency": 2,
+      "tier2Fallback": {
+        "provider": "openai-codex",
+        "model": "gpt-5.6-mini",
+        "thinking": "low"
+      }
     }
   }
 }
 ```
 
-`maxConcurrency` is the only execution setting currently consumed by `/fanout-execute`. Retry, fallback, validation-repair, and integration-repair limits are fixed MVP policy rather than user settings.
+`execution.tier2Fallback` configures the fallback model role. Its absence means “inherit Tier 1”; choosing **Use Tier 1** removes only that override, even when the model registry is empty. `/fanout-config tier1`, `/fanout-config tier2`, and `/fanout-config fallback` open a role directly before returning to the routing screen. Settings are read before modification; malformed or unreadable existing settings abort the change rather than being replaced. `maxConcurrency` remains the only execution-policy setting consumed directly by `/fanout-execute`. Retry counts and repair limits remain fixed MVP policy.
 
 Use `reason`, not `reasoning`, for user-facing explanation. Pi model metadata already uses `reasoning` as a boolean capability.
 
