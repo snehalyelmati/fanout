@@ -42,6 +42,11 @@ export interface OwnershipGroup {
 	sourcePlanIds: string[];
 }
 
+export interface ResourceScope {
+	resources: Resource[];
+	sourcePlanIds: string[];
+}
+
 export interface ReadEdge {
 	fromGroup: number;
 	toGroup: number;
@@ -97,6 +102,35 @@ export function resourcesOverlap(left: Resource, right: Resource): boolean {
 		|| (right.kind === "directory" && left.path.startsWith(`${right.path}/`));
 }
 
+export function authorizeResourceForSources(resource: Resource, sourcePlanIds: readonly string[], planned: readonly PlannedResourceScope[], access: "write" | "read"): ResourceAuthorityIssue[] {
+	const errors: ResourceAuthorityIssue[] = [];
+	const plans = new Map(planned.map((scope) => [scope.id, scope]));
+	authorizeForSources(resource, sourcePlanIds, plans, access, errors);
+	return errors;
+}
+
+export function groupConnectedResourceScopes(scopes: readonly ResourceScope[]): OwnershipGroup[] {
+	const groups: OwnershipGroup[] = [];
+	for (const [index, scope] of scopes.entries()) {
+		const matches = groups.filter((group) => group.resources.some((left) => scope.resources.some((right) => resourcesOverlap(left, right))));
+		if (matches.length === 0) {
+			groups.push({ memberIndexes: [index], resources: uniqueResources(scope.resources), sourcePlanIds: [...new Set(scope.sourcePlanIds)] });
+			continue;
+		}
+		const target = matches[0];
+		target.memberIndexes.push(index);
+		target.resources = uniqueResources([...target.resources, ...scope.resources]);
+		target.sourcePlanIds = [...new Set([...target.sourcePlanIds, ...scope.sourcePlanIds])];
+		for (const extra of matches.slice(1)) {
+			target.memberIndexes.push(...extra.memberIndexes);
+			target.resources = uniqueResources([...target.resources, ...extra.resources]);
+			target.sourcePlanIds = [...new Set([...target.sourcePlanIds, ...extra.sourcePlanIds])];
+			groups.splice(groups.indexOf(extra), 1);
+		}
+	}
+	return groups;
+}
+
 export function compileRepositoryAuthority(plannedInput: readonly PlannedResourceScope[], groundedInput: readonly GroundedResourceScope[]): RepositoryAuthorityResult {
 	const errors: ResourceAuthorityIssue[] = [];
 	const planned = plannedInput.map((scope, index) => admitPlannedScope(scope, index, errors));
@@ -111,19 +145,8 @@ export function compileRepositoryAuthority(plannedInput: readonly PlannedResourc
 	for (const [index, scope] of grounded.entries()) {
 		if (scope.sourcePlanIds.length === 0) add(errors, "missing-source-plan-id", "grounded scope must cite at least one source plan", `grounded[${index}].sourcePlanIds`);
 		if (scope.ownedResources.length === 0) add(errors, "missing-owned-resource", "grounded scope must own at least one resource", `grounded[${index}].ownedResources`);
-		for (const sourceId of scope.sourcePlanIds) {
-			const source = plans.get(sourceId);
-			if (!source) {
-				add(errors, "unknown-source-plan-id", `unknown source plan id ${sourceId}`, `grounded[${index}].sourcePlanIds`);
-				continue;
-			}
-			for (const resource of scope.ownedResources) if (!source.writeResources.some((authority) => resourceCovers(authority, resource))) {
-				add(errors, "write-not-authorized", `${show(resource)} is not authorized by source ${sourceId}`, `grounded[${index}].ownedResources`);
-			}
-			for (const dependency of scope.readDependencies) if (![...source.readResources, ...source.writeResources].some((authority) => resourceCovers(authority, dependency.resource))) {
-				add(errors, "read-not-authorized", `${show(dependency.resource)} is not authorized by source ${sourceId}`, `grounded[${index}].readDependencies`);
-			}
-		}
+		for (const resource of scope.ownedResources) authorizeForSources(resource, scope.sourcePlanIds, plans, "write", errors, `grounded[${index}].ownedResources`);
+		for (const dependency of scope.readDependencies) authorizeForSources(dependency.resource, scope.sourcePlanIds, plans, "read", errors, `grounded[${index}].readDependencies`);
 	}
 
 	for (const source of planned) for (const resource of source.writeResources) {
@@ -257,25 +280,19 @@ function admitResourceList(value: unknown, path: string, errors: ResourceAuthori
 }
 
 function groupOwnership(scopes: GroundedResourceScope[]): OwnershipGroup[] {
-	const groups: OwnershipGroup[] = [];
-	for (const [index, scope] of scopes.entries()) {
-		const matches = groups.filter((group) => group.resources.some((left) => scope.ownedResources.some((right) => resourcesOverlap(left, right))));
-		if (matches.length === 0) {
-			groups.push({ memberIndexes: [index], resources: scope.ownedResources, sourcePlanIds: [...new Set(scope.sourcePlanIds)] });
+	return groupConnectedResourceScopes(scopes.map((scope) => ({ resources: scope.ownedResources, sourcePlanIds: scope.sourcePlanIds })));
+}
+
+function authorizeForSources(resource: Resource, sourcePlanIds: readonly string[], plans: Map<string, PlannedResourceScope>, access: "write" | "read", errors: ResourceAuthorityIssue[], path?: string): void {
+	for (const sourceId of sourcePlanIds) {
+		const source = plans.get(sourceId);
+		if (!source) {
+			add(errors, "unknown-source-plan-id", `unknown source plan id ${sourceId}`, path);
 			continue;
 		}
-		const target = matches[0];
-		target.memberIndexes.push(index);
-		target.resources = uniqueResources([...target.resources, ...scope.ownedResources]);
-		target.sourcePlanIds = [...new Set([...target.sourcePlanIds, ...scope.sourcePlanIds])];
-		for (const extra of matches.slice(1)) {
-			target.memberIndexes.push(...extra.memberIndexes);
-			target.resources = uniqueResources([...target.resources, ...extra.resources]);
-			target.sourcePlanIds = [...new Set([...target.sourcePlanIds, ...extra.sourcePlanIds])];
-			groups.splice(groups.indexOf(extra), 1);
-		}
+		const authorities = access === "write" ? source.writeResources : [...source.readResources, ...source.writeResources];
+		if (!authorities.some((authority) => resourceCovers(authority, resource))) add(errors, `${access}-not-authorized`, `${show(resource)} is not authorized by source ${sourceId}`, path);
 	}
-	return groups;
 }
 
 function uniqueResources(resources: readonly Resource[]): Resource[] {

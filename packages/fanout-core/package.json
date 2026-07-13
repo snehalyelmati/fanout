@@ -13,6 +13,10 @@
     "./fanout-compiler": "./src/fanout-compiler.ts",
     "./observability": "./src/observability.ts",
     "./repository-resource": "./src/repository-resource.ts",
-    "./validation-command": "./src/validation-command.ts"
+    "./validation-command": "./src/validation-command.ts",
+    "./work-contract": "./src/work-contract.ts",
+    "./work-contract-compiler": "./src/work-contract-compiler.ts",
+    "./work-contract-graph": "./src/work-contract-graph.ts",
+    "./work-contract-views": "./src/work-contract-views.ts"
   }
 }

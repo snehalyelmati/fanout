@@ -22,6 +22,12 @@ Decision: Use strict `{ path, sha256, byteLength }` artifact identities, same-di
 
 Reason: Exact bytes and tree chains reject stale or substituted authority without mutating the user's index or adding content-addressed storage and automatic recovery. These preparatory primitives are directly tested; legacy callers remain unchanged until the coordinated cutover.
 
+### Compile one canonical work contract per DAG node
+
+Decision: `fanout-core` owns `fanout.work-contract` v1, with ordered source-linked goals and criteria, typed modify/create/delete/move changes and anchors, typed reads and forbidden writes, direct-argv commands, the fixed six-tool worker profile, and source-tagged advisory notes. Typed change endpoints are the sole stored write authority; graph edges, final-node ordering, warnings, Markdown, Mermaid, launch summaries, and Pi worker prompts derive from admitted contracts and packet-global context.
+
+Reason: One strict contract prevents flattened worker fields, string policy, duplicate command lists, and persisted graph copies from disagreeing. This preparatory compiler seam is directly tested; the legacy live packet remains unchanged until the coordinated schema cutover.
+
 ## 2026-06-25
 
 ### Keep the normal Pi agent loop first
