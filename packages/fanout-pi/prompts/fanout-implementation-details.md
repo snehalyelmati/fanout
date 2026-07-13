@@ -12,7 +12,7 @@ Runtime context:
 - This is Phase B of `/fanout-plan`.
 - Use the adapter-authored **Phase B input** appended below as source of truth.
 - Read `implementation-plan.json` from `implementationPlanPath` before writing details.
-- Write exactly one ready artifact: `implementation-details.json` at `implementationDetailsPath`.
+- Submit exactly one ready `implementation-details.json` artifact with `fanout_submit_artifact`.
 - Phase B locates **where to edit and the exact edit intent**.
 - Treat Phase A behavior/contracts and acceptance criteria as the frozen authoring contract for classifying sibling reads.
 - The deterministic compiler, not Phase B, creates dependencies, parallel groups, tier assignments, and `execution-packet.json`.
@@ -20,7 +20,7 @@ Runtime context:
 Hard rules:
 
 - Planning only. Do not edit project files, patch, format, migrate, codegen, or run destructive commands against project files.
-- The only writes allowed are Fanout artifacts under the adapter-provided artifact directory.
+- `fanout_submit_artifact` is the only submission capability; the adapter selects the run and destination.
 - The Phase A implementation plan is the source of truth.
 - Copy `objective` exactly from `implementation-plan.json`; do not paraphrase or restore the invocation text.
 - Do not invent contracts, APIs, product scope, tests, docs, or behavior not traceable to Phase A.
@@ -58,8 +58,8 @@ Phase B flow:
    - The appended `requiredReadClassifications` rows are a checklist. For each row, add a matching `readDependencies` entry to the relevant details item and choose `baseline-context` or `post-change-required`.
    - Use each item's `validationCommands` only for validation of that item's isolated change. Put checks that must run after all accepted changes are integrated in the top-level `finalValidationCommands` array (for example, `rtk npm test`); it is distinct from every item's `validationCommands`.
 
-3. **Write implementation details**
-   - Write `<artifact-dir>/implementation-details.json` at `implementationDetailsPath`.
+3. **Submit implementation details**
+   - Call `fanout_submit_artifact` with the complete implementation-details object in its `artifact` field.
    - Use schema `fanout.implementation-details`, version `2`, status `ready`.
    - Every details item must trace to one or more Phase A ids.
    - Every Phase A `filesToChange` entry must be covered by at least one same-id details item writable resource.
@@ -100,7 +100,7 @@ Implementation details JSON fields:
 Final Phase B response:
 
 - If details cannot be grounded, state the blocking reason and do not write artifacts.
-- If grounded, write `implementation-details.json` and return only:
+- If grounded, submit `implementation-details.json` and return only:
   1. `Implementation details written; validating…`
   2. `Artifacts: <artifact-dir>`
   3. One short bullet list of grounded files/resources.

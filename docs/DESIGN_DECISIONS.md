@@ -1,5 +1,13 @@
 # Design Decisions
 
+## 2026-07-13
+
+### Enforce planning capabilities and context-free reports
+
+Decision: `/fanout-plan` injects typed Phase A, Phase B, and repair instructions once through `before_agent_start.systemPrompt` behind short visible triggers. Each attributed turn exposes only Pi's `read`, `grep`, `find`, and `ls` tools, `ask_user_question`, and one controller-bound `fanout_submit_artifact` tool; a fail-closed tool-call gate backs the active profile, and the exact prior profile is restored at the turn boundary. Planning and execution reports use versioned `appendEntry` data with registered entry renderers and never fall back to a message channel.
+
+Reason: Prompt text is semantic guidance, not a capability boundary, and custom messages remain later model context even when they do not trigger a turn. Controller-derived artifact destinations plus context-free report entries preserve deterministic authority without claiming host containment.
+
 This file records design decisions made during development. Keep new entries dated and concise.
 
 ## 2026-07-13

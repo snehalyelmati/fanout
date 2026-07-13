@@ -28,25 +28,27 @@ for (const phrase of ["Phase B", "implementationPlanPath", "implementation-detai
 for (const forbidden of ["workerPacket", "parallelGroups", "tier assignments"]) {
   if (implementationPrompt.includes(forbidden)) throw new Error(`${implementationPromptPath} should not mention ${forbidden}`);
 }
-for (const phrase of ["fanout.plan.orchestration.v1", "buildImplementationPlanPrompt", "buildImplementationDetailsPrompt", "buildImplementationDetailsRepairPrompt", "requiredReadClassifications", "validateImplementationPlanArtifact", "references itself"]) {
+for (const phrase of ["fanout.plan.orchestration.v1", "buildImplementationPlanPrompt", "buildImplementationDetailsPrompt", "buildImplementationDetailsRepairPrompt", "requiredReadClassifications", "validateImplementationPlanArtifact", "validateImplementationPlan", "references itself"]) {
   if (!orchestration.includes(phrase)) throw new Error(`fanout-plan orchestration is missing phrase: ${phrase}`);
 }
 for (const phrase of ["if (pendingFanoutPlan)", "A Fanout plan is already in progress", "Fanout planning requires an active Pi model", "fanout_plan_rejected"]) {
   if (!fanoutPiIndex.includes(phrase)) throw new Error(`fanout-plan command is missing overlap guard phrase: ${phrase}`);
 }
-for (const phrase of ["const finishedFanoutPlan = pendingFanoutPlan", "buildRequiredReadClassifications", "const planObjective", "objective: planObjective", "fanout_required_read_classifications", "existsSync(finishedFanoutPlan.implementationDetailsPath)", "displayFanoutPlanReport", "customType: \"fanout-plan\"", "triggerTurn: false", "fanout_plan_failed", "pi.on(\"message_update\"", "pi.on(\"message_end\"", "assistant_usage"]) {
+for (const phrase of ["const finishedFanoutPlan = pendingFanoutPlan", "buildRequiredReadClassifications", "const planObjective", "objective: planObjective", "fanout_required_read_classifications", "existsSync(finishedFanoutPlan.implementationDetailsPath)", "displayFanoutPlanReport", "appendFanoutReport", "reportPresentationAvailable", "fanout_plan_failed", "pi.on(\"message_update\"", "pi.on(\"message_end\"", "assistant_usage"]) {
   if (!fanoutPiIndex.includes(phrase)) throw new Error(`fanout-plan finalization is missing phrase: ${phrase}`);
 }
-for (const phrase of ["finishedFanoutPlan.repairAttempted && !phaseTurnStarted", "fanout_compiler_repair_requested", "buildImplementationDetailsRepairPrompt", "unclassifiedOverlapPolicy: \"sequential\"", "policy: \"sequential\"", "isAmbiguousReadOverlapFailure", "repairDetailsMtimeMs", "implementationDetailsChangedSinceRepair", "fanout_compiler_repair_artifact_detected"]) {
-  if (!fanoutPiIndex.includes(phrase)) throw new Error(`fanout-plan compiler recovery is missing phrase: ${phrase}`);
+for (const phrase of ["fanout_compiler_repair_requested", "buildImplementationDetailsRepairPrompt", "unclassifiedOverlapPolicy: \"sequential\"", "policy: \"sequential\"", "isAmbiguousReadOverlapFailure", "repairAttempted: true"]) {
+	if (!fanoutPiIndex.includes(phrase)) throw new Error(`fanout-plan compiler recovery is missing phrase: ${phrase}`);
 }
-for (const phrase of ["const matchingFanoutPhase = isFanoutPhasePrompt(event.prompt, pendingFanoutPlan)", "if (matchingFanoutPhase) startedFanoutPlan = pendingFanoutPlan", "fanout_phase_prompt_marker_mismatch"]) {
-  if (!fanoutPiIndex.includes(phrase)) throw new Error(`fanout-plan start guard is missing phrase: ${phrase}`);
+for (const phrase of ["acceptedSubmission", "phaseSubmitted", "was not accepted by fanout_submit_artifact", "session_before_switch", "session_before_fork", "session_shutdown"]) if (!fanoutPiIndex.includes(phrase)) throw new Error(`fanout-plan lifecycle boundary is missing phrase: ${phrase}`);
+for (const phrase of ["pendingFanoutPlan?.systemPrompt", "systemPrompt: undefined", "activatePlanningTools(pi)", "Run Fanout planning for:", "Continue Fanout planning details for:", "Repair Fanout planning details for:"]) {
+	if (!fanoutPiIndex.includes(phrase)) throw new Error(`fanout-plan typed prompt state is missing phrase: ${phrase}`);
 }
+for (const forbidden of ["isFanoutPhasePrompt(event.prompt", "fanout_phase_prompt_marker_mismatch", "sendMessage.call", "triggerTurn: false"]) if (fanoutPiIndex.includes(forbidden)) throw new Error(`fanout-pi retained forbidden lifecycle/report mechanism: ${forbidden}`);
 if (fanoutPiIndex.includes("activeFanoutPlan")) throw new Error("fanout-plan finalization must not depend on activeFanoutPlan prompt-marker state");
 if (fanoutPiIndex.indexOf("if (!tier1Resolved") > fanoutPiIndex.indexOf("const run = createFanoutPlanRun")) throw new Error("fanout-plan resolves artifacts before rejecting a missing active model");
 
-const { buildImplementationDetailsPrompt, buildImplementationDetailsRepairPrompt, buildImplementationPlanPrompt, createFanoutPlanRun, isFanoutPhasePrompt, validateImplementationPlanArtifact } = await import("../packages/fanout-pi/src/fanout-plan-orchestration.ts");
+const { buildImplementationDetailsPrompt, buildImplementationDetailsRepairPrompt, buildImplementationPlanPrompt, createFanoutPlanRun, validateImplementationPlanArtifact } = await import("../packages/fanout-pi/src/fanout-plan-orchestration.ts");
 const { validateImplementationDetailsArtifact } = await import("../packages/fanout-core/src/fanout-compiler.ts");
 const { createPlanningMetrics, planningMetricsSummary, recordPlanningAssistant, recordPlanningToolInterval } = await import("../packages/fanout-pi/src/planning-observability.ts");
 const metrics = createPlanningMetrics();
@@ -71,16 +73,17 @@ try {
   const sameSecondRun = createFanoutPlanRun("Update docs", { projectArtifactRoot: helperDir }, new Date("2026-07-08T01:02:03.900Z"));
   if (run.runId === sameSecondRun.runId) throw new Error(`same-second run ids collided: ${run.runId}`);
   const context = { projectArtifactRoot: helperDir, resolvedTierPlan: { tier1: {}, tier2: {} } };
-  if (!isFanoutPhasePrompt(buildImplementationPlanPrompt("Update docs", context, run), { phase: "implementation", objective: "Update docs", context, ...run })) throw new Error("implementation phase marker did not match");
+  const implementationPromptText = buildImplementationPlanPrompt("Update docs", context, run);
+  if (!implementationPromptText.includes("fanout.plan.orchestration.v1") || !implementationPromptText.includes('"phase":"implementation"')) throw new Error("implementation phase diagnostic marker is missing");
   const checklist = [{ readerPlanId: "docs", readFile: "README.md", ownerPlanId: "impl", ownerFile: "README.md" }];
   const detailsPromptText = buildImplementationDetailsPrompt("Update docs", { ...context, resolvedTierPlan: { leaked: true } }, run, checklist);
-  if (!isFanoutPhasePrompt(detailsPromptText, { phase: "details", objective: "Update docs", context, ...run })) throw new Error("details phase marker did not match");
+  if (!detailsPromptText.includes("fanout.plan.orchestration.v1") || !detailsPromptText.includes('"phase":"details"')) throw new Error("details phase diagnostic marker is missing");
   for (const phrase of ["Phase B input", "requiredReadClassifications", "\"readerPlanId\": \"docs\"", "\"implementationPlanPath\""]) {
     if (!detailsPromptText.includes(phrase)) throw new Error(`details prompt missing phrase: ${phrase}`);
   }
   if (detailsPromptText.includes("resolvedTierPlan") || detailsPromptText.includes("leaked")) throw new Error("details prompt leaked full preflight context");
   const repairPrompt = buildImplementationDetailsRepairPrompt("Update docs", context, run, ["ambiguous Phase A filesToRead overlap"], checklist);
-  if (!isFanoutPhasePrompt(repairPrompt, { phase: "details", objective: "Update docs", context, ...run })) throw new Error("details repair phase marker did not match");
+  if (!repairPrompt.includes("fanout.plan.orchestration.v1") || !repairPrompt.includes('"phase":"details"')) throw new Error("details repair diagnostic marker is missing");
   for (const phrase of ["repairing implementation-details.json only", "Do not change Phase A", "baseline-context if old/current file is enough", "post-change-required if changed file is needed", "ambiguous Phase A filesToRead overlap"]) {
     if (!repairPrompt.includes(phrase)) throw new Error(`repair prompt missing phrase: ${phrase}`);
   }

@@ -16,12 +16,13 @@ export interface FanoutPlanRun {
 
 export interface FanoutPhaseState extends FanoutPlanRun {
 	phase: "implementation" | "details";
+	systemPrompt?: string;
+	acceptedSubmission?: { runId: string; phase: "implementation" | "details"; path: string };
 	invocation: string;
 	objective: string;
 	context: Record<string, unknown>;
 	metrics: PlanningMetrics;
 	repairAttempted?: boolean;
-	repairDetailsMtimeMs?: number;
 	requiredReadClassifications?: RequiredReadClassification[];
 }
 
@@ -57,7 +58,7 @@ For each ambiguous Phase A filesToRead overlap:
 - add baseline-context if old/current file is enough
 - add post-change-required if changed file is needed
 Preserve existing anchors, ownership, validations, and forbidden changes.
-Write only implementation-details.json.
+Submit only implementation-details.json with fanout_submit_artifact.
 
 Compiler errors to repair:
 
@@ -67,12 +68,7 @@ ${JSON.stringify(errors, null, 2)}
 `;
 }
 
-export function isFanoutPhasePrompt(prompt: string, state: FanoutPhaseState): boolean {
-	return prompt.includes(FANOUT_ORCHESTRATION_MARKER) && prompt.includes(`"runId":"${state.runId}"`) && prompt.includes(`"phase":"${state.phase}"`);
-}
-
 export function validateImplementationPlanArtifact(path: string, expected?: { artifactDir?: string }): ImplementationPlanValidation {
-	const errors: string[] = [];
 	if (!existsSync(path)) return { ok: false, errors: [`missing ${path}`], itemCount: 0 };
 
 	let plan: unknown;
@@ -82,6 +78,11 @@ export function validateImplementationPlanArtifact(path: string, expected?: { ar
 		return { ok: false, errors: [error instanceof Error ? error.message : String(error)], itemCount: 0 };
 	}
 
+	return validateImplementationPlan(plan, expected);
+}
+
+export function validateImplementationPlan(plan: unknown, expected?: { artifactDir?: string }): ImplementationPlanValidation {
+	const errors: string[] = [];
 	if (!isRecord(plan)) return { ok: false, errors: ["implementation plan must be an object"], itemCount: 0 };
 	if (plan.schema !== IMPLEMENTATION_PLAN_SCHEMA) errors.push(`schema must be ${IMPLEMENTATION_PLAN_SCHEMA}`);
 	if (plan.version !== IMPLEMENTATION_PLAN_VERSION) errors.push(`version must be ${IMPLEMENTATION_PLAN_VERSION}`);

@@ -11,7 +11,7 @@ Runtime context:
 
 - This is Phase A of `/fanout-plan`.
 - Use the adapter-authored **Resolved preflight context** and **Resolved artifact targets** appended below as source of truth.
-- Write exactly one ready artifact when decision-complete: `implementation-plan.json` at `implementationPlanPath`.
+- Submit exactly one ready `implementation-plan.json` artifact when decision-complete with `fanout_submit_artifact`.
 - Phase A decides **what must change and why**.
 - Use contract-first planning: freeze shared authoring facts in behavior/contracts and acceptance criteria so sibling work can be authored from the contract where safe.
 - Do not locate anchors, assign workers, choose tiers, optimize parallelism, or write execution artifacts.
@@ -19,7 +19,7 @@ Runtime context:
 Hard rules:
 
 - Planning only. Do not edit project files, patch, format, migrate, codegen, or run destructive commands against project files.
-- The only writes allowed are Fanout artifacts under the adapter-provided artifact directory.
+- `fanout_submit_artifact` is the only submission capability; the adapter selects the run and destination.
 - Do not ask questions that can be answered from files, docs, configs, tests, or git history.
 - Ambiguity gate: if the objective is broad or lacks exact outcomes, use `ask_user_question` before writing the implementation plan.
 - Broad objectives like `Improve the docs`, `Clean up the code`, `Refactor the provider`, or `Update docs` are not decision-complete unless they name exact files/sections/outcomes.
@@ -54,10 +54,10 @@ Phase A flow:
    - Prefer separate tests, docs, fixtures, and package-script items when file ownership permits and they are authorable from the contract.
    - Keep the plan implementation-focused; leave exact edit anchors and execution grouping for Phase B/compiler.
 
-4. **Write the implementation artifact**
-   - Write `<artifact-dir>/implementation-plan.json` at `implementationPlanPath`.
+4. **Submit the implementation artifact**
+   - Call `fanout_submit_artifact` with the complete implementation-plan object in its `artifact` field.
    - Use schema `fanout.implementation-plan`, version `1`, status `ready`.
-   - Do not write any other artifact in this phase.
+   - Do not submit any other artifact in this phase.
 
 Implementation plan JSON fields:
 
@@ -86,7 +86,7 @@ Implementation plan JSON fields:
 Final Phase A response:
 
 - If more user input is required, ask the next single question instead of producing a report.
-- If decision-complete, write `implementation-plan.json` and return only:
+- If decision-complete, submit `implementation-plan.json` and return only:
   1. `Implementation plan written; validating…`
   2. `Artifacts: <artifact-dir>`
   3. One short bullet list of implementation items.

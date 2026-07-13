@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
@@ -19,9 +19,9 @@ import {
 	buildImplementationPlanPrompt,
 	createFanoutPlanRun,
 	type FanoutPhaseState,
-	isFanoutPhasePrompt,
 	validateImplementationPlanArtifact,
 } from "./fanout-plan-orchestration.ts";
+import { activatePlanningTools, FANOUT_SUBMIT_TOOL, planningToolBlockReason, restorePlanningTools, submitPlanningArtifact } from "./planning-capabilities.ts";
 import {
 	createPlanningMetrics,
 	finishPlanningPhase,
@@ -32,6 +32,7 @@ import {
 	startPlanningPhase,
 	type PlanningMetrics,
 } from "./planning-observability.ts";
+import { appendFanoutReport, registerFanoutReportPresentation } from "./report-presentation.ts";
 
 const FANOUT_CONTEXT_MARKER = "## Fanout runtime context";
 const TIER2_DEFAULT = { provider: "doubleword", model: "zai-org/GLM-5.2-FP8", thinking: "medium" };
@@ -50,11 +51,36 @@ export default async function (pi: ExtensionAPI) {
 	const toolStarts = new Map<string, { started: number; turnIndex?: number; planRunId?: string; phase?: "implementation" | "details"; planningMetrics?: PlanningMetrics }>();
 	let pendingFanoutPlan: FanoutPhaseState | undefined;
 	let startedFanoutPlan: FanoutPhaseState | undefined;
+	let planningToolsBefore: string[] | undefined;
 	let fanoutExecutionInProgress = false;
+	const reportPresentationAvailable = registerFanoutReportPresentation(pi);
+	const resetPlanningState = () => {
+		restorePlanningTools(pi, planningToolsBefore);
+		planningToolsBefore = undefined;
+		pendingFanoutPlan = undefined;
+		startedFanoutPlan = undefined;
+	};
 
 	setDoublewordRunId(RUN_ID);
 	configureMainObservability(fanoutRuntimeContext(process.cwd(), undefined, undefined));
 	await registerDoublewordDevProviders(pi, rememberDoublewordModels, { controls: false });
+
+	pi.registerTool({
+		name: FANOUT_SUBMIT_TOOL,
+		label: "Submit Fanout planning artifact",
+		description: "Validate and atomically submit the artifact expected by the active Fanout planning phase. The controller selects the run and destination.",
+		parameters: { type: "object", properties: { artifact: {} }, required: ["artifact"], additionalProperties: false } as any,
+		executionMode: "sequential",
+		async execute(_toolCallId, params: { artifact: unknown }, _signal, _onUpdate, ctx) {
+			const state = startedFanoutPlan;
+			if (!state || pendingFanoutPlan?.runId !== state.runId || pendingFanoutPlan.phase !== state.phase || pendingFanoutPlan.acceptedSubmission) throw new Error("No matching Fanout planning phase is awaiting submission");
+			const submitted = submitPlanningArtifact(state, params.artifact, ctx.cwd);
+			const acceptedSubmission = { runId: state.runId, phase: state.phase, path: submitted.path };
+			pendingFanoutPlan = { ...pendingFanoutPlan, acceptedSubmission };
+			startedFanoutPlan = { ...state, acceptedSubmission };
+			return { content: [{ type: "text", text: `${submitted.phase} artifact accepted: ${submitted.path}` }], details: submitted };
+		},
+	});
 
 	pi.registerCommand("fanout-plan", {
 		description: "Prepare a decision-complete Fanout execution packet",
@@ -71,16 +97,16 @@ export default async function (pi: ExtensionAPI) {
 				return;
 			}
 			const run = createFanoutPlanRun(invocation, context);
-			pendingFanoutPlan = { phase: "implementation", invocation, objective: invocation, context, metrics: createPlanningMetrics(), ...run };
 			const prompt = buildImplementationPlanPrompt(invocation, context, run);
+			pendingFanoutPlan = { phase: "implementation", systemPrompt: prompt, invocation, objective: invocation, context, metrics: createPlanningMetrics(), ...run };
 			writeJsonl("fanout_plan_start", { planRunId: run.runId, invocation, phase: "implementation", artifactRoot: context.artifactRoot, artifactDir: run.artifactDir, implementationPlanPath: run.implementationPlanPath, implementationDetailsPath: run.implementationDetailsPath, tierDefaults: context.tierDefaults }, ctx.cwd);
 			writeJsonl("fanout_plan_preflight", { planRunId: run.runId, phase: "implementation", tierPlan: context.resolvedTierPlan, tier2Availability: context.tier2Availability, nodeKindTierPolicy: context.nodeKindTierPolicy }, ctx.cwd);
 			if (!ctx.isIdle()) {
-				pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+				pi.sendUserMessage(`Run Fanout planning for: ${invocation}`, { deliverAs: "followUp" });
 				ctx.ui.notify("Queued /fanout-plan after the current turn.", "info");
 				return;
 			}
-			pi.sendUserMessage(prompt);
+			pi.sendUserMessage(`Run Fanout planning for: ${invocation}`);
 		},
 	});
 
@@ -138,7 +164,7 @@ export default async function (pi: ExtensionAPI) {
 					maxConcurrency: positiveIntegerSetting(context.executionDefaults.maxConcurrency, 2),
 					confirm: (title, message) => ctx.ui.confirm(title, message),
 				});
-				displayFanoutExecutionReport(pi, ctx.cwd, result);
+				displayFanoutExecutionReport(pi, reportPresentationAvailable, ctx.cwd, result);
 				const message = result.status === "succeeded"
 					? `${result.dryRun ? "Fanout dry run" : "Fanout execution"} succeeded. Artifacts: ${result.paths.runDir}`
 					: result.status === "aborted"
@@ -174,14 +200,17 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.on("before_agent_start", (event, ctx) => {
-		if (pendingFanoutPlan) {
-			const matchingFanoutPhase = isFanoutPhasePrompt(event.prompt, pendingFanoutPlan);
-			if (matchingFanoutPhase) startedFanoutPlan = pendingFanoutPlan;
-			else writeJsonl("fanout_phase_prompt_marker_mismatch", { planRunId: pendingFanoutPlan.runId, phase: pendingFanoutPlan.phase }, ctx.cwd);
-		}
+		let phasePrompt = "";
 		const batchingPrompt = event.systemPrompt.includes(BATCHING_DISCIPLINE_MARKER) ? event.systemPrompt : `${event.systemPrompt}\n\n${BATCHING_DISCIPLINE}`;
+		const runtimePrompt = batchingPrompt.includes(FANOUT_CONTEXT_MARKER) ? batchingPrompt : `${batchingPrompt}\n\n${fanoutRuntimePrompt(ctx.cwd, activeModel ?? ctx.model, activeThinking ?? pi.getThinkingLevel(), ctx.modelRegistry?.getAll?.())}`;
+		if (pendingFanoutPlan?.systemPrompt) {
+			phasePrompt = pendingFanoutPlan.systemPrompt;
+			startedFanoutPlan = { ...pendingFanoutPlan, systemPrompt: undefined, acceptedSubmission: undefined };
+			pendingFanoutPlan = startedFanoutPlan;
+			planningToolsBefore = activatePlanningTools(pi);
+		}
 		return {
-			systemPrompt: batchingPrompt.includes(FANOUT_CONTEXT_MARKER) ? batchingPrompt : `${batchingPrompt}\n\n${fanoutRuntimePrompt(ctx.cwd, activeModel ?? ctx.model, activeThinking ?? pi.getThinkingLevel(), ctx.modelRegistry?.getAll?.())}`,
+			systemPrompt: phasePrompt ? `${runtimePrompt}\n\n${phasePrompt}` : runtimePrompt,
 		};
 	});
 
@@ -194,6 +223,8 @@ export default async function (pi: ExtensionAPI) {
 
 	pi.on("agent_end", (_event, ctx) => {
 		const activePlan = startedFanoutPlan;
+		restorePlanningTools(pi, planningToolsBefore);
+		planningToolsBefore = undefined;
 		writeJsonl(
 			"agent_end",
 			{
@@ -209,9 +240,17 @@ export default async function (pi: ExtensionAPI) {
 
 		const finishedFanoutPlan = pendingFanoutPlan;
 		const phaseTurnStarted = startedFanoutPlan?.runId === finishedFanoutPlan?.runId && startedFanoutPlan?.phase === finishedFanoutPlan?.phase;
+		const expectedSubmissionPath = finishedFanoutPlan?.phase === "implementation" ? finishedFanoutPlan.implementationPlanPath : finishedFanoutPlan?.implementationDetailsPath;
+		const phaseSubmitted = phaseTurnStarted && finishedFanoutPlan?.acceptedSubmission?.runId === finishedFanoutPlan.runId && finishedFanoutPlan.acceptedSubmission.phase === finishedFanoutPlan.phase && finishedFanoutPlan.acceptedSubmission.path === expectedSubmissionPath;
 		startedFanoutPlan = undefined;
 		if (finishedFanoutPlan?.phase === "implementation") {
 			if (!existsSync(finishedFanoutPlan.implementationPlanPath) && !phaseTurnStarted) return;
+			if (!phaseSubmitted) {
+				finishPlanningPhase(finishedFanoutPlan.metrics, "implementation");
+				pendingFanoutPlan = undefined;
+				reportPlanFailure(ctx, finishedFanoutPlan, "implementation", ["implementation plan was not accepted by fanout_submit_artifact"], activeThinking);
+				return;
+			}
 			const validation = validateImplementationPlanArtifact(finishedFanoutPlan.implementationPlanPath, { artifactDir: finishedFanoutPlan.artifactDir });
 			writeJsonl("fanout_implementation_plan_validation", { planRunId: finishedFanoutPlan.runId, phase: "implementation", artifactDir: finishedFanoutPlan.artifactDir, ...validation }, ctx.cwd);
 			if (!validation.ok) {
@@ -225,16 +264,20 @@ export default async function (pi: ExtensionAPI) {
 			const requiredReadClassifications = buildRequiredReadClassifications(implementationPlan);
 			finishPlanningPhase(finishedFanoutPlan.metrics, "implementation");
 			startPlanningPhase(finishedFanoutPlan.metrics);
-			pendingFanoutPlan = { ...finishedFanoutPlan, phase: "details", objective: planObjective, requiredReadClassifications };
+			const systemPrompt = buildImplementationDetailsPrompt(planObjective, finishedFanoutPlan.context, finishedFanoutPlan, requiredReadClassifications);
+			pendingFanoutPlan = { ...finishedFanoutPlan, phase: "details", systemPrompt, acceptedSubmission: undefined, objective: planObjective, requiredReadClassifications };
 			writeJsonl("fanout_required_read_classifications", { planRunId: finishedFanoutPlan.runId, phase: "implementation", objective: planObjective, artifactDir: finishedFanoutPlan.artifactDir, count: requiredReadClassifications.length, requiredReadClassifications }, ctx.cwd);
 			ctx.ui.notify("Implementation plan validated; grounding edit details.", "info");
-			pi.sendUserMessage(buildImplementationDetailsPrompt(planObjective, finishedFanoutPlan.context, finishedFanoutPlan, requiredReadClassifications), { deliverAs: "followUp" });
+			pi.sendUserMessage(`Continue Fanout planning details for: ${planObjective}`, { deliverAs: "followUp" });
 		} else if (finishedFanoutPlan?.phase === "details") {
-			const repairArtifactChanged = finishedFanoutPlan.repairAttempted === true && implementationDetailsChangedSinceRepair(finishedFanoutPlan);
-			if (finishedFanoutPlan.repairAttempted && !phaseTurnStarted && !repairArtifactChanged) return;
-			if (repairArtifactChanged && !phaseTurnStarted) writeJsonl("fanout_compiler_repair_artifact_detected", { planRunId: finishedFanoutPlan.runId, phase: "details", artifactDir: finishedFanoutPlan.artifactDir, implementationDetailsPath: finishedFanoutPlan.implementationDetailsPath }, ctx.cwd);
-			if (!existsSync(finishedFanoutPlan.implementationDetailsPath)) {
+			if (!phaseSubmitted) {
 				if (!phaseTurnStarted) return;
+				finishPlanningPhase(finishedFanoutPlan.metrics, "details");
+				pendingFanoutPlan = undefined;
+				reportPlanFailure(ctx, finishedFanoutPlan, "details", ["implementation details were not accepted by fanout_submit_artifact"], activeThinking);
+				return;
+			}
+			if (!existsSync(finishedFanoutPlan.implementationDetailsPath)) {
 				const errors = [`missing ${finishedFanoutPlan.implementationDetailsPath}`];
 				writeJsonl("fanout_implementation_details_validation", { planRunId: finishedFanoutPlan.runId, phase: "details", artifactDir: finishedFanoutPlan.artifactDir, ok: false, errors }, ctx.cwd);
 				finishPlanningPhase(finishedFanoutPlan.metrics, "details");
@@ -257,10 +300,11 @@ export default async function (pi: ExtensionAPI) {
 				let compiled = compileExecutionPacket({ implementationPlan, implementationDetails, tierPlan: finishedFanoutPlan.context.resolvedTierPlan as any, nodeKindTierPolicy: finishedFanoutPlan.context.nodeKindTierPolicy as any, artifactDir: finishedFanoutPlan.artifactDir });
 				writeJsonl("fanout_compiler_validation", { planRunId: finishedFanoutPlan.runId, phase: "details", artifactDir: finishedFanoutPlan.artifactDir, policy: "error", repairAttempted: finishedFanoutPlan.repairAttempted === true, ok: compiled.ok, errors: compiled.errors, warnings: compiled.warnings }, ctx.cwd);
 				if (!compiled.ok && isAmbiguousReadOverlapFailure(compiled.errors) && !finishedFanoutPlan.repairAttempted) {
-					pendingFanoutPlan = { ...finishedFanoutPlan, repairAttempted: true, repairDetailsMtimeMs: fileMtimeMs(finishedFanoutPlan.implementationDetailsPath) };
+					const systemPrompt = buildImplementationDetailsRepairPrompt(finishedFanoutPlan.objective, finishedFanoutPlan.context, finishedFanoutPlan, compiled.errors, finishedFanoutPlan.requiredReadClassifications ?? []);
+					pendingFanoutPlan = { ...finishedFanoutPlan, systemPrompt, acceptedSubmission: undefined, repairAttempted: true };
 					writeJsonl("fanout_compiler_repair_requested", { planRunId: finishedFanoutPlan.runId, phase: "details", artifactDir: finishedFanoutPlan.artifactDir, errors: compiled.errors }, ctx.cwd);
 					ctx.ui.notify("Fanout compiler found ambiguous read overlaps; repairing implementation details.", "info");
-					pi.sendUserMessage(buildImplementationDetailsRepairPrompt(finishedFanoutPlan.objective, finishedFanoutPlan.context, finishedFanoutPlan, compiled.errors, finishedFanoutPlan.requiredReadClassifications ?? []), { deliverAs: "followUp" });
+					pi.sendUserMessage(`Repair Fanout planning details for: ${finishedFanoutPlan.objective}`, { deliverAs: "followUp" });
 					return;
 				}
 				if (!compiled.ok && isAmbiguousReadOverlapFailure(compiled.errors) && finishedFanoutPlan.repairAttempted) {
@@ -276,7 +320,7 @@ export default async function (pi: ExtensionAPI) {
 				const artifacts = writeExecutionPacketArtifacts(compiled.packet, finishedFanoutPlan.artifactDir, { activePointerPath: optionalString(finishedFanoutPlan.context.activePointerPath) });
 				finishPlanningPhase(finishedFanoutPlan.metrics, "details");
 				writeJsonl("fanout_plan_end", { planRunId: finishedFanoutPlan.runId, invocation: finishedFanoutPlan.invocation, objective: finishedFanoutPlan.objective, phase: "complete", artifactDir: finishedFanoutPlan.artifactDir, packetPath: artifacts.packetPath, activePointerPath: artifacts.activePointerPath, warnings: compiled.warnings, ...planningMetricsSummary(finishedFanoutPlan.metrics, activeThinking) }, ctx.cwd);
-				displayFanoutPlanReport(pi, ctx.cwd, finishedFanoutPlan.runId, finishedFanoutPlan.artifactDir, artifacts);
+				displayFanoutPlanReport(pi, reportPresentationAvailable, ctx.cwd, finishedFanoutPlan.runId, finishedFanoutPlan.artifactDir, artifacts);
 				ctx.ui.notify(`Fanout plan ready ✅\nArtifacts: ${finishedFanoutPlan.artifactDir}`, "info");
 				pendingFanoutPlan = undefined;
 			} catch (error) {
@@ -372,6 +416,14 @@ export default async function (pi: ExtensionAPI) {
 			ctx.cwd,
 		);
 	});
+
+	pi.on("tool_call", (event) => {
+		const reason = planningToolBlockReason(event.toolName, Boolean(startedFanoutPlan));
+		if (reason) return { block: true, reason };
+	});
+
+	pi.on("session_shutdown", resetPlanningState);
+	for (const event of ["session_before_switch", "session_before_fork"] as const) pi.on(event, resetPlanningState);
 }
 
 function rememberDoublewordModels(provider: string, models: unknown[]): void {
@@ -559,19 +611,6 @@ function isAmbiguousReadOverlapFailure(errors: string[]): boolean {
 	return errors.length > 0 && errors.every((error) => error.includes("ambiguous Phase A filesToRead overlap"));
 }
 
-function implementationDetailsChangedSinceRepair(state: FanoutPhaseState): boolean {
-	const current = fileMtimeMs(state.implementationDetailsPath);
-	return current !== undefined && current !== state.repairDetailsMtimeMs;
-}
-
-function fileMtimeMs(path: string): number | undefined {
-	try {
-		return statSync(path).mtimeMs;
-	} catch {
-		return undefined;
-	}
-}
-
 function reportPlanFailure(ctx: any, state: FanoutPhaseState, phase: string, errors: string[], thinking: unknown): void {
 	const concreteErrors = errors.length > 0 ? errors : ["unknown planning failure"];
 	writeJsonl("fanout_plan_failed", {
@@ -587,28 +626,19 @@ function reportPlanFailure(ctx: any, state: FanoutPhaseState, phase: string, err
 	ctx.ui.notify(`Fanout plan rejected: ${concreteErrors.join("; ")}\nArtifacts: ${state.artifactDir}\nRerun /fanout-plan after correcting the issue.\nThe active packet was not changed.`, "warning");
 }
 
-function displayFanoutPlanReport(pi: ExtensionAPI, cwd: string, runId: string, artifactDir: string, artifacts: { packetPath: string; planPath: string; dagPath: string; activePointerPath?: string }): void {
-	const sendMessage = (pi as ExtensionAPI & { sendMessage?: (message: Record<string, unknown>, options?: Record<string, unknown>) => void }).sendMessage;
-	if (typeof sendMessage !== "function") return;
+function displayFanoutPlanReport(pi: ExtensionAPI, enabled: boolean, cwd: string, runId: string, artifactDir: string, artifacts: { packetPath: string; planPath: string; dagPath: string; activePointerPath?: string }): void {
 	try {
-		sendMessage.call(pi, { customType: "fanout-plan", content: readFileSync(artifacts.planPath, "utf8"), display: true, details: { runId, artifactDir, packetPath: artifacts.packetPath, planPath: artifacts.planPath, dagPath: artifacts.dagPath, activePointerPath: artifacts.activePointerPath } }, { deliverAs: "followUp", triggerTurn: false });
+		appendFanoutReport(pi, enabled, { kind: "planning", runId, status: "ready", reportPath: artifacts.planPath, details: { artifactDir, packetPath: artifacts.packetPath, dagPath: artifacts.dagPath, activePointerPath: artifacts.activePointerPath } });
 	} catch (error) {
-		writeJsonl("fanout_plan_report_display_error", { planRunId: runId, artifactDir, error: error instanceof Error ? error.message : String(error) }, cwd);
+		writeJsonl("fanout_plan_report_display_error", { planRunId: runId, artifactDir, reportPath: artifacts.planPath, error: error instanceof Error ? error.message : String(error) }, cwd);
 	}
 }
 
-function displayFanoutExecutionReport(pi: ExtensionAPI, cwd: string, result: ExecuteFanoutResult): void {
-	const sendMessage = (pi as ExtensionAPI & { sendMessage?: (message: Record<string, unknown>, options?: Record<string, unknown>) => void }).sendMessage;
-	if (typeof sendMessage !== "function") return;
+function displayFanoutExecutionReport(pi: ExtensionAPI, enabled: boolean, cwd: string, result: ExecuteFanoutResult): void {
 	try {
-		sendMessage.call(pi, {
-			customType: "fanout-execute",
-			content: readFileSync(result.paths.summaryPath, "utf8"),
-			display: true,
-			details: { runId: result.runId, status: result.status, packetPath: result.packetPath, ...result.paths },
-		}, { deliverAs: "followUp", triggerTurn: false });
+		appendFanoutReport(pi, enabled, { kind: "execution", runId: result.runId, status: result.status, reportPath: result.paths.summaryPath, details: { packetPath: result.packetPath, ...result.paths } });
 	} catch (error) {
-		writeJsonl("fanout_execute_report_display_error", { executionRunId: result.runId, error: error instanceof Error ? error.message : String(error) }, cwd);
+		writeJsonl("fanout_execute_report_display_error", { executionRunId: result.runId, reportPath: result.paths.summaryPath, error: error instanceof Error ? error.message : String(error) }, cwd);
 	}
 }
 
