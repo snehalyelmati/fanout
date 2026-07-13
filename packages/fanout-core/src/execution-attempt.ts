@@ -1,5 +1,16 @@
-import { isCorrelatedAttemptMetrics, type CorrelatedAttemptMetrics } from "./attempt-metrics.ts";
-import { deepFreeze } from "./contract-value.ts";
+import { isDeepStrictEqual } from "node:util";
+import { correlateAttemptMetrics, isCorrelatedAttemptMetrics, type CorrelatedAttemptMetrics } from "./attempt-metrics.ts";
+import {
+	canonicalTimestamp,
+	contractIdentity as requiredIdentity,
+	contractRecord as record,
+	contractString as requiredString,
+	deepFreeze,
+	exactContractRecord as exactRecord,
+	nonNegativeFiniteNumber as finiteNonNegative,
+	nonNegativeSafeInteger as nonNegativeInteger,
+	positiveSafeInteger as positiveInteger,
+} from "./contract-value.ts";
 import { parseAttemptRecoveryContext, type AttemptRecoveryContext } from "./recovery-evidence.ts";
 
 export const ATTEMPT_OUTCOME_SCHEMA = "fanout.attempt-outcome";
@@ -238,6 +249,86 @@ export function appendTerminalOutcome(outcomes: readonly AttemptOutcome[], outco
 	return [...outcomes, structuredClone(outcome)];
 }
 
+export function parseAttemptAllocation(value: unknown): AttemptAllocation {
+	const item = exactRecord(value, ["runId", "nodeId", "attemptId", "attemptNumber", "kind", "assignment", "sourceAttemptId", "budgetTransition"], ["sourceAttemptId"], "attempt allocation");
+	const allocation = {
+		runId: requiredIdentity(item.runId, "allocation.runId"),
+		nodeId: requiredIdentity(item.nodeId, "allocation.nodeId"),
+		attemptId: requiredIdentity(item.attemptId, "allocation.attemptId"),
+		attemptNumber: positiveInteger(item.attemptNumber, "allocation.attemptNumber"),
+		kind: item.kind as AttemptKind,
+		assignment: parseAssignment(item.assignment),
+		...(item.sourceAttemptId === undefined ? {} : { sourceAttemptId: requiredIdentity(item.sourceAttemptId, "allocation.sourceAttemptId") }),
+		budgetTransition: parseBudgetTransition(item.budgetTransition),
+	};
+	if (!Object.hasOwn(KIND_BUDGET, allocation.kind)) throw new TypeError(`unknown attempt kind: ${String(item.kind)}`);
+	validateAllocation(allocation);
+	if (allocation.attemptId !== `${allocation.nodeId}:${String(allocation.attemptNumber).padStart(6, "0")}`) throw new TypeError("allocation attemptId must match its node and attempt number");
+	if (allocation.kind === "original" ? allocation.sourceAttemptId !== undefined : allocation.sourceAttemptId === undefined) throw new TypeError(`${allocation.kind} sourceAttemptId is invalid`);
+	return allocation;
+}
+
+export function parseAttemptOutcome(value: unknown): AttemptOutcome {
+	const item = exactRecord(value, ["schema", "version", "runId", "nodeId", "attemptId", "attemptNumber", "kind", "assignment", "sourceAttemptId", "startedAt", "finishedAt", "durationMs", "terminalFact", "action", "budgetTransition", "metrics", "recovery", "evidenceRefs", "diagnostic"], ["sourceAttemptId", "recovery", "diagnostic"], "attempt outcome");
+	if (item.schema !== ATTEMPT_OUTCOME_SCHEMA || item.version !== ATTEMPT_OUTCOME_VERSION) throw new TypeError("attempt outcome schema/version is unsupported");
+	const startedAt = canonicalTimestamp(item.startedAt, "startedAt");
+	const finishedAt = canonicalTimestamp(item.finishedAt, "finishedAt");
+	const durationMs = finiteNonNegative(item.durationMs, "attempt durationMs");
+	if (Date.parse(finishedAt) - Date.parse(startedAt) !== durationMs) throw new TypeError("attempt durationMs must equal its timestamp interval");
+	if (!record(item.metrics)) throw new TypeError("attempt metrics must be an object");
+	const serializedMetrics = item.metrics;
+	const metricsInput = { ...serializedMetrics };
+	delete metricsInput.complete;
+	const correlated = correlateAttemptMetrics(metricsInput);
+	const metrics = correlated.ok ? correlated.metrics : correlated.partialMetrics;
+	const serializedWithoutComplete = { ...serializedMetrics };
+	delete serializedWithoutComplete.complete;
+	const parsedWithoutComplete: Record<string, unknown> = { ...metrics };
+	delete parsedWithoutComplete.complete;
+	if (!metrics || serializedMetrics.complete !== metrics.complete || !isDeepStrictEqual(serializedWithoutComplete, parsedWithoutComplete)) throw new TypeError("attempt metrics are not a canonical correlated record");
+	const action = item.action as ControllerAction;
+	if (!["accept", "retry", "fallback", "validation-repair", "integration-repair", "fail", "abort"].includes(String(action))) throw new TypeError("attempt action is invalid");
+	const evidenceRefs = identityArray(item.evidenceRefs, "evidenceRefs");
+	const outcome: AttemptOutcome = {
+		schema: ATTEMPT_OUTCOME_SCHEMA,
+		version: ATTEMPT_OUTCOME_VERSION,
+		runId: requiredIdentity(item.runId, "outcome.runId"),
+		nodeId: requiredIdentity(item.nodeId, "outcome.nodeId"),
+		attemptId: requiredIdentity(item.attemptId, "outcome.attemptId"),
+		attemptNumber: positiveInteger(item.attemptNumber, "outcome.attemptNumber"),
+		kind: item.kind as AttemptKind,
+		assignment: parseAssignment(item.assignment),
+		...(item.sourceAttemptId === undefined ? {} : { sourceAttemptId: requiredIdentity(item.sourceAttemptId, "outcome.sourceAttemptId") }),
+		startedAt,
+		finishedAt,
+		durationMs,
+		terminalFact: parseStageFact(item.terminalFact),
+		action,
+		budgetTransition: parseBudgetTransition(item.budgetTransition),
+		metrics,
+		...(item.recovery === undefined ? {} : { recovery: parseAttemptRecoveryContext(item.recovery) }),
+		evidenceRefs,
+		...(item.diagnostic === undefined ? {} : { diagnostic: requiredString(item.diagnostic, "diagnostic") }),
+	};
+	parseAttemptAllocation({ runId: outcome.runId, nodeId: outcome.nodeId, attemptId: outcome.attemptId, attemptNumber: outcome.attemptNumber, kind: outcome.kind, assignment: outcome.assignment, ...(outcome.sourceAttemptId ? { sourceAttemptId: outcome.sourceAttemptId } : {}), budgetTransition: outcome.budgetTransition });
+	if (outcome.action === "accept" && !outcome.metrics.complete) throw new TypeError("accepted attempt requires complete correlated metrics");
+	const validationFailure = outcome.terminalFact.stage === "validation" && outcome.action === "validation-repair";
+	const integrationFailure = outcome.terminalFact.stage === "apply" && outcome.action === "integration-repair";
+	const postTreeFailure = outcome.terminalFact.stage === "apply" && outcome.terminalFact.code === "post-tree-mismatch" && outcome.action === "fail";
+	if (validationFailure && (outcome.recovery?.kind !== "validation" || outcome.recovery.sourceAttemptId !== outcome.attemptId)) throw new TypeError("validation repair action requires correlated recovery evidence");
+	if ((integrationFailure || postTreeFailure) && (outcome.recovery?.kind !== "integration" || outcome.recovery.sourceAttemptId !== outcome.attemptId)) throw new TypeError("apply outcome requires correlated recovery evidence");
+	if (!validationFailure && !integrationFailure && !postTreeFailure && outcome.recovery) throw new TypeError("recovery evidence does not match the terminal stage fact");
+	if (outcome.terminalFact.stage === "validation" && outcome.recovery?.kind === "validation") {
+		const failed = outcome.recovery.commands.filter((command) => command.status !== "passed" && command.status !== "unexecuted").map((command) => command.index);
+		if (JSON.stringify(outcome.terminalFact.failedCommandIndexes ?? []) !== JSON.stringify(failed)) throw new TypeError("validation fact indexes do not match recovery command evidence");
+	}
+	if (outcome.terminalFact.stage === "apply" && outcome.recovery?.kind === "integration") {
+		const expectedStage = outcome.terminalFact.code === "check-conflict" ? "check" : outcome.terminalFact.code === "apply-failure" ? "apply" : outcome.terminalFact.code === "post-tree-mismatch" ? "post-tree" : undefined;
+		if (outcome.recovery.applyFailure.stage !== expectedStage) throw new TypeError("apply fact does not match integration recovery evidence");
+	}
+	return outcome;
+}
+
 export function parseStageFact(value: unknown): StageFact {
 	if (!record(value) || typeof value.stage !== "string" || typeof value.code !== "string") throw new TypeError("stage fact requires stage and code");
 	const allowed: Record<StageFact["stage"], readonly string[]> = {
@@ -355,21 +446,35 @@ function timestamp(value: string, path: string): string {
 	return value;
 }
 
-function requiredIdentity(value: unknown, path: string): string {
-	if (typeof value !== "string" || !value || value !== value.trim()) throw new TypeError(`${path} must be a non-empty identity`);
-	return value;
+function identityArray(value: unknown, path: string): string[] {
+	if (!Array.isArray(value)) throw new TypeError(`${path} must be an array`);
+	const identities = value.map((item, index) => requiredIdentity(item, `${path}[${index}]`));
+	if (new Set(identities).size !== identities.length) throw new TypeError(`${path} must not contain duplicates`);
+	return identities;
+}
+
+function parseAssignment(value: unknown): AttemptAssignment {
+	if (!record(value)) throw new TypeError("assignment must be an object");
+	validateAssignment(value as unknown as AttemptAssignment);
+	return { tier: value.tier as AttemptAssignment["tier"], provider: String(value.provider), model: String(value.model) };
+}
+
+function parseBudgetTransition(value: unknown): BudgetTransition {
+	const item = exactRecord(value, ["name", "before", "after", "limit"], [], "budget transition");
+	if (!Object.hasOwn(LIMITS, String(item.name))) throw new TypeError("budget transition name is invalid");
+	const name = item.name as AttemptBudgetName;
+	const transition = {
+		name,
+		before: nonNegativeInteger(item.before, "budget transition before"),
+		after: nonNegativeInteger(item.after, "budget transition after"),
+		limit: nonNegativeInteger(item.limit, "budget transition limit"),
+	};
+	if (transition.after !== transition.before + 1 || transition.limit !== LIMITS[name] || transition.after > transition.limit) throw new TypeError("budget transition does not match the fixed monotonic budget");
+	return transition;
 }
 
 function validateSourceAttemptId(value: string, nodeId: string, nextAttemptNumber: number): void {
 	const prefix = `${nodeId}:`;
 	const number = value.startsWith(prefix) && /^\d{6}$/.test(value.slice(prefix.length)) ? Number(value.slice(prefix.length)) : 0;
 	if (number < 1 || number >= nextAttemptNumber) throw new TypeError("sourceAttemptId must identify an earlier allocated attempt for the same node");
-}
-
-function finiteNonNegative(value: unknown, path: string): void {
-	if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new TypeError(`${path} must be a finite non-negative number`);
-}
-
-function record(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

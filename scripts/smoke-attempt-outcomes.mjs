@@ -6,6 +6,7 @@ import {
   appendTerminalOutcome,
   completeAttempt,
   createNodeAttemptState,
+  parseAttemptOutcome,
   parseStageFact,
   remainingAttemptBudgets,
   routeAttempt,
@@ -185,6 +186,9 @@ const validationCase = originalLaunch("validation-case", assignment);
 const validationCaseRecovery = parseAttemptRecoveryContext(validationRecoveryEvidence(validationCase.allocation.attemptId));
 const validationRepairOutcome = completeAttempt(validationCase.allocation, { startedAt: accepted.startedAt, finishedAt: accepted.finishedAt, terminalFact: { stage: "validation", code: "timeout", failedCommandIndexes: [1] }, state: validationCase.state, fallbackAllowed: true, metrics: observedMetrics(validationCase.allocation), recovery: validationCaseRecovery });
 assert(validationRepairOutcome.action === "validation-repair" && validationRepairOutcome.recovery?.kind === "validation", "validation repair outcome lost typed recovery evidence");
+const replayedValidationMismatch = structuredClone(validationRepairOutcome);
+replayedValidationMismatch.terminalFact.failedCommandIndexes = [0];
+expectThrow(() => parseAttemptOutcome(replayedValidationMismatch), "replay admitted validation indexes that contradicted recovery evidence");
 const missingRecoveryCase = originalLaunch("missing-recovery", assignment);
 expectThrow(() => completeAttempt(missingRecoveryCase.allocation, { startedAt: accepted.startedAt, finishedAt: accepted.finishedAt, terminalFact: { stage: "validation", code: "timeout", failedCommandIndexes: [1] }, state: missingRecoveryCase.state, fallbackAllowed: true, metrics: observedMetrics(missingRecoveryCase.allocation) }), "validation repair action omitted typed recovery evidence");
 finishAttempt(missingRecoveryCase.allocation, missingRecoveryCase.state, { stage: "metrics", code: "missing-timing" });
@@ -194,6 +198,9 @@ const integrationCase = originalLaunch("integration-case", assignment);
 const integrationCaseRecovery = parseAttemptRecoveryContext(integrationRecoveryEvidence(integrationCase.allocation.attemptId));
 const integrationRepairOutcome = completeAttempt(integrationCase.allocation, { startedAt: accepted.startedAt, finishedAt: accepted.finishedAt, terminalFact: { stage: "apply", code: "check-conflict" }, state: integrationCase.state, fallbackAllowed: true, metrics: observedMetrics(integrationCase.allocation), recovery: integrationCaseRecovery });
 assert(integrationRepairOutcome.action === "integration-repair" && integrationRepairOutcome.recovery?.kind === "integration" && integrationRepairOutcome.recovery.applyFailure.stage === "check", "integration repair lost typed apply evidence");
+const replayedApplyMismatch = structuredClone(integrationRepairOutcome);
+replayedApplyMismatch.recovery.applyFailure.stage = "apply";
+expectThrow(() => parseAttemptOutcome(replayedApplyMismatch), "replay admitted an apply stage that contradicted the terminal fact");
 const malformedRecovery = validationRecoveryEvidence(original.allocation.attemptId);
 malformedRecovery.commands[2].status = "passed";
 malformedRecovery.commands[2].exitCode = 0;

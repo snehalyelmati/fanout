@@ -51,6 +51,8 @@ Current result: passed locally. Coverage includes active-pointer and packet reje
 
 The 2026-07-13 preparatory hardening check `rtk npm run smoke:attempt-outcomes` passes A10–A12 offline: prose-like output cannot affect typed routing, accepted generic and instrumented metrics require exact correlated identities, failed attempts retain observed partial cost, and nested validation/integration repair cannot exceed either fixed two-launch pool. This is contract evidence only; routing measurements remain unchanged until the coordinated live caller cutover.
 
+The companion `rtk npm run smoke:execution-events` check passes A13–A14 offline: serialized commits remain gapless, projection/report publication failures leave a complete authoritative log, audit replay regenerates only derived views, corrupt logs fail closed, and live/dry-run outcome plus final-validation disposition remain explicit. Reports now have a byte-stable projection-only contract; no latency, cost, or live workflow baseline changes until production callers cut over.
+
 Caveat: worker usage and cost in this smoke are synthetic fake-provider fixtures. P2 controlled real Pi workers and P4 live tier-routing measurements remain pending; no observed latency or cost claim is added here.
 
 ## P2 — Manual p-map AbortSignal E2E

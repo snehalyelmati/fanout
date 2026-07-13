@@ -4,6 +4,12 @@ This file records design decisions made during development. Keep new entries dat
 
 ## 2026-07-13
 
+### Make the event log the only run-state authority
+
+Decision: `fanout-core` owns the closed nine-event `fanout.execution-event` v1 union, strict pure lifecycle reducer, execution-run projection v2, and deterministic projection-only report renderer. `fanout-pi` serializes event commits, atomically replaces the complete compact log before derived views, halts after a derived publication failure, and exposes audit-only replay that can regenerate projection/report files but has no execution, budget, lock, or Git mutation capability.
+
+Reason: One gapless causal history makes stale views repairable and keeps live recording, replay, and reports convergent. Whole-log replacement deliberately favors the smallest crash-safe process model over segments or recovery orchestration; production callers remain on the legacy recorder until the coordinated cutover.
+
 ### Admit repository authority through one canonical core module
 
 Decision: `fanout-core` owns literal `RepoPath` parsing, explicit file/directory resources, same-source directional authorization, connected ownership, typed read timing, monotonic typed forbidden writes, and exact UTF-8 Git-path admission. Advisory forbidden notes never affect policy.

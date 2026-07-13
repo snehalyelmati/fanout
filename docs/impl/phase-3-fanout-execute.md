@@ -2,6 +2,8 @@
 
 Status: MVP implemented; controlled live Pi worker validation pending.
 
+Hardening status: the preparatory `fanout.execution-event` v1, strict reducer, execution-run projection v2, deterministic renderer, atomic recorder, and audit-only replay are implemented and directly checked by `smoke:execution-events`. The live executor still uses the v1 mutable recorder described below; slice 10 switches callers atomically and removes that legacy authority rather than dual-writing.
+
 Source: validated Phase 3 component notes in [`docs/phase3_notes.md`](../phase3_notes.md).
 
 ## Implementation notes
