@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./active-packet": "./src/active-packet.ts",
+    "./artifact-identity": "./src/artifact-identity.ts",
     "./batching-discipline": "./src/batching-discipline.ts",
     "./dag-scheduler": "./src/dag-scheduler.ts",
     "./execution-packet": "./src/execution-packet.ts",

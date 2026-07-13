@@ -16,6 +16,12 @@ Decision: `fanout-core` strictly admits executable/argument validation manifests
 
 Reason: Deterministic argument boundaries and honest local-program trust replace misleading shell-string safety parsing. This preparatory runner is directly tested while production callers remain on the legacy path until the coordinated schema cutover.
 
+### Bind artifacts and repository transitions to exact identity
+
+Decision: Use strict `{ path, sha256, byteLength }` artifact identities, same-directory atomic replacement, pointer-last planning publication, temporary-index full Git-visible trees, and one binary-patch accepted-state transition shape. Patch verification and replay rederive exact paths and trees, consume verified bytes through Git stdin, and leave post-apply ambiguity untouched for manual reconciliation.
+
+Reason: Exact bytes and tree chains reject stale or substituted authority without mutating the user's index or adding content-addressed storage and automatic recovery. These preparatory primitives are directly tested; legacy callers remain unchanged until the coordinated cutover.
+
 ## 2026-06-25
 
 ### Keep the normal Pi agent loop first

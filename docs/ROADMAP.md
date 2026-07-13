@@ -40,7 +40,7 @@ Fanout should preserve developer velocity by using slower tiers only where laten
 
 ### End-to-end hardening
 
-Status: Slices 1–2 of 10 are implemented locally. `fanout-core` exposes the preparatory canonical repository-resource contract and strict direct-argv validation-command admission; `fanout-pi` adds a directly tested runner with platform binding, cwd containment, literal environment precedence, executable preflight/recheck, exact argv, ordered fail-fast outcomes, and explicit unexecuted evidence. Keyless A1/A2/A3/A6/A9 checks cover these modules. Existing planning, packet, and execution schemas remain unchanged until the coordinated caller and schema cutover slices; the preparatory modules are not a second executable authority.
+Status: Slices 1–3 of 10 are implemented locally. `fanout-core` exposes preparatory canonical repository-resource, direct-argv validation-command, artifact-identity, accepted-patch, and accepted-state-transition contracts. `fanout-pi` adds directly tested validation execution, atomic pointer-last publication, temporary-index full-tree identity, binary patch capture/reverification, and stdin-only tree-chained apply/replay primitives. Keyless A1/A2/A3/A4/A5/A6/A8/A9 checks cover these modules. Existing planning, packet, and execution schemas remain unchanged until the coordinated caller and schema cutover slices; the preparatory modules are not a second executable authority.
 
 Live `/fanout-execute` remains blocked from hardened release until all ten slices, the complete A1–A20 offline matrix, the macOS p-map canary, fresh review, and repository-owner approval pass for one immutable commit.
 
