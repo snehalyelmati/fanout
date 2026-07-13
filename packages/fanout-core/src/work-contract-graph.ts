@@ -9,6 +9,8 @@ export interface WorkContractGraph {
 	criticalPath: string[];
 }
 
+export const FINAL_VALIDATION_NODE_ID = "final-validation";
+
 export function validateWorkContractNodes(value: unknown): { ok: boolean; errors: WorkContractIssue[]; nodes?: WorkContractNode[]; graph?: WorkContractGraph } {
 	const errors: WorkContractIssue[] = [];
 	if (!Array.isArray(value)) return { ok: false, errors: [{ code: "invalid-node-list", message: "work-contract nodes must be an array", path: "nodes" }] };
@@ -40,6 +42,8 @@ export function deriveWorkContractGraph(nodes: readonly WorkContractNode[]): { g
 		if (!canonicalValue(node.id)) add(errors, "invalid-node-id", "node id must be a non-empty canonical string", `nodes[${index}].id`);
 		else if (ids.has(node.id)) add(errors, "duplicate-node-id", `duplicate node id ${node.id}`, `nodes[${index}].id`);
 		else ids.add(node.id);
+		if (node.kind === "final-validation" && node.id !== FINAL_VALIDATION_NODE_ID) add(errors, "invalid-final-validation-id", `final-validation node must use reserved id ${FINAL_VALIDATION_NODE_ID}`, `nodes[${index}].id`);
+		if (node.kind !== "final-validation" && node.id === FINAL_VALIDATION_NODE_ID) add(errors, "reserved-node-id", `ordinary node cannot use reserved id ${FINAL_VALIDATION_NODE_ID}`, `nodes[${index}].id`);
 		const validation = validateWorkContract(node.workContract, { finalValidation: node.kind === "final-validation" });
 		for (const issue of validation.errors) errors.push({ ...issue, path: issue.path ? `nodes.${node.id}.workContract.${issue.path}` : `nodes.${node.id}.workContract` });
 	}

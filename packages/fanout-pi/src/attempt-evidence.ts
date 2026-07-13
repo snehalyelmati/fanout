@@ -3,9 +3,10 @@ import { join, relative } from "node:path";
 import type { AcceptedPatch } from "../../fanout-core/src/artifact-identity.ts";
 import { correlateAttemptMetrics, type CorrelatedAttemptMetrics } from "../../fanout-core/src/attempt-metrics.ts";
 import type { StageFact } from "../../fanout-core/src/execution-attempt.ts";
-import type { WorkerMetrics } from "../../fanout-core/src/execution-run.ts";
+import type { WorkerMetrics } from "../../fanout-core/src/worker-metrics.ts";
 import type {
 	AcceptedLedgerProvenance,
+	ApplyFailureEvidence,
 	IntegrationRecoveryContext,
 	ValidationRecoveryContext,
 } from "../../fanout-core/src/recovery-evidence.ts";
@@ -62,7 +63,7 @@ export function validationFailureEvidence(
 export function integrationFailureEvidence(
 	contract: WorkContract,
 	attempt: PatchAttemptEvidence,
-	error: string,
+	applyFailure: ApplyFailureEvidence,
 	acceptedLedger: readonly AcceptedLedgerProvenance[],
 	reconstructedTree: AcceptedPatch["resultTree"],
 ): IntegrationRecoveryContext {
@@ -71,7 +72,7 @@ export function integrationFailureEvidence(
 		kind: "integration",
 		sourceAttemptId: attempt.attemptId,
 		workContract: contract,
-		applyFailure: { stage: "check", code: "nonzero", exitCode: 1, signal: null, timeoutMs: null, stdout: "", stderr: error, durationMs: 0 },
+		applyFailure,
 		rejectedPatch: attempt.patch,
 		acceptedLedger: acceptedLedger.map(({ sourceAttemptId, patch }) => ({ sourceAttemptId, patch })),
 		reconstructedTree,
@@ -81,7 +82,7 @@ export function integrationFailureEvidence(
 export function attemptEvidenceRefs(runDir: string, attempt: PatchAttemptEvidence): string[] {
 	const prefix = relative(runDir, attempt.attemptDir).split("\\").join("/");
 	const refs = ["result.json"];
-	if (attempt.metrics) refs.push("observability.jsonl");
+	if (existsSync(join(attempt.attemptDir, "observability.jsonl"))) refs.push("observability.jsonl");
 	if (attempt.patch) refs.push(attempt.patch.artifact.path);
 	for (const name of ["validation.json", "ownership-check.json", "apply-check.json"]) if (existsSync(join(attempt.attemptDir, name))) refs.push(name);
 	return [...new Set(refs.map((reference) => reference.includes("/") ? reference : `${prefix}/${reference}`))];
@@ -133,8 +134,7 @@ export function emptyAttemptMetrics(attemptId: string): CorrelatedAttemptMetrics
 	return correlateAttemptMetrics({ attemptId, compatibility: "generic", turns: [], responses: [], polls: [], tools: [] }).partialMetrics;
 }
 
-export function correlatedWorkerMetrics(attemptId: string, metrics: WorkerMetrics | undefined, stdoutPath: string, observabilityPath: string, workerFirstOutputMs: number | undefined): CorrelatedAttemptMetrics {
-	if (!metrics) return emptyAttemptMetrics(attemptId);
+export function correlatedWorkerMetrics(attemptId: string, metrics: Pick<WorkerMetrics, "provider" | "model" | "tier" | "workerDurationMs">, stdoutPath: string, observabilityPath: string, workerFirstOutputMs: number | undefined): CorrelatedAttemptMetrics {
 	const stdout = readJsonLines(stdoutPath);
 	const observability = readJsonLines(observabilityPath);
 	const messages = stdout.filter((record) => record.type === "message_end" && record.message?.role === "assistant");

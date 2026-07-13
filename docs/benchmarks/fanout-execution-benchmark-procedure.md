@@ -140,7 +140,7 @@ This is a prompt-quality gate only. It does not replace runtime benchmarks.
 
 ## P1: `/fanout-execute` packet smoke benchmark
 
-Current status: the local deterministic fake-worker smoke is implemented and passing; controlled live Pi worker validation remains pending.
+Current status: the deterministic public `/fanout-execute` dry-run and live seams are implemented and passing with a fake Pi subprocess worker. The live smoke covers retry, validation repair, accepted apply, fresh final validation, causal event replay, abort/drain, and lock/worktree cleanup. A real-provider macOS p-map canary remains an explicit cost/owner release gate, not missing executor functionality.
 
 Minimum task set:
 
@@ -156,18 +156,18 @@ Required metrics:
 
 | Metric | Notes |
 | --- | --- |
-| run/node/worker duration | Local clocks in the execution snapshot |
-| worker launch count | Canonical `worker_attempt_started` event count |
-| retry/fallback/rejection count | Canonical event counts by outcome |
-| validation pass/fail and duration | Per-node and authoritative final validation |
-| token/cost provenance | Complete accepted-worker usage; fake in P1, live in later stages |
-| patch statistics | Accepted files, insertions, deletions, and apply duration |
-| tool/poll timing | Provider/extension observability imported per worker |
-| summary fields present | status, outcomes, totals, nodes, changed files, validation, artifact links |
+| run/node/worker duration | Projection-v2 run totals plus correlated attempt metrics |
+| worker launch count | Canonical event-v1 `attempt-allocated` records and projection attempts |
+| retry/fallback/rejection count | Typed attempt kinds/actions and projection totals |
+| validation pass/fail and duration | Attempt `validation.json`, final-validation evidence v1, and projection disposition |
+| token/cost provenance | Correlated attempt outcomes, including observed partial failed-attempt usage |
+| patch statistics | Accepted-ledger aggregate files/insertions/deletions; `result.json` retains per-attempt patch identity, changed paths, and stats |
+| tool/poll timing | Correlated provider/extension observability per attempt |
+| summary fields present | unified title; mode/phase/outcome; node status/attempts; totals; final-validation disposition; ledger tree transitions; stable audit links |
 
 ## P2: controlled local repo execution benchmark
 
-Start when `/fanout-execute` can launch real workers or isolated write tasks.
+The public executor already launches isolated Pi subprocess workers. Use this stage for controlled repository tasks; using a paid/live provider requires explicit authorization, while deterministic fake/stub workers remain suitable for keyless regression runs.
 
 Task selection rules:
 

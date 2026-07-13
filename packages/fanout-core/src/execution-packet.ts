@@ -1,21 +1,20 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { parseArtifactIdentity, parseGitCommitId, parseGitTreeId, type ArtifactIdentity, type GitCommitId, type GitTreeId } from "./artifact-identity.ts";
+import { validateWorkContractNodes, type WorkContractGraph } from "./work-contract-graph.ts";
+import { type WorkContract, type WorkContractIssue } from "./work-contract.ts";
 
 export const EXECUTION_PACKET_SCHEMA = "fanout.execution-packet";
-export const EXECUTION_PACKET_VERSION = 4;
+export const EXECUTION_PACKET_VERSION = 5;
 export const ACTIVE_PACKET_SCHEMA = "fanout.active-packet";
 
-export type PacketStatus = "ready";
-export type WorkActiveState = "active" | "background";
 export type TierName = "tier1" | "tier2";
 export type TierStatus = "available" | "unavailable";
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "auto";
-export type WorkUnitKind = "plan" | "clarify" | "packet-validation" | "dag-safety" | "implement" | "test" | "docs" | "inspect" | "validate-shard" | "review-shard" | "final-review" | "synthesis" | "final-validation" | "final-response";
+export type WorkActiveState = "active" | "background";
+export type WorkUnitKind = "implement" | "test" | "docs" | "inspect" | "validate-shard" | "review-shard" | "final-validation";
 
 export interface TierModelSummary {
 	provider: string;
 	model: string;
-	thinking: ThinkingLevel | string;
+	thinking: string;
 	source: string;
 	status: TierStatus;
 	reason: string;
@@ -27,799 +26,191 @@ export interface FanoutTierPlan {
 	tier2Fallback: TierModelSummary;
 }
 
+export interface FanoutRuntimePolicy {
+	maxConcurrency: number;
+	failFast: boolean;
+	fallbackAllowed: boolean;
+}
+
 export interface WorkUnitTierAssignment {
 	preferred: TierName;
 	assigned: TierName;
 	fallback: TierName;
 	provider: string;
 	model: string;
-	thinking: ThinkingLevel | string;
+	thinking: string;
 	reason: string;
 }
 
-export interface WorkerPacket {
-	sourcePlanIds: string[];
-	targetAnchors: string[];
-	requiredChanges: string[];
-	contractInputs: string[];
-	readDependencies: string[];
-	forbiddenChanges: string[];
-	handoffContext: string[];
-}
-
-export interface FanoutWorkUnit {
+export interface FanoutPacketNode {
 	id: string;
 	kind: WorkUnitKind;
-	goal: string;
-	dependencies: string[];
-	ownedFiles: string[];
-	readOnlyFiles: string[];
-	steps: string[];
-	validationCommands: string[];
-	acceptanceCriteria: string[];
-	rollbackNotes: string[];
 	tier: WorkUnitTierAssignment;
-	workerPacket: WorkerPacket;
-	active?: WorkActiveState;
+	active: WorkActiveState;
+	workContract: WorkContract;
 }
+
+export type FanoutWorkUnit = FanoutPacketNode;
 
 export interface FanoutExecutionPacket {
 	schema: typeof EXECUTION_PACKET_SCHEMA;
 	version: typeof EXECUTION_PACKET_VERSION;
-	status: PacketStatus;
-	objective: string;
 	createdAt: string;
-	artifactDir: string;
-	tierPlan: FanoutTierPlan;
+	sourceArtifacts: { plan: ArtifactIdentity; details: ArtifactIdentity };
+	planningHost: { platform: NodeJS.Platform };
+	planningBase: { headCommit: GitCommitId; tree: GitTreeId };
+	objective: string;
 	userContext: string[];
 	discoveredRepoFacts: string[];
 	assumptions: string[];
-	blockers: string[];
-	workUnits: FanoutWorkUnit[];
-	estimates: {
-		activeWait: string;
-		backgroundCompletion: string;
-		cost: string;
-		criticalPath: string[];
-		parallelGroups: string[][];
-	};
-	stopRules: string[];
-	risks: string[];
-	finalValidationPlan: string[];
-}
-
-export interface PacketValidationIssue {
-	code: string;
-	message: string;
-	path?: string;
-	unitId?: string;
-}
-
-export interface ExecutionGraph {
-	nodes: string[];
-	edges: Array<[string, string]>;
-	topologicalOrder: string[];
-	parallelGroups: string[][];
-	criticalPath: string[];
+	tierPlan: FanoutTierPlan;
+	runtimePolicy: FanoutRuntimePolicy;
+	nodes: FanoutPacketNode[];
 }
 
 export interface PacketValidationResult {
 	ok: boolean;
 	executable: boolean;
-	errors: PacketValidationIssue[];
-	warnings: PacketValidationIssue[];
-	graph?: ExecutionGraph;
+	errors: WorkContractIssue[];
+	warnings: WorkContractIssue[];
+	packet?: FanoutExecutionPacket;
+	graph?: WorkContractGraph;
 }
 
-const VALID_STATUSES = new Set(["ready"]);
-const VALID_ACTIVE_STATES = new Set(["active", "background"]);
-const VALID_TIERS = new Set(["tier1", "tier2"]);
-const VALID_TIER_STATUSES = new Set(["available", "unavailable"]);
-const VALID_KINDS = new Set(["plan", "clarify", "packet-validation", "dag-safety", "implement", "test", "docs", "inspect", "validate-shard", "review-shard", "final-review", "synthesis", "final-validation", "final-response"]);
-const TIER2_ELIGIBLE_KINDS = new Set(["implement", "test", "docs", "inspect", "validate-shard", "review-shard"]);
-const UNSAFE_COMMANDS: Array<[string, RegExp]> = [
-	["rm-recursive-force", /(^|[^\w./-])(?:[^\s;|&]*\/)*rm\s+(?=[^\n;]*?(?:-[^\s;]*[rR][^\s;]*|--recursive)\b)(?=[^\n;]*?(?:-[^\s;]*f[^\s;]*|--force)\b)/],
-	["sudo", /(^|\s)sudo\b/],
-	["git-reset-hard", /\bgit\s+reset\s+--hard\b/],
-	["git-clean", /\bgit\s+clean\b/],
-	["git-commit", /\bgit\s+commit\b/],
-	["git-push", /\bgit\s+push\b/],
-	["npm-publish", /\bnpm\s+publish\b/],
-	["curl-pipe-shell", /\b(curl|wget)\b[^\n|;]*\|\s*(?:[^\s;|&]*\/)*(sh|bash)\b/],
-	["chmod-recursive", /\bchmod\s+-R\b/],
-	["chown-recursive", /\bchown\s+-R\b/],
-	["mkfs", /\bmkfs(\.|\s|$)/],
-	["dd", /\bdd\s+[^\n;]*\bof=/],
-];
-
-export function readExecutionPacket(path: string): unknown {
-	return JSON.parse(readFileSync(path, "utf8"));
+export function executionPacketBytes(packet: FanoutExecutionPacket): Uint8Array {
+	return new TextEncoder().encode(`${JSON.stringify(packet, null, 2)}\n`);
 }
 
-export function validateExecutionPacket(packet: unknown): PacketValidationResult {
-	const errors: PacketValidationIssue[] = [];
-	const warnings: PacketValidationIssue[] = [];
+export function deriveTierAssignment(preferred: TierName, plan: FanoutTierPlan): WorkUnitTierAssignment {
+	const assigned: TierName = preferred === "tier2" && plan.tier2.status === "available" ? "tier2" : "tier1";
+	const model = assigned === "tier2" ? plan.tier2 : preferred === "tier2" ? plan.tier2Fallback : plan.tier1;
+	return { preferred, assigned, fallback: "tier1", provider: model.provider, model: model.model, thinking: model.thinking, reason: assigned === "tier2" ? "approved background worker" : preferred === "tier2" ? "tier2 unavailable; concrete realtime fallback" : "controller tier" };
+}
 
-	if (!isRecord(packet)) return { ok: false, executable: false, errors: [{ code: "packet-not-object", message: "packet must be an object" }], warnings };
+export function derivePreferredTier(kind: WorkUnitKind): TierName {
+	return kind === "final-validation" ? "tier1" : "tier2";
+}
 
-	if (packet.schema !== EXECUTION_PACKET_SCHEMA) add(errors, "invalid-schema", `schema must be ${EXECUTION_PACKET_SCHEMA}`, "schema");
-	if (packet.version !== EXECUTION_PACKET_VERSION) add(errors, "invalid-version", `version must be ${EXECUTION_PACKET_VERSION}; rerun /fanout-plan to replace older packets`, "version");
-	if (typeof packet.status !== "string" || !VALID_STATUSES.has(packet.status)) add(errors, "invalid-status", "status must be ready", "status");
-	if (!nonEmptyString(packet.objective)) add(errors, "missing-objective", "objective is required", "objective");
-	if (!nonEmptyString(packet.createdAt)) add(errors, "missing-created-at", "createdAt is required", "createdAt");
-	if (!nonEmptyString(packet.artifactDir)) add(errors, "missing-artifact-dir", "artifactDir is required", "artifactDir");
-	validateTierPlan(packet.tierPlan, errors);
+const PACKET_FIELDS = new Set(["schema", "version", "createdAt", "sourceArtifacts", "planningHost", "planningBase", "objective", "userContext", "discoveredRepoFacts", "assumptions", "tierPlan", "runtimePolicy", "nodes"]);
+const NODE_FIELDS = new Set(["id", "kind", "tier", "active", "workContract"]);
+const SUMMARY_FIELDS = new Set(["provider", "model", "thinking", "source", "status", "reason", "fallback"]);
+const ASSIGNMENT_FIELDS = new Set(["preferred", "assigned", "fallback", "provider", "model", "thinking", "reason"]);
+const VALID_KINDS = new Set<WorkUnitKind>(["implement", "test", "docs", "inspect", "validate-shard", "review-shard", "final-validation"]);
 
-	for (const key of ["userContext", "discoveredRepoFacts", "assumptions", "blockers", "stopRules", "risks", "finalValidationPlan"]) requireStringArray(packet, key, errors);
+export function validateExecutionPacket(value: unknown): PacketValidationResult {
+	const errors: WorkContractIssue[] = [];
+	if (!record(value)) return failure("packet-not-object", "execution packet must be an object");
+	unknown(value, PACKET_FIELDS, "", errors);
+	if (value.schema !== EXECUTION_PACKET_SCHEMA) add(errors, "invalid-schema", `schema must be ${EXECUTION_PACKET_SCHEMA}; rerun /fanout-plan`, "schema");
+	if (value.version !== EXECUTION_PACKET_VERSION) add(errors, "invalid-version", `version must be ${EXECUTION_PACKET_VERSION}; rerun /fanout-plan`, "version");
+	if (!timestamp(value.createdAt)) add(errors, "invalid-created-at", "createdAt must be an ISO timestamp", "createdAt");
+	let sourceArtifacts: FanoutExecutionPacket["sourceArtifacts"] | undefined;
+	try {
+		if (!exact(value.sourceArtifacts, ["plan", "details"])) throw new TypeError("sourceArtifacts must contain plan and details only");
+		sourceArtifacts = { plan: parseArtifactIdentity(value.sourceArtifacts.plan), details: parseArtifactIdentity(value.sourceArtifacts.details) };
+	} catch (error) { add(errors, "invalid-source-identity", message(error), "sourceArtifacts"); }
+	let planningHost: FanoutExecutionPacket["planningHost"] | undefined;
+	if (!exact(value.planningHost, ["platform"]) || !platform(value.planningHost.platform)) add(errors, "invalid-planning-host", "planningHost must contain a supported platform", "planningHost");
+	else planningHost = { platform: value.planningHost.platform };
+	let planningBase: FanoutExecutionPacket["planningBase"] | undefined;
+	try {
+		if (!exact(value.planningBase, ["headCommit", "tree"])) throw new TypeError("planningBase must contain headCommit and tree only");
+		planningBase = { headCommit: parseGitCommitId(value.planningBase.headCommit), tree: parseGitTreeId(value.planningBase.tree) };
+	} catch (error) { add(errors, "invalid-planning-base", message(error), "planningBase"); }
+	const objective = text(value.objective, "objective", errors);
+	const userContext = strings(value.userContext, "userContext", errors);
+	const discoveredRepoFacts = strings(value.discoveredRepoFacts, "discoveredRepoFacts", errors);
+	const assumptions = strings(value.assumptions, "assumptions", errors);
+	const tierPlan = parseTierPlan(value.tierPlan, errors);
+	const runtimePolicy = parseRuntimePolicy(value.runtimePolicy, errors);
+	const nodes = parseNodes(value.nodes, errors);
+	if (tierPlan) validateTierAssignments(nodes, tierPlan, errors);
+	const validated = validateWorkContractNodes(nodes.map(({ id, kind, workContract }) => ({ id, kind, workContract })));
+	errors.push(...validated.errors);
+	if (nodes.filter((node) => node.kind === "final-validation").length !== 1) add(errors, "final-validation-count", "exactly one final-validation node is required", "nodes");
+	if (errors.length || !sourceArtifacts || !planningHost || !planningBase || !tierPlan || !runtimePolicy || !validated.graph) return { ok: false, executable: false, errors, warnings: [] };
+	const packet: FanoutExecutionPacket = { schema: EXECUTION_PACKET_SCHEMA, version: EXECUTION_PACKET_VERSION, createdAt: value.createdAt as string, sourceArtifacts, planningHost, planningBase, objective, userContext, discoveredRepoFacts, assumptions, tierPlan, runtimePolicy, nodes };
+	return { ok: true, executable: true, errors: [], warnings: [], packet, graph: validated.graph };
+}
 
-	if (Array.isArray(packet.finalValidationPlan)) {
-		for (const [index, value] of packet.finalValidationPlan.entries()) {
-			if (typeof value !== "string") continue;
-			if (value.includes("`")) add(errors, "markdown-command", "finalValidationPlan commands must be literal shell commands without Markdown backticks", `finalValidationPlan[${index}]`);
-			if (looksLikeValidationProse(value)) add(errors, "non-executable-command", "finalValidationPlan entries must be executable shell commands, not validation prose", `finalValidationPlan[${index}]`);
-			const unsafe = unsafeCommand(value);
-			if (unsafe) add(errors, "unsafe-command", `finalValidationPlan contains unsafe command pattern: ${unsafe}`, `finalValidationPlan[${index}]`);
-		}
-	}
-
-	if (Array.isArray(packet.blockers) && packet.blockers.length > 0) add(errors, "ready-has-blockers", "ready packets cannot have blockers", "blockers");
-
-	if (!isRecord(packet.estimates)) {
-		add(errors, "missing-estimates", "estimates object is required", "estimates");
-	} else {
-		for (const key of ["activeWait", "backgroundCompletion", "cost"]) if (!nonEmptyString(packet.estimates[key])) add(errors, "invalid-estimate", `estimates.${key} is required`, `estimates.${key}`);
-		requireStringArray(packet.estimates, "criticalPath", errors, "estimates.criticalPath");
-		requireStringMatrix(packet.estimates, "parallelGroups", errors, "estimates.parallelGroups");
-	}
-
-	if (!Array.isArray(packet.workUnits)) {
-		add(errors, "missing-work-units", "workUnits array is required", "workUnits");
-		return finish(packet, errors, warnings);
-	}
-	if (packet.workUnits.length === 0) add(errors, "ready-without-work", "ready packets need at least one work unit", "workUnits");
-
-	const workUnits: FanoutWorkUnit[] = [];
-	const ids = new Set<string>();
-	for (const [index, unit] of packet.workUnits.entries()) {
-		const path = `workUnits[${index}]`;
-		if (!isRecord(unit)) {
-			add(errors, "work-unit-not-object", "work unit must be an object", path);
-			continue;
-		}
-		const rawId = typeof unit.id === "string" ? unit.id : "";
-		const id = rawId.trim();
-		if (!id) add(errors, "missing-unit-id", "work unit id is required", `${path}.id`);
-		else if (rawId !== id) add(errors, "noncanonical-unit-id", "work unit id must not have leading or trailing whitespace", `${path}.id`, id);
-		else if (ids.has(id)) add(errors, "duplicate-unit-id", `duplicate work unit id: ${id}`, `${path}.id`, id);
-		else ids.add(id);
-		if (!nonEmptyString(unit.goal)) add(errors, "missing-unit-goal", "work unit goal is required", `${path}.goal`, id || undefined);
-		const kind = typeof unit.kind === "string" ? unit.kind : "";
-		if (!VALID_KINDS.has(kind)) add(errors, "invalid-kind", `kind must be one of ${Array.from(VALID_KINDS).join(", ")}`, `${path}.kind`, id || undefined);
-		validateTierAssignment(unit.tier, `${path}.tier`, errors, id || undefined);
-		validateWorkerPacket(unit.workerPacket, `${path}.workerPacket`, errors, id || undefined);
-
-		const dependencies = stringArray(unit.dependencies, errors, `${path}.dependencies`, "dependencies", id);
-		if (Array.isArray(unit.dependencies)) for (const [dependencyIndex, dependency] of unit.dependencies.entries()) {
-			if (typeof dependency === "string" && dependency !== dependency.trim()) add(errors, "noncanonical-dependency", "dependency ids must not have leading or trailing whitespace", `${path}.dependencies[${dependencyIndex}]`, id || undefined);
-		}
-		const ownedFiles = stringArray(unit.ownedFiles, errors, `${path}.ownedFiles`, "ownedFiles", id);
-		const readOnlyFiles = stringArray(unit.readOnlyFiles, errors, `${path}.readOnlyFiles`, "readOnlyFiles", id);
-		const steps = stringArray(unit.steps, errors, `${path}.steps`, "steps", id);
-		const validationCommands = stringArray(unit.validationCommands, errors, `${path}.validationCommands`, "validationCommands", id);
-		const acceptanceCriteria = stringArray(unit.acceptanceCriteria, errors, `${path}.acceptanceCriteria`, "acceptanceCriteria", id);
-		const rollbackNotes = stringArray(unit.rollbackNotes, errors, `${path}.rollbackNotes`, "rollbackNotes", id);
-		for (const [field, values] of [["ownedFiles", ownedFiles], ["readOnlyFiles", readOnlyFiles]] as const) for (const [valueIndex, value] of values.entries()) {
-			if (value.includes("`")) add(errors, "markdown-path", `${field} entries must be bare repository paths without Markdown backticks`, `${path}.${field}[${valueIndex}]`, id || undefined);
-		}
-
-		if (unit.active !== undefined && (typeof unit.active !== "string" || !VALID_ACTIVE_STATES.has(unit.active))) add(errors, "invalid-active-state", "active must be active or background", `${path}.active`, id || undefined);
-		if (ownedFiles.length > 0 && validationCommands.length === 0) add(errors, "missing-validation", "work units that own files need validationCommands", `${path}.validationCommands`, id || undefined);
-		if (acceptanceCriteria.length === 0) add(errors, "missing-acceptance", "work units need acceptanceCriteria", `${path}.acceptanceCriteria`, id || undefined);
-
-		for (const [field, values] of [["steps", steps], ["validationCommands", validationCommands]] as const) {
-			for (const value of values) {
-				if (field === "validationCommands" && value.includes("`")) add(errors, "markdown-command", "validationCommands must be literal shell commands without Markdown backticks", `${path}.${field}`, id || undefined);
-				if (field === "validationCommands" && looksLikeValidationProse(value)) add(errors, "non-executable-command", "validationCommands must be executable shell commands, not validation prose", `${path}.${field}`, id || undefined);
-				const unsafe = unsafeCommand(value);
-				if (unsafe) add(errors, "unsafe-command", `${field} contains unsafe command pattern: ${unsafe}`, `${path}.${field}`, id || undefined);
-			}
-		}
-
-		if (id) workUnits.push({ id, kind: kind as WorkUnitKind, goal: typeof unit.goal === "string" ? unit.goal : "", dependencies, ownedFiles, readOnlyFiles, steps, validationCommands, acceptanceCriteria, rollbackNotes, tier: unit.tier as WorkUnitTierAssignment, workerPacket: unit.workerPacket as WorkerPacket, active: unit.active as WorkActiveState | undefined });
-	}
-
-	const byId = new Map(workUnits.map((unit) => [unit.id, unit]));
-	for (const unit of workUnits) for (const dependency of unit.dependencies) if (!byId.has(dependency)) add(errors, "missing-dependency", `${unit.id} depends on missing unit ${dependency}`, `workUnits.${unit.id}.dependencies`, unit.id);
-
-	const graph = buildExecutionGraph(workUnits);
-	if (graph.topologicalOrder.length !== workUnits.length) add(errors, "cycle", "work unit dependencies contain a cycle", "workUnits");
-	checkOwnershipConflicts(workUnits, graph, errors, warnings);
-	checkEstimateGraph(packet, graph, errors);
-	checkTierPolicy(workUnits, packet.tierPlan, errors, warnings);
-
-	return finish(packet, errors, warnings, graph);
+export function deriveExecutionGraph(packet: FanoutExecutionPacket): WorkContractGraph {
+	const result = validateWorkContractNodes(packet.nodes.map(({ id, kind, workContract }) => ({ id, kind, workContract })));
+	if (!result.graph) throw new Error(result.errors.map((issue) => issue.message).join("; "));
+	return result.graph;
 }
 
 export function formatPacketValidationResult(result: PacketValidationResult): string {
 	const lines = [`valid=${result.ok}`, `executable=${result.executable}`];
-	if (result.errors.length) {
-		lines.push("errors:");
-		for (const issue of result.errors) lines.push(`- ${issue.code}: ${issue.message}${issue.path ? ` (${issue.path})` : ""}`);
-	}
-	if (result.warnings.length) {
-		lines.push("warnings:");
-		for (const issue of result.warnings) lines.push(`- ${issue.code}: ${issue.message}${issue.path ? ` (${issue.path})` : ""}`);
-	}
-	if (result.graph) {
-		lines.push(`topologicalOrder=${result.graph.topologicalOrder.join(" -> ")}`);
-		lines.push(`parallelGroups=${result.graph.parallelGroups.map((group) => `[${group.join(", ")}]`).join(" ")}`);
-	}
+	if (result.errors.length) lines.push("errors:", ...result.errors.map((issue) => `- ${issue.code}: ${issue.message}${issue.path ? ` (${issue.path})` : ""}`));
 	return `${lines.join("\n")}\n`;
 }
 
-export function writeExecutionPacketArtifacts(packet: FanoutExecutionPacket, outDir: string, options: { activePointerPath?: string } = {}) {
-	const validation = validateExecutionPacket(packet);
-	if (!validation.ok) throw new Error(formatPacketValidationResult(validation));
-
-	mkdirSync(outDir, { recursive: true });
-	const packetPath = join(outDir, "execution-packet.json");
-	const planPath = join(outDir, "execution-plan.md");
-	const dagPath = join(outDir, "execution-dag.mmd");
-	writeFileSync(packetPath, `${JSON.stringify(packet, null, 2)}\n`, "utf8");
-	writeFileSync(planPath, renderExecutionPlanMarkdown(packet, validation, outDir), "utf8");
-	writeFileSync(dagPath, renderExecutionDagMermaid(packet, validation), "utf8");
-
-	let activePointerPath: string | undefined;
-	if (options.activePointerPath && validation.executable) {
-		activePointerPath = options.activePointerPath;
-		mkdirSync(dirname(activePointerPath), { recursive: true });
-		writeFileSync(activePointerPath, `${JSON.stringify({ schema: ACTIVE_PACKET_SCHEMA, version: 1, updatedAt: new Date().toISOString(), packetPath: resolve(packetPath) }, null, 2)}\n`, "utf8");
-	}
-
-	return { packetPath, planPath, dagPath, activePointerPath, validation };
-}
-
-export function renderExecutionPlanMarkdown(packet: FanoutExecutionPacket, validation = validateExecutionPacket(packet), artifactDir = packet.artifactDir): string {
-	return `# Fanout Execution Plan
-
-\`\`\`text
-Fanout plan ${validation.executable ? "ready ✅" : "not executable"}
-Artifacts: ${artifactDir}
-\`\`\`
-
-## Tier/model plan
-
-\`\`\`text
-${renderTierPlan(packet)}\`\`\`
-
-## Execution flow
-
-\`\`\`text
-${renderAsciiDag(packet, validation)}\`\`\`
-
-## Files
-
-${renderFilesSection(packet)}
-
-## Metrics
-
-\`\`\`text
-${renderMetrics(packet, validation)}\`\`\`
-
-## Context
-
-### User context
-${bullets(packet.userContext)}
-
-### Discovered repo facts
-${bullets(packet.discoveredRepoFacts)}
-
-### Assumptions
-${bullets(packet.assumptions)}
-
-## Stop rules
-${bullets(packet.stopRules)}
-
-## Risks
-${bullets(packet.risks)}
-
-## Final validation plan
-${bullets(packet.finalValidationPlan)}
-
-## Validator output
-
-\`\`\`text
-${formatPacketValidationResult(validation).trim()}
-\`\`\`
-`;
-}
-
-export function renderExecutionDagMermaid(packet: FanoutExecutionPacket, validation = validateExecutionPacket(packet)): string {
-	const units = packet.workUnits;
-	const ids = new Map(units.map((unit, index) => [unit.id, `n${index}`]));
-	const lines = ["flowchart TD"];
-	for (const unit of units) lines.push(`  ${ids.get(unit.id)}["${escapeMermaid(unit.id)}: ${escapeMermaid(unit.goal)}\\n${escapeMermaid(unit.tier.assigned)} ${escapeMermaid(unit.tier.model)}"]`);
-	const edges = validation.graph?.edges ?? units.flatMap((unit) => unit.dependencies.map((dependency) => [dependency, unit.id] as [string, string]));
-	for (const [from, to] of edges) {
-		const fromId = ids.get(from);
-		const toId = ids.get(to);
-		if (fromId && toId) lines.push(`  ${fromId} --> ${toId}`);
-	}
-	return `${lines.join("\n")}\n`;
-}
-
-function validateTierPlan(value: unknown, errors: PacketValidationIssue[]): void {
-	if (!isRecord(value)) {
-		add(errors, "missing-tier-plan", "tierPlan object is required", "tierPlan");
-		return;
-	}
-	validateTierSummary(value.tier1, "tierPlan.tier1", errors);
-	validateTierSummary(value.tier2, "tierPlan.tier2", errors);
-	validateTierSummary(value.tier2Fallback, "tierPlan.tier2Fallback", errors);
-	if (isRecord(value.tier1) && value.tier1.status !== "available") add(errors, "tier1-unavailable", "tier1 is required and must be available", "tierPlan.tier1.status");
-	if (isRecord(value.tier2Fallback) && value.tier2Fallback.status !== "available") add(errors, "tier2-fallback-unavailable", "tier2Fallback is required and must be available", "tierPlan.tier2Fallback.status");
-}
-
-function validateTierSummary(value: unknown, path: string, errors: PacketValidationIssue[]): void {
-	if (!isRecord(value)) {
-		add(errors, "invalid-tier-summary", `${path} must be an object`, path);
-		return;
-	}
-	for (const key of ["provider", "model", "thinking", "source", "reason"]) if (!nonEmptyString(value[key])) add(errors, "invalid-tier-summary", `${path}.${key} is required`, `${path}.${key}`);
-	if (typeof value.status !== "string" || !VALID_TIER_STATUSES.has(value.status)) add(errors, "invalid-tier-status", `${path}.status must be available or unavailable`, `${path}.status`);
-}
-
-function validateTierAssignment(value: unknown, path: string, errors: PacketValidationIssue[], unitId?: string): void {
-	if (!isRecord(value)) {
-		add(errors, "missing-tier", "work unit tier object is required", path, unitId);
-		return;
-	}
-	for (const key of ["preferred", "assigned", "fallback"]) if (typeof value[key] !== "string" || !VALID_TIERS.has(value[key])) add(errors, "invalid-tier", `${path}.${key} must be tier1 or tier2`, `${path}.${key}`, unitId);
-	for (const key of ["provider", "model", "thinking", "reason"]) if (!nonEmptyString(value[key])) add(errors, "invalid-tier", `${path}.${key} is required`, `${path}.${key}`, unitId);
-}
-
-function validateWorkerPacket(value: unknown, path: string, errors: PacketValidationIssue[], unitId?: string): void {
-	if (!isRecord(value)) {
-		add(errors, "missing-worker-packet", "work unit workerPacket object is required", path, unitId);
-		return;
-	}
-	const requiredNonEmpty = new Set(["sourcePlanIds", "requiredChanges", "contractInputs"]);
-	for (const key of ["sourcePlanIds", "targetAnchors", "requiredChanges", "contractInputs", "readDependencies", "forbiddenChanges", "handoffContext"] as const) {
-		const values = stringArray(value[key], errors, `${path}.${key}`, key, unitId);
-		if (requiredNonEmpty.has(key) && values.length === 0) add(errors, "invalid-worker-packet", `${path}.${key} must not be empty`, `${path}.${key}`, unitId);
-	}
-}
-
-function checkTierPolicy(workUnits: FanoutWorkUnit[], tierPlan: unknown, errors: PacketValidationIssue[], warnings: PacketValidationIssue[]): void {
-	const tier2Available = isRecord(tierPlan) && isRecord(tierPlan.tier2) && tierPlan.tier2.status === "available";
-	for (const unit of workUnits) {
-		if (!isRecord(unit.tier)) continue;
-		if (!tier2Available && unit.tier.assigned === "tier2") add(errors, "tier2-unavailable-assignment", `${unit.id} is assigned to tier2 but tier2 is unavailable`, `workUnits.${unit.id}.tier`, unit.id);
-		if (unit.tier.assigned === "tier2" && !TIER2_ELIGIBLE_KINDS.has(unit.kind)) add(errors, "tier2-ineligible-kind", `${unit.kind} nodes must run on tier1`, `workUnits.${unit.id}.tier`, unit.id);
-		if (unit.tier.preferred === "tier2" && unit.tier.assigned === "tier1" && tier2Available) add(warnings, "tier2-candidate-on-tier1", `${unit.id} preferred tier2 but is assigned tier1 while tier2 is available`, `workUnits.${unit.id}.tier`, unit.id);
-		const expected = isRecord(tierPlan)
-			? unit.tier.assigned === "tier2"
-				? tierPlan.tier2
-				: unit.tier.preferred === "tier2"
-					? tierPlan.tier2Fallback
-					: tierPlan.tier1
-			: undefined;
-		if (isRecord(expected) && ["provider", "model", "thinking"].some((key) => unit.tier[key] !== expected[key])) add(errors, "tier-model-mismatch", `${unit.id} does not use the concrete model for its assigned role`, `workUnits.${unit.id}.tier`, unit.id);
-	}
-}
-
-function finish(packet: Record<string, unknown>, errors: PacketValidationIssue[], warnings: PacketValidationIssue[], graph?: ExecutionGraph): PacketValidationResult {
-	const ok = errors.length === 0;
-	return { ok, executable: ok, errors, warnings, graph };
-}
-
-export function buildExecutionGraph(workUnits: FanoutWorkUnit[]): ExecutionGraph {
-	const nodes = workUnits.map((unit) => unit.id);
-	const nodeSet = new Set(nodes);
-	const edges: Array<[string, string]> = [];
-	const adjacency = new Map(nodes.map((id) => [id, [] as string[]]));
-	const indegree = new Map(nodes.map((id) => [id, 0]));
-
-	for (const unit of workUnits) for (const dependency of unit.dependencies) if (nodeSet.has(dependency)) {
-		edges.push([dependency, unit.id]);
-		adjacency.get(dependency)?.push(unit.id);
-		indegree.set(unit.id, (indegree.get(unit.id) ?? 0) + 1);
-	}
-
-	const topologicalOrder: string[] = [];
-	const parallelGroups: string[][] = [];
-	let ready = nodes.filter((id) => (indegree.get(id) ?? 0) === 0);
-	while (ready.length) {
-		parallelGroups.push(ready);
-		topologicalOrder.push(...ready);
-		const next: string[] = [];
-		for (const id of ready) for (const child of adjacency.get(id) ?? []) {
-			const count = (indegree.get(child) ?? 0) - 1;
-			indegree.set(child, count);
-			if (count === 0) next.push(child);
-		}
-		ready = next;
-	}
-
-	const distance = new Map(nodes.map((id) => [id, 1]));
-	const parent = new Map<string, string>();
-	for (const id of topologicalOrder) for (const child of adjacency.get(id) ?? []) {
-		const candidate = (distance.get(id) ?? 1) + 1;
-		if (candidate > (distance.get(child) ?? 1)) {
-			distance.set(child, candidate);
-			parent.set(child, id);
-		}
-	}
-	let tail = topologicalOrder[0];
-	for (const id of topologicalOrder) if ((distance.get(id) ?? 0) > (distance.get(tail) ?? 0)) tail = id;
-	const criticalPath: string[] = [];
-	while (tail) {
-		criticalPath.unshift(tail);
-		const next = parent.get(tail);
-		if (!next) break;
-		tail = next;
-	}
-
-	return { nodes, edges, topologicalOrder, parallelGroups, criticalPath };
-}
-
-function checkOwnershipConflicts(workUnits: FanoutWorkUnit[], graph: ExecutionGraph, errors: PacketValidationIssue[], warnings: PacketValidationIssue[]): void {
-	const owned = workUnits.flatMap((unit) => unit.ownedFiles.map(normalizeFile).filter(Boolean).map((file) => ({ unit, file })));
-	for (let i = 0; i < owned.length; i++) for (let j = i + 1; j < owned.length; j++) {
-		const a = owned[i];
-		const b = owned[j];
-		if (a.unit.id !== b.unit.id && pathsOverlap(a.file, b.file) && !hasPath(graph, a.unit.id, b.unit.id) && !hasPath(graph, b.unit.id, a.unit.id)) add(errors, "ownership-conflict", `${a.file} and ${b.file} are owned by parallel units ${a.unit.id} and ${b.unit.id}`, "workUnits", `${a.unit.id},${b.unit.id}`);
-	}
-
-	for (const owner of workUnits) {
-		const ownedFiles = owner.ownedFiles.map(normalizeFile).filter(Boolean);
-		for (const reader of workUnits) {
-			if (owner.id === reader.id) continue;
-			for (const readOnlyFile of reader.readOnlyFiles.map(normalizeFile).filter(Boolean)) if (ownedFiles.some((ownedFile) => pathsOverlap(ownedFile, readOnlyFile)) && !hasPath(graph, owner.id, reader.id) && !hasPath(graph, reader.id, owner.id) && !hasBaselineContextRead(reader, readOnlyFile)) add(warnings, "read-write-overlap", `${readOnlyFile} is read by ${reader.id} while overlapping owned files from parallel unit ${owner.id}`, "workUnits", reader.id);
-		}
-	}
-}
-
-function hasBaselineContextRead(unit: FanoutWorkUnit, file: string): boolean {
-	const readDependencies = Array.isArray(unit.workerPacket?.readDependencies) ? unit.workerPacket.readDependencies : [];
-	return readDependencies.some((dependency) => {
-		if (typeof dependency !== "string") return false;
-		const marker = " (baseline-context)";
-		const index = dependency.indexOf(marker);
-		return index > 0 && pathsOverlap(normalizeFile(dependency.slice(0, index)), file);
+function parseNodes(value: unknown, errors: WorkContractIssue[]): FanoutPacketNode[] {
+	if (!Array.isArray(value) || !value.length) { add(errors, "invalid-node-list", "nodes must be a non-empty array", "nodes"); return []; }
+	return value.flatMap((item, index) => {
+		const path = `nodes[${index}]`;
+		if (!record(item)) { add(errors, "invalid-node", "node must be an object", path); return []; }
+		unknown(item, NODE_FIELDS, path, errors);
+		const id = text(item.id, `${path}.id`, errors, true);
+		if (!VALID_KINDS.has(item.kind as WorkUnitKind)) add(errors, "invalid-kind", "node kind is unsupported", `${path}.kind`);
+		if (item.active !== "active" && item.active !== "background") add(errors, "invalid-active", "active must be active or background", `${path}.active`);
+		const tier = parseTierAssignment(item.tier, `${path}.tier`, errors);
+		if (!record(item.workContract)) add(errors, "invalid-work-contract", "node workContract must be an object", `${path}.workContract`);
+		return tier && record(item.workContract) ? [{ id, kind: item.kind as WorkUnitKind, tier, active: item.active as WorkActiveState, workContract: item.workContract as unknown as WorkContract }] : [];
 	});
 }
 
-function hasPath(graph: ExecutionGraph, from: string, to: string): boolean {
-	const adjacency = new Map<string, string[]>();
-	for (const [edgeFrom, edgeTo] of graph.edges) {
-		const list = adjacency.get(edgeFrom) ?? [];
-		list.push(edgeTo);
-		adjacency.set(edgeFrom, list);
+function parseTierPlan(value: unknown, errors: WorkContractIssue[]): FanoutTierPlan | undefined {
+	if (!exact(value, ["tier1", "tier2", "tier2Fallback"])) { add(errors, "invalid-tier-plan", "tierPlan must contain tier1, tier2, and tier2Fallback only", "tierPlan"); return; }
+	const tier1 = summary(value.tier1, "tierPlan.tier1", errors);
+	const tier2 = summary(value.tier2, "tierPlan.tier2", errors, true);
+	const tier2Fallback = summary(value.tier2Fallback, "tierPlan.tier2Fallback", errors);
+	if (tier1?.status !== "available" || tier2Fallback?.status !== "available") add(errors, "unavailable-required-tier", "tier1 and tier2Fallback must be available", "tierPlan");
+	if ((tier2?.status === "unavailable" && tier2.fallback !== "tier1") || (tier2?.status === "available" && tier2.fallback !== undefined)) add(errors, "invalid-tier-fallback-policy", "tier2 must name tier1 fallback exactly when unavailable", "tierPlan.tier2.fallback");
+	return tier1 && tier2 && tier2Fallback ? { tier1, tier2, tier2Fallback } : undefined;
+}
+
+function parseRuntimePolicy(value: unknown, errors: WorkContractIssue[]): FanoutRuntimePolicy | undefined {
+	if (!exact(value, ["maxConcurrency", "failFast", "fallbackAllowed"])) { add(errors, "invalid-runtime-policy", "runtimePolicy must contain maxConcurrency, failFast, and fallbackAllowed only", "runtimePolicy"); return; }
+	if (!Number.isSafeInteger(value.maxConcurrency) || (value.maxConcurrency as number) < 1) add(errors, "invalid-runtime-policy", "maxConcurrency must be a positive safe integer", "runtimePolicy.maxConcurrency");
+	if (typeof value.failFast !== "boolean" || typeof value.fallbackAllowed !== "boolean") add(errors, "invalid-runtime-policy", "failFast and fallbackAllowed must be booleans", "runtimePolicy");
+	return { maxConcurrency: value.maxConcurrency as number, failFast: value.failFast as boolean, fallbackAllowed: value.fallbackAllowed as boolean };
+}
+
+function summary(value: unknown, path: string, errors: WorkContractIssue[], fallback = false): TierModelSummary & { fallback?: TierName } | undefined {
+	if (!record(value)) { add(errors, "invalid-tier-summary", "tier summary must be an object", path); return; }
+	unknown(value, SUMMARY_FIELDS, path, errors);
+	const result = { provider: text(value.provider, `${path}.provider`, errors), model: text(value.model, `${path}.model`, errors), thinking: text(value.thinking, `${path}.thinking`, errors), source: text(value.source, `${path}.source`, errors), status: value.status as TierStatus, reason: text(value.reason, `${path}.reason`, errors) };
+	if (value.status !== "available" && value.status !== "unavailable") add(errors, "invalid-tier-status", "tier status must be available or unavailable", `${path}.status`);
+	if (value.fallback !== undefined && (!fallback || (value.fallback !== "tier1" && value.fallback !== "tier2"))) add(errors, "invalid-tier-fallback", "tier fallback is invalid", `${path}.fallback`);
+	return { ...result, ...(value.fallback === undefined ? {} : { fallback: value.fallback as TierName }) };
+}
+
+function parseTierAssignment(value: unknown, path: string, errors: WorkContractIssue[]): WorkUnitTierAssignment | undefined {
+	if (!record(value)) { add(errors, "invalid-tier-assignment", "tier assignment must be an object", path); return; }
+	unknown(value, ASSIGNMENT_FIELDS, path, errors);
+	for (const field of ["preferred", "assigned", "fallback"] as const) if (value[field] !== "tier1" && value[field] !== "tier2") add(errors, "invalid-tier-assignment", `${field} must be tier1 or tier2`, `${path}.${field}`);
+	return { preferred: value.preferred as TierName, assigned: value.assigned as TierName, fallback: value.fallback as TierName, provider: text(value.provider, `${path}.provider`, errors), model: text(value.model, `${path}.model`, errors), thinking: text(value.thinking, `${path}.thinking`, errors), reason: text(value.reason, `${path}.reason`, errors) };
+}
+
+function validateTierAssignments(nodes: readonly FanoutPacketNode[], plan: FanoutTierPlan, errors: WorkContractIssue[]): void {
+	for (const [index, node] of nodes.entries()) {
+		const path = `nodes[${index}]`;
+		if (node.tier.preferred !== "tier1" && node.tier.preferred !== "tier2") continue;
+		const expected = deriveTierAssignment(derivePreferredTier(node.kind), plan);
+		if (JSON.stringify(node.tier) !== JSON.stringify(expected)) add(errors, "tier-assignment-plan-mismatch", "node tier assignment does not match the admitted tier plan", `${path}.tier`);
+		const expectedActive: WorkActiveState = expected.assigned === "tier2" ? "background" : "active";
+		if (node.active !== expectedActive) add(errors, "tier-active-mismatch", `node active state must be ${expectedActive} for ${expected.assigned}`, `${path}.active`);
 	}
-	const seen = new Set<string>();
-	const stack = [from];
-	while (stack.length) {
-		const id = stack.pop();
-		if (!id || seen.has(id)) continue;
-		if (id === to) return true;
-		seen.add(id);
-		stack.push(...(adjacency.get(id) ?? []));
-	}
-	return false;
 }
 
-function stringArray(value: unknown, errors: PacketValidationIssue[], path: string, field: string, unitId?: string): string[] {
-	if (!Array.isArray(value)) {
-		add(errors, "invalid-string-array", `${field} must be an array of strings`, path, unitId);
-		return [];
-	}
-	const result: string[] = [];
-	for (const [index, item] of value.entries()) {
-		if (typeof item !== "string") add(errors, "invalid-string-array", `${field} item must be a string`, `${path}[${index}]`, unitId);
-		else result.push(item.trim());
-	}
-	return result.filter(Boolean);
-}
-
-function requireStringArray(record: Record<string, unknown>, key: string, errors: PacketValidationIssue[], path = key): void {
-	stringArray(record[key], errors, path, key);
-}
-
-function requireStringMatrix(record: Record<string, unknown>, key: string, errors: PacketValidationIssue[], path = key): void {
-	const value = record[key];
-	if (!Array.isArray(value)) {
-		add(errors, "invalid-string-matrix", `${key} must be an array of string arrays`, path);
-		return;
-	}
-	for (const [index, item] of value.entries()) stringArray(item, errors, `${path}[${index}]`, key);
-}
-
-function isStringArray(value: unknown): value is string[] {
-	return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
-
-function isStringMatrix(value: unknown): value is string[][] {
-	return Array.isArray(value) && value.every(isStringArray);
-}
-
-function sameStringArray(left: string[], right: string[]): boolean {
-	return left.length === right.length && left.every((value, index) => value === right[index]);
-}
-
-function sameStringMatrix(left: string[][], right: string[][]): boolean {
-	return left.length === right.length && left.every((group, index) => sameStringArray(group, right[index] ?? []));
-}
-
-function checkEstimateGraph(packet: Record<string, unknown>, graph: ExecutionGraph, errors: PacketValidationIssue[]): void {
-	if (!isRecord(packet.estimates)) return;
-	if (isStringArray(packet.estimates.criticalPath) && !sameStringArray(packet.estimates.criticalPath, graph.criticalPath)) add(errors, "critical-path-mismatch", "estimates.criticalPath must match the computed DAG critical path", "estimates.criticalPath");
-	if (isStringMatrix(packet.estimates.parallelGroups) && !sameStringMatrix(packet.estimates.parallelGroups, graph.parallelGroups)) add(errors, "parallel-groups-mismatch", "estimates.parallelGroups must match the computed DAG parallel groups", "estimates.parallelGroups");
-}
-
-function renderTierPlan(packet: FanoutExecutionPacket): string {
-	const lines = [
-		"Tier/model plan",
-		"===============",
-		"",
-		"Tier1 realtime control plane",
-		...tierLines(packet.tierPlan.tier1),
-		"",
-		"Tier2 async workers",
-		...tierLines(packet.tierPlan.tier2),
-		"",
-		"Tier2 fallback realtime execution",
-		...tierLines(packet.tierPlan.tier2Fallback),
-	];
-	return `${lines.join("\n")}\n`;
-}
-
-function tierLines(tier: TierModelSummary & { fallback?: string }): string[] {
-	const lines = [`  provider : ${tier.provider}`, `  model    : ${tier.model}`, `  thinking : ${tier.thinking}`, `  source   : ${tier.source}`, `  status   : ${tier.status}`, `  reason   : ${tier.reason}`];
-	if (tier.fallback) lines.push(`  fallback : ${tier.fallback}`);
-	return lines;
-}
-
-function renderAsciiDag(packet: FanoutExecutionPacket, validation: PacketValidationResult): string {
-	const graph = validation.graph;
-	if (!graph || packet.workUnits.length === 0) return "Execution flow\n==============\n\n(no executable work units)\n";
-	const units = new Map(packet.workUnits.map((unit) => [unit.id, unit]));
-	const lines = ["Execution flow", "==============", ""];
-	let connectorAlreadyDrawn = false;
-	graph.parallelGroups.forEach((group, groupIndex) => {
-		const groupUnits = group.map((id) => units.get(id)).filter((unit): unit is FanoutWorkUnit => Boolean(unit));
-		if (groupUnits.length === 0) return;
-		if (groupIndex > 0 && !connectorAlreadyDrawn) {
-			const previousGroup = graph.parallelGroups[groupIndex - 1] ?? [];
-			if (groupUnits.length > 1 && previousGroup.length === 1 && hasEdgesToAll(graph, previousGroup[0], group)) lines.push(...branchConnector(groupUnits, "fork"));
-			else if (groupUnits.length === 1) lines.push("        |", "        v");
-			else lines.push("");
-		}
-		connectorAlreadyDrawn = false;
-		if (groupUnits.length > 1) lines.push(...boxNodeRow(groupUnits), "");
-		else lines.push(...boxNode(groupUnits[0]), "");
-		const nextGroup = graph.parallelGroups[groupIndex + 1] ?? [];
-		if (groupUnits.length > 1 && nextGroup.length === 1 && hasEdgesFromAll(graph, group, nextGroup[0])) {
-			lines.push(...branchConnector(groupUnits, "join"));
-			connectorAlreadyDrawn = true;
-		}
-	});
-	return `${lines.join("\n").trimEnd()}\n`;
-}
-
-function hasEdgesFromAll(graph: ExecutionGraph, fromIds: string[], toId: string): boolean {
-	return fromIds.every((id) => graph.edges.some(([from, to]) => from === id && to === toId));
-}
-
-function hasEdgesToAll(graph: ExecutionGraph, fromId: string, toIds: string[]): boolean {
-	return toIds.every((id) => graph.edges.some(([from, to]) => from === fromId && to === id));
-}
-
-function boxNodeRow(units: FanoutWorkUnit[]): string[] {
-	const boxes = units.map(boxNode);
-	return boxes[0].map((_, row) => boxes.map((box) => box[row]).join("   "));
-}
-
-function branchConnector(units: FanoutWorkUnit[], direction: "fork" | "join"): string[] {
-	const widths = units.map((unit) => boxNode(unit)[0].length);
-	const centers: number[] = [];
-	let offset = 0;
-	for (const width of widths) {
-		centers.push(offset + Math.floor(width / 2));
-		offset += width + 3;
-	}
-	const width = offset - 3;
-	const bar = Array(width).fill(" ");
-	for (let index = centers[0]; index <= centers.at(-1)!; index++) bar[index] = "-";
-	for (const center of centers) bar[center] = "+";
-	const stems = Array(width).fill(" ");
-	const arrows = Array(width).fill(" ");
-	for (const center of centers) {
-		stems[center] = "|";
-		arrows[center] = "v";
-	}
-	const middle = centeredLine(width, "|");
-	return direction === "fork"
-		? [middle, centeredLine(width, "v"), bar.join(""), stems.join(""), arrows.join("")]
-		: [stems.join(""), bar.join(""), middle, centeredLine(width, "v")];
-}
-
-function centeredLine(width: number, value: string): string {
-	const line = Array(Math.max(1, width)).fill(" ");
-	line[Math.floor(line.length / 2)] = value;
-	return line.join("").trimEnd();
-}
-
-function boxNode(unit: FanoutWorkUnit): string[] {
-	const content = [
-		`[${unit.id}] ${unit.kind}`,
-		`goal : ${shorten(unit.goal, 44)}`,
-		`tier : ${unit.tier.assigned} ${shorten(unit.tier.model, 32)}`,
-		`owns : ${shortPathList(unit.ownedFiles)}`,
-	];
-	const width = Math.max(...content.map((line) => line.length)) + 2;
-	const border = `+${"-".repeat(width)}+`;
-	return [border, ...content.map((line) => `| ${line.padEnd(width - 1)}|`), border];
-}
-
-function renderFilesSection(packet: FanoutExecutionPacket): string {
-	const files = fileSummary(packet);
-	return `### Planned writes\n${bullets(files.planned)}\n\n### External read-only context\n${bullets(files.externalReadOnly)}\n\n### Cross-unit reads of planned writes\n${bullets(files.crossUnitReads)}\n`;
-}
-
-function renderMetrics(packet: FanoutExecutionPacket, validation: PacketValidationResult): string {
-	const graph = validation.graph;
-	const files = fileSummary(packet);
-	const validationCommands = unique([...packet.finalValidationPlan, ...packet.workUnits.flatMap((unit) => unit.validationCommands)]);
-	const tier1 = packet.workUnits.filter((unit) => unit.tier.assigned === "tier1").length;
-	const tier2 = packet.workUnits.filter((unit) => unit.tier.assigned === "tier2").length;
-	return twoColumnMetrics([
-		["Work units", String(packet.workUnits.length)],
-		["DAG depth", String(graph?.criticalPath.length ?? 0)],
-		["Max parallel width", String(Math.max(0, ...(graph?.parallelGroups.map((group) => group.length) ?? [0])))],
-		["Planned write files", String(files.planned.length)],
-		["External read-only", String(files.externalReadOnly.length)],
-		["Cross-unit read refs", String(files.crossUnitReads.length)],
-		["Tier1 nodes", String(tier1)],
-		["Tier2 nodes", String(tier2)],
-		["Validation commands", String(validationCommands.length)],
-		["Active wait", packet.estimates.activeWait],
-		["Background work", packet.estimates.backgroundCompletion],
-		["Tier plan", tier2 > 0 ? "mixed" : "tier1"],
-		["Status", validation.executable ? "ready" : packet.status],
-	]);
-}
-
-function fileSummary(packet: FanoutExecutionPacket): { planned: string[]; externalReadOnly: string[]; crossUnitReads: string[] } {
-	const planned = uniqueRenderPaths(packet.workUnits.flatMap((unit) => unit.ownedFiles)).sort();
-	const overlapsPlanned = (file: string) => planned.some((owned) => pathsOverlap(normalizeFile(owned), normalizeFile(file)));
-	const externalReadOnly = uniqueRenderPaths(packet.workUnits.flatMap((unit) => unit.readOnlyFiles)).filter((file) => !overlapsPlanned(file)).sort();
-	const crossUnitReads = packet.workUnits.flatMap((unit) => uniqueRenderPaths(unit.readOnlyFiles)
-		.filter((file) => overlapsPlanned(file) && !unit.ownedFiles.some((owned) => pathsOverlap(normalizeFile(owned), normalizeFile(file))))
-		.map((file) => `${unit.id} reads ${file}`));
-	return { planned, externalReadOnly, crossUnitReads };
-}
-
-function uniqueRenderPaths(paths: string[]): string[] {
-	const seen = new Set<string>();
-	const result: string[] = [];
-	for (const path of paths) {
-		const normalized = normalizeFile(path);
-		if (!normalized || seen.has(normalized)) continue;
-		seen.add(normalized);
-		result.push(/[\\/]$/.test(path.trim()) ? `${normalized}/` : normalized);
-	}
-	return result;
-}
-
-function twoColumnMetrics(items: Array<[string, string]>): string {
-	const rows: string[] = [];
-	for (let index = 0; index < items.length; index += 2) {
-		const left = formatMetric(items[index]);
-		const right = items[index + 1] ? formatMetric(items[index + 1]) : "";
-		rows.push(`${left.padEnd(42)}${right}`.trimEnd());
-	}
-	return `${rows.join("\n")}\n`;
-}
-
-function formatMetric([label, value]: [string, string]): string {
-	return `${label.padEnd(21)}${value}`;
-}
-
-export function unsafeCommand(command: string): string | undefined {
-	for (const [name, pattern] of UNSAFE_COMMANDS) if (pattern.test(command)) return name;
-	return unsafeStructuredCommand(command);
-}
-
-function looksLikeValidationProse(value: string): boolean {
-	return /^(?:Run|Confirm|Review|Repeat|Exercise|Inspect|Ensure)\b/.test(value.trim());
-}
-
-function unsafeStructuredCommand(command: string): string | undefined {
-	const gitOptionsWithValue = new Set(["-C", "-c", "--config-env", "--exec-path", "--git-dir", "--namespace", "--work-tree"]);
-	for (const segment of command.split(/&&|\|\||[;|\n]/)) {
-		const tokens = segment.match(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\S+/g)?.map(shellToken) ?? [];
-		for (let commandIndex = 0; commandIndex < tokens.length; commandIndex++) {
-			const executable = executableName(tokens[commandIndex]);
-			if (executable === "sudo") return "sudo";
-			if (executable === "rm") {
-				const args = tokens.slice(commandIndex + 1);
-				const recursive = args.some((token) => token === "--recursive" || token.startsWith("--recursive=") || /^-[^-]*[rR]/.test(token));
-				const force = args.some((token) => token === "--force" || token.startsWith("--force=") || /^-[^-]*f/.test(token));
-				if (recursive && force) return "rm-recursive-force";
-			}
-			if (executable === "npm" && tokens.slice(commandIndex + 1).some((token) => token.toLowerCase() === "publish" || token.toLowerCase() === "pub")) return "npm-publish";
-			if (executable !== "git") continue;
-			let index = commandIndex + 1;
-			while (index < tokens.length && tokens[index].startsWith("-")) {
-				const option = tokens[index];
-				const name = option.split("=", 1)[0];
-				index += gitOptionsWithValue.has(name) && !option.includes("=") ? 2 : 1;
-			}
-			const subcommand = tokens[index]?.toLowerCase();
-			if (subcommand === "reset" && tokens.slice(index + 1).some((token) => token === "--hard" || token.startsWith("--hard="))) return "git-reset-hard";
-			if (subcommand === "clean") return "git-clean";
-			if (subcommand === "commit") return "git-commit";
-			if (subcommand === "push") return "git-push";
-		}
-	}
-	return undefined;
-}
-
-function shellToken(value: string): string {
-	return value.length >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) ? value.slice(1, -1) : value;
-}
-
-function executableName(value: string): string {
-	return value.replace(/\\/g, "/").split("/").at(-1)?.toLowerCase().replace(/\.(?:exe|cmd|bat)$/, "") ?? "";
-}
-
-function add(issues: PacketValidationIssue[], code: string, message: string, path?: string, unitId?: string): void {
-	issues.push({ code, message, path, unitId });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function nonEmptyString(value: unknown): value is string {
-	return typeof value === "string" && value.trim().length > 0;
-}
-
-function normalizeFile(file: string): string {
-	let normalized = file.trim().replace(/\\/g, "/");
-	while (normalized.startsWith("./")) normalized = normalized.slice(2);
-	return normalized.replace(/\/+$/g, "");
-}
-
-function pathsOverlap(left: string, right: string): boolean {
-	return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
-}
-
-function bullets(items: string[]): string {
-	return items.length ? items.map((item) => `- ${item}`).join("\n") : "- none";
-}
-
-function shortPathList(paths: string[]): string {
-	if (paths.length === 0) return "none";
-	const joined = paths.map((path) => shortenPath(path)).join(", ");
-	return shorten(joined, 44);
-}
-
-function shortenPath(path: string): string {
-	const parts = path.split("/");
-	if (parts.length <= 2) return path;
-	return `${parts[0]}/.../${parts.at(-1)}`;
-}
-
-function shorten(value: string, max: number): string {
-	return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}…`;
-}
-
-function unique(values: string[]): string[] {
-	return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
-}
-
-function escapeMermaid(value: string): string {
-	return value.replace(/["\\]/g, " ").replace(/\s+/g, " ").trim();
-}
+function strings(value: unknown, path: string, errors: WorkContractIssue[]): string[] { if (!Array.isArray(value)) { add(errors, "invalid-string-list", `${path} must be an array`, path); return []; } return value.map((item, index) => text(item, `${path}[${index}]`, errors)); }
+function text(value: unknown, path: string, errors: WorkContractIssue[], canonical = false): string { if (typeof value !== "string" || !value.trim() || /\p{Cc}/u.test(value) || canonical && value !== value.trim()) { add(errors, "invalid-text", `${path} must be non-empty without controls${canonical ? " and canonical" : ""}`, path); return "invalid"; } return value; }
+function timestamp(value: unknown): value is string { return typeof value === "string" && Number.isFinite(Date.parse(value)); }
+function platform(value: unknown): value is NodeJS.Platform { return typeof value === "string" && ["aix", "android", "darwin", "freebsd", "haiku", "linux", "openbsd", "sunos", "win32", "cygwin", "netbsd"].includes(value); }
+function exact(value: unknown, fields: string[]): value is Record<string, unknown> { return record(value) && Object.keys(value).length === fields.length && fields.every((field) => Object.hasOwn(value, field)); }
+function unknown(value: Record<string, unknown>, allowed: Set<string>, path: string, errors: WorkContractIssue[]): void { for (const field of Object.keys(value)) if (!allowed.has(field)) add(errors, "unknown-field", `unknown field ${field}`, path ? `${path}.${field}` : field); }
+function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
+function add(errors: WorkContractIssue[], code: string, message: string, path?: string): void { errors.push({ code, message, ...(path ? { path } : {}) }); }
+function failure(code: string, message: string): PacketValidationResult { return { ok: false, executable: false, errors: [{ code, message }], warnings: [] }; }
+function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }

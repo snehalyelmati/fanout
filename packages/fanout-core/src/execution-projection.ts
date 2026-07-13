@@ -16,6 +16,7 @@ import {
 	type RunPolicy,
 	type RunStartedPayload,
 } from "./execution-event.ts";
+import { FINAL_VALIDATION_NODE_ID } from "./work-contract-graph.ts";
 
 export const EXECUTION_PROJECTION_SCHEMA = "fanout.execution-run";
 export const EXECUTION_PROJECTION_VERSION = 2;
@@ -158,15 +159,16 @@ function applyConfirmation(state: ExecutionRunProjection, sequence: number, deci
 function applyAllocation(state: ExecutionRunProjection, sequence: number, allocation: AttemptAllocation): void {
 	if (state.mode !== "live" || state.preflight?.status !== "passed" || state.confirmation !== "accepted") throw new Error("attempt launch requires passed preflight and accepted live confirmation");
 	if (allocation.runId !== state.runId) throw new Error("attempt allocation belongs to another run");
-	const node = nodeById(state, allocation.nodeId);
-	const finalRepair = allocation.kind === "validation-repair" && node.id === "final-validation" && state.finalValidation.disposition === "running";
-	if (node.status !== "pending" && !(finalRepair && node.status === "succeeded")) throw new Error("completed node cannot allocate another attempt outside the running final-validation gate");
+	const finalRepair = allocation.kind === "validation-repair" && allocation.nodeId === FINAL_VALIDATION_NODE_ID && state.finalValidation.disposition === "running";
+	const node = finalRepair ? undefined : nodeById(state, allocation.nodeId);
+	if (node && node.status !== "pending") throw new Error("completed node cannot allocate another attempt outside the running final-validation gate");
 	if (state.attempts.some((attempt) => attempt.allocation.attemptId === allocation.attemptId)) throw new Error("attempt identity must be unique");
-	const budgets = state.budgets[allocation.nodeId];
+	const budgets = state.budgets[allocation.nodeId] ??= emptyBudgets();
 	const budgetName = KIND_BUDGET[allocation.kind];
-	if (allocation.attemptNumber !== node.attemptIds.length + 1 || allocation.budgetTransition.name !== budgetName || allocation.budgetTransition.before !== budgets[budgetName] || allocation.budgetTransition.after !== budgets[budgetName] + 1 || allocation.budgetTransition.limit !== BUDGET_LIMITS[budgetName]) throw new Error("attempt budget transition reset, overflow, or gap");
+	const nodeAttempts = state.attempts.filter((attempt) => attempt.allocation.nodeId === allocation.nodeId);
+	if (allocation.attemptNumber !== nodeAttempts.length + 1 || allocation.budgetTransition.name !== budgetName || allocation.budgetTransition.before !== budgets[budgetName] || allocation.budgetTransition.after !== budgets[budgetName] + 1 || allocation.budgetTransition.limit !== BUDGET_LIMITS[budgetName]) throw new Error("attempt budget transition reset, overflow, or gap");
 	const source = allocation.sourceAttemptId ? completedAttempt(state, allocation.sourceAttemptId) : undefined;
-	const latest = state.attempts.filter((attempt) => attempt.allocation.nodeId === allocation.nodeId).at(-1);
+	const latest = nodeAttempts.at(-1);
 	if (allocation.kind === "original") {
 		if (allocation.attemptNumber !== 1 || source || allocation.sourceFinalValidationEvidence) throw new Error("original attempt must be the first launch without a source");
 	} else if (allocation.sourceFinalValidationEvidence) {
@@ -177,9 +179,9 @@ function applyAllocation(state: ExecutionRunProjection, sequence: number, alloca
 	if (allocation.kind === "validation-repair" && ((!allocation.sourceFinalValidationEvidence && source?.outcome?.action !== "validation-repair") || allocation.assignment.tier !== "tier1")) throw new Error("validation repair causality is invalid");
 	if (allocation.kind === "integration-repair" && (source?.outcome?.action !== "integration-repair" || allocation.assignment.tier !== "tier1")) throw new Error("integration repair causality is invalid");
 	budgets[budgetName] = allocation.budgetTransition.after;
-	node.attemptIds.push(allocation.attemptId);
+	node?.attemptIds.push(allocation.attemptId);
 	state.attempts.push({ allocationSequence: sequence, completionSequence: null, allocation, outcome: null });
-	state.phase = "attempts";
+	state.phase = finalRepair ? "final-validation" : "attempts";
 }
 
 function applyCompletion(state: ExecutionRunProjection, sequence: number, payload: AttemptCompletedPayload): void {
@@ -196,6 +198,7 @@ function applyCompletion(state: ExecutionRunProjection, sequence: number, payloa
 		const currentTree = state.acceptedLedger.at(-1)?.transition.patch.resultTree ?? state.planningBaseTree;
 		if (payload.acceptedTransition.patch.baseTree !== currentTree) throw new Error("accepted-state ledger tree chain diverges");
 		state.acceptedLedger.push({ eventSequence: sequence, attemptId: outcome.attemptId, transition: payload.acceptedTransition });
+		if (allocation.nodeId === FINAL_VALIDATION_NODE_ID && state.finalValidation.disposition === "running") state.finalValidation.expectedTree = payload.acceptedTransition.patch.resultTree;
 	}
 	attempt.outcome = outcome;
 	attempt.completionSequence = sequence;

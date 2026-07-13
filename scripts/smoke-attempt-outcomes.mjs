@@ -216,6 +216,9 @@ expectThrow(() => appendTerminalOutcome(outcomes, accepted), "duplicate terminal
 
 const validationRecovery = parseAttemptRecoveryContext(validationRecoveryEvidence(original.allocation.attemptId));
 assert(validationRecovery.kind === "validation" && validationRecovery.commands[1].status === "timeout" && validationRecovery.commands[1].stdout === "partial output" && validationRecovery.commands[2].status === "unexecuted", "validation recovery lost ordered process evidence");
+const validationContractMismatch = validationRecoveryEvidence(original.allocation.attemptId);
+validationContractMismatch.workContract.validationCommands[0] = { executable: process.execPath, args: ["-e", "process.exit(0)"] };
+expectThrow(() => parseAttemptRecoveryContext(validationContractMismatch), "validation recovery admitted commands different from its canonical work contract");
 const recoveryPrompt = buildCanonicalWorkerPrompt({ objective: "recover", userContext: [], discoveredRepoFacts: [], assumptions: [] }, { id: "node", kind: "implement", workContract: validationRecovery.workContract }, [], validationRecovery);
 assert(recoveryPrompt.includes('"status": "timeout"') && recoveryPrompt.includes('"status": "unexecuted"') && recoveryPrompt.includes('"stdout": "partial output"'), "canonical prompt lost typed validation recovery evidence");
 const validationCase = originalLaunch("validation-case", assignment);
@@ -230,6 +233,13 @@ expectThrow(() => completeAttempt(missingRecoveryCase.allocation, { startedAt: a
 finishAttempt(missingRecoveryCase.allocation, missingRecoveryCase.state, { stage: "metrics", code: "missing-timing" });
 
 const integrationRecovery = parseAttemptRecoveryContext(integrationRecoveryEvidence(original.allocation.attemptId));
+const staleBaseRecovery = integrationRecoveryEvidence(original.allocation.attemptId);
+staleBaseRecovery.acceptedLedger.push({ sourceAttemptId: "node:000002", patch: patchIdentity("b", "d") });
+staleBaseRecovery.reconstructedTree = "d".repeat(40);
+assert(parseAttemptRecoveryContext(staleBaseRecovery).rejectedPatch.baseTree === "b".repeat(40), "parallel stale-base conflict was not representable against a prior accepted state");
+const unknownBaseRecovery = structuredClone(staleBaseRecovery);
+unknownBaseRecovery.rejectedPatch = patchIdentity("e", "f");
+expectThrow(() => parseAttemptRecoveryContext(unknownBaseRecovery), "integration recovery admitted a rejected patch from outside the accepted state history");
 const integrationCase = originalLaunch("integration-case", assignment);
 const integrationCaseRecovery = parseAttemptRecoveryContext(integrationRecoveryEvidence(integrationCase.allocation.attemptId));
 const integrationRepairOutcome = completeAttempt(integrationCase.allocation, { startedAt: accepted.startedAt, finishedAt: accepted.finishedAt, terminalFact: { stage: "apply", code: "check-conflict" }, state: integrationCase.state, fallbackAllowed: true, metrics: observedMetrics(integrationCase.allocation), recovery: integrationCaseRecovery });
@@ -362,15 +372,18 @@ function poll(attemptId, turnId, responseId, pollId, durationMs) {
 }
 
 function validationRecoveryEvidence(sourceAttemptId) {
+  const commands = [
+    commandEvidence(0, "passed", { exitCode: 0, stdout: "ok" }),
+    commandEvidence(1, "timeout", { timeoutMs: 100, stdout: "partial output", stderr: "timed out", durationMs: 100 }),
+    commandEvidence(2, "unexecuted"),
+  ];
+  const contract = workContract();
+  contract.validationCommands = commands.map((command) => command.command);
   return {
     kind: "validation",
     sourceAttemptId,
-    workContract: workContract(),
-    commands: [
-      commandEvidence(0, "passed", { exitCode: 0, stdout: "ok" }),
-      commandEvidence(1, "timeout", { timeoutMs: 100, stdout: "partial output", stderr: "timed out", durationMs: 100 }),
-      commandEvidence(2, "unexecuted"),
-    ],
+    workContract: contract,
+    commands,
     rejectedPatch: patchIdentity("b", "c"),
     reconstructedTree: "c".repeat(40),
   };

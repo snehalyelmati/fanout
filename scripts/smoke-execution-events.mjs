@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { correlateAttemptMetrics } from "../packages/fanout-core/src/attempt-metrics.ts";
@@ -6,11 +6,13 @@ import { allocateAttempt, completeAttempt, createNodeAttemptState } from "../pac
 import { EXECUTION_EVENT_NAMES, parseExecutionEvent, reduceExecutionEvent, replayExecutionEvents } from "../packages/fanout-core/src/execution-event.ts";
 import { renderExecutionReport } from "../packages/fanout-core/src/execution-report.ts";
 import { createExecutionEventRecorder, replayExecutionArtifacts } from "../packages/fanout-pi/src/execution-event-store.ts";
+import { RuntimeEventRecorder } from "../packages/fanout-pi/src/runtime-event-recorder.ts";
 
 const root = mkdtempSync(join(tmpdir(), "fanout-events-"));
 const trees = {
   base: "1".repeat(40),
   nodeA: "2".repeat(40),
+  repaired: "4".repeat(40),
 };
 const packet = { path: "packet/execution-packet.json", sha256: "a".repeat(64), byteLength: 123 };
 const evidence = { path: "executions/run/final-validation.json", sha256: "b".repeat(64), byteLength: 45 };
@@ -31,7 +33,7 @@ try {
   const legacyMetrics = correlateAttemptMetrics(metricEvidence(legacyTimestamp.allocation.attemptId));
   assert(completeAttempt(legacyTimestamp.allocation, { state: legacyTimestamp.state, startedAt: "2026-07-13T00:00:00Z", finishedAt: "2026-07-13T00:00:01Z", terminalFact: { stage: "apply", code: "applied" }, fallbackAllowed: false, metrics: legacyMetrics.metrics }).durationMs === 1000, "serialized-event hardening changed the existing completeAttempt timestamp contract");
   const dryEvents = [
-    event(1, "run-started", { mode: "dry-run", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 2, failFast: false } }),
+    event(1, "run-started", { mode: "dry-run", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 2, failFast: false, fallbackAllowed: false } }),
     event(2, "preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }),
     event(3, "run-finished", { outcome: "dry-run-completed", durationMs: 2, cause: { kind: "event", eventSequence: 2, code: "dry-run" } }),
   ];
@@ -42,7 +44,7 @@ try {
   expectThrow(() => replayExecutionEvents([dryEvents[0], dryEvents[1], event(3, "run-finished", { outcome: "failed", durationMs: 2, cause: { kind: "controller", stage: "preflight", code: "internal-failure", detail: "cannot override dry-run completion" } })]), "controller failure overrode passed dry-run preflight");
 
   const declinedEvents = [
-    event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false } }),
+    event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false } }),
     event(2, "preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }),
     event(3, "confirmation-decided", { decision: "declined" }),
     event(4, "run-finished", { outcome: "aborted", durationMs: 3, cause: { kind: "event", eventSequence: 3, code: "confirmation-declined" } }),
@@ -51,25 +53,29 @@ try {
   assert(declined.terminalOutcome?.outcome === "aborted" && declined.finalValidation.disposition === "not-run" && declined.finalValidation.reason === "aborted", "declined confirmation did not reduce to an explicit abort");
   expectThrow(() => replayExecutionEvents(declinedEvents.slice(0, -1).concat(event(4, "run-finished", { outcome: "failed", durationMs: 3, cause: { kind: "controller", stage: "confirmation", code: "internal-failure", detail: "cannot override decline" } }))), "controller failure overrode declined confirmation");
   const failedPreflight = replayExecutionEvents([
-    event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false } }),
+    event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false } }),
     event(2, "preflight-completed", { status: "failed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [{ code: "repository-tree-mismatch", detail: "repository tree changed" }] }),
     event(3, "run-finished", { outcome: "failed", durationMs: 2, cause: { kind: "event", eventSequence: 2, code: "preflight-failed" } }),
   ]);
   assert(failedPreflight.terminalOutcome?.outcome === "failed" && failedPreflight.finalValidation.disposition === "not-run" && failedPreflight.finalValidation.reason === "upstream-failure", "failed preflight did not produce an explicit upstream failure");
   const controllerFailed = replayExecutionEvents([
-    event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false } }),
+    event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false } }),
     event(2, "preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }),
     event(3, "confirmation-decided", { decision: "accepted" }),
     event(4, "run-finished", { outcome: "failed", durationMs: 3, cause: { kind: "controller", stage: "attempts", code: "internal-failure", detail: "controller stopped before allocation" } }),
   ]);
   assert(controllerFailed.terminalOutcome?.cause.kind === "controller", "typed internal controller failure required a fabricated domain event");
   expectThrow(() => replayExecutionEvents([
-    event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false } }),
+    event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false } }),
     event(2, "run-finished", { outcome: "failed", durationMs: 1, cause: { kind: "controller", stage: "final-validation", code: "internal-failure", detail: "wrong stage" } }),
   ]), "controller cause contradicted the current phase");
 
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], surprise: true }), "unknown event field was admitted");
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, mode: "preview" } }), "unknown run mode was admitted");
+  const { fallbackAllowed: _fallbackAllowed, ...incompletePolicy } = dryEvents[0].payload.policy;
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, policy: incompletePolicy } }), "run-started admitted an incomplete immutable runtime policy");
+  const duplicateCommands = parseExecutionEvent(event(7, "final-validation-started", { commandIdentities: ["validation:duplicate", "validation:duplicate"], expectedTree: trees.base }));
+  assert(duplicateCommands.payload.commandIdentities.length === 2, "final-validation event admission discarded or rejected ordered duplicate commands");
   expectThrow(() => replayExecutionEvents([dryEvents[0], { ...dryEvents[1], sequence: 3 }]), "gapped log was admitted");
   expectThrow(() => replayExecutionEvents([dryEvents[0], { ...dryEvents[1], runId: "other" }]), "mixed run IDs were admitted");
   expectThrow(() => replayExecutionEvents([dryEvents[0], { ...dryEvents[1], payload: { ...dryEvents[1].payload, repositoryTree: trees.nodeA } }]), "passed preflight admitted repository drift");
@@ -77,7 +83,7 @@ try {
 
   const { allocation, outcome } = acceptedOutcome();
   const liveEvents = [
-    event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: true } }),
+    event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: true, fallbackAllowed: false } }),
     event(2, "preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }),
     event(3, "confirmation-decided", { decision: "accepted" }),
     event(4, "attempt-allocated", { allocation }),
@@ -109,9 +115,69 @@ try {
   expectThrow(() => replayExecutionEvents(liveEvents.map((item) => item.event === "final-validation-completed" ? { ...item, payload: { ...item.payload, commandCount: 2 } } : item)), "final-validation aggregate contradicted its launched commands");
   expectThrow(() => replayExecutionEvents(liveEvents.map((item) => item.event === "run-finished" ? { ...item, payload: { ...item.payload, cause: { ...item.payload.cause, attemptId: "node-a:000001" } } } : item)), "completed cause admitted an inapplicable attempt reference");
 
+  const finalRepairLaunch = allocateAttempt(createNodeAttemptState("final-validation"), {
+    runId: "run",
+    nodeId: "final-validation",
+    kind: "validation-repair",
+    assignment: { tier: "tier1", provider: "test", model: "worker" },
+    sourceFinalValidationEvidence: evidence,
+  });
+  const finalRepairMetrics = correlateAttemptMetrics(metricEvidence(finalRepairLaunch.allocation.attemptId));
+  const finalRepairOutcome = completeAttempt(finalRepairLaunch.allocation, {
+    state: finalRepairLaunch.state,
+    startedAt: "2026-07-13T00:00:00.008Z",
+    finishedAt: "2026-07-13T00:00:00.009Z",
+    terminalFact: { stage: "apply", code: "applied" },
+    fallbackAllowed: true,
+    metrics: finalRepairMetrics.metrics,
+  });
+  const repairTransition = { patch: { ...patch.patch, artifact: { ...patch.patch.artifact, path: "executions/run/attempts/final-repair.patch", sha256: "d".repeat(64) }, baseTree: trees.nodeA, resultTree: trees.repaired } };
+  const repairedValidation = replayExecutionEvents([
+    ...liveEvents.slice(0, 7),
+    event(8, "attempt-allocated", { allocation: finalRepairLaunch.allocation }),
+    event(9, "attempt-completed", { outcome: finalRepairOutcome, acceptedTransition: repairTransition }),
+    event(10, "final-validation-completed", { status: "passed", commandCount: 1, durationMs: 3, evidence, expectedTree: trees.repaired, beforeTree: trees.repaired, afterTree: trees.repaired }),
+    event(11, "run-finished", { outcome: "completed", durationMs: 10, cause: { kind: "event", eventSequence: 10, code: "final-validation-passed" } }),
+  ]);
+  assert(repairedValidation.finalValidation.expectedTree === trees.repaired && repairedValidation.acceptedLedger.length === 2, "final-validation repair did not roll projection authority to the validated accepted tree");
+
+  const bridgeDir = join(root, "runtime-recorder-bridge");
+  const bridge = new RuntimeEventRecorder(bridgeDir, "run");
+  await bridge.record("run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: true } });
+  await bridge.record("preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] });
+  await bridge.record("confirmation-decided", { decision: "accepted" });
+  const bridged = acceptedOutcome();
+  await bridge.recordAttemptAllocated(bridged.allocation);
+  await bridge.recordAttemptCompleted(bridged.outcome, patch);
+  await bridge.flush();
+  assert(bridge.projection().attempts[0].outcome?.action === "accept" && bridge.projection().lastEventSequence === 5, "runtime recorder did not preserve allocation/completion order");
+  await expectReject(bridge.recordAttemptAllocated({ ...bridged.allocation, attemptId: "wrong-run:000001", runId: "wrong-run" }), "runtime recorder hid an allocation publication failure");
+
+  const publicationDir = join(root, "runtime-recorder-publication-failure");
+  let failAllocationPublication = false;
+  const publicationBridge = new RuntimeEventRecorder(publicationDir, "run", {
+    replace: (path, bytes, kind) => {
+      if (kind === "events" && failAllocationPublication) throw new Error("injected allocation publication failure");
+      atomicTestReplace(path, bytes);
+    },
+  });
+  await publicationBridge.record("run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: true } });
+  await publicationBridge.record("preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] });
+  await publicationBridge.record("confirmation-decided", { decision: "accepted" });
+  failAllocationPublication = true;
+  const laterSideEffect = join(publicationDir, "worker-launched");
+  let rejected = false;
+  try {
+    await publicationBridge.recordAttemptAllocated(bridged.allocation);
+    writeFileSync(laterSideEffect, "should not exist\n");
+  } catch {
+    rejected = true;
+  }
+  assert(rejected && !existsSync(laterSideEffect), "allocation publication failure allowed a later runtime side effect");
+
   const routed = routedOutcome();
   expectThrow(() => replayExecutionEvents([
-    event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: true } }),
+    event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: true, fallbackAllowed: true } }),
     event(2, "preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }),
     event(3, "confirmation-decided", { decision: "accepted" }),
     event(4, "attempt-allocated", { allocation: routed.allocation }),
@@ -119,7 +185,7 @@ try {
     event(6, "node-completed", { nodeId: "node-a", status: "failed", cause: { attemptId: routed.allocation.attemptId } }),
   ]), "retry-routed attempt was misreported as a terminal node failure");
   expectThrow(() => replayExecutionEvents([
-    event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: true } }),
+    event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: true, fallbackAllowed: true } }),
     event(2, "preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }),
     event(3, "confirmation-decided", { decision: "accepted" }),
     event(4, "attempt-allocated", { allocation: routed.allocation }),
@@ -128,7 +194,7 @@ try {
 
   const parallelDir = join(root, "parallel");
   const recorder = createExecutionEventRecorder({ runDir: parallelDir, runId: "run", now: clock() });
-  await recorder.record("run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a", "node-b"], policy: { maxConcurrency: 2, failFast: false } });
+  await recorder.record("run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a", "node-b"], policy: { maxConcurrency: 2, failFast: false, fallbackAllowed: true } });
   await recorder.record("preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] });
   await recorder.record("confirmation-decided", { decision: "accepted" });
   const a = allocationFor("node-a");
@@ -154,7 +220,7 @@ try {
       }
     },
   });
-  await expectReject(postRename.record("run-started", { mode: "dry-run", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false } }), "post-log-rename failure was not surfaced");
+  await expectReject(postRename.record("run-started", { mode: "dry-run", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false } }), "post-log-rename failure was not surfaced");
   await expectReject(postRename.record("preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }), "recorder continued after ambiguous event publication");
   assert(replayExecutionArtifacts(postRenameDir).lastEventSequence === 1, "A13 did not preserve and replay the complete new log after rename");
 
@@ -171,7 +237,7 @@ try {
       atomicTestReplace(path, bytes);
     },
   });
-  await torn.record("run-started", { mode: "dry-run", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false } });
+  await torn.record("run-started", { mode: "dry-run", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false } });
   await expectReject(torn.record("preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }), "projection failure did not stop the recorder");
   assert(readFileSync(join(tornDir, "events.jsonl"), "utf8").trim().split("\n").length === 2, "A13 lost the committed authoritative log");
   assert(JSON.parse(readFileSync(join(tornDir, "execution-run.json"), "utf8")).lastEventSequence === 1, "projection failure did not leave the older complete view");
@@ -193,7 +259,7 @@ try {
       atomicTestReplace(path, bytes);
     },
   });
-  await terminal.record("run-started", { mode: "dry-run", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false } });
+  await terminal.record("run-started", { mode: "dry-run", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false } });
   await terminal.record("preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] });
   await expectReject(terminal.record("run-finished", { outcome: "dry-run-completed", durationMs: 2, cause: { kind: "event", eventSequence: 2, code: "dry-run" } }), "terminal report failure was not surfaced");
   const repairedTerminal = replayExecutionArtifacts(terminalDir);

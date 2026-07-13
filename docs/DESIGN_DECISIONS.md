@@ -2,9 +2,15 @@
 
 ## 2026-07-14
 
+### Cut every producer and consumer to one hardened generation
+
+Decision: The only executable planning/runtime generation is implementation plan v2, implementation details v3, execution packet v5, active pointer v2, embedded work contract v1, attempt outcome v1, final-validation evidence v1, execution event v1, execution projection v2, and disposable `fanout.planning-report`/`fanout.execution-report` presentation data v1. Models submit planning bodies; controllers bind envelopes, exact source bytes, planning commit/tree/platform, IDs, and timestamps. Packet nodes embed canonical contracts and derive their graph/views; the sole final-validation node uses the reserved exact ID `final-validation`, which ordinary nodes cannot claim. Concrete node tier assignments are derived from the closed node kind and packet tier plan, and admission re-derives them to reject downgraded, unavailable, or substituted routing tuples. Pointer/packet admission rejects legacy, future, mixed, substituted, and unknown-field artifacts before lock creation or mutation. There is no compatibility adapter or migration path; obsolete authority requires replanning.
+
+Reason: A staged compatibility bridge would leave multiple executable authorities for ownership, dependencies, commands, budgets, repository identity, and reporting. A coordinated fail-closed cutover makes every artifact boundary reviewable and lets package-independent core checks prove the same generation that Pi executes.
+
 ### Validate and repair only fresh exact reconstructions
 
-Decision: The final-validation node is a controller gate rather than an ordinary worker. The controller rebuilds the planning base plus accepted ledger in a fresh detached worktree, verifies planning commit, clean index relation, and full Git-visible trees for both validation and active checkouts before and after the complete ordered command sequence, and records versioned exact evidence. Only nonzero, timeout, and signal results may consume the final node's fixed two-launch validation-repair pool. Repair authority is the union of upstream typed change endpoints under their typed forbidden writes; every candidate is ownership-checked and replayed into another fresh reconstruction before verified stdin apply to active.
+Decision: The final-validation node is a controller gate rather than an ordinary worker. The controller rebuilds the planning base plus accepted ledger in a fresh detached worktree, verifies planning commit, clean index relation, and full Git-visible trees for both validation and active checkouts before and after the complete ordered command sequence, and records versioned exact evidence whose parser causally binds each failure class to its command and boundary state. Only nonzero, timeout, and signal results may consume the final node's fixed two-launch validation-repair pool. Every repair prompt embeds the immutable packet identity, original final command contract, packet-ordered upstream work contracts, and admitted failed-round evidence, including both checkout identities and any rejected candidate transition. The executor verifies that packet identity against the exact canonical packet bytes, and prompt rendering requires the node's effective contract to equal the recovery contract. Repair authority is the union of upstream typed change endpoints under their typed forbidden writes; every candidate is ownership-checked by closed violation codes and replayed into another fresh reconstruction before verified stdin apply to active.
 
 Reason: Running validation in active or adopting a repair worker's checkout would make validation side effects and ignored residue part of the returned repository without proof. Sequence-boundary checks allow intentional create-then-remove checks while persistent drift fails closed without reset, replay, or rollback. This remains repository integrity under trusted-local-program semantics, not containment of ignored files, external paths, network, processes, services, or mutate-then-restore behavior.
 
@@ -30,37 +36,37 @@ This file records design decisions made during development. Keep new entries dat
 
 Decision: `fanout-core` owns the closed nine-event `fanout.execution-event` v1 union, strict pure lifecycle reducer, execution-run projection v2, and deterministic projection-only report renderer. `fanout-pi` serializes event commits, atomically replaces the complete compact log before derived views, halts after a derived publication failure, and exposes audit-only replay that can regenerate projection/report files but has no execution, budget, lock, or Git mutation capability.
 
-Reason: One gapless causal history makes stale views repairable and keeps live recording, replay, and reports convergent. Whole-log replacement deliberately favors the smallest crash-safe process model over segments or recovery orchestration; production callers remain on the legacy recorder until the coordinated cutover.
+Reason: One gapless causal history makes stale views repairable and keeps live recording, replay, and reports convergent. Whole-log replacement deliberately favors the smallest crash-safe process model over segments or recovery orchestration; the coordinated cutover now routes production callers through this recorder.
 
 ### Admit repository authority through one canonical core module
 
 Decision: `fanout-core` owns literal `RepoPath` parsing, explicit file/directory resources, same-source directional authorization, connected ownership, typed read timing, monotonic typed forbidden writes, and exact UTF-8 Git-path admission. Advisory forbidden notes never affect policy.
 
-Reason: Planning and Git-observed changes need one identity-preserving resource contract. This preparatory hardening slice is directly tested but does not create a second executable authority; later coordinated slices replace legacy packet and runtime fields.
+Reason: Planning and Git-observed changes need one identity-preserving resource contract. The coordinated cutover now uses this module as the sole executable resource authority; no legacy packet/runtime resource fields remain admissible.
 
 ### Execute approved validation as direct argv
 
 Decision: `fanout-core` strictly admits executable/argument validation manifests with canonical optional cwd and literal environment overrides. The Pi adapter preflights and rechecks launchability, runs exact argv without an implicit shell, preserves order and duplicates, and records typed fail-fast outcomes including explicit unexecuted commands.
 
-Reason: Deterministic argument boundaries and honest local-program trust replace misleading shell-string safety parsing. This preparatory runner is directly tested while production callers remain on the legacy path until the coordinated schema cutover.
+Reason: Deterministic argument boundaries and honest local-program trust replace misleading shell-string safety parsing. The coordinated cutover now makes this runner the production validation path.
 
 ### Bind artifacts and repository transitions to exact identity
 
-Decision: Use strict `{ path, sha256, byteLength }` artifact identities, same-directory atomic replacement, pointer-last planning publication, temporary-index full Git-visible trees, and one binary-patch accepted-state transition shape. Patch verification and replay rederive exact paths and trees, consume verified bytes through Git stdin, and leave post-apply ambiguity untouched for manual reconciliation.
+Decision: Use strict `{ path, sha256, byteLength }` artifact identities, same-directory atomic replacement, pointer-last planning publication, temporary-index full Git-visible trees, and one binary-patch accepted-state transition shape. Patch verification and replay rederive exact paths and trees, consume verified bytes through Git stdin, and leave post-apply ambiguity untouched with the canonical execution lock retained for manual reconciliation.
 
-Reason: Exact bytes and tree chains reject stale or substituted authority without mutating the user's index or adding content-addressed storage and automatic recovery. These preparatory primitives are directly tested; legacy callers remain unchanged until the coordinated cutover.
+Reason: Exact bytes and tree chains reject stale or substituted authority without mutating the user's index or adding content-addressed storage and automatic recovery. The coordinated cutover routes all production planning, replay, validation, and apply callers through these primitives.
 
 ### Compile one canonical work contract per DAG node
 
 Decision: `fanout-core` owns `fanout.work-contract` v1, with ordered source-linked goals and criteria, typed modify/create/delete/move changes and anchors, typed reads and forbidden writes, direct-argv commands, the fixed six-tool worker profile, and source-tagged advisory notes. Typed change endpoints are the sole stored write authority; graph edges, final-node ordering, warnings, Markdown, Mermaid, launch summaries, and Pi worker prompts derive from admitted contracts and packet-global context.
 
-Reason: One strict contract prevents flattened worker fields, string policy, duplicate command lists, and persisted graph copies from disagreeing. This preparatory compiler seam is directly tested; the legacy live packet remains unchanged until the coordinated schema cutover.
+Reason: One strict contract prevents flattened worker fields, string policy, duplicate command lists, and persisted graph copies from disagreeing. The coordinated cutover now embeds this contract directly in every executable packet v5 node.
 
 ### Route correlated attempts through fixed node-global budgets
 
 Decision: `fanout-core` owns provider-agnostic closed stage facts, immutable pre-side-effect attempt allocation, fixed original/retry/fallback/two-validation-repair/two-integration-repair pools, monotonic node attempt identities, correlation by attempt/turn/response/poll/tool-call identity, typed validation/integration recovery evidence, and `fanout.attempt-outcome` v1. Generic providers require correlated Pi turn/tool usage plus local worker timing; instrumented providers additionally require exact terminal response, per-response TTFT, poll, usage, and pricing evidence. Only typed transient facts can retry or fall back, terminal outcomes persist the controller's actual action and allocation transition, and reports derive totals from complete or explicitly partial observed records rather than persisting summed TTFT authority.
 
-Reason: One provider-independent core policy prevents diagnostics, stream text, record order, helper nesting, or provider-specific code from resetting recovery or changing routing. The directly tested A10–A12 preparatory seam does not alter the legacy live executor; coordinated callers replace its prose routing and mutable counters in the later runtime cutover.
+Reason: One provider-independent core policy prevents diagnostics, stream text, record order, helper nesting, or provider-specific code from resetting recovery or changing routing. The coordinated runtime now uses this policy for every launch.
 
 ## 2026-06-25
 
@@ -314,7 +320,7 @@ Reason: The provider has a clear standalone extension-package boundary: it regis
 
 Decision: Make Fanout a three-phase workflow: user-owned research/planning, `/fanout-plan` execution-packet preparation, and `/fanout-execute` execution of the active accepted packet.
 
-Reason: Keeping research/planning outside Fanout lets users use their own workflow and gives the executor better inputs. The packet boundary lets Fanout validate a fanout-agnostic plan, optimized DAG, ownership, estimates, and stop rules before any worker mutates files.
+Reason: Keeping research/planning outside Fanout lets users use their own workflow and gives the executor better inputs. The exact packet-v5 boundary lets Fanout validate typed work contracts, derived DAG authority, immutable runtime policy, and validation manifests before any worker mutates files.
 
 ### Keep `/fanout-plan` non-mutating
 
@@ -396,15 +402,15 @@ Reason: Raw artifacts are useful for local audit but too noisy to commit. Tracke
 
 ### Split `/fanout-plan` into explicit implementation and detail prompts
 
-Status: The two-phase planning decision remains current; its schema-v3 output was superseded on 2026-07-10 by [the schema-v4 `tier2Fallback` decision](#separate-the-tier-2-fallback-model-role-from-tier-1).
+Status: The two-phase planning decision remains current; its legacy packet output was superseded on 2026-07-14 by the closed plan-v2/details-v3/packet-v5 generation.
 
-Decision: Keep one `/fanout-plan` command, but run two explicit prompts plus a deterministic compiler: Phase A writes `implementation-plan.json`; Phase B reads it and writes schema-v2 `implementation-details.json`; `fanout-core` validates, groups owned resources, derives dependencies from concrete `post-change-required` reads, computes parallel groups/tiers, and emits execution packet schema v3 with per-unit `workerPacket` handoff context. Details v2 separates per-item isolated validation commands from required top-level final integrated validation commands.
+Decision: Keep one `/fanout-plan` command, but run two explicit prompts plus a deterministic compiler. The controller envelopes Phase A as plan v2 and Phase B as details v3, binds their exact identities, and compiles packet v5 nodes containing one work-contract v1 each. `fanout-core` groups typed change resources, derives dependencies from typed `post-change-required` reads, assigns tiers, and stores authoritative integrated validation only in the final-validation contract.
 
 Reason: Implementation planning, repo grounding, and execution compilation are different jobs. The intermediate artifacts make failures debuggable, keep Phase B from inventing scope or DAG shape, and let code enforce ownership/dependency rules consistently.
 
 ### Compiler owns execution DAG construction
 
-Decision: Phase A decides what/why, Phase B locates anchors/edit intent, and the compiler owns DAG/parallelism/tier assignment. Work units are file/resource ownership shards; Phase B should prefer one details item per independently editable file/resource and reuse Phase A ids across split items, except an explicit task-declared ownership bundle remains one ownership unit even when its files could otherwise be sharded. Every Phase A `filesToChange` entry must be covered by same-id Phase B writable resources so required scope cannot be dropped during grounding. Phase A ids and dependencies are traceability/planning context, while only Phase B `post-change-required` file reads create cross-worker execution edges. An explicitly task-declared validation dependency with a concrete upstream Phase A file read is a narrow exception: Phase B must classify that read as `post-change-required`, and the compiler rejects a missing or `baseline-context` classification. This validates the declared dependency without making ordinary Phase A semantic dependencies scheduling edges. If any other Phase A `filesToRead` entry overlaps a sibling-owned file/resource, Phase B must classify that read as `baseline-context` or `post-change-required`; otherwise the compiler rejects the packet as ambiguous by default. The Pi adapter precomputes those Phase A overlap rows for the Phase B prompt, but never infers the classification. The Pi adapter may run one Phase B repair pass and, if repair still misses a classification, choose conservative sequential fallback that treats unclassified overlaps as implicit `post-change-required` with a warning. `/fanout-plan` no longer creates a default contract node; same-owned-resource changes merge into one worker packet unless the compiler rejects ambiguity.
+Decision: Phase A decides what/why and maximum typed scope; Phase B supplies typed changes, anchors, reads, forbidden writes, and direct-argv validation; the compiler owns grouping, DAG derivation, and tier assignment. Every Phase A write remains covered by same-source Phase B changes. A cross-node Phase A read must receive typed Phase B timing; after one unsuccessful Phase B repair, the compiler may insert a typed `post-change-required` read with `timingSource: "sequential-fallback"`, which derives both the conservative edge and its warning. No prose, formatted diagnostic, persisted graph, or worker handoff copy controls scheduling.
 
 Reason: Prompted DAG construction was too easy to overfit or over-serialize. Deterministic grouping and read-dependency rules are smaller, safer, and easier to smoke-test before `/fanout-execute` exists.
 
@@ -492,21 +498,23 @@ Reason: Valid worker output can still fail local validation or conflict with alr
 
 ### Anchor execution artifacts to the loaded packet path
 
-Decision: The execution recorder derives `<packet-artifact-dir>` from `dirname(packetPath)` and ignores the packet's `artifactDir` field when choosing where to write `executions/<run-id>/`.
+Decision: The execution recorder derives `<packet-artifact-dir>` from the admitted packet path and writes `executions/<run-id>/` there; packet v5 contains no competing artifact-directory authority.
 
 Reason: The validated pointer identifies the packet source of truth. Reusing an independently supplied artifact path would let packet content redirect audit writes away from that source.
 
 ### Require a clean active worktree without claiming stale-HEAD detection
 
-Decision: `/fanout-execute` preflight requires a clean active git worktree, execution artifacts outside the repo, safe packet paths, and an available worker command. Execution packet schema v4 does not record a planned commit or tree, so Phase 3 does not claim to detect a clean checkout whose HEAD changed after planning.
+Status: Superseded on 2026-07-14 by packet v5 exact planning commit/full-tree/platform admission.
 
-Reason: A clean baseline makes integrated patches attributable and prevents accidental mixing with user edits. Strong freshness validation requires a future packet schema field rather than an inference from timestamps.
+Decision: `/fanout-execute` admits pointer v2 and packet v5 before side effects, then preflight requires execution artifacts outside the repo, an exact planning commit/full Git-visible tree/platform match, safe typed resources and direct validation commands, and an available worker capability.
+
+Reason: Exact planning identity makes integrated patches attributable and rejects both dirty and clean-but-stale checkouts without inferring freshness from timestamps.
 
 ### Rebuild accepted integration state in fresh detached worktrees
 
-Decision: Every worker, retry, fallback, and repair attempt gets a fresh detached worktree. An ordered integration ledger rebuilds accepted state there and commits it only as a local baseline before the current attempt runs. Fanout disables repository Git hooks and configured filesystem-monitor commands during managed worktree creation, staging, baseline commits, intent-to-add patch capture, and execution preflight. Normal results replay their accepted patch; a conflict-repair result records final snapshots of its owned changed files so later worktrees reproduce the state against which that repair was made.
+Decision: Every worker, retry, fallback, and repair attempt gets a fresh detached worktree at the exact planning commit. The controller rebuilds accepted state only by replaying the ordered ledger's digest/length-bound binary patch artifacts. Every transition must match its recorded base tree, result tree, changed paths, and patch statistics. Reconstruction does not create baseline commits or admit owned-file snapshots as authority. Fanout disables repository Git hooks and configured filesystem-monitor commands during managed worktree creation, patch capture, and execution preflight.
 
-Reason: `git worktree add ... HEAD` does not include uncommitted changes already applied to the active worktree, and a repaired patch may be based on a newer conflicting file state rather than bare `HEAD`. The ordered ledger plus detached baseline commit gives patch capture an exact diff boundary while preserving attempt isolation and downstream visibility. Disabling hooks and filesystem monitors prevents repository-configured commands from adding unrecorded state to that boundary.
+Reason: A detached worktree at the planning commit omits accepted uncommitted changes in the active worktree. Exact causal patch replay reconstructs that state without introducing a second commit/snapshot authority, while preserving attempt isolation and downstream visibility. Disabling hooks and filesystem monitors prevents repository-configured commands from adding unrecorded state to the boundary.
 
 ### Serialize active-worktree patch application
 
@@ -524,11 +532,11 @@ Reason: Pi JSON provides the provider-agnostic usage shape, while Doubleword obs
 
 ### Define no-op, partial-failure, and final-validation semantics
 
-Status: The no-op and terminal-status rules remain current; final validation in active was superseded on 2026-07-14 by fresh exact reconstruction and bounded candidate replay.
+Status: Current after the 2026-07-14 fresh-reconstruction cutover.
 
-Decision: A work unit with zero owned files may succeed with an empty patch; a mutating unit may not. Any failed or skipped DAG node maps the run to `failed` rather than a separate partial status. The final-validation worker remains a DAG node, but the deterministic `finalValidationPlan` rerun in the active worktree is authoritative for overall execution success.
+Decision: A work unit with zero owned files may succeed with an empty patch; a mutating unit may not. Any failed or skipped DAG node maps the run to `failed` rather than a separate partial status. The packet's final-validation node is coordinated as a controller gate: it replays the exact accepted ledger into a fresh reconstruction and runs the ordered final-validation commands there. Only exact evidence from that reconstruction, plus any separately reconstructed and ownership-checked bounded repair candidate, may authorize overall success and verified active apply.
 
-Reason: The compiler already emits read-only final-validation units, while mutating units must produce reviewable changes. One failed terminal status keeps reporting unambiguous, and the controller-run validation observes the exact integrated tree returned to the user.
+Reason: The compiler emits a read-only final-validation unit, while mutating units must produce reviewable changes. One failed terminal status keeps reporting unambiguous, and fresh reconstruction prevents validation side effects or ignored residue in the active checkout from becoming success authority.
 
 ### Keep automatic Pi extension discovery for workers
 
@@ -546,21 +554,23 @@ Reason: Canonical git-directory identity makes sessions launched from different 
 
 Status: The fixed attempt budgets remain current; the Tier 1 control-model fallback was superseded on 2026-07-10 by [the realtime `tier2Fallback` model-role decision](#separate-the-tier-2-fallback-model-role-from-tier-1).
 
-Decision: `fanout.execution.maxConcurrency` is the only user execution setting consumed by `/fanout-execute`. The MVP policy fixes tier1 and tier2 to one original attempt plus one clean rerun, permits one tier1 fallback after retryable tier2 exhaustion when the work unit declares it, and permits at most two validation-repair and two integration-repair attempts. Provider availability is not preflighted and a node failure never globally reroutes remaining tier2 nodes.
+Decision: `/fanout-execute` consumes concurrency, fail-fast, and fallback permission only from the admitted packet-v5 `runtimePolicy`; current settings cannot change an accepted packet. The MVP policy fixes tier1 and tier2 to one original attempt plus one clean rerun, permits one realtime fallback after retryable tier2 exhaustion when the work unit declares it, and permits at most two validation-repair and two integration-repair attempts. Provider availability is not preflighted and a node failure never globally reroutes remaining tier2 nodes.
 
 Reason: Fixed per-node budgets keep scheduling, cost accounting, and recovery deterministic while the first execution path is validated. Provider/model launch errors remain typed subprocess outcomes rather than a reason to mutate the accepted packet's assignments.
 
 ### Route every worker launch through canonical attempt evidence
 
-Decision: The live packet-v4 executor adapts each work unit into an admitted canonical work contract, launches the worker from that contract's canonical prompt view, allocates original, retry, fallback, validation-repair, and integration-repair launches through the core fixed-budget state machine, and prepares, publishes, then commits one typed terminal outcome before allocating a successor. Only a published committed accept outcome may enter the accepted ledger. The adapter distinguishes baseline create/modify intent, derives read timing from exact dependency ownership overlap, and checks declared create/modify/delete/move intent against exact pre/post trees; ownership is checked only from canonical typed resources. Legacy forbidden-change prose fails closed instead of being interpreted as path authority. Retryability comes from process facts or provider facts matching the attempt's provider run, assignment, turn, and response identity; human-readable stderr is diagnostic only. Accepted metric outcomes preserve observed Pi turn, provider response, poll, and tool-call identities, with parent first-output timing separate from provider response TTFT.
+Status: The attempt-evidence policy remains current; packet-v4 adaptation and the legacy bridge were removed by the 2026-07-14 coordinated cutover.
 
-Reason: Launch counters, prose path extraction, and diagnostic substring routing create competing authorities for budgets, ownership, and recovery. Canonical allocation, work-contract, recovery, metric-correlation, and terminal-outcome records make the exact patch and evidence chain reviewable while packet v4 remains the public input until the coordinated packet/event cutover.
+Decision: The packet-v5 executor launches every node from its embedded canonical work contract, allocates original, retry, fallback, validation-repair, and integration-repair launches through the core fixed-budget state machine, and publishes one typed terminal outcome before allocating a successor. Only a committed accept outcome may enter the accepted ledger. Ownership and dependencies derive only from typed contracts. Retryability comes from process or provider facts correlated to the attempt; human-readable stderr is diagnostic only. Accepted metric outcomes preserve observed Pi turn, provider response, poll, and tool-call identities, with parent first-output timing separate from provider response TTFT.
+
+Reason: Launch counters, prose path extraction, and diagnostic substring routing create competing authorities for budgets, ownership, and recovery. Canonical allocation, work-contract, recovery, metric-correlation, and terminal-outcome records make the exact patch and evidence chain reviewable.
 
 ### Render execution reports from audit state
 
-Decision: `summary.md` is rendered deterministically from `execution-run.json`: canonical event counts supply attempt/retry/fallback/rejection counts, accepted patch stats supply changed-file names, and run-level final-validation stats supply the authoritative validation outcome and link. No LLM synthesis rewrites execution results.
+Decision: Terminal `summary.md` is rendered deterministically from execution-run projection v2. It reports mode, phase, causal terminal outcome, per-node status/attempt counts, token/cost/timing totals, aggregate accepted patch statistics, accepted-ledger attempt/tree transitions, final-validation disposition, and stable links to `events.jsonl`, `execution-run.json`, and `summary.md`. It does not invent changed-file lists or direct final-validation evidence links that projection v2 does not contain. No generic stage-event counts or LLM synthesis reconstruct execution policy.
 
-Reason: The user-facing report must agree with `events.jsonl`, the snapshot totals, accepted patches, and `final-validation.json`. Snapshot-derived reporting makes failures and wasted attempts inspectable without introducing another model-authored interpretation layer.
+Reason: The user-facing report must agree with `events.jsonl` and the derived projection. Projection-derived reporting makes failures and wasted attempts inspectable without introducing another model-authored interpretation layer or a competing evidence index.
 
 ### Require node validation to preserve the captured patch
 
@@ -570,7 +580,7 @@ Reason: A validation command can have side effects. Applying the pre-validation 
 
 ### Keep Git-observed paths lossless at the ownership boundary
 
-Decision: Packet resource paths may be normalized into repository-relative form, but filenames reported by Git are validated without trimming whitespace or converting backslashes. An observed filename is rejected if normalization would change its identity. All machine-readable artifact path fields use bare repository-relative paths, and executable command fields use literal shell commands without Markdown quoting. Markdown backticks are reserved for repository paths embedded in human-readable `forbiddenChanges` prose, which retains trailing `/` directory intent; execution also recognizes common unquoted legacy directory forms so those constraints remain enforceable at the ownership gate. Phase A validation fields describe required coverage only and are never executed; Phase B supplies the literal executable validation commands.
+Decision: Every artifact and runtime boundary admits repository paths through the canonical typed file/directory resource parser. Git-reported names are decoded and validated without trimming whitespace, converting separators, or inferring type; any lossy identity fails closed. Executable commands use only the direct-argv shape of executable, ordered arguments, optional canonical cwd, and literal environment overrides. Forbidden-write authority is typed and monotonic; prose and legacy directory strings have no executable role.
 
 Reason: On POSIX, backslashes and leading/trailing spaces are valid filename bytes. Lossy normalization could make an undeclared root file appear to be an owned descendant while `git apply` still targets the original filename.
 
@@ -584,17 +594,19 @@ Reason: Model-grounded plans can express the same safe execution contract with h
 
 ### Label dry-run execution summaries explicitly
 
-Decision: Keep execution-run schema v1 unchanged, but render dry-run `summary.md` artifacts as `Fanout Dry Run Summary` and state that workers and final validation were intentionally not run. Live execution summaries retain their existing format.
+Status: Superseded on 2026-07-14 by the unified projection-v2 execution report.
 
-Reason: A dry run may succeed while every node remains pending and final validation is absent. An explicit label prevents that preflight result from being mistaken for a completed live execution without duplicating packet data or changing the run schema.
+Decision: Render every terminal `summary.md` as `Fanout Execution Report`. Dry runs remain explicit through `Mode: dry-run`, the `dry-run-completed` outcome, and final-validation disposition `not-run (dry-run)`; workers remain pending because no attempt is allocated.
+
+Reason: Explicit typed fields distinguish preflight-only completion from live completion while keeping one deterministic report schema and title.
 
 ## 2026-07-10
 
 ### Treat Phase A as the resolved objective source
 
-Decision: `/fanout-plan` preserves the invocation text for traceability, but Phase A owns the resolved objective after reading referenced context. Phase B must copy that objective exactly, while the adapter validates Phase A against its artifact directory rather than the invocation string.
+Decision: `/fanout-plan` preserves the invocation text for traceability, but Phase A plan v2 owns the resolved objective after reading referenced context. Phase B details v3 binds the exact accepted plan identity and does not repeat the objective. The adapter validates Phase A against its controller-owned artifact destination rather than the invocation string.
 
-Reason: File references and shorthand invocations are inputs to planning, not necessarily the final execution objective. Exact invocation equality rejected correct, more specific plans.
+Reason: File references and shorthand invocations are inputs to planning, not necessarily the final execution objective. Exact invocation equality rejected correct, more specific plans; repeating the objective in details would create duplicate authority.
 
 ### Keep main-session Fanout telemetry outside target repositories
 
@@ -610,7 +622,7 @@ Reason: Reporting configuration success for an unusable model hid deterministic 
 
 ### Separate the Tier 2 fallback model role from Tier 1
 
-Decision: Keep two execution tiers but store three concrete model roles in execution packet schema v4: Tier 1 realtime control plane, Tier 2 async workers, and Tier 2 fallback realtime execution. The fallback role inherits Tier 1 unless `fanout.execution.tier2Fallback` selects another registry model. Tier2-unavailable compilation and exhausted retryable Tier 2 attempts use the fallback role; Tier 1 control work and typed recovery continue using Tier 1. Schema v3 packets require replanning and are not migrated.
+Decision: Keep two execution tiers but store three concrete model roles in execution packet v5: Tier 1 realtime control plane, Tier 2 async workers, and Tier 2 fallback realtime execution. The fallback role inherits Tier 1 unless `fanout.execution.tier2Fallback` selects another registry model. Tier2-unavailable compilation and exhausted retryable Tier 2 attempts use the fallback role; Tier 1 control work and typed recovery continue using Tier 1. Older packets require replanning and are not migrated.
 
 Reason: A strong control-plane model should not force every realtime execution fallback to use the same expensive model. A packet-level concrete fallback keeps execution deterministic without adding a third tier, per-node profiles, or runtime replanning.
 

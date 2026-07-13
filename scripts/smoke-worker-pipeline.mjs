@@ -2,6 +2,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { deriveAttemptMetricTotals } from "../packages/fanout-core/src/attempt-metrics.ts";
+import { correlatedWorkerMetrics } from "../packages/fanout-pi/src/attempt-evidence.ts";
 import {
   WORKER_MODEL_TOOLS,
   WORKER_TRUST_BOUNDARY,
@@ -34,6 +36,12 @@ try {
   for (const phrase of ["ignored files", "external paths", "network", "processes", "outside Fanout containment"]) {
     assert(WORKER_TRUST_BOUNDARY.includes(phrase), `A20 trust boundary omitted ${phrase}`);
   }
+  const partialStdout = join(root, "partial-stdout.jsonl");
+  const partialObservability = join(root, "partial-observability.jsonl");
+  writeFileSync(partialStdout, `${JSON.stringify({ type: "message_end", message: { role: "assistant", provider: "fake", model: "worker", usage: { input: 4, output: 2, totalTokens: 6, cost: { total: 0.01 } } } })}\n`);
+  writeFileSync(partialObservability, `${JSON.stringify({ event: "turn_end", turnIndex: 0 })}\n`);
+  const partial = correlatedWorkerMetrics("partial:000001", { provider: "fake", model: "worker", tier: "tier1", workerDurationMs: 8 }, partialStdout, partialObservability, undefined);
+  assert(!partial.complete && deriveAttemptMetricTotals(partial).costUsd === 0.01 && deriveAttemptMetricTotals(partial).totalTokens === 6, "failed runtime attempt discarded observed partial usage/cost");
   testDiscoveredExtensionWithFixedProfile(root);
   console.log("worker pipeline smoke passed (A7, A19, A20)");
 } finally {

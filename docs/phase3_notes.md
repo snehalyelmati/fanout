@@ -1,3 +1,7 @@
+# Phase 3 component notes (historical)
+
+This file preserves pre-cutover exploration and is not executable authority. The hardened pointer-v2/packet-v5/event-v1/projection-v2 contract is maintained in [`docs/impl/phase-3-fanout-execute.md`](impl/phase-3-fanout-execute.md); legacy shapes below must not be implemented or accepted.
+
 Phase 3 component 1: Active packet loader
 
 ```text

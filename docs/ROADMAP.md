@@ -40,9 +40,9 @@ Fanout should preserve developer velocity by using slower tiers only where laten
 
 ### End-to-end hardening
 
-Status: Slices 1–9 of 10 are implemented locally. In addition to the canonical core contracts and event/replay modules from slices 1–6, planning now uses a fixed read-only profile, controller-bound phase submission, hidden typed prompts, and context-free reports. Worker Pi attempts preserve trusted discovery/approval, curated context, and inherited environment while exposing only `read`, `grep`, `find`, `ls`, `edit`, and `write`; edit/write escapes are blocked before mutation. The live node executor adapts legacy packet-v4 ownership into an admitted canonical work contract, allocates every launch through the fixed attempt-budget state machine, emits a typed terminal outcome before any successor launch, captures and reverifies exact binary patch identities, reconstructs ordered tree-bound ledger state, applies verified bytes through Git stdin under the apply gate, rejects active drift, and treats bookkeeping failure after mutation as a distinct no-rollback hard fail. Final validation now reconstructs the exact accepted state in a fresh detached worktree, checks validation and active identities at sequence boundaries, restricts final repair to typed program failures and derived upstream authority, and validates every candidate in another fresh reconstruction before active apply. Provider retries require structured provider/process evidence rather than diagnostic text. Keyless checks cover A1–A17 plus A19 and the final-validation portion of A20; slice 9 adds focused A16/A17/A20 checks and `executeFanout` pass/failure/repair coverage. The coordinated strict packet/event caller cutover remains slice 10.
+Status: All ten hardening slices are implemented as one closed executable generation: plan v2, details v3, packet v5, pointer v2, embedded work contract v1, attempt outcome v1, final evidence v1, event v1, projection v2, and presentation entry v1. Planning uses a fixed read-only profile and controller-owned envelopes; compilation derives contracts and graph authority; publication writes immutable artifacts and packet-derived views before publishing the exact pointer last. Execution rejects legacy, future, and mixed generations before lock creation or mutation, then uses fixed typed attempt budgets, exact patch/tree identities, a gapless causal event log, fresh final-validation reconstructions, and bounded typed repair. The full keyless A1–A20 matrix passes and package checks prove `fanout-core` is Pi/Doubleword-independent and the Doubleword provider remains standalone.
 
-Live `/fanout-execute` remains blocked from hardened release until all ten slices, the complete A1–A20 offline matrix, the macOS p-map canary, fresh review, and repository-owner approval pass for one immutable commit.
+Live `/fanout-execute` remains blocked from release until the explicitly authorized macOS p-map canary, fresh review, and repository-owner approval pass for the same immutable commit. Offline readiness does not satisfy those external gates.
 
 ### Phase 1: User-owned research and planning
 
@@ -58,11 +58,11 @@ Acceptance criteria:
 
 ### Phase 2: Execution packet via `/fanout-plan`
 
-Status: Phase 2B implemented and locally validated; audit follow-ups are resolved, with live `/fanout-plan` verification still pending before calling Phase 2 complete. `/fanout-plan` is command-backed with deterministic preflight and two explicit internal prompts: `fanout-implementation-plan.md` writes `implementation-plan.json`, then `fanout-implementation-details.md` writes `implementation-details.json`, then the artifact-driven adapter invokes the `fanout-core` compiler to emit execution packet schema v4. Packet validation/report rendering live in `fanout-core`, tier fields are compiler-assigned, `/fanout-config` configures Tier 1, Tier 2, and the separate Tier 2 fallback model role and shows artifact storage, and `scripts/fanout-packet-artifacts.mjs` writes validated packet artifacts plus the active pointer in Pi-owned storage.
+Status: Phase 2B is cut over and locally validated on the hardened generation. Controller-owned Phase A produces plan v2; controller-owned Phase B binds the exact plan bytes in details v3; `fanout-core` compiles embedded work-contract v1 nodes into packet v5; and `fanout-pi` atomically publishes packet-derived views before pointer v2 last. Old or mixed artifacts are rejected with replan guidance. Live canary evidence remains a release gate, not an offline implementation claim.
 
-P0 prompt-DAG dry-run benchmarking graduated `combined-general-conflict-proof` as the current best DAG prompt candidate across known and heldout tasks. This is prompt-quality evidence only; `/fanout-execute` smoke/execution validation remains pending before treating the prompt as a runtime default.
+P0 prompt-DAG dry-run benchmarking graduated `combined-general-conflict-proof` as the current best DAG prompt candidate across known and heldout tasks. The hardened `/fanout-execute` offline smoke matrix now covers the public dry-run and live seams, repair, integration, final validation, event replay, and cleanup. Treating the prompt as a released runtime default still requires the explicitly authorized macOS p-map canary and repository-owner approval.
 
-Resolved audit follow-ups are tracked in [`docs/impl/phase-2b-fanout-plan.md`](impl/phase-2b-fanout-plan.md#audit-findings-to-address-next).
+The hardened Phase 2B contract and its resolved audit scope are summarized in [`docs/impl/phase-2b-fanout-plan.md`](impl/phase-2b-fanout-plan.md).
 
 Goal: prepare a user-reviewable active packet that is detailed enough to execute later, with DAG validation completed before the packet is accepted.
 
@@ -81,17 +81,17 @@ Build the smallest useful packet first:
 4. **Prepare implementation-details artifact**
    - Ground Phase A items in exact files/resources, stable anchors, edit intent, new-file content shape, read-dependency classification, forbidden changes, and validation commands.
    - Do not invent contracts/APIs/product scope or write packet/DAG fields.
-5. **Compile fanout-agnostic work units and execution DAG**
-   - Deterministically validate artifacts, reject missing anchors/source ids/contracts, group same owned resources into worker packets, derive dependency edges from `post-change-required` reads, assign tiers, and add final validation.
-   - No default contract node.
+5. **Compile canonical work contracts and execution DAG**
+   - Deterministically validate plan v2/details v3, reject missing anchors/source ids/contracts, group overlapping typed changes into packet-v5 work-contract nodes, derive dependency edges from typed `post-change-required` reads, assign tiers, and add the final-validation contract.
+   - Persist no default node, flattened worker packet, or duplicate graph authority.
 6. **Validate the DAG during compilation**
-   - Reject cycles, missing dependencies, overlapping ownership, missing validation, unclear acceptance criteria, unsafe commands, impossible parallelism, tier-policy violations, and ambiguous read/write overlap.
+   - Reject cycles, ownerless reads, overlapping ownership contradictions, missing direct-argv validation, malformed semantic criteria, tier-policy violations, and ambiguous read/write overlap.
    - `baseline-context` read overlap does not serialize; `post-change-required` read overlap creates a dependency; unrepaired ambiguous read overlap may fall back to conservative sequential dependencies with a warning.
 7. **Optimize the execution plan**
    - Estimate critical path, parallel width, tier choices, expected active wait, background completion time, cost, and risk.
 8. **Emit the active user-facing execution packet**
-   - Include boxed ASCII DAG nodes, worker ownership table, tier/model plan, expected files touched, two-column metrics, validation commands, cancellation/stop rules, and known risks.
-   - Save or print the packet in a stable artifact format that `/fanout-execute` can consume as the active packet.
+   - Derive the DAG, typed ownership, tier/model plan, expected writes, validation manifests, warnings, and risks from the admitted packet and work contracts.
+   - Publish packet-derived views first and the exact digest-bound pointer v2 last for `/fanout-execute`.
 
 Packet artifacts:
 
@@ -115,7 +115,7 @@ Phase 2 acceptance criteria:
 
 ### Phase 3: Execution via `/fanout-execute`
 
-Status: MVP implemented; controlled live Pi worker validation remains pending. Detailed component contracts and implementation notes live in [`docs/impl/phase-3-fanout-execute.md`](impl/phase-3-fanout-execute.md).
+Status: The hardened runtime cutover is implemented and passes the complete keyless A1–A20 matrix. Detailed executable contracts and gate status live in [`docs/impl/phase-3-fanout-execute.md`](impl/phase-3-fanout-execute.md). The live macOS p-map canary and repository-owner approval remain pending.
 
 Goal: execute the active accepted packet, manage workers, validate outputs, run authoritative final validation, and return control with summary plus metrics.
 
@@ -123,20 +123,20 @@ Implemented order:
 
 1. **Active packet loader and guardrails**
    - Load the active execution packet prepared by `/fanout-plan`.
-   - Refuse missing pointers, malformed packets, paths outside the project artifact root, dirty active worktrees, missing committed `HEAD`, unsafe validation commands or repository paths, unavailable worker commands, and non-executable DAGs before mutation.
-   - Packet schema v4 has no planned HEAD/tree field, so preflight does not claim to detect a clean but stale checkout.
+   - Admit only pointer v2 bound by exact digest/length/path to packet v5, and reject legacy or mixed generations before lock creation or mutation.
+   - Refuse paths outside the project artifact root, exact planning commit/tree/platform drift, unsafe typed resources, unavailable direct validation executables, unavailable worker capability, and non-executable derived graphs.
    - Hold one canonical git-worktree execution lock for the run; never delete an existing lock automatically as stale.
    - Show the objective, work-unit count, concurrency, apply behavior, and audit path before asking the user to confirm launch.
 2. **Execution run recorder**
    - Derive `<packet-artifact-dir>` from the loaded packet path and create `<packet-artifact-dir>/executions/<execution-run-id>/` before mutation.
-   - Write `events.jsonl`, `execution-run.json`, and a deterministic `summary.md` with mandatory metrics, event counts, final-validation status, and accepted changed files.
+   - Write authoritative event v1 `events.jsonl`, derived projection v2 `execution-run.json`, and terminal deterministic `summary.md` with typed outcome totals, final-validation disposition, aggregate accepted patch statistics, and accepted-ledger attempt/tree transitions.
 3. **DAG scheduler**
    - Execute ready nodes in dependency order with deterministic packet-order tie breaking.
    - Keep scheduling separate from worktrees, workers, patch capture, validation, and repair.
 4. **Worker management**
    - Run approved work units in isolated git worktrees through curated non-interactive Pi subprocess workers.
    - Use `--no-context-files` and explicitly inject only applicable repo-local `AGENTS.md`/`CLAUDE.md` instructions into the curated prompt, while leaving automatic Pi extension discovery enabled under `--approve`; enabled extensions are a separate trusted runtime boundary.
-   - Rebuild previously accepted integration state in each fresh downstream worktree and commit it only as that worktree's detached diff baseline.
+   - Rebuild previously accepted integration state in each fresh downstream worktree by replaying the ordered ledger's digest/length-bound `patch.bin` transitions with exact base/result-tree, changed-path, and patch-stat verification; create no baseline commits or snapshot authority.
 5. **Patch, validation, and apply gates**
    - Capture git patches, enforce owned-file scope, run node validation, and apply only accepted whole-node patches to the active worktree.
    - Keep Git-observed filenames identity-preserving at the ownership gate; reject lossy path normalization.
@@ -145,7 +145,7 @@ Implemented order:
    - Allow only typed bounded Tier 1 recovery for validation failures and integration conflicts.
 6. **Tier2 retry / realtime fallback**
    - Use fixed MVP retry/repair limits and retry only classified transient process/provider failures; only `maxConcurrency` is user-configurable.
-   - After retryable Tier 2 exhaustion, run at most one realtime attempt with the packet's concrete `tierPlan.tier2Fallback` model, and only when the work unit declares `fallback: "tier1"`; this legacy tier label means the realtime execution tier, not necessarily the Tier 1 control-plane model.
+   - After retryable Tier 2 exhaustion, run at most one realtime attempt with the packet's concrete `tierPlan.tier2Fallback` model, and only when the typed work-unit assignment permits realtime fallback.
    - Do not switch remaining nodes globally. Tier 1 remains reserved for control-plane work and typed validation/integration recovery.
 7. **Summary and metrics**
    - Return node and final-validation results, retry/fallback outcomes, token/cost totals, run time, poll time, tool time, patch stats, and artifact links.
@@ -340,12 +340,11 @@ Design target: two narrower opt-in workflows, documented in [`docs/OPTIMISTIC_DA
 1. `semantic-batching-tier1`: realtime/tier1 workflow that reduces turns, redundant checks, and context bloat.
 2. `planned-parallel-rpe`: tier1 planner, conflict-aware scheduler, isolated tier2 background executors, parallel reviewers, cancellation for speculative pre-confirm work, file ownership constraints, and tier1 final review/synthesis.
 
-Next work is covered by the current Phase 2 and Phase 3 roadmap:
+The hardened Phase 2 and Phase 3 contracts are implemented. Next work is evidence-driven:
 
-- Define the execution packet: accepted plan, owned/read-only files, dependencies, constraints, validation contract, budget, user wait budget, stop rules, cancellation rules, and expected handoff.
-- Define scheduler policy: reject cycles and ownership conflicts, compute accepted safe-unit DAG critical path, estimate `tier2_exec_wait_worst_case = DAG_depth * 10m`, and launch only when it fits the user wait budget.
-- Add observability fields for active planning time, background completion time, late outputs, retries, cancellation, rejected speculative work, review latency, acceptance failures, accepted DAG depth, and estimated/actual tier2 wait.
-- Prototype background execution and sharded RPE behind `/fanout-execute` after `/fanout-plan` packets are reliable.
+- Measure packet-v5 scheduling against accepted DAG depth, immutable concurrency, typed outcomes, complete accepted metrics, and actual Tier 2 wait.
+- Extend observability only for demonstrated gaps in active planning time, background completion time, late outputs, review latency, or acceptance failures.
+- Keep scheduler changes subordinate to typed work-contract authority, exact transitions, causal events, and fresh final validation.
 - Keep default duplicate implementations deferred until trace-derived evidence shows they are worth the cost.
 
 ## Track 8: Live endpoint benchmarks

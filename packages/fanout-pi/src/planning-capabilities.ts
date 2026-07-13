@@ -1,9 +1,17 @@
 import { mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { validateImplementationDetailsArtifact } from "../../fanout-core/src/fanout-compiler.ts";
+import { artifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
+import {
+	IMPLEMENTATION_DETAILS_SCHEMA,
+	IMPLEMENTATION_DETAILS_VERSION,
+	IMPLEMENTATION_PLAN_SCHEMA,
+	IMPLEMENTATION_PLAN_VERSION,
+	validateImplementationDetailsArtifact,
+	validateImplementationPlan,
+} from "../../fanout-core/src/fanout-compiler.ts";
 import { writeArtifactAtomically } from "./artifact-store.ts";
-import { validateImplementationPlan, type FanoutPhaseState } from "./fanout-plan-orchestration.ts";
+import { type FanoutPhaseState } from "./fanout-plan-orchestration.ts";
 
 export const FANOUT_SUBMIT_TOOL = "fanout_submit_artifact";
 export const FANOUT_PLANNING_TOOLS = ["read", "grep", "find", "ls", "ask_user_question", FANOUT_SUBMIT_TOOL];
@@ -23,23 +31,80 @@ export function planningToolBlockReason(toolName: string, active: boolean): stri
 	return `Fanout planning blocks ${toolName}; allowed tools are ${FANOUT_PLANNING_TOOLS.join(", ")}.`;
 }
 
-export function submitPlanningArtifact(state: FanoutPhaseState, artifact: unknown, cwd: string): { path: string; phase: FanoutPhaseState["phase"] } {
+export function submitPlanningArtifact(state: FanoutPhaseState, artifact: unknown, cwd: string): { path: string; phase: FanoutPhaseState["phase"]; identity: ReturnType<typeof artifactIdentity> } {
 	const root = stringField(state.context.projectArtifactRoot);
 	const destination = state.phase === "implementation" ? state.implementationPlanPath : state.implementationDetailsPath;
 	assertControllerDestination(root, destination, cwd);
+	const planIdentity = state.phase === "details" ? acceptedPlanIdentity(state) : undefined;
+	const submitted = controllerEnvelope(state, artifact, planIdentity);
 	const validation = state.phase === "implementation"
-		? validateImplementationPlan(artifact, { artifactDir: state.artifactDir })
-		: validateImplementationDetailsArtifact(artifact, {
-			objective: state.objective,
-			artifactDir: state.artifactDir,
-			sourcePlanPath: state.implementationPlanPath,
-			planIds: implementationPlanIds(state.implementationPlanPath),
-		});
+		? validateImplementationPlan(submitted)
+		: validateImplementationDetailsArtifact(submitted, { planIdentity, planIds: acceptedPlanIds(state) });
 	if (!validation.ok) throw new Error(validation.errors.join("; "));
 
 	const relativePath = relative(resolve(root), resolve(destination)).split(sep).join("/");
-	writeArtifactAtomically(root, relativePath, Buffer.from(`${JSON.stringify(artifact, null, 2)}\n`));
-	return { path: destination, phase: state.phase };
+	const bytes = Buffer.from(`${JSON.stringify(submitted, null, 2)}\n`);
+	writeArtifactAtomically(root, relativePath, bytes);
+	return { path: destination, phase: state.phase, identity: artifactIdentity(relativePath.split("/").at(-1)!, bytes) };
+}
+
+export function readAcceptedImplementationPlan(path: string, expected: ReturnType<typeof artifactIdentity>): unknown {
+	return JSON.parse(readAcceptedPlanBytes(path, expected).toString("utf8"));
+}
+
+function controllerEnvelope(state: FanoutPhaseState, body: unknown, planIdentity?: ReturnType<typeof artifactIdentity>): unknown {
+	if (!isRecord(body)) throw new TypeError("planning submission body must be an object");
+	if (state.phase === "implementation") {
+		exactBody(body, ["objective", "userContext", "discoveredRepoFacts", "assumptions", "implementationItems"]);
+		const planningBase = isRecord(state.context.planningBase) ? state.context.planningBase : {};
+		return {
+			schema: IMPLEMENTATION_PLAN_SCHEMA,
+			version: IMPLEMENTATION_PLAN_VERSION,
+			planId: state.runId,
+			createdAt: new Date().toISOString(),
+			planningHost: { platform: process.platform },
+			planningBase: { headCommit: planningBase.headCommit, tree: planningBase.tree },
+			objective: body.objective,
+			userContext: body.userContext,
+			discoveredRepoFacts: body.discoveredRepoFacts,
+			assumptions: body.assumptions,
+			implementationItems: body.implementationItems,
+		};
+	}
+	exactBody(body, ["items", "finalValidationCommands"]);
+	return {
+		schema: IMPLEMENTATION_DETAILS_SCHEMA,
+		version: IMPLEMENTATION_DETAILS_VERSION,
+		detailsId: state.runId,
+		createdAt: new Date().toISOString(),
+		plan: planIdentity,
+		items: body.items,
+		finalValidationCommands: body.finalValidationCommands,
+	};
+}
+
+function acceptedPlanIdentity(state: FanoutPhaseState) {
+	if (!state.planIdentity) throw new Error("accepted implementation-plan identity is missing; restart /fanout-plan");
+	readAcceptedPlanBytes(state.implementationPlanPath, state.planIdentity);
+	return state.planIdentity;
+}
+
+function readAcceptedPlanBytes(path: string, expected: ReturnType<typeof artifactIdentity>): Buffer {
+	const bytes = readFileSync(path);
+	const current = artifactIdentity(expected.path, bytes);
+	if (JSON.stringify(current) !== JSON.stringify(expected)) throw new Error("accepted implementation-plan bytes changed; restart /fanout-plan");
+	return bytes;
+}
+
+function acceptedPlanIds(state: FanoutPhaseState): string[] {
+	if (!state.acceptedPlan) throw new Error("accepted implementation plan is missing; restart /fanout-plan");
+	return state.acceptedPlan.implementationItems.map((item) => item.id);
+}
+
+function exactBody(value: Record<string, unknown>, fields: string[]): void {
+	const unknown = Object.keys(value).filter((field) => !fields.includes(field));
+	const missing = fields.filter((field) => !Object.hasOwn(value, field));
+	if (unknown.length || missing.length) throw new TypeError(`planning submission has unknown or missing fields: ${[...unknown, ...missing].join(", ")}`);
 }
 
 function assertControllerDestination(root: string, destination: string, cwd: string): void {
@@ -58,13 +123,8 @@ function assertControllerDestination(root: string, destination: string, cwd: str
 	if (!escapes(realRepository, realRoot) || !escapes(realRepository, realDestinationParent)) throw new Error("Fanout artifacts cannot be submitted into the repository");
 }
 
-function implementationPlanIds(path: string): string[] {
-	try {
-		const plan = JSON.parse(readFileSync(path, "utf8"));
-		return Array.isArray(plan?.implementationItems) ? plan.implementationItems.map((item: any) => item?.id).filter((id: unknown): id is string => typeof id === "string") : [];
-	} catch {
-		return [];
-	}
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function escapes(root: string, target: string): boolean {

@@ -2,7 +2,7 @@ import { lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import type { AcceptedPatch, AcceptedStateTransition } from "../../fanout-core/src/artifact-identity.ts";
-import type { ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
+import { verifyArtifactBytes, type ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
 import type { CorrelatedAttemptMetrics } from "../../fanout-core/src/attempt-metrics.ts";
 import {
 	allocateAttempt,
@@ -16,34 +16,35 @@ import {
 	type NodeAttemptState,
 	type StageFact,
 } from "../../fanout-core/src/execution-attempt.ts";
-import type { AcceptedLedgerProvenance, AttemptRecoveryContext } from "../../fanout-core/src/recovery-evidence.ts";
-import type { FanoutExecutionPacket, FanoutWorkUnit, TierName } from "../../fanout-core/src/execution-packet.ts";
+import { assertFinalValidationRecoverySource, type AcceptedLedgerProvenance, type AttemptRecoveryContext } from "../../fanout-core/src/recovery-evidence.ts";
+import { executionPacketBytes, type FanoutExecutionPacket, type FanoutWorkUnit, type TierName } from "../../fanout-core/src/execution-packet.ts";
 import type { DagNodeResult } from "../../fanout-core/src/dag-scheduler.ts";
-import type { ExecutionEventName, PatchStats, ValidationStats, WorkerMetrics } from "../../fanout-core/src/execution-run.ts";
-import type { ExecutionRecorder } from "./execution-recorder.ts";
+import type { WorkerMetrics } from "../../fanout-core/src/worker-metrics.ts";
 import {
 	artifactSegment,
 	checkContractOwnership,
 	checkFinalRepairOwnership,
 	normalizeRepoPath,
+	ownershipViolationFactCode,
 	runProcess,
 	writeJson,
 } from "./fanout-git.ts";
 import { buildCanonicalWorkerPrompt, importWorkerMetrics, type SourceTaggedRepositoryInstruction } from "./fanout-worker-contract.ts";
 import { WORKER_MODEL_TOOLS } from "./worker-capabilities.ts";
 import {
+	AcceptedTransitionIdentityError,
+	AcceptedTransitionProcessError,
 	AmbiguousApplyError,
 	applyAcceptedTransition,
 	capturePatchCandidate,
-	capturePlanningBase,
 	createReconstructedWorktree,
 	fullGitVisibleTree,
+	removeReconstructedWorktree,
 	verifyPatchCandidate,
 	type PlanningBase,
 } from "./repository-identity.ts";
 import { writeArtifactAtomically } from "./artifact-store.ts";
-import { legacyWorkContract } from "./legacy-work-contract.ts";
-import type { WorkContract } from "../../fanout-core/src/work-contract.ts";
+import { contractWriteResources, type WorkContract } from "../../fanout-core/src/work-contract.ts";
 import { runValidationCommands, type ValidationRunResult } from "./validation-runner.ts";
 import { deriveFinalRepairWorkContract, type FinalValidationResult } from "../../fanout-core/src/final-validation.ts";
 import type { ValidationCommand } from "../../fanout-core/src/validation-command.ts";
@@ -100,37 +101,50 @@ interface GatedAttempt extends WorkerAttempt {
 
 export interface FanoutNodeExecutorOptions {
 	packet: FanoutExecutionPacket;
+	packetIdentity: ArtifactIdentity;
 	repoRoot: string;
 	runDir: string;
 	runId: string;
 	extensionEntry: string;
-	recorder: ExecutionRecorder;
+	recorder: RuntimeAttemptRecorder;
 	piCommand?: string;
 	workerTimeoutMs?: number;
 	validationTimeoutMs?: number;
 	maxValidationRepairAttempts?: number;
 	maxIntegrationRepairAttempts?: number;
+	afterActiveApply?: () => void;
+}
+
+export interface RuntimeAttemptRecorder {
+	recordAttemptAllocated(allocation: AttemptAllocation): Promise<void>;
+	recordAttemptCompleted(outcome: AttemptOutcome, acceptedTransition?: AcceptedStateTransition): Promise<void>;
+	flush(): Promise<void>;
 }
 
 export class FanoutNodeExecutor {
 	readonly #packet: FanoutExecutionPacket;
+	readonly #packetIdentity: ArtifactIdentity;
 	readonly #repoRoot: string;
 	readonly #runDir: string;
 	readonly #runId: string;
 	readonly #extensionEntry: string;
-	readonly #recorder: ExecutionRecorder;
+	readonly #recorder: RuntimeAttemptRecorder;
 	readonly #piCommand: string;
 	readonly #workerTimeoutMs: number;
 	readonly #validationTimeoutMs: number;
 	readonly #planningBase: PlanningBase;
+	readonly #afterActiveApply?: () => void;
 	#attemptStates = new Map<string, NodeAttemptState>();
 	#outcomes: AttemptOutcome[] = [];
 	#acceptedLedger: AcceptedLedgerProvenance[] = [];
 	#contracts = new Map<string, WorkContract>();
 	#applyTail: Promise<void> = Promise.resolve();
+	#worktrees = new Set<string>();
+	#manualReconciliationRequired = false;
 
 	constructor(options: FanoutNodeExecutorOptions) {
 		this.#packet = options.packet;
+		this.#packetIdentity = verifyArtifactBytes(options.packetIdentity, executionPacketBytes(options.packet));
 		this.#repoRoot = resolve(options.repoRoot);
 		this.#runDir = resolve(options.runDir);
 		this.#runId = options.runId;
@@ -139,22 +153,36 @@ export class FanoutNodeExecutor {
 		this.#piCommand = options.piCommand ?? process.env.FANOUT_PI_COMMAND ?? "pi";
 		this.#workerTimeoutMs = positiveInteger(options.workerTimeoutMs, 600_000, "workerTimeoutMs");
 		this.#validationTimeoutMs = positiveInteger(options.validationTimeoutMs, 600_000, "validationTimeoutMs");
+		this.#afterActiveApply = options.afterActiveApply;
 		fixedRepairLimit(options.maxValidationRepairAttempts, "maxValidationRepairAttempts");
 		fixedRepairLimit(options.maxIntegrationRepairAttempts, "maxIntegrationRepairAttempts");
-		this.#planningBase = capturePlanningBase(this.#repoRoot);
+		this.#planningBase = this.#packet.planningBase;
 	}
 
+	get manualReconciliationRequired(): boolean { return this.#manualReconciliationRequired; }
+
 	finalValidationCommands(fallback: readonly ValidationCommand[]): ValidationCommand[] {
-		const finalUnit = this.#packet.workUnits.find((unit) => unit.kind === "final-validation");
+		const finalUnit = this.#packet.nodes.find((unit) => unit.kind === "final-validation");
 		return finalUnit ? [...this.#contract(finalUnit).validationCommands] : [...fallback];
+	}
+
+	cleanupWorktrees(): void {
+		let failure: unknown;
+		for (const worktreePath of [...this.#worktrees].reverse()) {
+			try { removeReconstructedWorktree(this.#repoRoot, worktreePath); }
+			catch (error) { failure ??= error; }
+			finally { this.#worktrees.delete(worktreePath); }
+		}
+		if (failure) throw failure;
 	}
 
 	async runFinalValidation(commands: readonly ValidationCommand[]): Promise<FinalValidationResult> {
 		const initialTree = this.#acceptedLedger.at(-1)?.patch.resultTree ?? this.#planningBase.tree;
-		const finalUnit = this.#packet.workUnits.find((unit) => unit.kind === "final-validation");
+		const finalUnit = this.#packet.nodes.find((unit) => unit.kind === "final-validation");
 		const finalContract = finalUnit ? this.#contract(finalUnit) : undefined;
+		const upstreamWorkContracts = this.#packet.nodes.filter((unit) => unit.kind !== "final-validation").map((unit) => ({ nodeId: unit.id, workContract: this.#contract(unit) }));
 		const authoritativeCommands = finalContract?.validationCommands ?? commands;
-		const repairContract = finalContract ? deriveFinalRepairWorkContract(this.#packet.workUnits.filter((unit) => unit !== finalUnit).map((unit) => this.#contract(unit)), finalContract) : undefined;
+		const repairContract = finalContract ? deriveFinalRepairWorkContract(this.#packet.nodes.filter((unit) => unit !== finalUnit).map((unit) => this.#contract(unit)), finalContract) : undefined;
 		const repairUnit = finalUnit && repairContract ? { ...finalUnit, kind: "implement" as const } : undefined;
 		if (repairUnit && repairContract) this.#contracts.set(repairUnit.id, repairContract);
 		return await coordinateFinalValidation<WorkerAttempt>({
@@ -167,7 +195,10 @@ export class FanoutNodeExecutor {
 			expectedActiveTree: initialTree,
 			timeoutMs: this.#validationTimeoutMs,
 			...(repairUnit && repairContract ? { repair: {
+				packetIdentity: this.#packetIdentity,
 				workContract: repairContract,
+				finalValidationContract: finalContract as WorkContract,
+				upstreamWorkContracts,
 				acceptedLedger: this.#acceptedLedger,
 				available: () => (this.#attemptStates.get(repairUnit.id)?.counts.validationRepair ?? 0) < 2,
 				launch: async (recovery, source) => {
@@ -185,50 +216,56 @@ export class FanoutNodeExecutor {
 	async #authorizeFinalRepair(unit: FanoutWorkUnit, contract: WorkContract, attempt: WorkerAttempt): Promise<boolean> {
 		if (!attempt.patch) return false;
 		const ownership = checkFinalRepairOwnership(contract, attempt.patch, attempt.attemptDir);
-		await this.#event("ownership_check_finished", { nodeId: unit.id, attemptId: attempt.attemptId, finalRepair: true, ...ownership });
 		if (ownership.ok) return true;
-		this.#completeTerminalAttempt({ ...attempt, ok: false, error: ownership.violations.map((value) => `${value.file}: ${value.reason}`).join("; "), failureKind: "ownership", terminalFact: { stage: "worker-gate", code: ownership.violations.some((value) => value.reason.includes("forbidden")) ? "forbidden-change" : "unauthorized-change" } });
+		await this.#completeTerminalAttempt({ ...attempt, ok: false, error: ownership.violations.map((value) => `${value.file}: ${value.reason}`).join("; "), failureKind: "ownership", terminalFact: { stage: "worker-gate", code: ownershipViolationFactCode(ownership.violations) } });
 		return false;
 	}
 
 	async #rejectFinalRepair(attempt: WorkerAttempt, result: FinalValidationResult, recovery: AttemptRecoveryContext | undefined, fact: StageFact): Promise<boolean> {
 		const repairBudgetRemains = (this.#attemptStates.get(attempt.allocation.nodeId)?.counts.validationRepair ?? 0) < 2;
-		const completed = this.#completeTerminalAttempt({ ...attempt, ok: false, error: result.evidence.failure?.kind === "hard" ? result.evidence.failure.detail : "final validation program failed", failureKind: "validation", terminalFact: fact, ...(recovery && repairBudgetRemains ? { recovery } : {}) });
+		const completed = await this.#completeTerminalAttempt({ ...attempt, ok: false, error: result.evidence.failure?.kind === "hard" ? result.evidence.failure.detail : "final validation program failed", failureKind: "validation", terminalFact: fact, ...(recovery && repairBudgetRemains ? { recovery } : {}) });
 		return this.#terminalOutcome(completed).action === "validation-repair";
 	}
 
-	async runNode(unit: FanoutWorkUnit): Promise<DagNodeResult> {
+	async runNode(unit: FanoutWorkUnit, signal?: AbortSignal): Promise<DagNodeResult> {
+		signal?.throwIfAborted();
 		try {
 			this.#contract(unit);
 		} catch (error) {
 			return { ok: false, error: errorMessage(error) };
 		}
-		const original = await this.#runOriginalWithRetry(unit);
-		if (!original.ok) return failed(original);
+		const original = await this.#runOriginalWithRetry(unit, signal);
+		if (!original.ok) return await this.#result(original);
 
-		let gated = await this.#gateOwnershipAndValidation(unit, original);
-		if (!gated.ok && gated.failureKind === "validation" && this.#terminalOutcome(gated).action === "validation-repair") gated = await this.#repairValidation(unit, gated);
-		if (!gated.ok) return failed(gated);
+		if (signal?.aborted) return await this.#result(await this.#completeAbortedAttempt(original, signal.reason));
+		let gated = await this.#gateOwnershipAndValidation(unit, original, signal);
+		if (!gated.ok && gated.failureKind === "validation" && this.#terminalOutcome(gated).action === "validation-repair") gated = await this.#repairValidation(unit, gated, signal);
+		if (!gated.ok) return await this.#result(gated);
 
-		const applied = await this.#apply(unit, gated);
-		if (applied.ok) return { ok: true };
-		if (applied.failureKind !== "apply") return failed(applied);
+		const applied = await this.#apply(unit, gated, signal);
+		if (applied.ok) return await this.#result(applied);
+		if (applied.failureKind !== "apply") return await this.#result(applied);
 
-		const repaired = await this.#repairIntegration(unit, applied, applied.error ?? "git apply --check failed");
-		return repaired.ok ? { ok: true } : failed(repaired);
+		const repaired = await this.#repairIntegration(unit, applied, applied.error ?? "git apply --check failed", signal);
+		return await this.#result(repaired);
 	}
 
-	async #runOriginalWithRetry(unit: FanoutWorkUnit): Promise<WorkerAttempt> {
+	async #result(attempt: WorkerAttempt): Promise<DagNodeResult> {
+		await this.#recorder.flush();
+		if (!attempt.ok && this.#terminalOutcome(attempt).action === "abort") throw abortError(attempt.error ?? "Fanout attempt aborted");
+		return attempt.ok ? { ok: true, attemptId: attempt.attemptId } : { ...failed(attempt), attemptId: attempt.attemptId };
+	}
+
+	async #runOriginalWithRetry(unit: FanoutWorkUnit, signal?: AbortSignal): Promise<WorkerAttempt> {
 		const assigned = tierForUnit(unit);
 		let outcome: WorkerAttempt | undefined;
 		for (let attempt = 1; attempt <= 2; attempt++) {
-			if (attempt > 1) {
-				await this.#event("worker_clean_rerun_scheduled", { nodeId: unit.id, tier: assigned.tier, nextAttempt: attempt });
-				if (assigned.tier === "tier2") await this.#event("worker_retry_scheduled", { nodeId: unit.id, tier: assigned.tier, nextAttempt: attempt });
-			}
-			outcome = await this.#runWorkerAttempt(unit, assigned, attempt === 1 ? "original" : "retry", undefined, undefined, outcome?.attemptId);
-			if (outcome.ok || this.#terminalOutcome(outcome).action !== "retry") {
-				if (attempt === 2 && this.#terminalOutcome(outcome).action === "fallback") break;
+			signal?.throwIfAborted();
+			outcome = await this.#runWorkerAttempt(unit, assigned, attempt === 1 ? "original" : "retry", undefined, undefined, outcome?.attemptId, undefined, signal);
+			if (outcome.ok) return outcome;
+			const action = this.#terminalOutcome(outcome).action;
+			if (action !== "retry") {
+				if (attempt === 2 && action === "fallback") break;
 				return outcome;
 			}
 		}
@@ -238,9 +275,8 @@ export class FanoutNodeExecutor {
 			return outcome;
 		}
 		const fallback = tierTwoFallback(this.#packet);
-		await this.#event("worker_fallback_started", { nodeId: unit.id, fromTier: "tier2", tier: "tier1", provider: fallback.provider, model: fallback.model });
-		const result = await this.#runWorkerAttempt(unit, fallback, "fallback", undefined, undefined, outcome.attemptId);
-		await this.#event(result.ok ? "worker_fallback_finished" : "worker_fallback_failed", { nodeId: unit.id, attemptId: result.attemptId, error: result.error });
+		signal?.throwIfAborted();
+		const result = await this.#runWorkerAttempt(unit, fallback, "fallback", undefined, undefined, outcome.attemptId, undefined, signal);
 		return result;
 	}
 
@@ -252,7 +288,13 @@ export class FanoutNodeExecutor {
 		seedPatch?: AcceptedStateTransition,
 		sourceAttemptId?: string,
 		sourceFinalValidationEvidence?: ArtifactIdentity,
+		signal?: AbortSignal,
 	): Promise<WorkerAttempt> {
+		signal?.throwIfAborted();
+		if (sourceFinalValidationEvidence) {
+			if (recovery?.kind !== "final-validation") throw new Error("final validation repair launch requires typed failed-round recovery evidence");
+			assertFinalValidationRecoverySource(recovery, sourceFinalValidationEvidence);
+		}
 		const previousState = this.#attemptStates.get(unit.id) ?? createNodeAttemptState(unit.id);
 		const allocated = allocateAttempt(previousState, {
 			runId: this.#runId,
@@ -261,7 +303,7 @@ export class FanoutNodeExecutor {
 			assignment: { tier: tier.tier, provider: tier.provider, model: tier.model },
 			...(sourceAttemptId ? { sourceAttemptId } : {}),
 			...(sourceFinalValidationEvidence ? { sourceFinalValidationEvidence } : {}),
-			fallbackAllowed: unit.tier.fallback === "tier1",
+			fallbackAllowed: this.#packet.runtimePolicy.fallbackAllowed && unit.tier.fallback === "tier1",
 		});
 		this.#attemptStates.set(unit.id, allocated.state);
 		const { allocation } = allocated;
@@ -279,25 +321,22 @@ export class FanoutNodeExecutor {
 			allocation,
 			startedAt,
 			correlatedMetrics: emptyAttemptMetrics(attemptId),
-			fallbackAllowed: unit.tier.fallback === "tier1",
+			fallbackAllowed: this.#packet.runtimePolicy.fallbackAllowed && unit.tier.fallback === "tier1",
 		};
-		await this.#event("worker_attempt_started", { nodeId: unit.id, attemptId, kind, tier: tier.tier, provider: tier.provider, model: tier.model, allocation });
-		mkdirSync(attemptDir, { recursive: true });
-
-		let attemptBase: PlanningBase;
+		await this.#recorder.recordAttemptAllocated(allocation);
 		try {
+			signal?.throwIfAborted();
+			mkdirSync(attemptDir, { recursive: true });
+
 			const ledger = await this.#withApplyLock(() => this.#acceptedLedger.map(({ patch }) => ({ patch })));
-			attemptBase = createReconstructedWorktree(this.#repoRoot, worktreePath, this.#planningBase, this.#runDir, ledger);
+			signal?.throwIfAborted();
+			this.#worktrees.add(worktreePath);
+			const attemptBase = createReconstructedWorktree(this.#repoRoot, worktreePath, this.#planningBase, this.#runDir, ledger);
 			if (seedPatch) {
 				applyAcceptedTransition(worktreePath, this.#runDir, seedPatch);
 			}
-		} catch (error) {
-			const failedAttempt = { ...base, worktreePath, error: errorMessage(error), failureKind: "process" as const, retryable: true, terminalFact: { stage: "process", code: "infrastructure-failure", durationMs: 0 } as const };
-			writeJson(join(attemptDir, "result.json"), { nodeId: unit.id, attemptId, kind, tier, error: failedAttempt.error, failureKind: failedAttempt.failureKind });
-			return await this.#finishFailedAttempt(unit, failedAttempt);
-		}
 
-		const promptPath = join(attemptDir, "prompt.md");
+			const promptPath = join(attemptDir, "prompt.md");
 		const stdoutPath = join(attemptDir, "stdout.log");
 		const stderrPath = join(attemptDir, "stderr.log");
 		const observabilityPath = join(attemptDir, "observability.jsonl");
@@ -350,7 +389,9 @@ export class FanoutNodeExecutor {
 				DOUBLEWORD_EXECUTION_MODE: tier.tier === "tier2" ? "async" : "realtime",
 			},
 			isFirstOutput: isAssistantOutput,
+			signal,
 		});
+		signal?.throwIfAborted();
 		writeFileSync(stdoutPath, processResult.stdout, "utf8");
 		writeFileSync(stderrPath, processResult.stderr, "utf8");
 
@@ -363,37 +404,34 @@ export class FanoutNodeExecutor {
 			expectedProvider: tier.provider,
 			expectedModel: tier.model,
 		});
-		base.correlatedMetrics = correlatedWorkerMetrics(attemptId, imported.metrics, stdoutPath, observabilityPath, processResult.firstOutputMs);
+		base.correlatedMetrics = correlatedWorkerMetrics(attemptId, imported.metrics ?? {
+			provider: typeof imported.partialMetrics.provider === "string" ? imported.partialMetrics.provider : tier.provider,
+			model: typeof imported.partialMetrics.model === "string" ? imported.partialMetrics.model : tier.model,
+			tier: tier.tier,
+			workerDurationMs: processResult.durationMs,
+		}, stdoutPath, observabilityPath, processResult.firstOutputMs);
 		const metricsCorrelated = base.correlatedMetrics.complete;
-		if (imported.ok && imported.metrics && metricsCorrelated) {
-			this.#recorder.recordAttemptMetrics(unit.id, attemptId, imported.metrics);
-			await this.#event("metrics_imported", { nodeId: unit.id, attemptId, metrics: imported.metrics });
-		} else {
-			this.#recorder.recordAttemptMetrics(unit.id, attemptId, imported.partialMetrics);
-			await this.#event("metrics_missing", { nodeId: unit.id, attemptId, errors: [...imported.errors, ...(metricsCorrelated ? [] : ["attempt identity correlation incomplete"])], partialMetrics: imported.partialMetrics });
-		}
 
 		let patch: AcceptedPatch | undefined;
 		let patchError: string | undefined;
-		await this.#event("patch_capture_started", { nodeId: unit.id, attemptId });
 		try {
 			const patchPath = `${relative(this.#runDir, attemptDir).split("\\").join("/")}/patch.bin`;
 			patch = capturePatchCandidate(worktreePath, attemptBase, this.#runDir, patchPath);
-			await this.#event("patch_capture_finished", { nodeId: unit.id, attemptId, changedFiles: patch.changedPaths, stats: patch.stats, artifact: patch.artifact });
 		} catch (error) {
 			patchError = errorMessage(error);
-			await this.#event("patch_rejected", { nodeId: unit.id, attemptId, reason: "patch_capture_failed", error: patchError });
 		}
 
 		const processOk = processResult.exitCode === 0 && !processResult.timedOut && !processResult.spawnError;
-		const hasUsablePatch = Boolean(patch && (patch.artifact.byteLength > 0 || unit.ownedFiles.length === 0));
+		const hasUsablePatch = Boolean(patch && (patch.artifact.byteLength > 0 || contractWriteResources(unit.workContract).length === 0));
 		const resultData = {
 			nodeId: unit.id,
 			attemptId,
 			kind,
 			tier,
 			process: { ...processResult, stdout: undefined, stderr: undefined },
-			metrics: imported.metrics,
+			metrics: imported.metrics ?? imported.partialMetrics,
+			metricsComplete: imported.ok,
+			correlatedMetrics: base.correlatedMetrics,
 			metricErrors: imported.errors,
 			patch: patch ? { artifact: patch.artifact, changedFiles: patch.changedPaths, stats: patch.stats, baseTree: patch.baseTree, resultTree: patch.resultTree } : undefined,
 			patchError,
@@ -401,7 +439,7 @@ export class FanoutNodeExecutor {
 		writeJson(join(attemptDir, "result.json"), resultData);
 		if (!processOk) {
 			const details = [processResult.timedOut ? "worker timed out" : undefined, processResult.spawnError, processResult.exitCode !== 0 ? `worker exited ${processResult.exitCode}` : undefined, processResult.stderr.trim()].filter(Boolean).join(": ");
-			return await this.#finishFailedAttempt(unit, {
+			return await this.#finishFailedAttempt({
 				...base,
 				worktreePath,
 				base: attemptBase,
@@ -413,55 +451,75 @@ export class FanoutNodeExecutor {
 				terminalFact: processStageFact(processResult, observabilityPath, { runId: providerRunId, provider: tier.provider, model: tier.model }),
 			});
 		}
-		if (!imported.ok || !imported.metrics || !metricsCorrelated) return await this.#finishFailedAttempt(unit, { ...base, worktreePath, base: attemptBase, patch, error: [...imported.errors, ...(metricsCorrelated ? [] : ["attempt identity correlation incomplete"])].join("; "), failureKind: "metrics", retryable: false, terminalFact: { stage: "metrics", code: metricsCorrelated ? "malformed" : "correlation-mismatch" } });
-		if (!patch) return await this.#finishFailedAttempt(unit, { ...base, worktreePath, base: attemptBase, metrics: imported.metrics, error: patchError ?? "patch could not be captured", failureKind: "patch", retryable: false, terminalFact: { stage: "worker-gate", code: "malformed-patch" } });
-		if (patch.artifact.byteLength === 0 && unit.ownedFiles.length > 0) return await this.#finishFailedAttempt(unit, { ...base, worktreePath, base: attemptBase, metrics: imported.metrics, patch, error: "worker produced no patch for a mutating work unit", failureKind: "patch", retryable: false, terminalFact: { stage: "worker-gate", code: "mutating-noop" } });
+		if (!imported.ok || !imported.metrics || !metricsCorrelated) return await this.#finishFailedAttempt({ ...base, worktreePath, base: attemptBase, patch, error: [...imported.errors, ...(metricsCorrelated ? [] : ["attempt identity correlation incomplete"])].join("; "), failureKind: "metrics", retryable: false, terminalFact: { stage: "metrics", code: metricsCorrelated ? "malformed" : "correlation-mismatch" } });
+		if (!patch) return await this.#finishFailedAttempt({ ...base, worktreePath, base: attemptBase, metrics: imported.metrics, error: patchError ?? "patch could not be captured", failureKind: "patch", retryable: false, terminalFact: { stage: "worker-gate", code: "malformed-patch" } });
+		if (patch.artifact.byteLength === 0 && contractWriteResources(unit.workContract).length > 0) return await this.#finishFailedAttempt({ ...base, worktreePath, base: attemptBase, metrics: imported.metrics, patch, error: "worker produced no patch for a mutating work unit", failureKind: "patch", retryable: false, terminalFact: { stage: "worker-gate", code: "mutating-noop" } });
 
-		await this.#event("worker_attempt_finished", { nodeId: unit.id, attemptId, kind, tier: tier.tier });
-		return { ...base, ok: true, worktreePath, base: attemptBase, metrics: imported.metrics, patch };
+			return { ...base, ok: true, worktreePath, base: attemptBase, metrics: imported.metrics, patch };
+		} catch (error) {
+			if (this.#outcomes.some((outcome) => outcome.attemptId === attemptId)) throw error;
+			const durationMs = Math.max(0, Date.now() - Date.parse(startedAt));
+			const aborted = signal?.aborted === true || (error instanceof Error && error.name === "AbortError");
+			const failedAttempt: WorkerAttempt = {
+				...base,
+				worktreePath,
+				error: errorMessage(error),
+				failureKind: "process",
+				retryable: !aborted,
+				terminalFact: aborted
+					? { stage: "process", code: "user-abort", durationMs }
+					: { stage: "process", code: "infrastructure-failure", durationMs },
+			};
+			try {
+				mkdirSync(attemptDir, { recursive: true });
+				writeJson(join(attemptDir, "result.json"), { nodeId: unit.id, attemptId, kind, tier, error: failedAttempt.error, failureKind: failedAttempt.failureKind });
+			} catch {
+				// Attempt completion remains the authoritative causal record when diagnostics cannot be written.
+			}
+			return await this.#finishFailedAttempt(failedAttempt);
+		}
 	}
 
-	async #gateOwnershipAndValidation(unit: FanoutWorkUnit, attempt: WorkerAttempt): Promise<GatedAttempt | WorkerAttempt> {
+	async #gateOwnershipAndValidation(unit: FanoutWorkUnit, attempt: WorkerAttempt, signal?: AbortSignal): Promise<GatedAttempt | WorkerAttempt> {
 		if (!attempt.ok || !attempt.worktreePath || !attempt.base || !attempt.metrics || !attempt.patch) return attempt;
-		await this.#event("ownership_check_started", { nodeId: unit.id, attemptId: attempt.attemptId });
+		if (signal?.aborted) return await this.#completeAbortedAttempt(attempt, signal.reason);
 		let ownership;
 		try {
 			ownership = checkContractOwnership(this.#contract(unit), attempt.patch, attempt.attemptDir, this.#repoRoot);
 		} catch (error) {
-			ownership = { ok: false, violations: [{ file: "packet", reason: errorMessage(error) }] };
+			ownership = { ok: false, violations: [{ file: "packet", code: "unauthorized-change" as const, reason: errorMessage(error) }] };
 		}
-		await this.#event("ownership_check_finished", { nodeId: unit.id, attemptId: attempt.attemptId, ...ownership });
 		if (!ownership.ok) {
-			await this.#event("patch_rejected", { nodeId: unit.id, attemptId: attempt.attemptId, reason: "ownership", violations: ownership.violations });
-			return this.#completeTerminalAttempt({
+			return await this.#completeTerminalAttempt({
 				...attempt,
 				ok: false,
 				error: ownership.violations.map((value) => `${value.file}: ${value.reason}`).join("; "),
 				failureKind: "ownership",
 				retryable: false,
-				terminalFact: { stage: "worker-gate", code: ownership.violations.some((value) => value.reason.includes("forbidden")) ? "forbidden-change" : "unauthorized-change" },
+				terminalFact: { stage: "worker-gate", code: ownershipViolationFactCode(ownership.violations) },
 			});
 		}
 
 		const validationCommands = this.#contract(unit).validationCommands;
-		await this.#event("validation_started", { nodeId: unit.id, attemptId: attempt.attemptId, commands: validationCommands });
 		let validation: ValidationRunResult;
 		try {
+			signal?.throwIfAborted();
 			validation = await runValidationCommands(validationCommands, {
 				checkoutRoot: attempt.worktreePath,
 				expectedPlatform: process.platform,
 				scopeId: attempt.attemptId,
 				timeoutMs: this.#validationTimeoutMs,
 				inheritedEnv: process.env,
+				signal,
 			});
 		} catch (error) {
+			if (signal?.aborted) return await this.#completeAbortedAttempt(attempt, signal.reason ?? error);
 			const message = errorMessage(error);
 			writeJson(join(attempt.attemptDir, "validation.json"), { status: "failed", preflightError: message, commands: validationCommands });
-			await this.#event("validation_finished", { nodeId: unit.id, attemptId: attempt.attemptId, status: "failed", preflightError: message });
-			return this.#completeTerminalAttempt({ ...attempt, ok: false, error: message, failureKind: "validation", retryable: false, terminalFact: { stage: "validation", code: "spawn-failure" } });
+			return await this.#completeTerminalAttempt({ ...attempt, ok: false, error: message, failureKind: "validation", retryable: false, terminalFact: { stage: "validation", code: "spawn-failure" } });
 		}
+		if (signal?.aborted) return await this.#completeAbortedAttempt(attempt, signal.reason);
 		writeJson(join(attempt.attemptDir, "validation.json"), validation);
-		this.#recorder.setValidationStats(unit.id, validationStats(validation));
 		let patchUnchanged = false;
 		let patchCheckError: string | undefined;
 		try {
@@ -470,14 +528,11 @@ export class FanoutNodeExecutor {
 		} catch (error) {
 			patchCheckError = errorMessage(error);
 		}
-		await this.#event("validation_finished", { nodeId: unit.id, attemptId: attempt.attemptId, ...validation, patchUnchanged, patchCheckError });
 		if (!patchUnchanged) {
 			const error = patchCheckError ? `cannot verify the patch after validation: ${patchCheckError}` : "validation commands modified the captured patch";
-			await this.#event("patch_rejected", { nodeId: unit.id, attemptId: attempt.attemptId, reason: "validation_modified_patch", error });
-			return this.#completeTerminalAttempt({ ...attempt, ok: false, error, failureKind: "patch", retryable: false, terminalFact: { stage: "worker-gate", code: "post-validation-change" } });
+			return await this.#completeTerminalAttempt({ ...attempt, ok: false, error, failureKind: "patch", retryable: false, terminalFact: { stage: "worker-gate", code: "post-validation-change" } });
 		}
 		if (validation.status === "failed") {
-			await this.#event("patch_rejected", { nodeId: unit.id, attemptId: attempt.attemptId, reason: "validation" });
 			const evidence = validationFailureEvidence(this.#contract(unit), attempt, validation);
 			const failedAttempt = {
 				...attempt,
@@ -489,33 +544,29 @@ export class FanoutNodeExecutor {
 				terminalFact: evidence.fact,
 				recovery: evidence.recovery,
 			};
-			return this.#completeTerminalAttempt(failedAttempt);
+			return await this.#completeTerminalAttempt(failedAttempt);
 		}
 		return { ...attempt, ok: true, validation } as GatedAttempt;
 	}
 
-	async #repairValidation(unit: FanoutWorkUnit, failedAttempt: WorkerAttempt): Promise<GatedAttempt | WorkerAttempt> {
+	async #repairValidation(unit: FanoutWorkUnit, failedAttempt: WorkerAttempt, signal?: AbortSignal): Promise<GatedAttempt | WorkerAttempt> {
 		let current = failedAttempt;
 		let seedPatch = failedAttempt.patch;
 		let recoveryContext = failedAttempt.recovery;
 		while ((this.#attemptStates.get(unit.id)?.counts.validationRepair ?? 0) < 2) {
-			const attempt = (this.#attemptStates.get(unit.id)?.counts.validationRepair ?? 0) + 1;
+			signal?.throwIfAborted();
 			if (!seedPatch) break;
-			await this.#event("validation_repair_started", { nodeId: unit.id, repairAttempt: attempt, sourceAttemptId: current.attemptId, tier: "tier1" });
 			if (recoveryContext?.kind !== "validation") break;
-			const repair = await this.#runWorkerAttempt(unit, tierOne(this.#packet), "validation-repair", recoveryContext, { patch: seedPatch }, current.attemptId);
+			const repair = await this.#runWorkerAttempt(unit, tierOne(this.#packet), "validation-repair", recoveryContext, { patch: seedPatch }, current.attemptId, undefined, signal);
 			if (!repair.ok) {
-				await this.#event("validation_repair_failed", { nodeId: unit.id, repairAttempt: attempt, attemptId: repair.attemptId, error: repair.error });
 				if (this.#terminalOutcome(repair).action !== "validation-repair") return repair;
 				current = repair;
 				continue;
 			}
-			const gated = await this.#gateOwnershipAndValidation(unit, repair);
+			const gated = await this.#gateOwnershipAndValidation(unit, repair, signal);
 			if (gated.ok) {
-				await this.#event("validation_repair_finished", { nodeId: unit.id, repairAttempt: attempt, attemptId: gated.attemptId });
 				return gated as GatedAttempt;
 			}
-			await this.#event("validation_repair_failed", { nodeId: unit.id, repairAttempt: attempt, attemptId: gated.attemptId, error: gated.error });
 			if (gated.failureKind === "ownership" || gated.failureKind === "metrics" || gated.failureKind === "unsafe") return gated;
 			current = gated;
 			seedPatch = gated.patch;
@@ -524,22 +575,21 @@ export class FanoutNodeExecutor {
 		return { ...current, ok: false, error: current.error ?? "validation repair attempts exhausted", failureKind: "validation", retryable: false };
 	}
 
-	async #apply(unit: FanoutWorkUnit, attempt: GatedAttempt): Promise<WorkerAttempt> {
-		await this.#event("patch_apply_check_started", { nodeId: unit.id, attemptId: attempt.attemptId });
+	async #apply(unit: FanoutWorkUnit, attempt: GatedAttempt, signal?: AbortSignal): Promise<WorkerAttempt> {
+		if (signal?.aborted) return await this.#completeAbortedAttempt(attempt, signal.reason);
 		return await this.#withApplyLock(async () => {
+			if (signal?.aborted) return await this.#completeAbortedAttempt(attempt, signal.reason);
 			const started = performance.now();
 			try {
-				const transition = applyAcceptedTransition(this.#repoRoot, this.#runDir, { patch: attempt.patch });
+				const transition = applyAcceptedTransition(this.#repoRoot, this.#runDir, { patch: attempt.patch }, { afterApply: this.#afterActiveApply });
 				const applyDurationMs = roundMs(performance.now() - started);
 				try {
 					writeJson(join(attempt.attemptDir, "apply-check.json"), { ok: true, artifact: attempt.patch.artifact, baseTree: attempt.patch.baseTree, resultTree: attempt.patch.resultTree, applyDurationMs });
-					await this.#event("patch_apply_check_finished", { nodeId: unit.id, attemptId: attempt.attemptId, ok: true, baseTree: attempt.patch.baseTree, resultTree: attempt.patch.resultTree });
-					this.#acceptAttempt(unit, attempt, applyDurationMs);
-					await this.#event("patch_applied", { nodeId: unit.id, attemptId: attempt.attemptId, stats: attempt.patch.stats, applyDurationMs, noOp: attempt.patch.artifact.byteLength === 0 });
-					this.#completeAttempt(attempt, { stage: "apply", code: "applied" });
+					await this.#completeAttempt(attempt, { stage: "apply", code: "applied" }, undefined, transition);
 					this.#acceptedLedger.push({ sourceAttemptId: attempt.attemptId, patch: transition.patch });
 					return attempt;
 				} catch (error) {
+					this.#manualReconciliationRequired = true;
 					const failedAttempt = {
 						...attempt,
 						ok: false,
@@ -548,104 +598,98 @@ export class FanoutNodeExecutor {
 						retryable: false,
 						terminalFact: { stage: "bookkeeping", code: "failed-after-mutation" },
 					} as WorkerAttempt;
-					return this.#outcomes.some((outcome) => outcome.attemptId === attempt.attemptId) ? failedAttempt : this.#completeTerminalAttempt(failedAttempt);
+					return this.#outcomes.some((outcome) => outcome.attemptId === attempt.attemptId) ? failedAttempt : await this.#completeTerminalAttempt(failedAttempt);
 				}
 			} catch (error) {
 				const message = errorMessage(error);
-				if (error instanceof AmbiguousApplyError) return this.#completeTerminalAttempt({ ...attempt, ok: false, error: message, failureKind: "bookkeeping", retryable: false, terminalFact: { stage: "bookkeeping", code: "failed-after-mutation" } });
+				if (error instanceof AmbiguousApplyError) {
+					this.#manualReconciliationRequired = true;
+					return await this.#completeTerminalAttempt({ ...attempt, ok: false, error: message, failureKind: "bookkeeping", retryable: false, terminalFact: { stage: "bookkeeping", code: "failed-after-mutation" } });
+				}
 				const acceptedTree = this.#acceptedLedger.at(-1)?.patch.resultTree ?? this.#planningBase.tree;
 				if (fullGitVisibleTree(this.#repoRoot) !== acceptedTree) {
-					return this.#completeTerminalAttempt({ ...attempt, ok: false, error: `active worktree drifted from accepted state: ${message}`, failureKind: "bookkeeping", retryable: false, terminalFact: { stage: "apply", code: "state-drift" } });
+					this.#manualReconciliationRequired = true;
+					return await this.#completeTerminalAttempt({ ...attempt, ok: false, error: `active worktree drifted from accepted state: ${message}`, failureKind: "bookkeeping", retryable: false, terminalFact: { stage: "apply", code: "state-drift" } });
 				}
-				const identityFailure = /artifact|identity|changed paths|statistics|result tree/i.test(message);
 				try {
 					writeJson(join(attempt.attemptDir, "apply-check.json"), { ok: false, error: message, baseTree: attempt.patch.baseTree, resultTree: attempt.patch.resultTree });
-					await this.#event("patch_apply_check_finished", { nodeId: unit.id, attemptId: attempt.attemptId, ok: false, error: message });
-					await this.#event("patch_rejected", { nodeId: unit.id, attemptId: attempt.attemptId, reason: identityFailure ? "patch_identity" : "apply_conflict", error: message });
 				} catch {
 					// The original deterministic gate failure remains authoritative.
 				}
-				if (identityFailure) return this.#completeTerminalAttempt({ ...attempt, ok: false, error: message, failureKind: "patch", retryable: false, terminalFact: { stage: "apply", code: "identity-failure" } });
+				if (error instanceof AcceptedTransitionIdentityError) return await this.#completeTerminalAttempt({ ...attempt, ok: false, error: message, failureKind: "patch", retryable: false, terminalFact: { stage: "apply", code: error.code } });
+				if (!(error instanceof AcceptedTransitionProcessError)) return await this.#completeTerminalAttempt({ ...attempt, ok: false, error: message, failureKind: "bookkeeping", retryable: false, terminalFact: { stage: "bookkeeping", code: "publication-failure" } });
 				const failedAttempt = {
 					...attempt,
 					ok: false,
 					error: message,
 					failureKind: "apply" as const,
 					retryable: false,
-					terminalFact: { stage: "apply", code: "check-conflict" } as const,
-					recovery: integrationFailureEvidence(this.#contract(unit), attempt, message, this.#acceptedLedger, acceptedTree),
+					terminalFact: { stage: "apply", code: error.code } as const,
+					recovery: integrationFailureEvidence(this.#contract(unit), attempt, error.evidence, this.#acceptedLedger, acceptedTree),
 				};
-				return this.#completeTerminalAttempt(failedAttempt);
+				return await this.#completeTerminalAttempt(failedAttempt);
 			}
 		});
 	}
 
-	async #repairIntegration(unit: FanoutWorkUnit, rejected: WorkerAttempt, applyError: string): Promise<WorkerAttempt> {
+	async #repairIntegration(unit: FanoutWorkUnit, rejected: WorkerAttempt, applyError: string, signal?: AbortSignal): Promise<WorkerAttempt> {
 		if (!rejected.patch) return { ...rejected, ok: false, error: rejected.error ?? "integration repair has no rejected patch", failureKind: "patch", retryable: false };
-		let currentPatch = rejected.patch;
 		let currentError = applyError;
 		let sourceAttemptId = rejected.attemptId;
 		let recoveryContext = rejected.recovery;
+		let lastRejected = rejected;
 		while ((this.#attemptStates.get(unit.id)?.counts.integrationRepair ?? 0) < 2) {
-			const attempt = (this.#attemptStates.get(unit.id)?.counts.integrationRepair ?? 0) + 1;
-			await this.#event("integration_repair_started", { nodeId: unit.id, repairAttempt: attempt, sourceAttemptId, tier: "tier1" });
+			signal?.throwIfAborted();
 			if (recoveryContext?.kind !== "integration") break;
-			const repair = await this.#runWorkerAttempt(unit, tierOne(this.#packet), "integration-repair", recoveryContext, undefined, sourceAttemptId);
+			const repair = await this.#runWorkerAttempt(unit, tierOne(this.#packet), "integration-repair", recoveryContext, undefined, sourceAttemptId, undefined, signal);
 			if (!repair.ok) {
-				await this.#event("integration_repair_failed", { nodeId: unit.id, repairAttempt: attempt, attemptId: repair.attemptId, error: repair.error });
+				lastRejected = repair;
 				if (this.#terminalOutcome(repair).action !== "integration-repair") return repair;
 				sourceAttemptId = repair.attemptId;
 				continue;
 			}
-			let gated = await this.#gateOwnershipAndValidation(unit, repair);
+			let gated = await this.#gateOwnershipAndValidation(unit, repair, signal);
 			if (!gated.ok && gated.failureKind === "validation" && gated.patch && this.#terminalOutcome(gated).action === "validation-repair") {
-				gated = await this.#repairValidation(unit, gated);
+				gated = await this.#repairValidation(unit, gated, signal);
 			}
 			if (!gated.ok) {
-				await this.#event("integration_repair_failed", { nodeId: unit.id, repairAttempt: attempt, attemptId: gated.attemptId, error: gated.error });
 				return gated;
 			}
-			const applied = await this.#apply(unit, gated as GatedAttempt);
+			const applied = await this.#apply(unit, gated as GatedAttempt, signal);
+			lastRejected = applied;
 			if (applied.ok) {
-				await this.#event("integration_repair_finished", { nodeId: unit.id, repairAttempt: attempt, attemptId: applied.attemptId });
 				return applied;
 			}
 			if (applied.failureKind !== "apply") return applied;
-			currentPatch = (gated as GatedAttempt).patch;
 			currentError = applied.error ?? currentError;
 			sourceAttemptId = applied.attemptId;
 			recoveryContext = applied.recovery;
-			await this.#event("integration_repair_failed", { nodeId: unit.id, repairAttempt: attempt, attemptId: applied.attemptId, error: applied.error });
 		}
-		return { ...rejected, ok: false, error: currentError || "integration repair attempts exhausted", failureKind: "apply", retryable: false };
+		return { ...lastRejected, ok: false, error: currentError || "integration repair attempts exhausted", failureKind: "apply", retryable: false };
 	}
 
-	#acceptAttempt(unit: FanoutWorkUnit, attempt: GatedAttempt, applyDurationMs: number): void {
-		this.#recorder.recordAttemptMetrics(unit.id, attempt.attemptId, attempt.metrics, { accepted: true });
-		const stats: PatchStats = { ...attempt.patch.stats, applyDurationMs, changedFiles: attempt.patch.changedPaths };
-		this.#recorder.setPatchStats(unit.id, stats);
+	async #finishFailedAttempt(attempt: WorkerAttempt): Promise<WorkerAttempt> {
+		return await this.#completeTerminalAttempt(attempt);
 	}
 
-	async #finishFailedAttempt(unit: FanoutWorkUnit, attempt: WorkerAttempt): Promise<WorkerAttempt> {
-		await this.#event("worker_attempt_failed", {
-			nodeId: unit.id,
-			attemptId: attempt.attemptId,
-			kind: attempt.kind,
-			tier: attempt.tier.tier,
-			error: attempt.error,
-			failureKind: attempt.failureKind,
-			retryable: attempt.retryable === true,
+	async #completeAbortedAttempt(attempt: WorkerAttempt, reason: unknown): Promise<WorkerAttempt> {
+		return await this.#completeTerminalAttempt({
+			...attempt,
+			ok: false,
+			error: reason === undefined ? "Fanout attempt aborted" : errorMessage(reason),
+			failureKind: "process",
+			retryable: false,
+			terminalFact: { stage: "process", code: "user-abort", durationMs: Math.max(0, Date.now() - Date.parse(attempt.startedAt)) },
 		});
-		return this.#completeTerminalAttempt(attempt);
 	}
 
-	#completeTerminalAttempt(attempt: WorkerAttempt): WorkerAttempt {
+	async #completeTerminalAttempt(attempt: WorkerAttempt): Promise<WorkerAttempt> {
 		if (!attempt.terminalFact) throw new Error(`attempt ${attempt.attemptId} has no typed terminal fact`);
-		this.#completeAttempt(attempt, attempt.terminalFact, attempt.terminalFact.stage === "validation" || attempt.terminalFact.stage === "apply" ? attempt.recovery : undefined);
+		await this.#completeAttempt(attempt, attempt.terminalFact, attempt.terminalFact.stage === "validation" || attempt.terminalFact.stage === "apply" ? attempt.recovery : undefined);
 		return attempt;
 	}
 
-	#completeAttempt(attempt: WorkerAttempt, terminalFact: StageFact, recovery?: AttemptRecoveryContext): AttemptOutcome {
+	async #completeAttempt(attempt: WorkerAttempt, terminalFact: StageFact, recovery?: AttemptRecoveryContext, acceptedTransition?: AcceptedStateTransition): Promise<AttemptOutcome> {
 		const existing = this.#outcomes.find((outcome) => outcome.attemptId === attempt.attemptId);
 		if (existing) return existing;
 		const state = this.#attemptStates.get(attempt.allocation.nodeId);
@@ -670,6 +714,7 @@ export class FanoutNodeExecutor {
 		}
 		const outcome = commitAttemptCompletion(prepared);
 		this.#outcomes = appendTerminalOutcome(this.#outcomes, outcome);
+		await this.#recorder.recordAttemptCompleted(outcome, acceptedTransition);
 		return outcome;
 	}
 
@@ -677,10 +722,6 @@ export class FanoutNodeExecutor {
 		const outcome = this.#outcomes.find((candidate) => candidate.attemptId === attempt.attemptId);
 		if (!outcome) throw new Error(`attempt ${attempt.attemptId} has no terminal outcome`);
 		return outcome;
-	}
-
-	async #event(event: ExecutionEventName, data: Record<string, unknown>): Promise<void> {
-		await this.#recorder.appendEvent(event, data);
 	}
 
 	async #withApplyLock<T>(run: () => T | Promise<T>): Promise<T> {
@@ -700,7 +741,7 @@ export class FanoutNodeExecutor {
 	#contract(unit: FanoutWorkUnit): WorkContract {
 		const existing = this.#contracts.get(unit.id);
 		if (existing) return existing;
-		const contract = legacyWorkContract(unit, this.#repoRoot, this.#packet.workUnits);
+		const contract = unit.workContract;
 		this.#contracts.set(unit.id, contract);
 		return contract;
 	}
@@ -726,10 +767,6 @@ function failed(attempt: WorkerAttempt): DagNodeResult {
 	return { ok: false, error: attempt.error ?? `${attempt.kind} attempt ${attempt.attemptId} failed` };
 }
 
-function validationStats(result: ValidationRunResult): ValidationStats {
-	return { commandCount: result.executedCount, durationMs: result.durationMs, status: result.status };
-}
-
 function validationError(result: ValidationRunResult): string {
 	const failedCommand = result.commands.find((command) => command.outcome !== "passed" && command.outcome !== "unexecuted");
 	return failedCommand ? `${failedCommand.command.executable} ${failedCommand.command.args.join(" ")}: ${failedCommand.spawnError || failedCommand.stderr.trim() || failedCommand.stdout.trim() || failedCommand.signal || failedCommand.outcome}` : "validation failed";
@@ -742,7 +779,7 @@ function worktreeExtensionPath(repoRoot: string, worktreePath: string, extension
 
 function collectRepositoryInstructions(worktreePath: string, unit: FanoutWorkUnit): SourceTaggedRepositoryInstruction[] {
 	const directories = new Set([""]);
-	for (const rawPath of [...unit.ownedFiles, ...unit.readOnlyFiles]) {
+	for (const rawPath of [...contractWriteResources(unit.workContract), ...unit.workContract.readDependencies.map((read) => read.resource)].map((resource) => resource.path)) {
 		const path = normalizeRepoPath(rawPath);
 		const segments = path.split("/");
 		let directorySegments = segments.slice(0, -1);
@@ -795,6 +832,12 @@ function fixedRepairLimit(value: number | undefined, name: string): void {
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+function abortError(message: string): Error {
+	const error = new Error(message);
+	error.name = "AbortError";
+	return error;
 }
 
 function roundMs(value: number): number {

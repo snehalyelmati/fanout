@@ -1,142 +1,57 @@
-import { formatPacketValidationResult, validateExecutionPacket, type FanoutExecutionPacket, type FanoutWorkUnit } from "./execution-packet.ts";
-import type { ExecutionEventName, ExecutionNodeStatus } from "./execution-run.ts";
+import { deriveExecutionGraph, validateExecutionPacket, type FanoutExecutionPacket, type FanoutPacketNode } from "./execution-packet.ts";
 
-export interface DagNodeResult {
-	ok: boolean;
-	error?: string;
-}
-
-export interface DagRecorder {
-	appendEvent(event: ExecutionEventName, data?: Record<string, unknown>): void | Promise<void>;
-}
-
+export interface DagNodeResult { ok: boolean; error?: string; attemptId?: string; }
+export interface DagNodeState { id: string; status: "pending" | "running" | "succeeded" | "failed" | "skipped"; result?: DagNodeResult; error?: string; upstreamNodeId?: string; }
+export interface DagRunResult { ok: boolean; status: "succeeded" | "failed"; nodes: DagNodeState[]; }
 export interface RunDagOptions {
 	maxConcurrency: number;
 	failFast?: boolean;
-	runNode(workUnit: FanoutWorkUnit): DagNodeResult | Promise<DagNodeResult>;
-	recorder: DagRecorder;
-}
-
-export interface DagNodeState {
-	id: string;
-	status: ExecutionNodeStatus;
-	result?: DagNodeResult;
-	error?: string;
-}
-
-export interface DagRunResult {
-	ok: boolean;
-	status: "succeeded" | "failed";
-	nodes: DagNodeState[];
+	runNode(node: FanoutPacketNode, signal: AbortSignal): DagNodeResult | Promise<DagNodeResult>;
+	onNodeCompleted?(state: DagNodeState): void | Promise<void>;
 }
 
 export async function runDag(packet: FanoutExecutionPacket, options: RunDagOptions): Promise<DagRunResult> {
 	if (!Number.isInteger(options.maxConcurrency) || options.maxConcurrency < 1) throw new Error("maxConcurrency must be a positive integer");
-	const validation = validateExecutionPacket(packet);
-	if (!validation.executable) throw new Error(formatPacketValidationResult(validation));
-
-	const units = packet.workUnits;
-	const states = new Map<string, DagNodeState>(units.map((unit) => [unit.id, { id: unit.id, status: "pending" }]));
+	const admitted = validateExecutionPacket(packet);
+	if (!admitted.packet) throw new Error(admitted.errors.map((issue) => issue.message).join("; "));
+	const graph = deriveExecutionGraph(admitted.packet);
+	const nodes = admitted.packet.nodes.filter((node) => node.kind !== "final-validation");
+	const dependencies = new Map(nodes.map((node) => [node.id, graph.edges.filter(([, to]) => to === node.id).map(([from]) => from).filter((id) => nodes.some((node) => node.id === id))]));
+	const states = new Map(nodes.map((node) => [node.id, { id: node.id, status: "pending" as const } as DagNodeState]));
 	const running = new Map<string, Promise<{ id: string; result: DagNodeResult }>>();
-	let failFastTriggered = false;
+	const halt = new AbortController();
+	let stopped = false;
 
-	const appendEvent = (event: ExecutionEventName, data?: Record<string, unknown>) => options.recorder.appendEvent(event, data);
-	const markReady = async () => {
-		for (const unit of units) {
-			const state = states.get(unit.id)!;
-			if (state.status !== "pending") continue;
-			if (!unit.dependencies.every((dependency) => states.get(dependency)?.status === "succeeded")) continue;
-			state.status = "ready";
-			await appendEvent("node_ready", { nodeId: unit.id });
+	const complete = async (state: DagNodeState) => { await options.onNodeCompleted?.({ ...state }); };
+	const skipDependents = async (upstreamNodeId: string) => {
+		const queue = [upstreamNodeId];
+		for (let i = 0; i < queue.length; i++) for (const node of nodes) {
+			const state = states.get(node.id)!;
+			if (state.status !== "pending" || !(dependencies.get(node.id) ?? []).includes(queue[i])) continue;
+			state.status = "skipped"; state.upstreamNodeId = queue[i]; state.error = `dependency ${queue[i]} failed or was skipped`; queue.push(node.id); await complete(state);
 		}
 	};
-	const skipDependents = async (failedId: string) => {
-		const queue = [failedId];
-		for (let index = 0; index < queue.length; index++) {
-			const dependencyId = queue[index];
-			for (const unit of units) {
-				const state = states.get(unit.id)!;
-				if ((state.status !== "pending" && state.status !== "ready") || !unit.dependencies.includes(dependencyId)) continue;
-				state.status = "skipped";
-				state.error = `dependency ${dependencyId} failed or was skipped`;
-				queue.push(unit.id);
-				await appendEvent("node_skipped", { nodeId: unit.id, reason: "dependency_failed", dependencyId });
-			}
+	try { while (true) {
+		for (const node of nodes) {
+			if (running.size >= options.maxConcurrency || stopped) break;
+			const state = states.get(node.id)!;
+			if (state.status !== "pending" || !(dependencies.get(node.id) ?? []).every((id) => states.get(id)?.status === "succeeded")) continue;
+			state.status = "running";
+			running.set(node.id, Promise.resolve(options.runNode(node, halt.signal)).then((result) => ({ id: node.id, result })).catch((error) => ({ id: node.id, result: { ok: false, error: message(error) } })));
 		}
-	};
-	const skipRemaining = async () => {
-		for (const unit of units) {
-			const state = states.get(unit.id)!;
-			if (state.status !== "pending" && state.status !== "ready") continue;
-			state.status = "skipped";
-			state.error = "fail-fast stopped scheduling after a node failure";
-			await appendEvent("node_skipped", { nodeId: unit.id, reason: "fail_fast" });
-		}
-	};
-	const startNode = async (unit: FanoutWorkUnit) => {
-		const state = states.get(unit.id)!;
-		state.status = "running";
-		await appendEvent("node_started", { nodeId: unit.id });
-		const promise = (async () => {
-			try {
-				const result = await options.runNode(unit);
-				return { id: unit.id, result: validNodeResult(result) ? result : { ok: false, error: "runNode returned an invalid result" } };
-			} catch (error) {
-				return { id: unit.id, result: { ok: false, error: errorMessage(error) } };
-			}
-		})();
-		running.set(unit.id, promise);
-	};
-
-	try {
-		while (true) {
-			if (!failFastTriggered) await markReady();
-			for (const unit of units) {
-				if (running.size >= options.maxConcurrency) break;
-				if (states.get(unit.id)?.status === "ready") await startNode(unit);
-			}
-
-			if (running.size === 0) break;
-			const completed = await Promise.race(running.values());
-			running.delete(completed.id);
-			const state = states.get(completed.id)!;
-			state.result = completed.result;
-			if (completed.result.ok) {
-				state.status = "succeeded";
-				await appendEvent("node_succeeded", { nodeId: completed.id });
-			} else {
-				state.status = "failed";
-				state.error = completed.result.error || "node execution failed";
-				await appendEvent("node_failed", { nodeId: completed.id, error: state.error });
-				await skipDependents(completed.id);
-				if (options.failFast && !failFastTriggered) {
-					failFastTriggered = true;
-					await skipRemaining();
-				}
-			}
-		}
-	} catch (error) {
+		if (!running.size) break;
+		const done = await Promise.race(running.values()); running.delete(done.id);
+		const state = states.get(done.id)!; state.result = done.result; state.status = done.result.ok ? "succeeded" : "failed"; state.error = done.result.error;
+		await complete(state);
+		if (!done.result.ok) { await skipDependents(done.id); if (options.failFast) stopped = true; }
+	} } catch (error) {
+		halt.abort(error);
 		await Promise.allSettled(running.values());
 		throw error;
 	}
-
-	const nodes = units.map((unit) => ({ ...states.get(unit.id)! }));
-	const ok = nodes.every((node) => node.status === "succeeded");
-	await appendEvent("scheduler_finished", {
-		status: ok ? "succeeded" : "failed",
-		succeeded: nodes.filter((node) => node.status === "succeeded").length,
-		failed: nodes.filter((node) => node.status === "failed").length,
-		skipped: nodes.filter((node) => node.status === "skipped").length,
-	});
-	return { ok, status: ok ? "succeeded" : "failed", nodes };
+	if (stopped) for (const state of states.values()) if (state.status === "pending") { state.status = "skipped"; state.upstreamNodeId = [...states.values()].find((item) => item.status === "failed")?.id; state.error = "fail-fast stopped scheduling"; await complete(state); }
+	const ordered = nodes.map((node) => states.get(node.id)!);
+	return { ok: ordered.every((node) => node.status === "succeeded"), status: ordered.every((node) => node.status === "succeeded") ? "succeeded" : "failed", nodes: ordered };
 }
 
-function validNodeResult(value: unknown): value is DagNodeResult {
-	if (typeof value !== "object" || value === null) return false;
-	const result = value as { ok?: unknown; error?: unknown };
-	return typeof result.ok === "boolean" && (result.error === undefined || typeof result.error === "string");
-}
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
+function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }

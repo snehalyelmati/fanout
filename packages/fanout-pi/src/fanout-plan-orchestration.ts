@@ -1,11 +1,12 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { RequiredReadClassification } from "../../fanout-core/src/fanout-compiler.ts";
+import { IMPLEMENTATION_PLAN_SCHEMA, IMPLEMENTATION_PLAN_VERSION, type ImplementationPlan, type RequiredReadClassification } from "../../fanout-core/src/fanout-compiler.ts";
+import type { ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
+import type { WorkContractIssue } from "../../fanout-core/src/work-contract.ts";
 import type { PlanningMetrics } from "./planning-observability.ts";
 
 export const FANOUT_ORCHESTRATION_MARKER = "fanout.plan.orchestration.v1";
-export const IMPLEMENTATION_PLAN_SCHEMA = "fanout.implementation-plan";
-export const IMPLEMENTATION_PLAN_VERSION = 1;
+export { IMPLEMENTATION_PLAN_SCHEMA, IMPLEMENTATION_PLAN_VERSION };
 
 export interface FanoutPlanRun {
 	runId: string;
@@ -17,19 +18,15 @@ export interface FanoutPlanRun {
 export interface FanoutPhaseState extends FanoutPlanRun {
 	phase: "implementation" | "details";
 	systemPrompt?: string;
-	acceptedSubmission?: { runId: string; phase: "implementation" | "details"; path: string };
+	acceptedSubmission?: { runId: string; phase: "implementation" | "details"; path: string; identity: ArtifactIdentity };
+	planIdentity?: ArtifactIdentity;
+	acceptedPlan?: ImplementationPlan;
 	invocation: string;
 	objective: string;
 	context: Record<string, unknown>;
 	metrics: PlanningMetrics;
 	repairAttempted?: boolean;
 	requiredReadClassifications?: RequiredReadClassification[];
-}
-
-export interface ImplementationPlanValidation {
-	ok: boolean;
-	errors: string[];
-	itemCount: number;
 }
 
 export function createFanoutPlanRun(objective: string, context: { projectArtifactRoot: string }, now = new Date()): FanoutPlanRun {
@@ -46,7 +43,7 @@ export function buildImplementationDetailsPrompt(objective: string, context: unk
 	return buildPrompt("fanout-implementation-details.md", "details", objective, context, run, phaseBInput(run, requiredReadClassifications));
 }
 
-export function buildImplementationDetailsRepairPrompt(objective: string, context: unknown, run: FanoutPlanRun, errors: string[], requiredReadClassifications: RequiredReadClassification[] = []): string {
+export function buildImplementationDetailsRepairPrompt(objective: string, context: unknown, run: FanoutPlanRun, issues: WorkContractIssue[], requiredReadClassifications: RequiredReadClassification[] = []): string {
 	return `${buildImplementationDetailsPrompt(objective, context, run, requiredReadClassifications)}
 
 Repair instructions:
@@ -54,76 +51,18 @@ Repair instructions:
 You are repairing implementation-details.json only.
 Do not change Phase A.
 Do not edit repo files.
-For each ambiguous Phase A filesToRead overlap:
+For each reported Phase A typed read-classification gap:
 - add baseline-context if old/current file is enough
 - add post-change-required if changed file is needed
 Preserve existing anchors, ownership, validations, and forbidden changes.
 Submit only implementation-details.json with fanout_submit_artifact.
 
-Compiler errors to repair:
+Structured compiler issues to repair:
 
 \`\`\`json
-${JSON.stringify(errors, null, 2)}
+${JSON.stringify(issues, null, 2)}
 \`\`\`
 `;
-}
-
-export function validateImplementationPlanArtifact(path: string, expected?: { artifactDir?: string }): ImplementationPlanValidation {
-	if (!existsSync(path)) return { ok: false, errors: [`missing ${path}`], itemCount: 0 };
-
-	let plan: unknown;
-	try {
-		plan = JSON.parse(readFileSync(path, "utf8"));
-	} catch (error) {
-		return { ok: false, errors: [error instanceof Error ? error.message : String(error)], itemCount: 0 };
-	}
-
-	return validateImplementationPlan(plan, expected);
-}
-
-export function validateImplementationPlan(plan: unknown, expected?: { artifactDir?: string }): ImplementationPlanValidation {
-	const errors: string[] = [];
-	if (!isRecord(plan)) return { ok: false, errors: ["implementation plan must be an object"], itemCount: 0 };
-	if (plan.schema !== IMPLEMENTATION_PLAN_SCHEMA) errors.push(`schema must be ${IMPLEMENTATION_PLAN_SCHEMA}`);
-	if (plan.version !== IMPLEMENTATION_PLAN_VERSION) errors.push(`version must be ${IMPLEMENTATION_PLAN_VERSION}`);
-	if (plan.status !== "ready") errors.push("status must be ready");
-	for (const key of ["objective", "createdAt", "artifactDir"] as const) if (!nonEmptyString(plan[key])) errors.push(`${key} is required`);
-	if (expected?.artifactDir !== undefined && plan.artifactDir !== expected.artifactDir) errors.push("artifactDir does not match current run");
-	for (const key of ["userContext", "discoveredRepoFacts", "assumptions", "validationPlan", "risks"] as const) stringArray(plan[key], key, errors);
-
-	const items = Array.isArray(plan.implementationItems) ? plan.implementationItems : [];
-	if (!Array.isArray(plan.implementationItems)) errors.push("implementationItems must be an array");
-	if (items.length === 0) errors.push("implementationItems must not be empty");
-
-	const ids = new Set<string>();
-	for (const [index, item] of items.entries()) {
-		if (!isRecord(item)) {
-			errors.push(`implementationItems[${index}] must be an object`);
-			continue;
-		}
-		for (const key of ["id", "goal", "rationale"] as const) if (!nonEmptyString(item[key])) errors.push(`implementationItems[${index}].${key} is required`);
-		if (nonEmptyString(item.id)) {
-			const id = String(item.id);
-			if (ids.has(id)) errors.push(`implementationItems[${index}].id is duplicate`);
-			ids.add(id);
-		}
-		for (const key of ["filesToChange", "filesToRead"] as const) {
-			const paths = stringArray(item[key], `implementationItems[${index}].${key}`, errors);
-			for (const [pathIndex, path] of paths.entries()) if (path.includes("`")) errors.push(`implementationItems[${index}].${key}[${pathIndex}] must be a bare repository path without Markdown backticks`);
-		}
-		for (const key of ["dependencies", "validation", "acceptanceCriteria", "risks"] as const) stringArray(item[key], `implementationItems[${index}].${key}`, errors);
-	}
-
-	for (const [index, item] of items.entries()) {
-		if (!isRecord(item) || !Array.isArray(item.dependencies)) continue;
-		for (const dependency of item.dependencies) {
-			if (typeof dependency !== "string") continue;
-			if (dependency === item.id) errors.push(`implementationItems[${index}].dependencies references itself`);
-			else if (!ids.has(dependency)) errors.push(`implementationItems[${index}].dependencies references unknown id ${dependency}`);
-		}
-	}
-
-	return { ok: errors.length === 0, errors, itemCount: items.length };
 }
 
 function buildPrompt(templateName: string, phase: FanoutPhaseState["phase"], objective: string, context: unknown, run: FanoutPlanRun, phaseInput?: unknown): string {
@@ -135,7 +74,13 @@ function buildPrompt(templateName: string, phase: FanoutPhaseState["phase"], obj
 }
 
 function phaseBInput(run: FanoutPlanRun, requiredReadClassifications: RequiredReadClassification[]): unknown {
-	return { artifactTargets: run, requiredReadClassifications };
+	const accepted = run as FanoutPhaseState;
+	return {
+		artifactTargets: { runId: run.runId, artifactDir: run.artifactDir, implementationPlanPath: run.implementationPlanPath, implementationDetailsPath: run.implementationDetailsPath },
+		planIdentity: accepted.planIdentity,
+		acceptedPlan: accepted.acceptedPlan,
+		requiredReadClassifications,
+	};
 }
 
 function timestamp(date: Date): string {
@@ -145,21 +90,4 @@ function timestamp(date: Date): string {
 
 function slug(value: string): string {
 	return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "current-context";
-}
-
-function stringArray(value: unknown, path: string, errors: string[]): string[] {
-	if (!Array.isArray(value)) {
-		errors.push(`${path} must be an array`);
-		return [];
-	}
-	for (const [index, item] of value.entries()) if (typeof item !== "string") errors.push(`${path}[${index}] must be a string`);
-	return value.filter((item): item is string => typeof item === "string");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function nonEmptyString(value: unknown): boolean {
-	return typeof value === "string" && value.trim().length > 0;
 }

@@ -94,10 +94,10 @@ function parsePayload(name: ExecutionEventName, value: unknown): Record<string, 
 	if (name === "run-started") {
 		const item = exactRecord(value, ["mode", "packet", "planningBaseTree", "nodeIds", "policy"], [], name);
 		if (item.mode !== "live" && item.mode !== "dry-run") throw new TypeError("run mode must be live or dry-run");
-		const policy = exactRecord(item.policy, ["maxConcurrency", "failFast", "fallbackAllowed"], ["fallbackAllowed"], "run policy");
+		const policy = exactRecord(item.policy, ["maxConcurrency", "failFast", "fallbackAllowed"], [], "run policy");
 		const nodeIds = identities(item.nodeIds, "nodeIds");
 		if (!nodeIds.length) throw new TypeError("run-started requires packet-ordered nodes");
-		return { mode: item.mode, packet: parseArtifactIdentity(item.packet), planningBaseTree: parseGitTreeId(item.planningBaseTree), nodeIds, policy: { maxConcurrency: positiveInteger(policy.maxConcurrency, "maxConcurrency"), failFast: boolean(policy.failFast, "failFast"), fallbackAllowed: policy.fallbackAllowed === undefined ? false : boolean(policy.fallbackAllowed, "fallbackAllowed") } };
+		return { mode: item.mode, packet: parseArtifactIdentity(item.packet), planningBaseTree: parseGitTreeId(item.planningBaseTree), nodeIds, policy: { maxConcurrency: positiveInteger(policy.maxConcurrency, "maxConcurrency"), failFast: boolean(policy.failFast, "failFast"), fallbackAllowed: boolean(policy.fallbackAllowed, "fallbackAllowed") } };
 	}
 	if (name === "preflight-completed") {
 		const item = exactRecord(value, ["status", "planningBaseTree", "repositoryTree", "issues"], [], name);
@@ -130,7 +130,7 @@ function parsePayload(name: ExecutionEventName, value: unknown): Record<string, 
 	}
 	if (name === "final-validation-started") {
 		const item = exactRecord(value, ["commandIdentities", "expectedTree"], [], name);
-		const commandIdentities = identities(item.commandIdentities, "commandIdentities");
+		const commandIdentities = orderedIdentities(item.commandIdentities, "commandIdentities");
 		if (!commandIdentities.length) throw new TypeError("final validation requires command identities");
 		return { commandIdentities, expectedTree: parseGitTreeId(item.expectedTree) };
 	}
@@ -157,10 +157,14 @@ function parsePayload(name: ExecutionEventName, value: unknown): Record<string, 
 }
 
 function identities(value: unknown, path: string): string[] {
-	if (!Array.isArray(value)) throw new TypeError(`${path} must be an array`);
-	const result = value.map((item, index) => identity(item, `${path}[${index}]`));
+	const result = orderedIdentities(value, path);
 	if (new Set(result).size !== result.length) throw new TypeError(`${path} must not contain duplicates`);
 	return result;
+}
+
+function orderedIdentities(value: unknown, path: string): string[] {
+	if (!Array.isArray(value)) throw new TypeError(`${path} must be an array`);
+	return value.map((item, index) => identity(item, `${path}[${index}]`));
 }
 
 function boolean(value: unknown, path: string): boolean {

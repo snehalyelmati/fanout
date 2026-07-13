@@ -3,6 +3,7 @@ import {
 	compileRepositoryAuthority,
 	groupConnectedResourceScopes,
 	parseResource,
+	resourceCovers,
 	resourcesOverlap,
 	type PlannedResourceScope,
 	type Resource,
@@ -22,7 +23,7 @@ import {
 	type WorkContractNode,
 	type WorkReadDependency,
 } from "./work-contract.ts";
-import { deriveWorkContractGraph, deriveWorkContractWarnings, type WorkContractGraph } from "./work-contract-graph.ts";
+import { deriveWorkContractGraph, deriveWorkContractWarnings, FINAL_VALIDATION_NODE_ID, type WorkContractGraph } from "./work-contract-graph.ts";
 
 export interface PlannedWorkSource {
 	id: string;
@@ -52,7 +53,9 @@ export interface WorkContractCompilation {
 	graph?: WorkContractGraph;
 }
 
-export function compileWorkContracts(plannedInput: readonly PlannedWorkSource[], groundedInput: readonly GroundedWorkInput[], finalValidationCommands: readonly ValidationCommand[]): WorkContractCompilation {
+export interface CompileWorkContractOptions { sequentialReadFallback?: boolean; }
+
+export function compileWorkContracts(plannedInput: readonly PlannedWorkSource[], groundedInput: readonly GroundedWorkInput[], finalValidationCommands: readonly ValidationCommand[], options: CompileWorkContractOptions = {}): WorkContractCompilation {
 	const errors: WorkContractIssue[] = [];
 	const warnings: WorkContractIssue[] = [];
 	const planned = admitPlannedSources(plannedInput, errors);
@@ -67,6 +70,16 @@ export function compileWorkContracts(plannedInput: readonly PlannedWorkSource[],
 	})));
 	const authority = compileRepositoryAuthority(plannedScopes, endpointScopes);
 	errors.push(...authority.errors);
+	for (const [planIndex, plan] of planned.entries()) for (const [readIndex, resource] of plan.readResources.entries()) {
+		const crossesOwner = planned.some((owner) => owner.id !== plan.id && owner.writeResources.some((owned) => resourcesOverlap(resource, owned)));
+		if (!crossesOwner || grounded.some((input) => input.readDependencies.some((read) => read.sourcePlanIds.includes(plan.id) && resourceCovers(resource, read.resource)))) continue;
+		const target = grounded.find((input) => input.id === plan.id || contractSourceIds(input).includes(plan.id));
+		if (options.sequentialReadFallback && target) {
+			target.readDependencies.push({ resource, timing: "post-change-required", timingSource: "sequential-fallback", sourcePlanIds: [plan.id], reason: "Conservative ordering for an unclassified cross-node Phase A read." });
+		} else {
+			add(errors, "planned-read-not-grounded", `${show(resource)} from ${plan.id} needs one typed read classification`, `planned[${planIndex}].readResources[${readIndex}]`);
+		}
+	}
 	for (const [inputIndex, input] of grounded.entries()) for (const [readIndex, read] of input.readDependencies.entries()) {
 		for (const issue of authorizeResourceForSources(read.resource, read.sourcePlanIds, plannedScopes, "read")) errors.push({ ...issue, path: `grounded[${inputIndex}].readDependencies[${readIndex}]` });
 	}
@@ -80,7 +93,7 @@ export function compileWorkContracts(plannedInput: readonly PlannedWorkSource[],
 
 	const groups = groupConnectedResourceScopes(grounded.map((input) => ({ resources: changeWriteResources(input.changes), sourcePlanIds: contractSourceIds(input) })))
 		.map((group) => [...group.memberIndexes].sort((left, right) => left - right).map((index) => grounded[index]));
-	const usedIds = new Set(["final-validation"]);
+	const usedIds = new Set([FINAL_VALIDATION_NODE_ID]);
 	const nodes: WorkContractNode[] = [];
 	for (const group of groups) {
 		const ids = unique(group.flatMap(contractSourceIds));
@@ -98,7 +111,7 @@ export function compileWorkContracts(plannedInput: readonly PlannedWorkSource[],
 
 	const finalValidation = validateWorkContract(makeFinalContract(planned, finalValidationCommands), { finalValidation: true });
 	if (!finalValidation.ok || !finalValidation.contract) for (const issue of finalValidation.errors) errors.push({ ...issue, path: issue.path ? `nodes.final-validation.workContract.${issue.path}` : "nodes.final-validation.workContract" });
-	else nodes.push({ id: "final-validation", kind: "final-validation", workContract: finalValidation.contract });
+	else nodes.push({ id: FINAL_VALIDATION_NODE_ID, kind: "final-validation", workContract: finalValidation.contract });
 	if (errors.length) return { ok: false, errors, warnings, nodes };
 
 	const derived = deriveWorkContractGraph(nodes);

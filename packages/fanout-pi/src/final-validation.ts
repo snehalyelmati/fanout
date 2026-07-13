@@ -42,7 +42,10 @@ export interface FinalValidationRoundOptions {
 }
 
 export interface FinalRepairHooks<T> {
+	packetIdentity: ArtifactIdentity;
 	workContract: WorkContract;
+	finalValidationContract: WorkContract;
+	upstreamWorkContracts: Array<{ nodeId: string; workContract: WorkContract }>;
 	acceptedLedger: readonly AcceptedLedgerProvenance[];
 	available: () => boolean;
 	launch: (recovery: FinalValidationRecoveryContext, source: { attemptId?: string; evidence?: ArtifactIdentity }) => Promise<{ attemptId: string; candidate?: T; continue: boolean }>;
@@ -57,31 +60,32 @@ export interface FinalValidationControllerOptions<T> extends Omit<FinalValidatio
 }
 
 export async function runFinalValidation<T>(options: FinalValidationControllerOptions<T>): Promise<FinalValidationResult> {
-	let result = await runFinalValidationRound({ ...options, roundId: "initial" });
+	const initialResult = await runFinalValidationRound({ ...options, roundId: "initial" });
+	let result = initialResult;
 	if (!result.repairable || !options.repair) return result;
 	let source: { attemptId?: string; evidence?: ArtifactIdentity } = { evidence: result.evidenceArtifact };
-	let recovery = finalRecovery(result, options.repair.workContract, options.repair.acceptedLedger, options.expectedActiveTree, options.timeoutMs ?? 600_000);
+	let recovery = finalRecovery(result, options.repair, options.expectedActiveTree);
 	while (options.repair.available()) {
 		const launched = await options.repair.launch(recovery, source);
 		if (!launched.candidate) {
-			if (!launched.continue) return result;
+			if (!launched.continue) return initialResult;
 			source = { attemptId: launched.attemptId };
 			continue;
 		}
-		if (!await options.repair.authorize(launched.candidate)) return result;
+		if (!await options.repair.authorize(launched.candidate)) return initialResult;
 		const transition = options.repair.transition(launched.candidate);
 		result = await runFinalValidationRound({ ...options, roundId: `repair-${transition.patch.artifact.sha256.slice(0, 12)}`, candidate: transition, expectedValidationTree: transition.patch.resultTree });
 		if (result.status === "passed") {
 			return await options.repair.apply(launched.candidate, result)
 				? recordAcceptedFinalRepair(options.repoRoot, options.runDir, result, transition)
-				: { ...result, status: "failed", repairable: false };
+				: initialResult;
 		}
-		const nextRecovery = result.repairable ? finalRecovery(result, options.repair.workContract, options.repair.acceptedLedger, options.expectedActiveTree, options.timeoutMs ?? 600_000) : undefined;
-		if (!await options.repair.reject(launched.candidate, result, nextRecovery, finalValidationFact(result))) return result;
+		const nextRecovery = result.repairable ? finalRecovery(result, options.repair, options.expectedActiveTree) : undefined;
+		if (!await options.repair.reject(launched.candidate, result, nextRecovery, finalValidationFact(result))) return initialResult;
 		recovery = nextRecovery as FinalValidationRecoveryContext;
 		source = { attemptId: launched.attemptId };
 	}
-	return result;
+	return initialResult;
 }
 
 export async function runFinalValidationRound(options: FinalValidationRoundOptions): Promise<FinalValidationResult> {
@@ -96,7 +100,7 @@ export async function runFinalValidationRound(options: FinalValidationRoundOptio
 		const activeBefore = captureRepositoryState(options.repoRoot);
 		const validationReady = matchesExpected(validationBefore, options.planningBase.headCommit, options.expectedValidationTree);
 		const activeReady = matchesExpected(activeBefore, options.planningBase.headCommit, options.expectedActiveTree);
-		let commandEvidence = unexecuted(commands);
+		let commandEvidence = unexecuted(commands, options.roundId);
 		let durationMs = 0;
 		let failure: FinalValidationFailure | undefined;
 		if (!activeReady) failure = { kind: "hard", code: "active-drift", detail: "active checkout did not match the accepted ledger before final validation" };
@@ -111,7 +115,7 @@ export async function runFinalValidationRound(options: FinalValidationRoundOptio
 					inheritedEnv: process.env,
 					signal: options.signal,
 				});
-				commandEvidence = result.commands.map(toEvidence);
+				commandEvidence = result.commands.map((command) => toEvidence(command, options.timeoutMs ?? 600_000));
 				durationMs = result.durationMs;
 			} catch (error) {
 				failure = { kind: "hard", code: "preflight", detail: errorMessage(error) };
@@ -142,7 +146,7 @@ export async function runFinalValidationRound(options: FinalValidationRoundOptio
 		const evidenceArtifact = writeArtifactAtomically(options.runDir, `final-validation/rounds/${options.roundId}.json`, Buffer.from(`${JSON.stringify(evidence, null, 2)}\n`));
 		return {
 			status: evidence.status,
-			commandCount: commandEvidence.filter((command) => command.outcome !== "unexecuted").length,
+			commandCount: commandEvidence.length,
 			durationMs,
 			commands: commandEvidence,
 			evidence,
@@ -155,7 +159,7 @@ export async function runFinalValidationRound(options: FinalValidationRoundOptio
 }
 
 export function recordAcceptedFinalRepair(repoRoot: string, runDir: string, result: FinalValidationResult, transition: AcceptedStateTransition): FinalValidationResult {
-	if (result.status !== "passed" || !result.evidence.candidate || result.evidence.candidate.patch.artifact.sha256 !== transition.patch.artifact.sha256) throw new Error("accepted final repair must match its passing candidate evidence");
+	if (result.status !== "passed" || !result.evidence.candidate || JSON.stringify(result.evidence.candidate) !== JSON.stringify(transition)) throw new Error("accepted final repair must exactly match its passing candidate evidence");
 	const activeAfterApply = captureRepositoryState(repoRoot);
 	if (!matchesExpected(activeAfterApply, transition.patch.headCommit, transition.patch.resultTree)) throw new Error("accepted final repair active identity does not match its validated candidate");
 	const evidence: FinalValidationEvidence = { ...result.evidence, acceptedRepair: { transition, activeAfterApply } };
@@ -167,18 +171,20 @@ function matchesExpected(identity: RepositoryStateIdentity, expectedHead: Planni
 	return identity.headCommit === expectedHead && identity.indexMatchesHead && identity.tree === expectedTree;
 }
 
-function unexecuted(commands: readonly ValidationCommand[]): FinalValidationCommandEvidence[] {
-	return commands.map((command, index) => ({ id: `final-validation/${index}`, index, command, outcome: "unexecuted", exitCode: null, signal: null, stdout: "", stderr: "", durationMs: 0 }));
+function unexecuted(commands: readonly ValidationCommand[], roundId: string): FinalValidationCommandEvidence[] {
+	return commands.map((command, index) => ({ id: `${roundId}/${index}`, index, command, outcome: "unexecuted", exitCode: null, signal: null, timeoutMs: null, stdout: "", stderr: "", durationMs: 0 }));
 }
 
-function toEvidence(value: Awaited<ReturnType<typeof runValidationCommands>>["commands"][number]): FinalValidationCommandEvidence {
+function toEvidence(value: Awaited<ReturnType<typeof runValidationCommands>>["commands"][number], timeoutMs: number): FinalValidationCommandEvidence {
+	const terminalWithoutExit = value.outcome === "spawn" || value.outcome === "signal" || value.outcome === "timeout" || value.outcome === "aborted";
 	return {
 		id: value.id,
 		index: value.index,
 		command: value.command,
 		outcome: value.outcome,
-		exitCode: value.exitCode,
+		exitCode: terminalWithoutExit ? null : value.exitCode,
 		signal: value.signal,
+		timeoutMs: value.outcome === "timeout" ? timeoutMs : null,
 		stdout: value.stdout,
 		stderr: value.stderr,
 		durationMs: value.durationMs,
@@ -191,27 +197,29 @@ function errorMessage(error: unknown): string {
 
 function finalRecovery(
 	result: FinalValidationResult,
-	workContract: WorkContract,
-	acceptedLedger: readonly AcceptedLedgerProvenance[],
+	repair: Pick<FinalRepairHooks<unknown>, "packetIdentity" | "workContract" | "finalValidationContract" | "upstreamWorkContracts" | "acceptedLedger">,
 	reconstructedTree: PlanningBase["tree"],
-	timeoutMs: number,
 ): FinalValidationRecoveryContext {
 	return {
 		kind: "final-validation",
+		packetIdentity: structuredClone(repair.packetIdentity),
 		sourceFinalValidationEvidence: result.evidenceArtifact,
-		workContract,
+		failedRound: structuredClone(result.evidence),
+		workContract: structuredClone(repair.workContract),
+		finalValidationContract: structuredClone(repair.finalValidationContract),
+		upstreamWorkContracts: repair.upstreamWorkContracts.map((entry) => structuredClone(entry)),
 		commands: result.commands.map((command): ValidationCommandEvidence => ({
 			index: command.index,
 			command: command.command,
 			status: command.outcome === "spawn" ? "spawn-failure" : command.outcome as ValidationCommandEvidence["status"],
 			exitCode: command.exitCode,
-			signal: command.signal,
-			timeoutMs: command.outcome === "timeout" ? timeoutMs : null,
+			signal: command.outcome === "timeout" ? null : command.signal,
+			timeoutMs: command.timeoutMs,
 			stdout: command.stdout,
 			stderr: command.stderr,
 			durationMs: command.durationMs,
 		})),
-		acceptedLedger: acceptedLedger.map((entry) => structuredClone(entry)),
+		acceptedLedger: repair.acceptedLedger.map((entry) => structuredClone(entry)),
 		reconstructedTree,
 	};
 }

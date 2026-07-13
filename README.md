@@ -42,41 +42,33 @@ Fanout workflow:
 /fanout-execute [--dry-run]  # revalidate and execute the active accepted packet
 ```
 
-`/fanout-plan` explores first, asks one user question at a time when intent is not discoverable, drafts fanout-agnostic work units, resolves three model roles across two execution tiers, builds and validates the DAG during planning, then emits the active reviewable execution packet. Tier 1 is the realtime control plane, Tier 2 provides async workers, and `tier2Fallback` is a realtime execution fallback rather than a third tier. The fallback inherits Tier 1 unless configured independently. The packet validator/artifact helper stores artifacts in Pi-owned storage by default:
+`/fanout-plan` explores first, asks one user question at a time when intent is not discoverable, resolves three model roles across two execution tiers, and publishes a reviewable closed-generation packet. The controller binds plan v2 and details v3 to the exact planning commit/tree/platform and source bytes; `fanout-core` compiles embedded work-contract v1 nodes into packet v5; `fanout-pi` atomically publishes packet-derived views and pointer v2 last. Tier 1 is the realtime control plane, Tier 2 provides async workers, and `tier2Fallback` is a realtime execution fallback rather than a third tier. The fallback inherits Tier 1 unless configured independently. Artifacts are stored in Pi-owned storage by default.
 
-```text
-rtk node --disable-warning=ExperimentalWarning scripts/fanout-packet-artifacts.mjs --print-run-dir <run-id>
-rtk node --disable-warning=ExperimentalWarning scripts/fanout-packet-artifacts.mjs <artifact-dir>/execution-packet.json --out <artifact-dir> --active <active-pointer-path>
-```
+Use `FANOUT_ARTIFACT_DIR=/custom/path` to override the default `~/.pi/agent/fanout/...` storage for a process, or set `fanout.artifactDir` in Pi settings for a persistent default. `/fanout-config` shows the resolved artifact root and current Tier 1, Tier 2, and Tier 2 fallback roles before opening provider → model → thinking selectors. Tier 2 choices are eligible only when registry metadata has `fanout.async`, `fanout.background`, and `fanout.authReady` all set to `true`; realtime Tier 1 and fallback choices are unrestricted. **Disable Tier 2** routes eligible workers in newly planned packets through the realtime fallback, while selecting a Tier 2 model re-enables async routing. An explicit fallback is stored at `fanout.execution.tier2Fallback`; **Use Tier 1** deletes a global fallback override or writes a project inheritance marker so a global fallback cannot reappear through settings merging. Planning presents deterministic `execution-plan.md` content (objective, embedded work contracts, derived graph order/groups/path, and source context); `execution-dag.mmd` contains the separate Mermaid graph, and packet v5 remains the machine authority.
 
-Use `FANOUT_ARTIFACT_DIR=/custom/path` to override the default `~/.pi/agent/fanout/...` storage for a process, or set `fanout.artifactDir` in Pi settings for a persistent default. `/fanout-config` shows the resolved artifact root and current Tier 1, Tier 2, and Tier 2 fallback roles before opening provider → model → thinking selectors. Tier 2 choices are eligible only when registry metadata has `fanout.async`, `fanout.background`, and `fanout.authReady` all set to `true`; realtime Tier 1 and fallback choices are unrestricted. **Disable Tier 2** routes eligible workers in newly planned packets through the realtime fallback, while selecting a Tier 2 model re-enables async routing. An explicit fallback is stored at `fanout.execution.tier2Fallback`; **Use Tier 1** deletes a global fallback override or writes a project inheritance marker so a global fallback cannot reappear through settings merging. The plan report shows a compact artifact directory, tier/model plan, boxed ASCII DAG, files touched, and two-column metrics.
+`/fanout-execute` accepts no packet path. It admits only pointer v2 bound by exact digest/length/path to packet v5 and rejects legacy, future, mixed, or substituted authority before lock creation or mutation. Preflight then requires the exact planning commit/full Git-visible tree/platform, direct validation executables, worker capability, and artifact storage outside the repo before asking for confirmation. Concurrency, fail-fast, and fallback policy come from the immutable packet rather than current settings. Normal and dry runs take one exclusive `fanout-execution.lock` under the canonical git directory, so separate sessions cannot execute against the same worktree concurrently. Fanout removes its lock on normal return but never guesses that an existing lock is stale. `--dry-run` stops after preflight, writes an explicit event-v1/projection-v2 audit, and launches no workers or provider calls. Older artifacts must be replanned; there is no migration bridge.
 
-`/fanout-execute` accepts no packet path. It loads the active pointer, validates the packet and DAG again, requires a clean active git worktree with a committed `HEAD`, checks that execution artifacts stay outside the repo, and asks for confirmation before launching workers. Normal and dry runs take one exclusive `fanout-execution.lock` under the canonical git directory, so separate sessions cannot execute against the same worktree concurrently. Fanout removes the lock on a normal return but never guesses that an existing lock is stale; after an interrupted process, remove the reported lock path only after verifying that no execution still owns it. `--dry-run` stops after loading and preflight, writes an execution audit run, and does not ask for confirmation, launch workers, or mutate worktree files. Execution packet schema v4 requires a concrete `tier2Fallback` model summary; older packets must be replanned. Schema v4 still does not record the repository HEAD used during planning, so the clean-worktree check is not a stale-HEAD guarantee.
+Approved work units run with two concurrent nodes by default in fresh detached reconstructions. Pi receives a curated Fanout prompt containing the packet context plus applicable repo-local `AGENTS.md`/`CLAUDE.md` files. Automatic extension discovery remains enabled and `--approve` trusts project-local Pi resources; enabled extensions are part of the trusted worker runtime. Worker patches must have complete correlated metrics, stay within typed authority, pass direct-argv validation, and preserve exact patch/tree identity before verified Git-stdin apply. After the DAG succeeds, Fanout validates the exact accepted ledger in another fresh reconstruction. Only typed program failures may consume bounded final-repair attempts; each candidate must pass another reconstruction before active apply. `events.jsonl` is the sole run-state authority and projection/report files derive from it.
 
-Approved work units run with two concurrent nodes by default in fresh detached git worktrees. Pi receives a curated Fanout prompt containing the packet context plus applicable repo-local `AGENTS.md`/`CLAUDE.md` files from the root and ancestor directories of owned/read-only paths. `--no-context-files` prevents Pi from independently loading other context, but automatic extension discovery remains enabled and `--approve` trusts project-local Pi resources for the non-interactive run; enabled extensions are therefore part of the trusted worker runtime, not packet context. Worker patches must have complete, provenance-checked metrics, stay within owned files, pass their validation commands, and pass a serialized `git apply --check`/`git apply` gate before reaching the active worktree. Generic providers use `pi-json-usage` pricing provenance. Doubleword workers additionally require provider-reported usage with the exact pricing source `doubleword-model-metadata`; synthetic `doubleword-stub` usage cannot be accepted. After the DAG succeeds, Fanout runs the packet's deterministic final validation plan in the active worktree and returns a snapshot-derived audit summary with attempt/retry/rejection counts, accepted changed files, totals, validation status, and artifact links.
-
-Execution artifacts live beside the loaded packet, regardless of the packet's `artifactDir` field. Attempt directories retain the artifacts reached by that attempt:
+Execution artifacts live under the admitted packet's containing artifact directory. Attempt directories retain the artifacts reached by that attempt:
 
 ```text
 <packet-dir>/executions/<execution-run-id>/
   events.jsonl
   execution-run.json
   summary.md
-  final-validation.json                 # when final validation is reached
-  workers/<node-id>/attempts/<attempt-id>/
-    worktree/
+  final-validation/rounds/*.json        # exact validation evidence
+  workers/<node-artifact-id>/attempts/<attempt-artifact-id>/
     session/
     prompt.md
     stdout.log
     stderr.log
     observability.jsonl
-    patch.diff
-    changed-files.json
-    patch-stat.json
+    patch.bin                         # exact binary patch artifact when capture succeeds
     ownership-check.json
     validation.json
     apply-check.json
-    result.json
+    result.json                       # process, metrics, patch identity/paths/stats, and failure data
 ```
 
 `doubleword-stub` exposes `glm-5-2` and `deepseek-v4-flash` with offline cost estimates. Realtime/tier 1 prices are GLM $1.40/$4.40 and DeepSeek $0.14/$0.28 per MTok in/out; tier 2/flex prices are GLM $1.05/$3.30 and DeepSeek $0.10/$0.20.

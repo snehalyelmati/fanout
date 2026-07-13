@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { performance } from "node:perf_hooks";
 import {
 	artifactIdentity,
 	parseAcceptedPatch,
@@ -15,6 +16,7 @@ import {
 	type PatchStatistics,
 } from "../../fanout-core/src/artifact-identity.ts";
 import { decodeGitPathList } from "../../fanout-core/src/repository-resource.ts";
+import type { ApplyFailureEvidence } from "../../fanout-core/src/recovery-evidence.ts";
 import { readVerifiedArtifact, writeArtifactAtomically } from "./artifact-store.ts";
 
 export interface PlanningBase {
@@ -28,10 +30,35 @@ export interface RepositoryStateIdentity extends PlanningBase {
 	indexMatchesHead: boolean;
 }
 
+export class AcceptedTransitionIdentityError extends Error {
+	readonly code = "identity-failure" as const;
+
+	constructor(message: string, options?: ErrorOptions) {
+		super(message, options);
+		this.name = "AcceptedTransitionIdentityError";
+	}
+}
+
+export class AcceptedTransitionProcessError extends Error {
+	readonly code: "check-conflict" | "apply-failure";
+	readonly evidence: ApplyFailureEvidence;
+
+	constructor(code: AcceptedTransitionProcessError["code"], evidence: ApplyFailureEvidence, options?: ErrorOptions) {
+		super(evidence.stderr || `${evidence.stage} failed`, options);
+		this.name = "AcceptedTransitionProcessError";
+		this.code = code;
+		this.evidence = evidence;
+	}
+}
+
 export class AmbiguousApplyError extends Error {
-	constructor(message: string) {
-		super(message);
+	readonly code = "post-tree-mismatch" as const;
+	readonly evidence: ApplyFailureEvidence;
+
+	constructor(message: string, options?: ErrorOptions) {
+		super(message, options);
 		this.name = "AmbiguousApplyError";
+		this.evidence = { stage: "post-tree", code: "tree-mismatch", exitCode: null, signal: null, timeoutMs: null, stdout: "", stderr: message, durationMs: 0 };
 	}
 }
 
@@ -84,26 +111,41 @@ export function applyAcceptedTransition(
 	repoRoot: string,
 	artifactRoot: string,
 	value: unknown,
-	options: { afterApply?: () => void } = {},
+	options: { beforeCheck?: () => void; afterCheck?: () => void; afterApply?: () => void } = {},
 ): AcceptedStateTransition {
-	const transition = parseAcceptedStateTransition(value);
+	let transition: AcceptedStateTransition;
+	let bytes: Buffer;
+	try {
+		transition = parseAcceptedStateTransition(value);
+		const { patch } = transition;
+		const beforeIdentity = captureRepositoryState(repoRoot);
+		if (beforeIdentity.headCommit !== patch.headCommit) throw new Error(`accepted-state identity HEAD mismatch: expected ${patch.headCommit}, got ${beforeIdentity.headCommit}`);
+		if (!beforeIdentity.indexMatchesHead) throw new Error("accepted-state identity index diverges from HEAD");
+		const before = beforeIdentity.tree;
+		if (before !== patch.baseTree) throw checkConflict(`accepted-state check conflict for ${patch.changedPaths.join(", ")}: expected base tree ${patch.baseTree}, got ${before}`);
+		bytes = readVerifiedArtifact(artifactRoot, patch.artifact);
+		const predicted = predictedResultTree(repoRoot, bytes, before);
+		if (predicted !== patch.resultTree) throw new Error(`accepted-state result tree mismatch: expected ${patch.resultTree}, patch produces ${predicted}`);
+		const changedPaths = changedPathsBetweenTrees(repoRoot, before, predicted);
+		if (JSON.stringify(changedPaths) !== JSON.stringify(patch.changedPaths)) throw new Error("accepted-state changed paths do not match the verified patch");
+		if (JSON.stringify(patchStatisticsBetweenTrees(repoRoot, before, predicted, changedPaths.length)) !== JSON.stringify(patch.stats)) throw new Error("accepted-state patch statistics do not match the verified patch");
+	} catch (error) {
+		if (error instanceof AcceptedTransitionIdentityError || error instanceof AcceptedTransitionProcessError) throw error;
+		throw new AcceptedTransitionIdentityError(errorMessage(error), { cause: error });
+	}
 	const { patch } = transition;
-	const beforeIdentity = captureRepositoryState(repoRoot);
-	if (beforeIdentity.headCommit !== patch.headCommit) throw new Error(`accepted-state identity HEAD mismatch: expected ${patch.headCommit}, got ${beforeIdentity.headCommit}`);
-	if (!beforeIdentity.indexMatchesHead) throw new Error("accepted-state identity index diverges from HEAD");
-	const before = beforeIdentity.tree;
-	if (before !== patch.baseTree) throw new Error(`accepted-state base tree mismatch: expected ${patch.baseTree}, got ${before}`);
-	const bytes = readVerifiedArtifact(artifactRoot, patch.artifact);
-	const predicted = predictedResultTree(repoRoot, bytes, before);
-	if (predicted !== patch.resultTree) throw new Error(`accepted-state result tree mismatch: expected ${patch.resultTree}, patch produces ${predicted}`);
-	const changedPaths = changedPathsBetweenTrees(repoRoot, before, predicted);
-	if (JSON.stringify(changedPaths) !== JSON.stringify(patch.changedPaths)) throw new Error("accepted-state changed paths do not match the verified patch");
-	if (JSON.stringify(patchStatisticsBetweenTrees(repoRoot, before, predicted, changedPaths.length)) !== JSON.stringify(patch.stats)) throw new Error("accepted-state patch statistics do not match the verified patch");
 	if (bytes.byteLength === 0) return transition;
-	git(repoRoot, ["apply", "--check", "--binary", "-"], undefined, bytes);
-	git(repoRoot, ["apply", "--binary", "-"], undefined, bytes);
-	options.afterApply?.();
-	const after = captureRepositoryState(repoRoot);
+	try { options.beforeCheck?.(); git(repoRoot, ["apply", "--check", "--binary", "-"], undefined, bytes); }
+	catch (error) { throw transitionProcessError("check", error); }
+	try { options.afterCheck?.(); git(repoRoot, ["apply", "--binary", "-"], undefined, bytes); }
+	catch (error) { throw transitionProcessError("apply", error); }
+	let after: RepositoryStateIdentity;
+	try {
+		options.afterApply?.();
+		after = captureRepositoryState(repoRoot);
+	} catch (error) {
+		throw new AmbiguousApplyError(`repository state could not be verified after accepted-state apply: ${errorMessage(error)}; manual reconciliation required`, { cause: error });
+	}
 	if (after.headCommit !== patch.headCommit || !after.indexMatchesHead || after.tree !== patch.resultTree) {
 		throw new AmbiguousApplyError(`repository changed during accepted-state apply: expected HEAD ${patch.headCommit}, clean index, tree ${patch.resultTree}; got HEAD ${after.headCommit}, indexMatchesHead=${after.indexMatchesHead}, tree ${after.tree}; manual reconciliation required`);
 	}
@@ -225,12 +267,54 @@ function gitText(repoRoot: string, args: string[], indexPath?: string): string {
 
 function git(repoRoot: string, args: string[], indexPath?: string, input?: Buffer): { stdout: Buffer; stderr: Buffer } {
 	const env = indexPath === undefined ? process.env : { ...process.env, GIT_INDEX_FILE: indexPath };
+	const started = performance.now();
 	const result = spawnSync("git", ["-c", "core.fsmonitor=false", ...args], {
 		cwd: repoRoot,
 		env,
 		input,
 		maxBuffer: 256 * 1024 * 1024,
 	});
-	if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr?.toString("utf8").trim() || result.error?.message || `exit ${result.status}`}`);
+	if (result.status !== 0) throw new GitCommandError(`git ${args.join(" ")} failed: ${result.stderr?.toString("utf8").trim() || result.error?.message || `exit ${result.status}`}`, {
+		exitCode: result.status,
+		signal: result.signal,
+		stdout: result.stdout ?? Buffer.alloc(0),
+		stderr: result.stderr ?? Buffer.alloc(0),
+		spawnError: result.error,
+		durationMs: Math.max(0, performance.now() - started),
+	});
 	return { stdout: result.stdout ?? Buffer.alloc(0), stderr: result.stderr ?? Buffer.alloc(0) };
 }
+
+class GitCommandError extends Error {
+	readonly result: { exitCode: number | null; signal: NodeJS.Signals | null; stdout: Buffer; stderr: Buffer; spawnError?: Error; durationMs: number };
+
+	constructor(message: string, result: GitCommandError["result"]) {
+		super(message);
+		this.name = "GitCommandError";
+		this.result = result;
+	}
+}
+
+function transitionProcessError(stage: "check" | "apply", error: unknown): AcceptedTransitionProcessError {
+	if (error instanceof AcceptedTransitionProcessError) return error;
+	const result = error instanceof GitCommandError ? error.result : undefined;
+	const spawnFailure = Boolean(result?.spawnError) || !result;
+	const signal = result?.signal ?? null;
+	const evidence: ApplyFailureEvidence = {
+		stage,
+		code: spawnFailure ? "spawn-failure" : signal ? "signal" : "nonzero",
+		exitCode: spawnFailure || signal ? null : result?.exitCode ?? 1,
+		signal,
+		timeoutMs: null,
+		stdout: result?.stdout.toString("utf8") ?? "",
+		stderr: [result?.stderr.toString("utf8").trim(), errorMessage(error)].filter(Boolean).join("\n"),
+		durationMs: result?.durationMs ?? 0,
+	};
+	return new AcceptedTransitionProcessError(stage === "check" ? "check-conflict" : "apply-failure", evidence, { cause: error });
+}
+
+function checkConflict(message: string): AcceptedTransitionProcessError {
+	return new AcceptedTransitionProcessError("check-conflict", { stage: "check", code: "nonzero", exitCode: 1, signal: null, timeoutMs: null, stdout: "", stderr: message, durationMs: 0 });
+}
+
+function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }

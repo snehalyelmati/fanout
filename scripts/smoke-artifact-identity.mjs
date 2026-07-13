@@ -24,6 +24,7 @@ import {
   writeArtifactAtomically,
 } from "../packages/fanout-pi/src/artifact-store.ts";
 import {
+	AcceptedTransitionProcessError,
   AmbiguousApplyError,
   applyAcceptedTransition,
   capturePatchCandidate,
@@ -40,9 +41,32 @@ try {
   runA5();
   runPlanningBaseChecks();
   runA8();
+  runTypedApplyFailures();
   console.log("artifact identity smoke passed (A4, A5, A8)");
 } finally {
   rmSync(root, { recursive: true, force: true });
+}
+
+function runTypedApplyFailures() {
+  const source = join(root, "typed-apply-source");
+  const artifacts = join(root, "typed-apply-artifacts");
+  initRepo(source);
+  writeFileSync(join(source, "artifact.ts"), "zero\n");
+  git(source, ["add", "."]);
+  git(source, ["commit", "-m", "typed apply base"]);
+  writeFileSync(join(source, "planning-untracked.txt"), "planning base\n");
+  const base = capturePlanningBase(source);
+  writeFileSync(join(source, "artifact.ts"), "one\n");
+  const patch = capturePatchCandidate(source, base, artifacts, "attempts/artifact.patch");
+
+  const stale = checkoutAt("typed-stale", source, base.headCommit);
+  writeFileSync(join(stale, "artifact.ts"), "parallel accepted change\n");
+  const staleError = captureError(() => applyAcceptedTransition(stale, artifacts, { patch }));
+  assert(staleError instanceof AcceptedTransitionProcessError && staleError.code === "check-conflict" && staleError.evidence.stage === "check" && staleError.evidence.stderr.includes("artifact.ts"), "stale-base conflict containing an identity-looking path was not routed by its typed check fact");
+
+  const applyFailure = checkoutAt("typed-apply-failure", source, base.headCommit);
+  const applyError = captureError(() => applyAcceptedTransition(applyFailure, artifacts, { patch }, { afterCheck: () => writeFileSync(join(applyFailure, "artifact.ts"), "parallel apply change\n") }));
+  assert(applyError instanceof AcceptedTransitionProcessError && applyError.code === "apply-failure" && applyError.evidence.stage === "apply" && applyError.evidence.code === "nonzero", "second-stage Git apply failure was not preserved as typed apply evidence");
 }
 
 function runA4() {
@@ -251,6 +275,12 @@ function expectThrows(run, message, ErrorType = Error) {
     return;
   }
   throw new Error(message);
+}
+
+function captureError(run) {
+  try { run(); }
+  catch (error) { return error; }
+  return undefined;
 }
 
 function assert(condition, message) {

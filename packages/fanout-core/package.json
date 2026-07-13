@@ -14,8 +14,8 @@
     "./execution-event": "./src/execution-event.ts",
     "./execution-projection": "./src/execution-projection.ts",
     "./execution-report": "./src/execution-report.ts",
-    "./final-validation": "./src/final-validation.ts",
     "./execution-run": "./src/execution-run.ts",
+    "./final-validation": "./src/final-validation.ts",
     "./fanout-compiler": "./src/fanout-compiler.ts",
     "./observability": "./src/observability.ts",
     "./recovery-evidence": "./src/recovery-evidence.ts",
@@ -24,6 +24,7 @@
     "./work-contract": "./src/work-contract.ts",
     "./work-contract-compiler": "./src/work-contract-compiler.ts",
     "./work-contract-graph": "./src/work-contract-graph.ts",
-    "./work-contract-views": "./src/work-contract-views.ts"
+    "./work-contract-views": "./src/work-contract-views.ts",
+    "./worker-metrics": "./src/worker-metrics.ts"
   }
 }

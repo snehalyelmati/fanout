@@ -94,10 +94,13 @@ assert(graph.graph.edges.some(([from, to]) => from === "a-b" && to === "reader")
 assert(!graph.graph.edges.some(([from, to]) => from === "reader" && to === "a-b"), "baseline read created an edge");
 for (const node of compiled.nodes.filter((node) => node.kind !== "final-validation")) assert(graph.graph.edges.some(([from, to]) => from === node.id && to === final.id), `final node does not follow ${node.id}`);
 
-const sequentialInputs = structuredClone(inputs);
-sequentialInputs[2].readDependencies[0].timingSource = "sequential-fallback";
-const fallback = compileWorkContracts(plans, sequentialInputs, finalCommands);
-assert(fallback.warnings.some((warning) => warning.code === "sequential-fallback"), "fallback provenance did not derive a warning");
+const unclassifiedInputs = structuredClone(inputs);
+unclassifiedInputs[2].readDependencies = unclassifiedInputs[2].readDependencies.filter((read) => read.resource.path !== "src/shared.ts");
+const unclassified = compileWorkContracts(plans, unclassifiedInputs, finalCommands);
+assert(!unclassified.ok && unclassified.errors.some((issue) => issue.code === "planned-read-not-grounded"), "unclassified cross-node read was admitted without typed policy");
+const fallback = compileWorkContracts(plans, unclassifiedInputs, finalCommands, { sequentialReadFallback: true });
+assert(fallback.ok && fallback.warnings.some((warning) => warning.code === "sequential-fallback"), "typed sequential fallback did not compile with provenance warning");
+assert(fallback.nodes.find((node) => node.id === "reader").workContract.readDependencies.some((read) => read.resource.path === "src/shared.ts" && read.timing === "post-change-required" && read.timingSource === "sequential-fallback"), "sequential fallback did not persist typed conservative ordering");
 
 const context = { objective: "Compile canonical contracts", userContext: ["user"], discoveredRepoFacts: ["fact"], assumptions: ["assumption"] };
 const markdown = renderWorkContractMarkdown(context, compiled.nodes);
@@ -113,6 +116,8 @@ assert(prompt.includes('"source": "AGENTS.md"') && !prompt.includes("Owned files
 
 const admitted = validateWorkContractNodes(compiled.nodes);
 assert(admitted.ok && admitted.graph, `node interface rejected compiler output: ${JSON.stringify(admitted.errors)}`);
+expectCode(validateWorkContractNodes(compiled.nodes.map((node) => node.kind === "final-validation" ? { ...node, id: "renamed-final" } : node)), "invalid-final-validation-id");
+expectCode(validateWorkContractNodes(compiled.nodes.map((node) => node === shared ? { ...node, id: "final-validation" } : node)), "reserved-node-id");
 expectCode(validateWorkContractNodes([{ ...shared, goal: "legacy", ownedFiles: ["src/shared.ts"], workerPacket: {} }, final]), "unknown-field");
 expectCode(validateWorkContractNodes([{ id: "legacy", kind: "implement", goal: "legacy", dependencies: [], ownedFiles: [] }]), "unknown-field");
 expectContractCode({ ...shared.workContract, extra: true }, "unknown-field");
