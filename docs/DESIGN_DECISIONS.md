@@ -10,6 +10,12 @@ Decision: `fanout-core` owns literal `RepoPath` parsing, explicit file/directory
 
 Reason: Planning and Git-observed changes need one identity-preserving resource contract. This preparatory hardening slice is directly tested but does not create a second executable authority; later coordinated slices replace legacy packet and runtime fields.
 
+### Execute approved validation as direct argv
+
+Decision: `fanout-core` strictly admits executable/argument validation manifests with canonical optional cwd and literal environment overrides. The Pi adapter preflights and rechecks launchability, runs exact argv without an implicit shell, preserves order and duplicates, and records typed fail-fast outcomes including explicit unexecuted commands.
+
+Reason: Deterministic argument boundaries and honest local-program trust replace misleading shell-string safety parsing. This preparatory runner is directly tested while production callers remain on the legacy path until the coordinated schema cutover.
+
 ## 2026-06-25
 
 ### Keep the normal Pi agent loop first

@@ -11,6 +11,7 @@
     "./execution-run": "./src/execution-run.ts",
     "./fanout-compiler": "./src/fanout-compiler.ts",
     "./observability": "./src/observability.ts",
-    "./repository-resource": "./src/repository-resource.ts"
+    "./repository-resource": "./src/repository-resource.ts",
+    "./validation-command": "./src/validation-command.ts"
   }
 }
