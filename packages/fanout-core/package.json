@@ -10,6 +10,7 @@
     "./execution-packet": "./src/execution-packet.ts",
     "./execution-run": "./src/execution-run.ts",
     "./fanout-compiler": "./src/fanout-compiler.ts",
-    "./observability": "./src/observability.ts"
+    "./observability": "./src/observability.ts",
+    "./repository-resource": "./src/repository-resource.ts"
   }
 }

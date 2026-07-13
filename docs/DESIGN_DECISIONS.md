@@ -2,6 +2,14 @@
 
 This file records design decisions made during development. Keep new entries dated and concise.
 
+## 2026-07-13
+
+### Admit repository authority through one canonical core module
+
+Decision: `fanout-core` owns literal `RepoPath` parsing, explicit file/directory resources, same-source directional authorization, connected ownership, typed read timing, monotonic typed forbidden writes, and exact UTF-8 Git-path admission. Advisory forbidden notes never affect policy.
+
+Reason: Planning and Git-observed changes need one identity-preserving resource contract. This preparatory hardening slice is directly tested but does not create a second executable authority; later coordinated slices replace legacy packet and runtime fields.
+
 ## 2026-06-25
 
 ### Keep the normal Pi agent loop first

@@ -38,6 +38,12 @@ Fanout should preserve developer velocity by using slower tiers only where laten
 
 ## Current Fanout workflow roadmap
 
+### End-to-end hardening
+
+Status: Slice 1 of 10 is implemented locally. `fanout-core` now exposes the preparatory canonical repository-resource contract and keyless A1/A2/A3/A9 checks: strict literal paths, explicit resource kinds, same-source narrowing and coverage, connected ownership, typed read edges, monotonic typed forbidden writes, and fatal exact Git-path admission. Existing planning, packet, and execution schemas remain unchanged until the coordinated caller and schema cutover slices; the preparatory module is not a second executable authority.
+
+Live `/fanout-execute` remains blocked from hardened release until all ten slices, the complete A1–A20 offline matrix, the macOS p-map canary, fresh review, and repository-owner approval pass for one immutable commit.
+
 ### Phase 1: User-owned research and planning
 
 Status: external to Fanout.
