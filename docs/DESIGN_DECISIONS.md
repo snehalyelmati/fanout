@@ -28,6 +28,12 @@ Decision: `fanout-core` owns `fanout.work-contract` v1, with ordered source-link
 
 Reason: One strict contract prevents flattened worker fields, string policy, duplicate command lists, and persisted graph copies from disagreeing. This preparatory compiler seam is directly tested; the legacy live packet remains unchanged until the coordinated schema cutover.
 
+### Route correlated attempts through fixed node-global budgets
+
+Decision: `fanout-core` owns provider-agnostic closed stage facts, immutable pre-side-effect attempt allocation, fixed original/retry/fallback/two-validation-repair/two-integration-repair pools, monotonic node attempt identities, correlation by attempt/turn/response/poll/tool-call identity, typed validation/integration recovery evidence, and `fanout.attempt-outcome` v1. Generic providers require correlated Pi turn/tool usage plus local worker timing; instrumented providers additionally require exact terminal response, per-response TTFT, poll, usage, and pricing evidence. Only typed transient facts can retry or fall back, terminal outcomes persist the controller's actual action and allocation transition, and reports derive totals from complete or explicitly partial observed records rather than persisting summed TTFT authority.
+
+Reason: One provider-independent core policy prevents diagnostics, stream text, record order, helper nesting, or provider-specific code from resetting recovery or changing routing. The directly tested A10–A12 preparatory seam does not alter the legacy live executor; coordinated callers replace its prose routing and mutable counters in the later runtime cutover.
+
 ## 2026-06-25
 
 ### Keep the normal Pi agent loop first

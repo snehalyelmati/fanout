@@ -49,6 +49,8 @@ rtk npm run smoke:fanout-execute
 
 Current result: passed locally. Coverage includes active-pointer and packet rejection, clean-worktree/artifact guardrails, canonical execution locking, confirmation and explicitly labeled dry-run behavior, deterministic DAG concurrency/failure propagation, fresh worktrees, compiler-produced packets, mandatory metric provenance, patch/rename/directory ownership, validation stability, process-tree termination, retry/fallback, typed recovery, compensating rollback, downstream integrated state, and authoritative final validation. The 2026-07-10 schema-v4 update additionally proves a separate Tier 2 fallback model is used after retry exhaustion while Tier 1-only nodes and typed recovery retain the Tier 1 control-plane model.
 
+The 2026-07-13 preparatory hardening check `rtk npm run smoke:attempt-outcomes` passes A10–A12 offline: prose-like output cannot affect typed routing, accepted generic and instrumented metrics require exact correlated identities, failed attempts retain observed partial cost, and nested validation/integration repair cannot exceed either fixed two-launch pool. This is contract evidence only; routing measurements remain unchanged until the coordinated live caller cutover.
+
 Caveat: worker usage and cost in this smoke are synthetic fake-provider fixtures. P2 controlled real Pi workers and P4 live tier-routing measurements remain pending; no observed latency or cost claim is added here.
 
 ## P2 — Manual p-map AbortSignal E2E
