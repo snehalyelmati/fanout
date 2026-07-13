@@ -101,7 +101,7 @@ function streamStub(tier: "realtime" | "async", model: Model<Api>, context: Cont
 			const reason = options?.signal?.aborted ? "aborted" : "error";
 			output.stopReason = reason;
 			output.errorMessage = error instanceof Error ? error.message : String(error);
-			writeJsonl("provider_error", { tier, provider: model.provider, model: model.id, responseId, turnIndex, reason, durationMs: durationMs(started), error: output.errorMessage });
+			writeJsonl("provider_error", { tier, provider: model.provider, model: model.id, responseId, turnIndex, reason, failureCode: reason === "aborted" ? "abort" : "protocol", durationMs: durationMs(started), error: output.errorMessage });
 			stream.push({ type: "error", reason, error: output });
 			stream.end();
 		}

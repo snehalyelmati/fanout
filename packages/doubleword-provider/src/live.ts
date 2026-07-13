@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { createAssistantMessageEventStream, type Api, type AssistantMessageEventStream, type Context, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { ASYNC_SERVICE_TIER, DEFAULT_ASYNC_TIMEOUT_MS, DEFAULT_CANCEL_TIMEOUT_MS, DOUBLEWORD_API_BASE_URL, elapsedMs, envInt, envString, formatSeconds, maxOutputTokensFor, sleep, withTimeout } from "./config.ts";
-import { fetchJson, fetchJsonWithPollRetry } from "./http.ts";
+import { fetchJson, fetchJsonWithPollRetry, HttpError } from "./http.ts";
 import { assertCompletedResponse, emitResponseContent, emitResponseToolCalls, emptyMessage, endText, guardRepeatedOutput, pushTextDelta, responsesInput, responsesTools, responseUsageSource, startText, usageFromResponse } from "./messages.ts";
 import { DOUBLEWORD_THINKING_LEVEL_MAP, tierPricingSource } from "./models.ts";
 import { durationMs, getDoublewordActiveTurnIndex, writeJsonl } from "./observability.ts";
@@ -107,7 +107,7 @@ export function streamLiveRealtime(model: Model<Api>, context: Context, options?
 				signal: options?.signal,
 				body: JSON.stringify(responsesRequestBody(model, context, options, { service_tier: "priority", stream: true })),
 			});
-			if (!httpResponse.ok) throw new Error(`Doubleword API error ${httpResponse.status}${httpResponse.statusText ? ` ${httpResponse.statusText}` : ""}: ${await httpResponse.text()}`);
+			if (!httpResponse.ok) throw new HttpError(`Doubleword API error ${httpResponse.status}${httpResponse.statusText ? ` ${httpResponse.statusText}` : ""}`, httpResponse.status, undefined, {});
 			if (!httpResponse.body) throw new Error("Doubleword realtime stream response had no body");
 
 			let response: Record<string, any> | undefined;
@@ -184,6 +184,7 @@ export function streamLiveRealtime(model: Model<Api>, context: Context, options?
 				provider: model.provider,
 				model: model.id,
 				responseId,
+				turnIndex,
 				status: response.status,
 				serviceTierRequested: "priority",
 				serviceTierActual: response.service_tier,
@@ -197,7 +198,7 @@ export function streamLiveRealtime(model: Model<Api>, context: Context, options?
 			const reason = options?.signal?.aborted ? "aborted" : "error";
 			output.stopReason = reason;
 			output.errorMessage = error instanceof Error ? error.message : String(error);
-			writeJsonl("provider_error", { tier: "realtime", provider: model.provider, model: model.id, responseId, turnIndex, reason, serviceTierRequested: "priority", durationMs: durationMs(started), error: output.errorMessage });
+			writeJsonl("provider_error", { tier: "realtime", provider: model.provider, model: model.id, responseId, turnIndex, reason, ...providerFailure(error, reason === "aborted"), serviceTierRequested: "priority", durationMs: durationMs(started), error: output.errorMessage });
 			stream.push({ type: "error", reason, error: output });
 			stream.end();
 		}
@@ -380,6 +381,7 @@ export function streamLiveAsync(model: Model<Api>, context: Context, options?: S
 				responseId,
 				turnIndex,
 				reason,
+				...providerFailure(error, reason === "aborted"),
 				serviceTierRequested: ASYNC_SERVICE_TIER,
 				durationMs: durationMs(started),
 				pollCount: pollIndex,
@@ -392,4 +394,18 @@ export function streamLiveAsync(model: Model<Api>, context: Context, options?: S
 	})();
 
 	return stream;
+}
+
+function providerFailure(error: unknown, aborted: boolean): { failureCode: string; httpStatus?: number; networkCode?: string } {
+	if (aborted) return { failureCode: "abort" };
+	if (error instanceof HttpError) {
+		if (error.status === 429) return { failureCode: "rate-limit", httpStatus: error.status };
+		if (error.status >= 500) return { failureCode: "retryable-service", httpStatus: error.status };
+		if (error.status === 401 || error.status === 403) return { failureCode: "authentication", httpStatus: error.status };
+		if (error.status === 402) return { failureCode: "quota", httpStatus: error.status };
+		return { failureCode: "invalid-request", httpStatus: error.status };
+	}
+	const code = (error as { code?: unknown; cause?: { code?: unknown } })?.code ?? (error as { cause?: { code?: unknown } })?.cause?.code;
+	if (typeof code === "string" && code) return { failureCode: "network", networkCode: code };
+	return { failureCode: error instanceof AsyncTimeoutError ? "retryable-service" : "protocol" };
 }

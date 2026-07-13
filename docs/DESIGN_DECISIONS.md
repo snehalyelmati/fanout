@@ -1,5 +1,13 @@
 # Design Decisions
 
+## 2026-07-14
+
+### Run workers through fixed file capabilities and exact accepted patches
+
+Decision: Every worker attempt keeps Pi's trusted automatic extension/provider discovery, `--approve`, `--no-context-files`, curated repository instructions, and the inherited parent environment, while `--tools` exposes exactly `read`, `grep`, `find`, `ls`, `edit`, and `write`. The Fanout extension synchronously rejects unavailable tools and edit/write targets using absolute, traversal, `.git`, or existing symlink segments. The node executor rebuilds fresh worktrees from the planning base plus ordered accepted-state transitions, captures and reverifies binary patches by digest/length/paths/HEAD/trees, and applies verified bytes through Git stdin with exact pre/post trees. Active drift fails without repair or reset; failure after active mutation is a distinct bookkeeping hard fail and Fanout does not guess a rollback.
+
+Reason: Model capability restriction must happen before tool execution, while repository integration authority must remain exact bytes and tree transitions rather than mutable patch paths, overlays, stdout scanning, or error-text routing. This is repository hardening under Pi's local trust model, not containment of trusted extensions, providers, validation programs, ignored files, external paths, network, or processes.
+
 ## 2026-07-13
 
 ### Enforce planning capabilities and context-free reports
@@ -533,6 +541,12 @@ Status: The fixed attempt budgets remain current; the Tier 1 control-model fallb
 Decision: `fanout.execution.maxConcurrency` is the only user execution setting consumed by `/fanout-execute`. The MVP policy fixes tier1 and tier2 to one original attempt plus one clean rerun, permits one tier1 fallback after retryable tier2 exhaustion when the work unit declares it, and permits at most two validation-repair and two integration-repair attempts. Provider availability is not preflighted and a node failure never globally reroutes remaining tier2 nodes.
 
 Reason: Fixed per-node budgets keep scheduling, cost accounting, and recovery deterministic while the first execution path is validated. Provider/model launch errors remain typed subprocess outcomes rather than a reason to mutate the accepted packet's assignments.
+
+### Route every worker launch through canonical attempt evidence
+
+Decision: The live packet-v4 executor adapts each work unit into an admitted canonical work contract, launches the worker from that contract's canonical prompt view, allocates original, retry, fallback, validation-repair, and integration-repair launches through the core fixed-budget state machine, and prepares, publishes, then commits one typed terminal outcome before allocating a successor. Only a published committed accept outcome may enter the accepted ledger. The adapter distinguishes baseline create/modify intent, derives read timing from exact dependency ownership overlap, and checks declared create/modify/delete/move intent against exact pre/post trees; ownership is checked only from canonical typed resources. Legacy forbidden-change prose fails closed instead of being interpreted as path authority. Retryability comes from process facts or provider facts matching the attempt's provider run, assignment, turn, and response identity; human-readable stderr is diagnostic only. Accepted metric outcomes preserve observed Pi turn, provider response, poll, and tool-call identities, with parent first-output timing separate from provider response TTFT.
+
+Reason: Launch counters, prose path extraction, and diagnostic substring routing create competing authorities for budgets, ownership, and recovery. Canonical allocation, work-contract, recovery, metric-correlation, and terminal-outcome records make the exact patch and evidence chain reviewable while packet v4 remains the public input until the coordinated packet/event cutover.
 
 ### Render execution reports from audit state
 

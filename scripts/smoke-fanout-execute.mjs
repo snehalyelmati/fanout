@@ -23,8 +23,9 @@ import {
 import { validateWorkerMetrics } from "../packages/fanout-core/src/execution-run.ts";
 import { createExecutionRecorder } from "../packages/fanout-pi/src/execution-recorder.ts";
 import { executeFanout } from "../packages/fanout-pi/src/fanout-execute.ts";
-import { capturePatch, checkOwnership, createAttemptWorktree, runProcess } from "../packages/fanout-pi/src/fanout-git.ts";
+import { artifactSegment, capturePatch, checkOwnership, createAttemptWorktree, runProcess } from "../packages/fanout-pi/src/fanout-git.ts";
 import { createFanoutNodeExecutor } from "../packages/fanout-pi/src/fanout-node-executor.ts";
+import { processStageFact } from "../packages/fanout-pi/src/attempt-evidence.ts";
 import { buildWorkerPrompt, importWorkerMetrics } from "../packages/fanout-pi/src/fanout-worker-contract.ts";
 
 const root = mkdtempSync(join(tmpdir(), "fanout-execute-smoke-"));
@@ -34,6 +35,7 @@ try {
   testActivePacketLoader();
   testStrictMetrics();
   testMetricImporter();
+  testProviderFailureCorrelation();
   await testScheduler();
   testRecorder();
   testWorkerPrompt();
@@ -97,6 +99,16 @@ function testActivePacketLoader() {
   const unsafePointer = join(projectRoot, "unsafe-pointer.json");
   writeJson(unsafePointer, { schema: "fanout.active-packet", version: 1, updatedAt: "2026-07-09T00:00:00.000Z", packetPath: unsafePacketPath });
   expectThrows(() => loadActiveExecutionPacket(unsafePointer, projectRoot), /not executable/, "unsafe packet");
+}
+
+function testProviderFailureCorrelation() {
+  const path = join(root, "provider-failure-correlation.jsonl");
+  const processResult = { exitCode: 1, signal: null, timedOut: false, durationMs: 1 };
+  writeFileSync(path, `${JSON.stringify({ event: "provider_error", runId: "other", provider: "fake", model: "worker", turnIndex: 0, responseId: "response", failureCode: "retryable-service" })}\n`);
+  assert(processStageFact(processResult, path, { runId: "attempt", provider: "fake", model: "worker" }).stage === "process", "uncorrelated provider event authorized routing");
+  writeFileSync(path, `${JSON.stringify({ event: "provider_error", runId: "attempt", provider: "fake", model: "worker", turnIndex: 0, responseId: "response", failureCode: "retryable-service" })}\n`);
+  const correlated = processStageFact(processResult, path, { runId: "attempt", provider: "fake", model: "worker" });
+  assert(correlated.stage === "provider" && correlated.code === "retryable-service", "correlated provider event did not authorize typed routing");
 }
 
 function testStrictMetrics() {
@@ -382,7 +394,7 @@ function testGitPatchGate() {
   assert(checkOwnership(unit, patch, worktree, baseRef, attemptDir).ok, "owned directory patch was rejected");
   const forbiddenUnit = structuredClone(unit);
   forbiddenUnit.workerPacket.forbiddenChanges = ["Do not change `owned/new.txt`."];
-  assert(checkOwnership(forbiddenUnit, patch, worktree, baseRef, attemptDir).violations.some((violation) => violation.file === "owned/new.txt" && violation.reason === "forbidden resource"), "path-shaped forbidden change was not enforced");
+  assert(checkOwnership(forbiddenUnit, patch, worktree, baseRef, attemptDir).violations.some((violation) => violation.file === "packet" && violation.reason.includes("not executable")), "legacy forbidden prose did not fail closed");
   mkdirSync(join(worktree, "owned", "generated"));
   writeFileSync(join(worktree, "owned", "generated", "blocked.txt"), "blocked\n");
   mkdirSync(join(worktree, "owned", "generated files"));
@@ -407,7 +419,7 @@ function testGitPatchGate() {
     ["Do not change .github/.", ".github/blocked.txt"],
   ]) {
     forbiddenDirectoryUnit.workerPacket.forbiddenChanges = [constraint];
-    assert(checkOwnership(forbiddenDirectoryUnit, directoryPatch, worktree, baseRef, attemptDir).violations.some((violation) => violation.file === file && violation.reason === "forbidden resource"), `forbidden directory constraint was not enforced: ${constraint}`);
+    assert(checkOwnership(forbiddenDirectoryUnit, directoryPatch, worktree, baseRef, attemptDir).violations.some((violation) => violation.file === "packet" && violation.reason.includes("not executable")), `legacy forbidden prose affected path authority: ${constraint} (${file})`);
   }
   for (const directory of [join(worktree, "owned", "generated"), join(worktree, "owned", "generated files"), join(worktree, "generated"), join(worktree, ".github")]) rmSync(directory, { recursive: true });
 
@@ -707,6 +719,10 @@ async function testRetryAndRecovery() {
   const fallbackEvents = readJsonl(fallbackResult.paths.eventsPath);
   assert(fallbackEvents.some((event) => event.event === "worker_fallback_started" && event.model === "realtime-fallback"), "tier2 exhaustion did not schedule the configured fallback model");
   assert(fallbackEvents.some((event) => event.event === "worker_attempt_started" && event.kind === "fallback" && event.model === "realtime-fallback"), "fallback attempt did not run the configured realtime model");
+  const fallbackOutcomes = ["001-original", "002-retry", "003-fallback"].map((attempt) => readOutcome(fallbackResult.paths.runDir, "fallback", attempt));
+  assert(fallbackOutcomes.map((outcome) => outcome.action).join(",") === "retry,fallback,accept", "typed fallback attempt outcomes did not drive the fixed sequence");
+  assert(fallbackOutcomes.slice(0, 2).every((outcome) => outcome.terminalFact.stage === "provider" && outcome.terminalFact.code === "retryable-service"), "structured provider facts did not authorize retry/fallback");
+  assert(fallbackOutcomes[2].metrics.turns[0]?.turnId.endsWith("/turn-0") && fallbackOutcomes[2].metrics.tools[0]?.toolCallId === "worker-tool", "accepted attempt metrics did not retain observed turn/tool identities");
 
   const repair = setupPolicyRepo("validation-repair");
   const repairUnit = makeUnit("validation-repair", [], ["value.txt"], ["validate.mjs"]);
@@ -720,6 +736,10 @@ async function testRetryAndRecovery() {
   assert(repairResult.snapshot.totals.totalTokens === 30 && repairResult.snapshot.nodes[0].worker?.totalTokens === 15, "validation repair did not account for rejected worker usage");
   const repairEvents = readJsonl(repairResult.paths.eventsPath);
   assert(repairEvents.some((event) => event.event === "worker_attempt_started" && event.kind === "validation-repair" && event.model === "worker"), "typed validation repair did not retain tier1 control-plane model");
+  const validationFailureOutcome = readOutcome(repairResult.paths.runDir, "validation-repair", "001-original");
+  const validationRepairOutcome = readOutcome(repairResult.paths.runDir, "validation-repair", "002-validation-repair");
+  assert(validationFailureOutcome.action === "validation-repair" && validationFailureOutcome.recovery?.kind === "validation", "validation repair was not allocated from typed recovery evidence");
+  assert(validationRepairOutcome.action === "accept", "successful validation repair did not record one accepted terminal outcome");
 
   const integration = setupPolicyRepo("integration-repair");
   writeFileSync(join(integration.repo, "validate.mjs"), `import { readFileSync, realpathSync, writeFileSync } from "node:fs";\nimport { resolve } from "node:path";\nconst active = ${JSON.stringify(integration.repo)};\nif (readFileSync("value.txt", "utf8").trim() !== "good") process.exit(1);\nif (realpathSync(process.cwd()) !== realpathSync(active) && process.cwd().includes("/workers/integration-repair-")) writeFileSync(resolve(active, "value.txt"), "conflict\\n");\n`);
@@ -734,10 +754,10 @@ async function testRetryAndRecovery() {
   integrationPacket.tierPlan.tier2Fallback = { provider: "fake", model: "realtime-fallback", thinking: "off", source: "smoke", status: "available", reason: "must not run integration repair" };
   writeExecutionPacketArtifacts(integrationPacket, integration.packetDir, { activePointerPath: integration.activePointerPath });
   const integrationResult = await executeFanout({ ...integration.options, piCommand: fakePi, runId: "integration-repair-smoke" });
-  assert(integrationResult.status === "succeeded" && readFileSync(join(integration.repo, "value.txt"), "utf8").trim() === "good" && readFileSync(join(integration.repo, "result.txt"), "utf8").trim() === "saw:good", `integration repair or downstream state propagation failed: ${integrationResult.error}`);
-  assert(integrationResult.snapshot.eventCounts.patch_apply_conflict === 1 && integrationResult.snapshot.eventCounts.integration_repair_finished === 1, "integration repair events are wrong");
+  assert(integrationResult.status === "failed" && readFileSync(join(integration.repo, "value.txt"), "utf8").trim() === "conflict" && !existsSync(join(integration.repo, "result.txt")), `active drift was mutated or repaired: ${integrationResult.error}`);
+  assert(!integrationResult.snapshot.eventCounts.integration_repair_started, "active drift incorrectly entered integration repair");
   const integrationEvents = readJsonl(integrationResult.paths.eventsPath);
-  assert(integrationEvents.some((event) => event.event === "worker_attempt_started" && event.kind === "integration-repair" && event.model === "worker"), "typed integration repair did not retain tier1 control-plane model");
+  assert(integrationEvents.some((event) => event.event === "node_failed" && String(event.error).includes("active worktree drifted")), "active drift did not retain its hard-fail evidence");
 
   const combinedRepair = setupPolicyRepo("integration-validation-repair");
   writeFileSync(join(combinedRepair.repo, "validate.mjs"), `import { readFileSync, realpathSync, writeFileSync } from "node:fs";\nimport { resolve } from "node:path";\nconst active = ${JSON.stringify(combinedRepair.repo)};\nif (readFileSync("value.txt", "utf8").trim() !== "good") process.exit(1);\nif (realpathSync(process.cwd()) !== realpathSync(active) && process.cwd().includes("/001-original/worktree")) writeFileSync(resolve(active, "value.txt"), "conflict\\n");\n`);
@@ -751,8 +771,8 @@ async function testRetryAndRecovery() {
   const combinedPacket = makePacket([combinedUnit, afterCombined], combinedRepair.packetDir, { finalValidationPlan: ["rtk node validate.mjs", "rtk node validate-result.mjs"] });
   writeExecutionPacketArtifacts(combinedPacket, combinedRepair.packetDir, { activePointerPath: combinedRepair.activePointerPath });
   const combinedResult = await executeFanout({ ...combinedRepair.options, piCommand: fakePi, runId: "integration-validation-repair-smoke" });
-  assert(combinedResult.status === "succeeded" && readFileSync(join(combinedRepair.repo, "value.txt"), "utf8").trim() === "good" && readFileSync(join(combinedRepair.repo, "result.txt"), "utf8").trim() === "saw:good", `combined integration/validation repair replay failed: ${combinedResult.error}`);
-  assert(combinedResult.snapshot.eventCounts.patch_apply_conflict === 1 && combinedResult.snapshot.eventCounts.integration_repair_finished === 1 && combinedResult.snapshot.eventCounts.validation_repair_finished === 1, "combined repair events are wrong");
+  assert(combinedResult.status === "failed" && readFileSync(join(combinedRepair.repo, "value.txt"), "utf8").trim() === "conflict", `combined active drift was mutated or repaired: ${combinedResult.error}`);
+  assert(!combinedResult.snapshot.eventCounts.integration_repair_started, "combined active drift incorrectly entered repair");
 
   const missing = setupPolicyRepo("missing-metrics");
   const missingUnit = makeUnit("missing-metrics", [], ["value.txt"], ["validate.mjs"]);
@@ -762,6 +782,24 @@ async function testRetryAndRecovery() {
   const missingResult = await executeFanout({ ...missing.options, piCommand: fakePi, runId: "missing-metrics-smoke" });
   assert(missingResult.status === "failed" && readFileSync(join(missing.repo, "value.txt"), "utf8").trim() === "initial", "missing-metrics worker changed the active worktree");
   assert(missingResult.snapshot.eventCounts.worker_attempt_started === 1 && missingResult.snapshot.eventCounts.metrics_missing === 1, "missing metrics triggered retry or was not recorded");
+
+  const validationPreflight = setupPolicyRepo("validation-preflight");
+  const validationPreflightUnit = makeUnit("validation-preflight", [], ["value.txt"], ["validate.mjs"]);
+  validationPreflightUnit.validationCommands = ["rtk node validate.mjs"];
+  const validationPreflightPacket = makePacket([validationPreflightUnit], validationPreflight.packetDir, { finalValidationPlan: ["rtk node validate.mjs"] });
+  writeExecutionPacketArtifacts(validationPreflightPacket, validationPreflight.packetDir, { activePointerPath: validationPreflight.activePointerPath });
+  const inheritedShell = process.env.SHELL;
+  let validationPreflightResult;
+  try {
+    process.env.SHELL = join(root, "definitely-missing-validation-shell");
+    validationPreflightResult = await executeFanout({ ...validationPreflight.options, piCommand: fakePi, runId: "validation-preflight-smoke" });
+  } finally {
+    if (inheritedShell === undefined) delete process.env.SHELL;
+    else process.env.SHELL = inheritedShell;
+  }
+  const validationPreflightOutcome = readOutcome(validationPreflightResult.paths.runDir, "validation-preflight", "001-original");
+  assert(validationPreflightResult.status === "failed" && validationPreflightOutcome.terminalFact.stage === "validation" && validationPreflightOutcome.terminalFact.code === "spawn-failure", "validation preflight failure did not produce a typed terminal outcome");
+  assert(!validationPreflightResult.snapshot.eventCounts.validation_repair_started, "validation preflight failure incorrectly launched a worker repair");
 
   const validationMutation = setupPolicyRepo("validation-mutation");
   writeFileSync(join(validationMutation.repo, "validate.mjs"), `import { readFileSync, writeFileSync } from "node:fs";\nif (readFileSync("value.txt", "utf8").trim() !== "good") process.exit(1);\nwriteFileSync("value.txt", "validation-mutated\\n");\n`);
@@ -775,7 +813,21 @@ async function testRetryAndRecovery() {
   assert(validationMutationResult.status === "failed" && readFileSync(join(validationMutation.repo, "value.txt"), "utf8").trim() === "initial", "validation-mutated patch reached the active worktree");
   assert(readJsonl(validationMutationResult.paths.eventsPath).some((event) => event.event === "patch_rejected" && event.reason === "validation_modified_patch"), "validation patch mutation was not recorded");
 
-  for (const nodeId of ["empty-patch", "worker-commit", "unsafe-tool"]) {
+  const patchSubstitution = setupPolicyRepo("patch-substitution");
+  const patchSubstitutionRunId = "patch-substitution-smoke";
+  const patchSubstitutionPath = join(patchSubstitution.packetDir, "executions", patchSubstitutionRunId, "workers", artifactSegment("patch-substitution"), "attempts", "001-original", "patch.bin");
+  writeFileSync(join(patchSubstitution.repo, "replace-patch.mjs"), `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(patchSubstitutionPath)}, "substituted patch bytes\\n");\n`);
+  git(patchSubstitution.repo, ["add", "replace-patch.mjs"]);
+  git(patchSubstitution.repo, ["-c", "user.name=Fanout Smoke", "-c", "user.email=fanout-smoke@local", "commit", "-q", "-m", "patch substitution validator"]);
+  const patchSubstitutionUnit = makeUnit("patch-substitution", [], ["value.txt"], ["replace-patch.mjs"]);
+  patchSubstitutionUnit.validationCommands = ["rtk node replace-patch.mjs"];
+  const patchSubstitutionPacket = makePacket([patchSubstitutionUnit], patchSubstitution.packetDir, { finalValidationPlan: ["rtk node validate.mjs"] });
+  writeExecutionPacketArtifacts(patchSubstitutionPacket, patchSubstitution.packetDir, { activePointerPath: patchSubstitution.activePointerPath });
+  const patchSubstitutionResult = await executeFanout({ ...patchSubstitution.options, piCommand: fakePi, runId: patchSubstitutionRunId });
+  assert(patchSubstitutionResult.status === "failed" && readFileSync(join(patchSubstitution.repo, "value.txt"), "utf8").trim() === "initial", "A8 substituted validator patch reached active");
+  assert(readJsonl(patchSubstitutionResult.paths.eventsPath).some((event) => event.event === "patch_rejected" && event.reason === "validation_modified_patch"), "A8 substituted patch identity failure was not recorded");
+
+  for (const nodeId of ["empty-patch", "worker-commit"]) {
     const hardStop = setupPolicyRepo(nodeId);
     const hardStopUnit = makeUnit(nodeId, [], ["value.txt"], ["validate.mjs"]);
     hardStopUnit.validationCommands = ["rtk node validate.mjs"];
@@ -817,9 +869,11 @@ async function testPostApplyRollback() {
 
   const result = await executor.runNode(unit);
   const snapshot = recorder.snapshot();
-  assert(!result.ok && result.error?.includes("rolled back"), "post-apply bookkeeping failure did not fail the node explicitly");
-  assert(readFileSync(join(setup.repo, "value.txt"), "utf8").trim() === "initial", "post-apply bookkeeping failure left the patch in the active worktree");
-  assert(snapshot.nodes[0].worker === undefined && snapshot.nodes[0].patch === undefined && snapshot.totals.filesChanged === 0, "post-apply rollback left accepted attempt state in the recorder");
+  assert(!result.ok && result.error?.includes("bookkeeping failed after active mutation"), "post-apply bookkeeping failure did not enter its distinct hard-fail state");
+  assert(readFileSync(join(setup.repo, "value.txt"), "utf8").trim() === "good", "post-apply bookkeeping failure guessed a rollback after mutation");
+  assert(snapshot.nodes[0].worker?.provider === "fake" && snapshot.nodes[0].patch?.filesChanged === 1, "post-apply bookkeeping failure erased already-recorded evidence");
+  const outcome = readOutcome(recorder.runDir, "bookkeeping-rollback", "001-original");
+  assert(outcome.action === "fail" && outcome.terminalFact.stage === "bookkeeping" && outcome.terminalFact.code === "failed-after-mutation", "post-mutation bookkeeping failure did not record its distinct typed terminal outcome");
 }
 
 function setupPolicyRepo(name) {
@@ -839,6 +893,10 @@ function setupPolicyRepo(name) {
     activePointerPath,
     options: { cwd: repo, activePointerPath, projectArtifactRoot: projectRoot, extensionEntry: join(repo, "extension.ts"), confirm: () => true, workerTimeoutMs: 10_000, validationTimeoutMs: 10_000 },
   };
+}
+
+function readOutcome(runDir, nodeId, attempt) {
+  return JSON.parse(readFileSync(join(runDir, "workers", artifactSegment(nodeId), "attempts", attempt, "attempt-outcome.json"), "utf8"));
 }
 
 function setupCompiledExecution(name, { authoritativeFailure = false } = {}) {
@@ -896,7 +954,7 @@ function setupCompiledExecution(name, { authoritativeFailure = false } = {}) {
       existingFileEdits: [{ file: "value.txt", section: "entire file", anchorText: "initial", lineRangeHint: "1", editIntent: "Replace the smoke state with compiled." }],
       newFiles: [],
       readDependencies: [],
-      forbiddenChanges: ["Do not change unrelated files."],
+      forbiddenChanges: [],
       validationCommands: [validationCommand],
     }],
   };
@@ -1018,12 +1076,13 @@ if (process.argv.includes("--version")) {
 }
 
 const args = process.argv.slice(2);
-for (const flag of ["--no-context-files", "--approve", "-e", "--model", "--mode", "--session-dir", "-p"]) {
+for (const flag of ["--no-context-files", "--approve", "--tools", "-e", "--model", "--mode", "--session-dir", "-p"]) {
   if (!args.includes(flag)) throw new Error("missing worker flag " + flag);
 }
+if (args[args.indexOf("--tools") + 1] !== "read,grep,find,ls,edit,write") throw new Error("worker tool profile is not fixed");
 if (args[args.indexOf("--mode") + 1] !== "json") throw new Error("worker mode is not json");
 const nodeId = process.env.FANOUT_NODE_ID;
-if (!nodeId || !process.env.FANOUT_RUN_ID || !process.env.FANOUT_WORKER_DIR) throw new Error("missing FANOUT worker environment");
+if (!nodeId || !process.env.FANOUT_RUN_ID || !process.env.FANOUT_WORKER_DIR || process.env.FANOUT_WORKTREE_ROOT !== process.cwd()) throw new Error("missing FANOUT worker environment");
 const promptArg = args[args.indexOf("-p") + 1];
 if (!promptArg?.startsWith("@")) throw new Error("missing @prompt.md argument");
 const prompt = readFileSync(promptArg.slice(1), "utf8");
@@ -1041,12 +1100,14 @@ if (nodeId === "upstream") {
 }
 
 const observability = [
+  { event: "turn_start", turnIndex: 0 },
   { event: "provider_ttft", provider: "fake", model: "worker", ttftMs: 1 },
-  { event: "tool_end", durationMs: 2 },
+  { event: "tool_end", toolCallId: "worker-tool", turnIndex: 0, durationMs: 2 },
+  { event: "turn_end", turnIndex: 0 },
 ];
 appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, observability.map((event) => JSON.stringify(event)).join("\\n") + "\\n");
 console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "done" } }));
-console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", provider: "fake", model: "worker", usage: { input: 10, output: 5, totalTokens: 15, cost: { total: 0.001 } } } }));
+console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", provider: "fake", model: "worker", content: [{ type: "toolCall", id: "worker-tool", name: "read", arguments: { path: "value.txt" } }], usage: { input: 10, output: 5, totalTokens: 15, cost: { total: 0.001 } } } }));
 `;
 }
 
@@ -1067,7 +1128,7 @@ else if (nodeId !== "final-validation") throw new Error("unexpected compiled pac
 
 const [provider, ...modelParts] = model.split("/");
 const actualModel = modelParts.join("/");
-appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_ttft", provider, model: actualModel, ttftMs: 1 }) + "\\n");
+appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, [{ event: "turn_start", turnIndex: 0 }, { event: "provider_ttft", provider, model: actualModel, ttftMs: 1 }, { event: "turn_end", turnIndex: 0 }].map((event) => JSON.stringify(event)).join("\\n") + "\\n");
 console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "done" } }));
 console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", provider, model: actualModel, usage: { input: 10, output: 5, totalTokens: 15, cost: { total: 0.001 } } } }));
 `;
@@ -1089,6 +1150,7 @@ const nodeId = process.env.FANOUT_NODE_ID;
 const workerDir = process.env.FANOUT_WORKER_DIR || "";
 if (nodeId === "fallback" && model === "fake/async-worker") {
   console.error("provider 503 transient failure");
+  appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_error", runId: process.env.DOUBLEWORD_RUN_ID, provider: "fake", model: "async-worker", turnIndex: 0, responseId: "failed-response", failureCode: "retryable-service", httpStatus: 503 }) + "\\n");
   process.exit(1);
 }
 if (nodeId === "after-integration" || nodeId === "after-combined-repair") {
@@ -1107,12 +1169,15 @@ if (nodeId === "worker-commit") {
 const [provider, ...modelParts] = model.split("/");
 const actualModel = modelParts.join("/");
 const unsafeTool = nodeId === "unsafe-tool" ? { type: "toolCall", id: "unsafe-call", name: "bash", arguments: { command: "git -C . reset --hard" } } : undefined;
+const observedTool = unsafeTool ?? { type: "toolCall", id: "worker-tool", name: "read", arguments: { path: "value.txt" } };
 appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, [
+  { event: "turn_start", turnIndex: 0 },
   { event: "provider_ttft", provider, model: actualModel, ttftMs: 1 },
-  { event: "tool_end", ...(unsafeTool ? { toolCallId: unsafeTool.id } : {}), durationMs: 2 },
+  { event: "tool_end", toolCallId: observedTool.id, turnIndex: 0, durationMs: 2 },
+  { event: "turn_end", turnIndex: 0 },
 ].map((event) => JSON.stringify(event)).join("\\n") + "\\n");
 console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "done" } }));
-console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", provider, model: actualModel, ...(unsafeTool ? { content: [unsafeTool] } : {}), usage: { input: 10, output: 5, totalTokens: 15, cost: { total: 0.001 } } } }));
+console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", provider, model: actualModel, content: [observedTool], usage: { input: 10, output: 5, totalTokens: 15, cost: { total: 0.001 } } } }));
 `;
 }
 

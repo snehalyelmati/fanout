@@ -9,6 +9,7 @@ import type { ExecutionRunSnapshot, ExecutionRunStatus } from "../../fanout-core
 import { createExecutionRecorder, type ExecutionRecorderPaths } from "./execution-recorder.ts";
 import { normalizeRepoPath, runValidationCommands, writeJson, type ValidationResult } from "./fanout-git.ts";
 import { createFanoutNodeExecutor } from "./fanout-node-executor.ts";
+import { WORKER_TRUST_BOUNDARY } from "./worker-capabilities.ts";
 
 export interface ExecuteFanoutOptions {
 	cwd: string;
@@ -192,6 +193,7 @@ function confirmationSummary(packet: FanoutExecutionPacket, maxConcurrency: numb
 		`Owned files/resources: ${ownedFiles.length ? ownedFiles.join(", ") : "none"}`,
 		`Validation commands: ${validationCommands.length ? validationCommands.join(" | ") : "none"}`,
 		"Accepted patches will be applied to the active worktree after ownership and validation gates pass.",
+		WORKER_TRUST_BOUNDARY,
 		`Audit artifacts: ${runDir}`,
 	].join("\n");
 }

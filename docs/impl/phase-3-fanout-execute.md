@@ -2,7 +2,9 @@
 
 Status: MVP implemented; controlled live Pi worker validation pending.
 
-Hardening status: the preparatory `fanout.execution-event` v1, strict reducer, execution-run projection v2, deterministic renderer, atomic recorder, and audit-only replay are implemented and directly checked by `smoke:execution-events`. The live executor still uses the v1 mutable recorder described below; slice 10 switches callers atomically and removes that legacy authority rather than dual-writing.
+Hardening status: worker slice 8 is live in the node executor. Worker launches preserve trusted extension/provider discovery, approval, curated instructions, and parent environment while `--tools` activates exactly the six file tools. A synchronous extension gate rejects edit/write escapes before mutation. Fresh attempt worktrees replay exact accepted-state transitions; candidate patches are binary, digest/length/path/HEAD/tree bound, reverified after controller-owned validation, and applied from verified memory through Git stdin under exact pre/post tree checks. Active drift and post-mutation bookkeeping failure hard-fail without reset or guessed rollback. Slice 9 still owns isolated final validation/repair; slice 10 still owns the coordinated strict packet/event/projection caller cutover.
+
+Residual trust remains explicit: discovered extensions, providers, validation programs, ignored files, external paths, network, and processes run with the user's host permissions and are outside Fanout containment.
 
 Source: validated Phase 3 component notes in [`docs/phase3_notes.md`](../phase3_notes.md).
 
@@ -11,10 +13,11 @@ Source: validated Phase 3 component notes in [`docs/phase3_notes.md`](../phase3_
 - `/fanout-execute` loads the active pointer by default; `--dry-run` performs loader/preflight checks and writes audit artifacts without confirmation, workers, or repo mutation.
 - The recorder derives its run directory from `dirname(packetPath)`, never from the packet's `artifactDir` field.
 - Preflight requires a clean active git worktree, artifact storage outside that repo, safe packet paths, and an available Pi worker command. Packet schema v4 records no planned HEAD/tree, so execution cannot prove that a clean checkout is not stale.
-- Every attempt starts in a fresh detached worktree. An ordered ledger replays accepted patches and conflict-repair owned-file snapshots, then commits that state as a local baseline so downstream diffs contain only the current unit; the active branch is never committed by Fanout, and Fanout-managed checkout/index/commit operations run with repository Git hooks disabled.
+- Every attempt starts in a fresh detached worktree at the captured planning commit. The ordered accepted-state ledger replays verified patch bytes with exact base/result trees; overlays and synthetic baseline commits are not integration authority.
 - Node validation commands must leave the captured patch and detached `HEAD` unchanged; a validator that changes either is rejected before active-worktree apply.
-- One exclusive lock under the canonical git directory prevents concurrent Fanout runs against the same worktree, and the active-worktree `git apply --check`/`git apply` pair is serialized across parallel workers within the run. Fanout releases its own lock normally but never automatically deletes an existing lock as stale.
+- One exclusive lock under the canonical git directory prevents concurrent Fanout runs against the same worktree, and active apply is serialized across parallel workers. It rereads and verifies patch bytes once, predicts the exact result tree, applies those bytes through Git stdin, and checks the resulting full tree. Fanout releases its own lock normally but never automatically deletes an existing lock as stale.
 - The parent explicitly reads applicable repo-local `AGENTS.md`/`CLAUDE.md` files from the root and ancestor directories of each unit's owned/read-only paths and injects them into the curated prompt; Pi's automatic context-file loader remains disabled.
+- Automatic trusted extension discovery and `--approve` stay enabled for provider registration, but the model-callable profile is exactly `read`, `grep`, `find`, `ls`, `edit`, and `write`. The extension blocks absolute/traversal/`.git`/symlink edit-write targets synchronously; validation remains controller-only.
 - Mandatory token and cost metrics come from Pi JSON assistant usage. Doubleword acceptance additionally requires equal provider-reported input/output/total/cost values and the exact pricing source `doubleword-model-metadata`, so compatibility word-count estimates and synthetic stub usage are rejected. Tier2 poll metrics require matching poll events or an explicit provider-reported zero. TTFT uses provider timing when present and otherwise the parent's measured first assistant output.
 - Retry, fallback, and typed-repair limits are fixed MVP policy; `maxConcurrency` is the only execution setting currently read by `/fanout-execute`.
 - A unit with no owned files is the explicit no-op case and may succeed with an empty patch. A mutating unit with an empty patch fails.
@@ -540,7 +543,7 @@ These outcomes do not trigger clean rerun, tier2 retry, or realtime fallback:
 
 ### Fallback policy
 
-If tier2 attempts are exhausted due to retryable failures, run one realtime fallback attempt only when `workUnit.tier.fallback === "tier1"`. The executor uses `packet.tierPlan.tier2Fallback` for provider/model/thinking, preserves the same work-unit intent and worker packet, and records the concrete fallback model. The fallback role inherits Tier 1 by default but may be configured independently. If fallback succeeds, normal patch gates continue; if it fails, the node fails.
+If tier2 attempts are exhausted due to typed retryable failures, run one realtime fallback attempt only when `workUnit.tier.fallback === "tier1"`. The executor uses `packet.tierPlan.tier2Fallback` for provider/model/thinking, preserves the same canonical work contract, and records the concrete fallback model. The fallback role inherits Tier 1 by default but may be configured independently. If fallback succeeds, normal patch gates continue; if it fails, the node fails.
 
 No fallback applies to unsafe output or missing metrics. Typed validation-failure and integration-conflict repairs always use `packet.tierPlan.tier1`, never `tier2Fallback`.
 
@@ -566,15 +569,17 @@ Every attempt is recorded. Totals include all known tokens, costs, and durations
   -> preflight repo/artifacts/commands
   -> confirm launch with user
   -> scheduler runs ready nodes
-      -> node executor creates worktree
+      -> node executor preallocates a fresh typed attempt
+      -> reconstruct exact accepted-ledger state in a detached worktree
       -> worker subprocess attempts/retries/tier2Fallback
       -> import metrics
       -> capture patch
-      -> enforce ownership
-      -> run node validation
+      -> enforce typed ownership and change intent
+      -> run controller-owned argv validation
       -> apply gate
       -> typed recovery if allowed
-      -> apply accepted patch to active worktree
+      -> prepare, publish, and commit one terminal outcome
+      -> add only published accepted outcomes to the exact ledger
   -> run final validation plan in active worktree
   -> write execution-run.json and summary.md
   -> report concise summary and artifact links

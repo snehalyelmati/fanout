@@ -33,6 +33,7 @@ import {
 	type PlanningMetrics,
 } from "./planning-observability.ts";
 import { appendFanoutReport, registerFanoutReportPresentation } from "./report-presentation.ts";
+import { workerToolBlockReason } from "./worker-capabilities.ts";
 
 const FANOUT_CONTEXT_MARKER = "## Fanout runtime context";
 const TIER2_DEFAULT = { provider: "doubleword", model: "zai-org/GLM-5.2-FP8", thinking: "medium" };
@@ -420,6 +421,8 @@ export default async function (pi: ExtensionAPI) {
 	pi.on("tool_call", (event) => {
 		const reason = planningToolBlockReason(event.toolName, Boolean(startedFanoutPlan));
 		if (reason) return { block: true, reason };
+		const workerReason = workerToolBlockReason(event.toolName, event.input, process.env.FANOUT_WORKTREE_ROOT);
+		if (workerReason) return { block: true, reason: workerReason };
 	});
 
 	pi.on("session_shutdown", resetPlanningState);

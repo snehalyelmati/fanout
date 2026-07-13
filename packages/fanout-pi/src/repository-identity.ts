@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
 	artifactIdentity,
 	parseAcceptedPatch,
@@ -96,6 +96,27 @@ export function applyAcceptedTransition(
 
 export function replayAcceptedTransitions(repoRoot: string, artifactRoot: string, values: readonly unknown[]): AcceptedStateTransition[] {
 	return values.map((value) => applyAcceptedTransition(repoRoot, artifactRoot, value));
+}
+
+export function createReconstructedWorktree(
+	repoRoot: string,
+	worktreePath: string,
+	baseValue: PlanningBase,
+	artifactRoot: string,
+	ledger: readonly unknown[],
+): PlanningBase {
+	const base = { headCommit: parseGitCommitId(baseValue.headCommit), tree: parseGitTreeId(baseValue.tree) };
+	mkdirSync(dirname(worktreePath), { recursive: true });
+	const hooks = mkdtempSync(join(dirname(worktreePath), "empty-hooks-"));
+	try {
+		git(repoRoot, ["-c", `core.hooksPath=${hooks}`, "worktree", "add", "--detach", worktreePath, base.headCommit]);
+	} finally {
+		rmSync(hooks, { recursive: true, force: true });
+	}
+	const actualBase = capturePlanningBase(worktreePath);
+	if (actualBase.headCommit !== base.headCommit || actualBase.tree !== base.tree) throw new Error("reconstructed worktree does not match the planning base");
+	replayAcceptedTransitions(worktreePath, artifactRoot, ledger);
+	return { headCommit: base.headCommit, tree: fullGitVisibleTree(worktreePath) };
 }
 
 function inspectPatchCandidate(repoRoot: string, baseValue: PlanningBase, patchPath: string): { bytes: Buffer; patch: AcceptedPatch } {

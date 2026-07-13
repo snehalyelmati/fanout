@@ -4,6 +4,9 @@ import { chmodSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, sy
 import { dirname, isAbsolute, posix, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import type { FanoutWorkUnit } from "../../fanout-core/src/execution-packet.ts";
+import type { AcceptedPatch } from "../../fanout-core/src/artifact-identity.ts";
+import { parseResource, resourceCovers as canonicalResourceCovers } from "../../fanout-core/src/repository-resource.ts";
+import { contractWriteResources, type WorkContract } from "../../fanout-core/src/work-contract.ts";
 
 export interface ProcessResult {
 	exitCode: number | null;
@@ -231,22 +234,54 @@ export function worktreePatchMatches(worktreePath: string, baseRef: string, expe
 
 export function checkOwnership(
 	unit: FanoutWorkUnit,
-	patch: CapturedPatch,
+	patch: Pick<CapturedPatch, "changedFiles" | "workerCommitted">,
 	worktreePath: string,
 	baseRef: string,
 	attemptDir: string,
 ): { ok: boolean; violations: Array<{ file: string; reason: string }> } {
 	const owned = unit.ownedFiles.map((resource) => ({ path: normalizeRepoPath(resource), directory: /[\\/]$/.test(resource.trim()) }));
-	const forbidden = unit.workerPacket.forbiddenChanges.flatMap(forbiddenPaths);
 	const violations: Array<{ file: string; reason: string }> = [];
+	if (unit.workerPacket.forbiddenChanges.length) violations.push({ file: "packet", reason: "legacy forbidden-change prose is not executable; replan with typed forbidden resources" });
 	for (const file of patch.changedFiles) {
 		if (!owned.some((resource) => resourceCovers(resource.path, file, worktreePath, baseRef, resource.directory))) violations.push({ file, reason: "outside owned files" });
-		if (forbidden.some((resource) => resourceCovers(resource.path, file, worktreePath, baseRef, resource.directory))) violations.push({ file, reason: "forbidden resource" });
 	}
 	if (patch.workerCommitted) violations.push({ file: "HEAD", reason: "worker commits are forbidden" });
 	const result = { ok: violations.length === 0, violations };
 	writeJson(resolve(attemptDir, "ownership-check.json"), result);
 	return result;
+}
+
+export function checkContractOwnership(
+	contract: WorkContract,
+	patch: AcceptedPatch,
+	attemptDir: string,
+	repoRoot: string,
+): { ok: boolean; violations: Array<{ file: string; reason: string }> } {
+	const owned = contractWriteResources(contract);
+	const forbidden = contract.forbiddenWrites.map((entry) => entry.resource);
+	const violations: Array<{ file: string; reason: string }> = [];
+	for (const path of patch.changedPaths) {
+		const candidate = parseResource({ kind: "file", path });
+		if (!owned.some((resource) => canonicalResourceCovers(resource, candidate))) violations.push({ file: path, reason: "outside typed work-contract ownership" });
+		if (forbidden.some((resource) => canonicalResourceCovers(resource, candidate))) violations.push({ file: path, reason: "typed forbidden resource" });
+	}
+	for (const change of contract.changes) {
+		const before = change.kind === "move" ? treeHasResource(repoRoot, patch.baseTree, change.from.resource) : treeHasResource(repoRoot, patch.baseTree, change.target.resource);
+		const after = change.kind === "move" ? treeHasResource(repoRoot, patch.resultTree, change.to.resource) : treeHasResource(repoRoot, patch.resultTree, change.target.resource);
+		if (change.kind === "modify" && (!before || !after)) violations.push({ file: change.target.resource.path, reason: "typed modify intent cannot create, delete, or move its endpoint" });
+		if (change.kind === "create" && (before || !after)) violations.push({ file: change.target.resource.path, reason: "typed create intent does not match the exact pre/post trees" });
+		if (change.kind === "delete" && (!before || after)) violations.push({ file: change.target.resource.path, reason: "typed delete intent does not match the exact pre/post trees" });
+		if (change.kind === "move" && (!before || !after || treeHasResource(repoRoot, patch.resultTree, change.from.resource) || treeHasResource(repoRoot, patch.baseTree, change.to.resource))) violations.push({ file: change.to.resource.path, reason: "typed move intent does not match the exact pre/post trees" });
+	}
+	const result = { ok: violations.length === 0, violations };
+	writeJson(resolve(attemptDir, "ownership-check.json"), result);
+	return result;
+}
+
+function treeHasResource(repoRoot: string, tree: string, resource: { path: string; kind: "file" | "directory" }): boolean {
+	const result = runGit(repoRoot, ["cat-file", "-t", `${tree}:${resource.path}`]);
+	if (result.status !== 0) return false;
+	return resource.kind === "directory" ? result.stdout.trim() === "tree" : result.stdout.trim() !== "tree";
 }
 
 export async function runValidationCommands(commands: string[], cwd: string, timeoutMs: number): Promise<ValidationResult> {
@@ -352,25 +387,6 @@ function applyFileOverlays(worktreePath: string, files: FileOverlay[]): void {
 			chmodSync(path, file.mode);
 		}
 	}
-}
-
-function forbiddenPaths(value: string): Array<{ path: string; directory: boolean }> {
-	const candidates = [value.trim(), ...Array.from(value.matchAll(/`([^`]+)`/g), (match) => match[1])];
-	for (const match of value.matchAll(/(?:^|[\s("'])(\.?[A-Za-z0-9_@.-]+\/(?:[^`"'();:\n]*?\/)?)(?=$|[\s,;:.)"'])/g)) candidates.push(match[1]);
-	for (const match of value.matchAll(/(?:^|[\s("'])(\.?\/?(?:[A-Za-z0-9_@.-]+\/)*[A-Za-z0-9_@.-]+)\/\*{1,2}(?=$|[\s,;:.)"'])/g)) candidates.push(`${match[1]}/`);
-	for (const match of value.matchAll(/(?:^|[\s("'])(\.?[A-Za-z0-9_@.-]+(?:\/[^`"'();:\n]*?)?)\s+(?:directory|folder|tree)\b/gi)) candidates.push(`${match[1]}/`);
-	for (const match of value.matchAll(/\b(?:under|inside|within)\s+(\.?[A-Za-z0-9_@.-]+(?:\/[^`"'();:\n]*?)?)(?<!\.)(?=$|[\s,;:.)"'])/gi)) candidates.push(`${match[1]}/`);
-	for (const match of value.matchAll(/(?:^|[\s("'])(\.?\/?(?:[A-Za-z0-9_@.-]+\/)+[A-Za-z0-9_@.-]+\/?|[A-Za-z0-9_@.-]+\.[A-Za-z0-9_.-]+)(?<!\.)(?=$|[\s,;:.)"'])/g)) candidates.push(match[1]);
-	const paths: Array<{ path: string; directory: boolean }> = [];
-	for (const rawCandidate of candidates) {
-		try {
-			const candidate = rawCandidate.replace(/\/\*{1,2}$/, "/");
-			paths.push({ path: normalizeRepoPath(candidate), directory: /[\\/]$/.test(candidate.trim()) });
-		} catch {
-			// Non-path prose remains a prompt constraint rather than a path rule.
-		}
-	}
-	return Array.from(new Map(paths.map((path) => [`${path.path}\0${path.directory}`, path])).values());
 }
 
 function requireGit(cwd: string, args: string[]): { status: number; stdout: string; stderr: string } {

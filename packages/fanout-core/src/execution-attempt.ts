@@ -115,11 +115,18 @@ export interface CompleteAttemptInput {
 	diagnostic?: string;
 }
 
+export interface PreparedAttemptCompletion {
+	allocation: AttemptAllocation;
+	outcome: AttemptOutcome;
+}
+
 const LIMITS: Readonly<AttemptBudgetCounts> = Object.freeze({ original: 1, retry: 1, fallback: 1, validationRepair: 2, integrationRepair: 2 });
 const KIND_BUDGET: Readonly<Record<AttemptKind, AttemptBudgetName>> = Object.freeze({ original: "original", retry: "retry", fallback: "fallback", "validation-repair": "validationRepair", "integration-repair": "integrationRepair" });
 const issuedStates = new WeakSet<object>();
 const issuedAllocations = new WeakSet<object>();
 const issuedOutcomes = new WeakSet<object>();
+const issuedPreparations = new WeakSet<object>();
+const preparedAllocations = new WeakMap<object, PreparedAttemptCompletion>();
 const completedAllocations = new WeakMap<object, AttemptOutcome>();
 
 export function createNodeAttemptState(nodeId: string): NodeAttemptState {
@@ -184,8 +191,13 @@ export function routeAttempt(fact: StageFact, context: RoutingContext): Controll
 }
 
 export function completeAttempt(allocation: AttemptAllocation, input: CompleteAttemptInput): AttemptOutcome {
+	return commitAttemptCompletion(prepareAttemptCompletion(allocation, input));
+}
+
+export function prepareAttemptCompletion(allocation: AttemptAllocation, input: CompleteAttemptInput): PreparedAttemptCompletion {
 	if (!issuedAllocations.has(allocation)) throw new Error("attempt allocation was not issued by this controller");
 	if (completedAllocations.has(allocation)) throw new Error(`attempt ${allocation.attemptId} already has a terminal outcome`);
+	if (preparedAllocations.has(allocation)) throw new Error(`attempt ${allocation.attemptId} already has a prepared completion`);
 	validateAllocation(allocation);
 	validateNodeState(input.state);
 	if (input.state.allocations.at(-1) !== allocation) throw new Error("attempt must complete against its current node allocation state");
@@ -238,9 +250,29 @@ export function completeAttempt(allocation: AttemptAllocation, input: CompleteAt
 		...(input.diagnostic === undefined ? {} : { diagnostic: String(input.diagnostic) }),
 	};
 	deepFreeze(outcome);
+	const prepared = { allocation, outcome };
+	deepFreeze(prepared);
+	issuedPreparations.add(prepared);
+	preparedAllocations.set(allocation, prepared);
+	return prepared;
+}
+
+export function commitAttemptCompletion(prepared: PreparedAttemptCompletion): AttemptOutcome {
+	if (!issuedPreparations.has(prepared)) throw new Error("attempt completion was not prepared by this controller");
+	if (preparedAllocations.get(prepared.allocation) !== prepared) throw new Error("attempt completion is no longer current");
+	if (completedAllocations.has(prepared.allocation)) throw new Error(`attempt ${prepared.allocation.attemptId} already has a terminal outcome`);
+	issuedPreparations.delete(prepared);
+	preparedAllocations.delete(prepared.allocation);
+	const { allocation, outcome } = prepared;
 	issuedOutcomes.add(outcome);
 	completedAllocations.set(allocation, outcome);
 	return outcome;
+}
+
+export function discardPreparedAttemptCompletion(prepared: PreparedAttemptCompletion): void {
+	if (!issuedPreparations.has(prepared) || preparedAllocations.get(prepared.allocation) !== prepared) throw new Error("attempt completion was not prepared by this controller or is no longer current");
+	issuedPreparations.delete(prepared);
+	preparedAllocations.delete(prepared.allocation);
 }
 
 export function appendTerminalOutcome(outcomes: readonly AttemptOutcome[], outcome: AttemptOutcome): AttemptOutcome[] {

@@ -4,10 +4,13 @@ import { FIXED_WORKER_CAPABILITIES } from "../packages/fanout-core/src/work-cont
 import {
   allocateAttempt,
   appendTerminalOutcome,
+  commitAttemptCompletion,
   completeAttempt,
   createNodeAttemptState,
+  discardPreparedAttemptCompletion,
   parseAttemptOutcome,
   parseStageFact,
+  prepareAttemptCompletion,
   remainingAttemptBudgets,
   routeAttempt,
 } from "../packages/fanout-core/src/execution-attempt.ts";
@@ -54,6 +57,39 @@ state = fallback.state;
 assert(routeAttempt(processTimeout, { kind: "fallback", assignment: fallback.allocation.assignment, fallbackAllowed: true, remaining: remainingAttemptBudgets(state) }) === "fail", "fallback attempt escaped its fixed one-launch pool");
 finishAttempt(fallback.allocation, state, processTimeout);
 expectThrow(() => allocateAttempt(state, { runId: "run", nodeId: "node", kind: "retry", assignment, sourceAttemptId: fallback.allocation.attemptId }), "second same-tier retry was allocated");
+
+const publicationCase = originalLaunch("publication-case", assignment);
+const preparedPublication = prepareAttemptCompletion(publicationCase.allocation, {
+  startedAt: "2026-07-13T00:00:00.000Z",
+  finishedAt: "2026-07-13T00:00:00.100Z",
+  terminalFact: processTimeout,
+  state: publicationCase.state,
+  fallbackAllowed: true,
+  metrics: observedMetrics(publicationCase.allocation),
+});
+expectThrow(() => allocateAttempt(publicationCase.state, { runId: "run", nodeId: "publication-case", kind: "retry", assignment, sourceAttemptId: publicationCase.allocation.attemptId }), "unpublished prepared outcome became routing authority");
+assert(commitAttemptCompletion(preparedPublication).action === "retry", "published prepared outcome lost its typed action");
+allocateAttempt(publicationCase.state, { runId: "run", nodeId: "publication-case", kind: "retry", assignment, sourceAttemptId: publicationCase.allocation.attemptId });
+
+const discardedCase = originalLaunch("discarded-publication", assignment);
+const discardedPreparation = prepareAttemptCompletion(discardedCase.allocation, {
+  startedAt: "2026-07-13T00:00:00.000Z",
+  finishedAt: "2026-07-13T00:00:00.100Z",
+  terminalFact: processTimeout,
+  state: discardedCase.state,
+  fallbackAllowed: true,
+  metrics: observedMetrics(discardedCase.allocation),
+});
+discardPreparedAttemptCompletion(discardedPreparation);
+const replacementPreparation = prepareAttemptCompletion(discardedCase.allocation, {
+  startedAt: "2026-07-13T00:00:00.000Z",
+  finishedAt: "2026-07-13T00:00:00.100Z",
+  terminalFact: { stage: "bookkeeping", code: "failed-after-mutation" },
+  state: discardedCase.state,
+  fallbackAllowed: true,
+  metrics: observedMetrics(discardedCase.allocation),
+});
+assert(commitAttemptCompletion(replacementPreparation).terminalFact.stage === "bookkeeping", "discarded publication prevented the replacement terminal outcome");
 
 // A12: nested repair helpers share the same two node-global pools.
 let nested = createNodeAttemptState("nested");
