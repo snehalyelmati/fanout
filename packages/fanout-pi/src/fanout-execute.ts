@@ -6,8 +6,10 @@ import { loadActiveExecutionPacket } from "../../fanout-core/src/active-packet.t
 import { runDag, type DagRunResult } from "../../fanout-core/src/dag-scheduler.ts";
 import type { FanoutExecutionPacket } from "../../fanout-core/src/execution-packet.ts";
 import type { ExecutionRunSnapshot, ExecutionRunStatus } from "../../fanout-core/src/execution-run.ts";
+import type { FinalValidationResult } from "../../fanout-core/src/final-validation.ts";
+import type { ValidationCommand } from "../../fanout-core/src/validation-command.ts";
 import { createExecutionRecorder, type ExecutionRecorderPaths } from "./execution-recorder.ts";
-import { normalizeRepoPath, runValidationCommands, writeJson, type ValidationResult } from "./fanout-git.ts";
+import { normalizeRepoPath, writeJson } from "./fanout-git.ts";
 import { createFanoutNodeExecutor } from "./fanout-node-executor.ts";
 import { WORKER_TRUST_BOUNDARY } from "./worker-capabilities.ts";
 
@@ -33,7 +35,7 @@ export interface ExecuteFanoutResult {
 	paths: ExecutionRecorderPaths;
 	snapshot: Readonly<ExecutionRunSnapshot>;
 	dag?: DagRunResult;
-	finalValidation?: ValidationResult;
+	finalValidation?: FinalValidationResult;
 	error?: string;
 	dryRun?: boolean;
 }
@@ -65,7 +67,7 @@ async function executeLoadedFanout(
 	});
 
 	let dag: DagRunResult | undefined;
-	let finalValidation: ValidationResult | undefined;
+	let finalValidation: FinalValidationResult | undefined;
 	try {
 		recorder.appendEvent("preflight_start");
 		const preflight = runPreflight(options.cwd, loaded.artifactDir, options.extensionEntry, options.piCommand ?? process.env.FANOUT_PI_COMMAND ?? "pi", loaded.packet.workUnits.flatMap((unit) => [...unit.ownedFiles, ...unit.readOnlyFiles]));
@@ -103,13 +105,14 @@ async function executeLoadedFanout(
 		dag = await runDag(loaded.packet, {
 			maxConcurrency,
 			failFast: options.failFast ?? false,
-			runNode: (unit) => executor.runNode(unit),
+			runNode: (unit) => unit.kind === "final-validation" ? Promise.resolve({ ok: true }) : executor.runNode(unit),
 			recorder,
 		});
 		if (!dag.ok) return finishFailed(recorder, loaded.packetPath, runId, "one or more DAG nodes failed", dag);
 
-		recorder.appendEvent("final_validation_started", { commands: loaded.packet.finalValidationPlan });
-		finalValidation = await runValidationCommands(loaded.packet.finalValidationPlan, preflight.repoRoot, positiveInteger(options.validationTimeoutMs, 600_000, "validationTimeoutMs"));
+		const finalCommands = executor.finalValidationCommands(legacyValidationCommands(loaded.packet.finalValidationPlan));
+		recorder.appendEvent("final_validation_started", { commands: finalCommands });
+		finalValidation = await executor.runFinalValidation(finalCommands);
 		writeJson(resolve(recorder.runDir, "final-validation.json"), finalValidation);
 		recorder.setFinalValidationStats({ commandCount: finalValidation.commandCount, durationMs: finalValidation.durationMs, status: finalValidation.status });
 		recorder.appendEvent("final_validation_finished", finalValidation as unknown as Record<string, unknown>);
@@ -131,7 +134,7 @@ function finishFailed(
 	runId: string,
 	error: string,
 	dag?: DagRunResult,
-	finalValidation?: ValidationResult,
+	finalValidation?: FinalValidationResult,
 	dryRun = false,
 ): ExecuteFanoutResult {
 	recorder.appendEvent("execution_finished", { status: "failed", error });
@@ -282,4 +285,9 @@ function errorMessage(error: unknown): string {
 
 function unique(values: string[]): string[] {
 	return Array.from(new Set(values));
+}
+
+function legacyValidationCommands(commands: readonly string[]): ValidationCommand[] {
+	const shell = process.env.SHELL || "/bin/sh";
+	return commands.map((command) => ({ executable: shell, args: ["-lc", command] }));
 }

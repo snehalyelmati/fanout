@@ -2,6 +2,7 @@ import { lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import type { AcceptedPatch, AcceptedStateTransition } from "../../fanout-core/src/artifact-identity.ts";
+import type { ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
 import type { CorrelatedAttemptMetrics } from "../../fanout-core/src/attempt-metrics.ts";
 import {
 	allocateAttempt,
@@ -23,6 +24,7 @@ import type { ExecutionRecorder } from "./execution-recorder.ts";
 import {
 	artifactSegment,
 	checkContractOwnership,
+	checkFinalRepairOwnership,
 	normalizeRepoPath,
 	runProcess,
 	writeJson,
@@ -43,6 +45,9 @@ import { writeArtifactAtomically } from "./artifact-store.ts";
 import { legacyWorkContract } from "./legacy-work-contract.ts";
 import type { WorkContract } from "../../fanout-core/src/work-contract.ts";
 import { runValidationCommands, type ValidationRunResult } from "./validation-runner.ts";
+import { deriveFinalRepairWorkContract, type FinalValidationResult } from "../../fanout-core/src/final-validation.ts";
+import type { ValidationCommand } from "../../fanout-core/src/validation-command.ts";
+import { runFinalValidation as coordinateFinalValidation } from "./final-validation.ts";
 import {
 	attemptEvidenceRefs,
 	correlatedWorkerMetrics,
@@ -139,6 +144,59 @@ export class FanoutNodeExecutor {
 		this.#planningBase = capturePlanningBase(this.#repoRoot);
 	}
 
+	finalValidationCommands(fallback: readonly ValidationCommand[]): ValidationCommand[] {
+		const finalUnit = this.#packet.workUnits.find((unit) => unit.kind === "final-validation");
+		return finalUnit ? [...this.#contract(finalUnit).validationCommands] : [...fallback];
+	}
+
+	async runFinalValidation(commands: readonly ValidationCommand[]): Promise<FinalValidationResult> {
+		const initialTree = this.#acceptedLedger.at(-1)?.patch.resultTree ?? this.#planningBase.tree;
+		const finalUnit = this.#packet.workUnits.find((unit) => unit.kind === "final-validation");
+		const finalContract = finalUnit ? this.#contract(finalUnit) : undefined;
+		const authoritativeCommands = finalContract?.validationCommands ?? commands;
+		const repairContract = finalContract ? deriveFinalRepairWorkContract(this.#packet.workUnits.filter((unit) => unit !== finalUnit).map((unit) => this.#contract(unit)), finalContract) : undefined;
+		const repairUnit = finalUnit && repairContract ? { ...finalUnit, kind: "implement" as const } : undefined;
+		if (repairUnit && repairContract) this.#contracts.set(repairUnit.id, repairContract);
+		return await coordinateFinalValidation<WorkerAttempt>({
+			repoRoot: this.#repoRoot,
+			runDir: this.#runDir,
+			planningBase: this.#planningBase,
+			ledger: this.#acceptedLedger.map(({ patch }) => ({ patch })),
+			commands: authoritativeCommands,
+			expectedValidationTree: initialTree,
+			expectedActiveTree: initialTree,
+			timeoutMs: this.#validationTimeoutMs,
+			...(repairUnit && repairContract ? { repair: {
+				workContract: repairContract,
+				acceptedLedger: this.#acceptedLedger,
+				available: () => (this.#attemptStates.get(repairUnit.id)?.counts.validationRepair ?? 0) < 2,
+				launch: async (recovery, source) => {
+					const attempt = await this.#runWorkerAttempt(repairUnit, tierOne(this.#packet), "validation-repair", recovery, undefined, source.attemptId, source.evidence);
+					return { attemptId: attempt.attemptId, ...(attempt.ok && attempt.patch && attempt.worktreePath ? { candidate: attempt } : {}), continue: !attempt.ok && this.#terminalOutcome(attempt).action === "validation-repair" };
+				},
+				transition: (attempt) => ({ patch: attempt.patch as AcceptedPatch }),
+				authorize: async (attempt) => this.#authorizeFinalRepair(repairUnit, repairContract, attempt),
+				reject: async (attempt, result, recovery, fact) => this.#rejectFinalRepair(attempt, result, recovery, fact),
+				apply: async (attempt, result) => (await this.#apply(repairUnit, { ...attempt, validation: { status: "passed", executedCount: result.commandCount, durationMs: result.durationMs, commands: [] } } as GatedAttempt)).ok,
+			} } : {}),
+		});
+	}
+
+	async #authorizeFinalRepair(unit: FanoutWorkUnit, contract: WorkContract, attempt: WorkerAttempt): Promise<boolean> {
+		if (!attempt.patch) return false;
+		const ownership = checkFinalRepairOwnership(contract, attempt.patch, attempt.attemptDir);
+		await this.#event("ownership_check_finished", { nodeId: unit.id, attemptId: attempt.attemptId, finalRepair: true, ...ownership });
+		if (ownership.ok) return true;
+		this.#completeTerminalAttempt({ ...attempt, ok: false, error: ownership.violations.map((value) => `${value.file}: ${value.reason}`).join("; "), failureKind: "ownership", terminalFact: { stage: "worker-gate", code: ownership.violations.some((value) => value.reason.includes("forbidden")) ? "forbidden-change" : "unauthorized-change" } });
+		return false;
+	}
+
+	async #rejectFinalRepair(attempt: WorkerAttempt, result: FinalValidationResult, recovery: AttemptRecoveryContext | undefined, fact: StageFact): Promise<boolean> {
+		const repairBudgetRemains = (this.#attemptStates.get(attempt.allocation.nodeId)?.counts.validationRepair ?? 0) < 2;
+		const completed = this.#completeTerminalAttempt({ ...attempt, ok: false, error: result.evidence.failure?.kind === "hard" ? result.evidence.failure.detail : "final validation program failed", failureKind: "validation", terminalFact: fact, ...(recovery && repairBudgetRemains ? { recovery } : {}) });
+		return this.#terminalOutcome(completed).action === "validation-repair";
+	}
+
 	async runNode(unit: FanoutWorkUnit): Promise<DagNodeResult> {
 		try {
 			this.#contract(unit);
@@ -193,6 +251,7 @@ export class FanoutNodeExecutor {
 		recovery?: AttemptRecoveryContext,
 		seedPatch?: AcceptedStateTransition,
 		sourceAttemptId?: string,
+		sourceFinalValidationEvidence?: ArtifactIdentity,
 	): Promise<WorkerAttempt> {
 		const previousState = this.#attemptStates.get(unit.id) ?? createNodeAttemptState(unit.id);
 		const allocated = allocateAttempt(previousState, {
@@ -201,6 +260,7 @@ export class FanoutNodeExecutor {
 			kind,
 			assignment: { tier: tier.tier, provider: tier.provider, model: tier.model },
 			...(sourceAttemptId ? { sourceAttemptId } : {}),
+			...(sourceFinalValidationEvidence ? { sourceFinalValidationEvidence } : {}),
 			fallbackAllowed: unit.tier.fallback === "tier1",
 		});
 		this.#attemptStates.set(unit.id, allocated.state);
@@ -581,7 +641,7 @@ export class FanoutNodeExecutor {
 
 	#completeTerminalAttempt(attempt: WorkerAttempt): WorkerAttempt {
 		if (!attempt.terminalFact) throw new Error(`attempt ${attempt.attemptId} has no typed terminal fact`);
-		this.#completeAttempt(attempt, attempt.terminalFact, attempt.recovery);
+		this.#completeAttempt(attempt, attempt.terminalFact, attempt.terminalFact.stage === "validation" || attempt.terminalFact.stage === "apply" ? attempt.recovery : undefined);
 		return attempt;
 	}
 

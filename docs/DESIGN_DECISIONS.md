@@ -2,6 +2,12 @@
 
 ## 2026-07-14
 
+### Validate and repair only fresh exact reconstructions
+
+Decision: The final-validation node is a controller gate rather than an ordinary worker. The controller rebuilds the planning base plus accepted ledger in a fresh detached worktree, verifies planning commit, clean index relation, and full Git-visible trees for both validation and active checkouts before and after the complete ordered command sequence, and records versioned exact evidence. Only nonzero, timeout, and signal results may consume the final node's fixed two-launch validation-repair pool. Repair authority is the union of upstream typed change endpoints under their typed forbidden writes; every candidate is ownership-checked and replayed into another fresh reconstruction before verified stdin apply to active.
+
+Reason: Running validation in active or adopting a repair worker's checkout would make validation side effects and ignored residue part of the returned repository without proof. Sequence-boundary checks allow intentional create-then-remove checks while persistent drift fails closed without reset, replay, or rollback. This remains repository integrity under trusted-local-program semantics, not containment of ignored files, external paths, network, processes, services, or mutate-then-restore behavior.
+
 ### Run workers through fixed file capabilities and exact accepted patches
 
 Decision: Every worker attempt keeps Pi's trusted automatic extension/provider discovery, `--approve`, `--no-context-files`, curated repository instructions, and the inherited parent environment, while `--tools` exposes exactly `read`, `grep`, `find`, `ls`, `edit`, and `write`. The Fanout extension synchronously rejects unavailable tools and edit/write targets using absolute, traversal, `.git`, or existing symlink segments. The node executor rebuilds fresh worktrees from the planning base plus ordered accepted-state transitions, captures and reverifies binary patches by digest/length/paths/HEAD/trees, and applies verified bytes through Git stdin with exact pre/post trees. Active drift fails without repair or reset; failure after active mutation is a distinct bookkeeping hard fail and Fanout does not guess a rollback.
@@ -517,6 +523,8 @@ Decision: Worker tokens and estimated cost come from Pi JSON assistant `message_
 Reason: Pi JSON provides the provider-agnostic usage shape, while Doubleword observability distinguishes API-reported tokens from compatibility estimates and identifies the price table. The measured TTFT fallback is a local clock fact; no token or timing values are inferred to fill gaps.
 
 ### Define no-op, partial-failure, and final-validation semantics
+
+Status: The no-op and terminal-status rules remain current; final validation in active was superseded on 2026-07-14 by fresh exact reconstruction and bounded candidate replay.
 
 Decision: A work unit with zero owned files may succeed with an empty patch; a mutating unit may not. Any failed or skipped DAG node maps the run to `failed` rather than a separate partial status. The final-validation worker remains a DAG node, but the deterministic `finalValidationPlan` rerun in the active worktree is authoritative for overall execution success.
 

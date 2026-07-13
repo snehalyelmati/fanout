@@ -159,7 +159,8 @@ function applyAllocation(state: ExecutionRunProjection, sequence: number, alloca
 	if (state.mode !== "live" || state.preflight?.status !== "passed" || state.confirmation !== "accepted") throw new Error("attempt launch requires passed preflight and accepted live confirmation");
 	if (allocation.runId !== state.runId) throw new Error("attempt allocation belongs to another run");
 	const node = nodeById(state, allocation.nodeId);
-	if (node.status !== "pending") throw new Error("completed node cannot allocate another attempt");
+	const finalRepair = allocation.kind === "validation-repair" && node.id === "final-validation" && state.finalValidation.disposition === "running";
+	if (node.status !== "pending" && !(finalRepair && node.status === "succeeded")) throw new Error("completed node cannot allocate another attempt outside the running final-validation gate");
 	if (state.attempts.some((attempt) => attempt.allocation.attemptId === allocation.attemptId)) throw new Error("attempt identity must be unique");
 	const budgets = state.budgets[allocation.nodeId];
 	const budgetName = KIND_BUDGET[allocation.kind];
@@ -167,11 +168,13 @@ function applyAllocation(state: ExecutionRunProjection, sequence: number, alloca
 	const source = allocation.sourceAttemptId ? completedAttempt(state, allocation.sourceAttemptId) : undefined;
 	const latest = state.attempts.filter((attempt) => attempt.allocation.nodeId === allocation.nodeId).at(-1);
 	if (allocation.kind === "original") {
-		if (allocation.attemptNumber !== 1 || source) throw new Error("original attempt must be the first launch without a source");
+		if (allocation.attemptNumber !== 1 || source || allocation.sourceFinalValidationEvidence) throw new Error("original attempt must be the first launch without a source");
+	} else if (allocation.sourceFinalValidationEvidence) {
+		if (!finalRepair || allocation.attemptNumber !== 1 || latest) throw new Error("failed-round evidence may source only the first final validation repair");
 	} else if (!source || source !== latest) throw new Error("recovery attempt requires the latest completed source on the same node");
 	if (allocation.kind === "retry" && (source?.allocation.kind !== "original" || source.outcome?.action !== "retry" || !sameAssignment(source.allocation, allocation))) throw new Error("retry causality is invalid");
 	if (allocation.kind === "fallback" && (source?.allocation.kind !== "retry" || source.outcome?.action !== "fallback" || source.allocation.assignment.tier !== "tier2" || allocation.assignment.tier !== "tier1" || budgets.retry !== BUDGET_LIMITS.retry)) throw new Error("fallback causality is invalid");
-	if (allocation.kind === "validation-repair" && (source?.outcome?.action !== "validation-repair" || allocation.assignment.tier !== "tier1")) throw new Error("validation repair causality is invalid");
+	if (allocation.kind === "validation-repair" && ((!allocation.sourceFinalValidationEvidence && source?.outcome?.action !== "validation-repair") || allocation.assignment.tier !== "tier1")) throw new Error("validation repair causality is invalid");
 	if (allocation.kind === "integration-repair" && (source?.outcome?.action !== "integration-repair" || allocation.assignment.tier !== "tier1")) throw new Error("integration repair causality is invalid");
 	budgets[budgetName] = allocation.budgetTransition.after;
 	node.attemptIds.push(allocation.attemptId);
@@ -185,7 +188,7 @@ function applyCompletion(state: ExecutionRunProjection, sequence: number, payloa
 	const { allocation } = attempt;
 	const { outcome } = payload;
 	for (const field of ["runId", "nodeId", "attemptId", "attemptNumber", "kind"] as const) if (outcome[field] !== allocation[field]) throw new Error(`attempt outcome ${field} does not match its allocation`);
-	if (!sameAssignment(allocation, outcome) || JSON.stringify(outcome.budgetTransition) !== JSON.stringify(allocation.budgetTransition) || outcome.sourceAttemptId !== allocation.sourceAttemptId) throw new Error("attempt outcome repeats contradictory allocation authority");
+	if (!sameAssignment(allocation, outcome) || JSON.stringify(outcome.budgetTransition) !== JSON.stringify(allocation.budgetTransition) || outcome.sourceAttemptId !== allocation.sourceAttemptId || JSON.stringify(outcome.sourceFinalValidationEvidence) !== JSON.stringify(allocation.sourceFinalValidationEvidence)) throw new Error("attempt outcome repeats contradictory allocation authority");
 	const expected = routeAttempt(outcome.terminalFact, { kind: allocation.kind, assignment: allocation.assignment, fallbackAllowed: state.policy.fallbackAllowed, remaining: remainingBudgets(state.budgets[allocation.nodeId]) });
 	if (outcome.action !== expected) throw new Error("attempt controller action contradicts its typed fact and fixed budgets");
 	if ((outcome.action === "accept") !== Boolean(payload.acceptedTransition)) throw new Error("only an accepted attempt may append one accepted-state transition");

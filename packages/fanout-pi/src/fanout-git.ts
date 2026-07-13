@@ -259,12 +259,7 @@ export function checkContractOwnership(
 ): { ok: boolean; violations: Array<{ file: string; reason: string }> } {
 	const owned = contractWriteResources(contract);
 	const forbidden = contract.forbiddenWrites.map((entry) => entry.resource);
-	const violations: Array<{ file: string; reason: string }> = [];
-	for (const path of patch.changedPaths) {
-		const candidate = parseResource({ kind: "file", path });
-		if (!owned.some((resource) => canonicalResourceCovers(resource, candidate))) violations.push({ file: path, reason: "outside typed work-contract ownership" });
-		if (forbidden.some((resource) => canonicalResourceCovers(resource, candidate))) violations.push({ file: path, reason: "typed forbidden resource" });
-	}
+	const violations = pathAuthorityViolations(patch, owned, forbidden, "outside typed work-contract ownership");
 	for (const change of contract.changes) {
 		const before = change.kind === "move" ? treeHasResource(repoRoot, patch.baseTree, change.from.resource) : treeHasResource(repoRoot, patch.baseTree, change.target.resource);
 		const after = change.kind === "move" ? treeHasResource(repoRoot, patch.resultTree, change.to.resource) : treeHasResource(repoRoot, patch.resultTree, change.target.resource);
@@ -276,6 +271,32 @@ export function checkContractOwnership(
 	const result = { ok: violations.length === 0, violations };
 	writeJson(resolve(attemptDir, "ownership-check.json"), result);
 	return result;
+}
+
+export function checkFinalRepairOwnership(
+	contract: WorkContract,
+	patch: AcceptedPatch,
+	attemptDir: string,
+): { ok: boolean; violations: Array<{ file: string; reason: string }> } {
+	const violations = pathAuthorityViolations(patch, contractWriteResources(contract), contract.forbiddenWrites.map((entry) => entry.resource), "outside derived upstream final-repair authority");
+	const result = { ok: violations.length === 0, violations };
+	writeJson(resolve(attemptDir, "ownership-check.json"), result);
+	return result;
+}
+
+function pathAuthorityViolations(
+	patch: AcceptedPatch,
+	owned: ReturnType<typeof contractWriteResources>,
+	forbidden: ReturnType<typeof contractWriteResources>,
+	outsideReason: string,
+): Array<{ file: string; reason: string }> {
+	return patch.changedPaths.flatMap((path) => {
+		const candidate = parseResource({ kind: "file", path });
+		return [
+			...(owned.some((resource) => canonicalResourceCovers(resource, candidate)) ? [] : [{ file: path, reason: outsideReason }]),
+			...(forbidden.some((resource) => canonicalResourceCovers(resource, candidate)) ? [{ file: path, reason: "typed forbidden resource" }] : []),
+		];
+	});
 }
 
 function treeHasResource(repoRoot: string, tree: string, resource: { path: string; kind: "file" | "directory" }): boolean {

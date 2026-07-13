@@ -2,7 +2,7 @@
 
 Status: MVP implemented; controlled live Pi worker validation pending.
 
-Hardening status: worker slice 8 is live in the node executor. Worker launches preserve trusted extension/provider discovery, approval, curated instructions, and parent environment while `--tools` activates exactly the six file tools. A synchronous extension gate rejects edit/write escapes before mutation. Fresh attempt worktrees replay exact accepted-state transitions; candidate patches are binary, digest/length/path/HEAD/tree bound, reverified after controller-owned validation, and applied from verified memory through Git stdin under exact pre/post tree checks. Active drift and post-mutation bookkeeping failure hard-fail without reset or guessed rollback. Slice 9 still owns isolated final validation/repair; slice 10 still owns the coordinated strict packet/event/projection caller cutover.
+Hardening status: slices 8 and 9 are live in the node executor. Worker launches preserve trusted extension/provider discovery, approval, curated instructions, and parent environment while `--tools` activates exactly the six file tools. A synchronous extension gate rejects edit/write escapes before mutation. Fresh attempt worktrees replay exact accepted-state transitions; candidate patches are binary, digest/length/path/HEAD/tree bound, reverified after controller-owned validation, and applied from verified memory through Git stdin under exact pre/post tree checks. Final validation is a controller gate in a fresh exact reconstruction; bounded repairs use derived upstream authority and must pass another fresh reconstruction before active apply. Active drift and post-mutation bookkeeping failure hard-fail without reset or guessed rollback. Slice 10 still owns the coordinated strict packet/event/projection caller cutover.
 
 Residual trust remains explicit: discovered extensions, providers, validation programs, ignored files, external paths, network, and processes run with the user's host permissions and are outside Fanout containment.
 
@@ -22,7 +22,7 @@ Source: validated Phase 3 component notes in [`docs/phase3_notes.md`](../phase3_
 - Retry, fallback, and typed-repair limits are fixed MVP policy; `maxConcurrency` is the only execution setting currently read by `/fanout-execute`.
 - A unit with no owned files is the explicit no-op case and may succeed with an empty patch. A mutating unit with an empty patch fails.
 - Any failed or skipped scheduler node maps the execution run to `failed`; there is no separate partial run status.
-- The packet's final-validation worker remains part of the DAG, but the deterministic `finalValidationPlan` rerun in the active worktree is authoritative for overall success.
+- The packet's final-validation node remains in DAG ordering but does not launch an ordinary worker. Its deterministic command contract runs only in a fresh exact reconstruction; typed program failures may launch at most two Tier 1 repairs, each freshly replayed and validated before active apply.
 
 ## Goal
 
@@ -580,7 +580,8 @@ Every attempt is recorded. Totals include all known tokens, costs, and durations
       -> typed recovery if allowed
       -> prepare, publish, and commit one terminal outcome
       -> add only published accepted outcomes to the exact ledger
-  -> run final validation plan in active worktree
+  -> reconstruct accepted state and run final validation in a fresh detached worktree
+  -> if eligible, validate each bounded repair candidate in another fresh reconstruction before active apply
   -> write execution-run.json and summary.md
   -> report concise summary and artifact links
 ```

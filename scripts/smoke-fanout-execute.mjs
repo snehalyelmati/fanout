@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { loadActiveExecutionPacket } from "../packages/fanout-core/src/active-packet.ts";
+import { parseAttemptOutcome } from "../packages/fanout-core/src/execution-attempt.ts";
 import { runDag } from "../packages/fanout-core/src/dag-scheduler.ts";
 import { compileExecutionPacket } from "../packages/fanout-core/src/fanout-compiler.ts";
 import {
@@ -564,23 +565,35 @@ async function testCompiledPacketExecution() {
   assert(readFileSync(join(succeeded.repo, "value.txt"), "utf8").trim() === "compiled", "compiled implementation patch was not applied");
   assert(successResult.finalValidation?.status === "passed", "compiled packet authoritative validation did not pass");
   const successFinalNode = successResult.snapshot.nodes.find((node) => node.id === "final-validation");
-  assert(successFinalNode?.status === "succeeded" && successFinalNode.worker?.totalTokens === 15, "compiled no-write final-validation node did not record successful worker metrics");
-  assert(successResult.snapshot.totals.totalTokens === 30 && successResult.snapshot.totals.filesChanged === 1, "compiled packet execution totals are wrong");
+  assert(successFinalNode?.status === "succeeded" && successFinalNode.worker === undefined, "compiled final-validation node launched an ordinary worker");
+  assert(successResult.snapshot.totals.totalTokens === 15 && successResult.snapshot.totals.filesChanged === 1, "compiled packet execution totals are wrong");
   const successEvents = readJsonl(successResult.paths.eventsPath);
-  assert(successEvents.some((event) => event.event === "patch_applied" && event.nodeId === "final-validation" && event.noOp === true), "compiled final-validation node was not recorded as an accepted no-op");
+  assert(!successEvents.some((event) => event.event === "worker_attempt_started" && event.nodeId === "final-validation"), "compiled final-validation node launched before the authoritative gate");
 
   const failed = setupCompiledExecution("compiled-packet-final-failure", { authoritativeFailure: true });
   const failedResult = await executeFanout({ ...failed.options, piCommand: fakePi, runId: "compiled-packet-final-failure" });
   assert(failedResult.status === "failed" && failedResult.error === "final validation failed", `authoritative validation failure returned the wrong result: ${failedResult.error ?? failedResult.status}`);
   assert(failedResult.dag?.ok === true, "authoritative validation smoke failed before completing the compiled DAG");
   assert(failedResult.finalValidation?.status === "failed" && failedResult.snapshot.finalValidation?.status === "failed", "authoritative validation failure was not retained in the result and snapshot");
+  assert(readJsonl(failedResult.paths.eventsPath).find((event) => event.event === "final_validation_started")?.commands[0]?.args?.at(-1) === "rtk node validate-authoritative.mjs", "final-validation event did not use the final node's command authority");
   assert(failedResult.snapshot.nodes.find((node) => node.id === "final-validation")?.status === "succeeded", "compiled final-validation worker did not succeed before the authoritative failure");
   assert(readFileSync(join(failed.repo, "value.txt"), "utf8").trim() === "compiled", "authoritative validation failure lost the accepted implementation patch");
+  assert(readOutcome(failedResult.paths.runDir, "final-validation", "001-validation-repair").action === "validation-repair", "first final repair did not preserve the node-global budget");
+  assert(readOutcome(failedResult.paths.runDir, "final-validation", "002-validation-repair").action === "fail", "second final repair did not exhaust the node-global budget");
+  assert(!existsSync(join(failedResult.paths.runDir, "workers", "final-validation", "attempts", "003-validation-repair")), "final validation launched more than two repairs");
   for (const path of [failedResult.paths.eventsPath, failedResult.paths.snapshotPath, failedResult.paths.summaryPath, join(failedResult.paths.runDir, "final-validation.json")]) {
     assert(existsSync(path), `authoritative validation failure artifact was not written: ${path}`);
   }
   const failedSummary = readFileSync(failedResult.paths.summaryPath, "utf8");
   assert(failedSummary.includes("Status: **failed**") && failedSummary.includes("Final validation: failed"), "authoritative validation failure summary is incomplete");
+
+  const repaired = setupCompiledExecution("compiled-packet-final-repair", { finalRepair: true });
+  const repairedResult = await executeFanout({ ...repaired.options, piCommand: fakePi, runId: "compiled-packet-final-repair" });
+  assert(repairedResult.status === "succeeded" && repairedResult.finalValidation?.status === "passed", `final repair did not pass: ${repairedResult.error ?? repairedResult.status}`);
+  assert(readFileSync(join(repaired.repo, "value.txt"), "utf8") === "repaired\n", "passing final repair candidate was not applied to active");
+  assert(repairedResult.finalValidation.evidence.acceptedRepair?.activeAfterApply.tree === repairedResult.finalValidation.evidence.acceptedRepair?.transition.patch.resultTree, "final repair completion evidence did not bind active to the validated candidate tree");
+  const finalRepairOutcome = parseAttemptOutcome(readOutcome(repairedResult.paths.runDir, "final-validation", "001-validation-repair"));
+  assert(finalRepairOutcome.action === "accept" && finalRepairOutcome.sourceFinalValidationEvidence?.sha256, "final repair was not allocated from exact failed-round evidence");
 }
 
 async function testEndToEnd() {
@@ -899,7 +912,7 @@ function readOutcome(runDir, nodeId, attempt) {
   return JSON.parse(readFileSync(join(runDir, "workers", artifactSegment(nodeId), "attempts", attempt, "attempt-outcome.json"), "utf8"));
 }
 
-function setupCompiledExecution(name, { authoritativeFailure = false } = {}) {
+function setupCompiledExecution(name, { authoritativeFailure = false, finalRepair = false } = {}) {
   const repo = join(root, `${name}-repo`);
   repos.push(repo);
   mkdirSync(repo, { recursive: true });
@@ -907,8 +920,9 @@ function setupCompiledExecution(name, { authoritativeFailure = false } = {}) {
   writeFileSync(join(repo, "extension.ts"), "export default function fanoutSmokeExtension() {}\n");
   writeFileSync(join(repo, "validate.mjs"), `import { readFileSync } from "node:fs";\nif (readFileSync("value.txt", "utf8").trim() !== "compiled") process.exit(1);\n`);
   if (authoritativeFailure) {
-    writeFileSync(join(repo, "validate-authoritative.mjs"), `import { realpathSync } from "node:fs";\nconst activeRoot = realpathSync(${JSON.stringify(repo)});\nif (realpathSync(process.cwd()) === activeRoot) process.exit(1);\n`);
+    writeFileSync(join(repo, "validate-authoritative.mjs"), "process.exit(1);\n");
   }
+  if (finalRepair) writeFileSync(join(repo, "validate-repair.mjs"), `import { readFileSync } from "node:fs";\nif (readFileSync("value.txt", "utf8") !== "repaired\\n") process.exit(1);\n`);
   initRepo(repo);
 
   const projectRoot = join(root, `${name}-artifacts`, "project");
@@ -937,7 +951,7 @@ function setupCompiledExecution(name, { authoritativeFailure = false } = {}) {
       acceptanceCriteria: ["value.txt contains compiled."],
       risks: [],
     }],
-    validationPlan: authoritativeFailure ? ["rtk node validate-authoritative.mjs"] : [validationCommand],
+    validationPlan: authoritativeFailure ? ["rtk node validate-authoritative.mjs"] : finalRepair ? ["rtk node validate-repair.mjs"] : [validationCommand],
     risks: [],
   };
   const implementationDetails = {
@@ -947,7 +961,7 @@ function setupCompiledExecution(name, { authoritativeFailure = false } = {}) {
     objective,
     artifactDir: packetDir,
     sourcePlanPath: join(packetDir, "implementation-plan.json"),
-    finalValidationCommands: authoritativeFailure ? ["rtk node validate-authoritative.mjs"] : [validationCommand],
+    finalValidationCommands: authoritativeFailure ? ["rtk node validate-authoritative.mjs"] : finalRepair ? ["rtk node validate-repair.mjs"] : [validationCommand],
     items: [{
       sourcePlanIds: ["compiled-edit"],
       ownedResources: ["value.txt"],
@@ -975,6 +989,7 @@ function setupCompiledExecution(name, { authoritativeFailure = false } = {}) {
   const finalUnit = compiled.packet.workUnits.find((unit) => unit.id === "final-validation");
   assert(finalUnit?.kind === "final-validation" && finalUnit.ownedFiles.length === 0, "compiler did not emit the no-write final-validation node");
   assert(finalUnit.dependencies.join(",") === "compiled-edit", `compiled final-validation dependencies are wrong: ${finalUnit.dependencies.join(",")}`);
+  if (authoritativeFailure) compiled.packet.finalValidationPlan = [validationCommand];
   writeExecutionPacketArtifacts(compiled.packet, packetDir, { activePointerPath });
   return {
     repo,
@@ -1124,6 +1139,7 @@ const args = process.argv.slice(2);
 const nodeId = process.env.FANOUT_NODE_ID;
 const model = args[args.indexOf("--model") + 1];
 if (nodeId === "compiled-edit") writeFileSync("value.txt", "compiled\\n");
+else if (nodeId === "final-validation" && process.env.FANOUT_WORKER_DIR?.endsWith("-validation-repair")) writeFileSync("value.txt", "repaired\\n");
 else if (nodeId !== "final-validation") throw new Error("unexpected compiled packet node " + nodeId);
 
 const [provider, ...modelParts] = model.split("/");

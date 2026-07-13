@@ -22,6 +22,12 @@ export interface PlanningBase {
 	tree: GitTreeId;
 }
 
+export interface RepositoryStateIdentity extends PlanningBase {
+	headTree: GitTreeId;
+	indexTree: GitTreeId;
+	indexMatchesHead: boolean;
+}
+
 export class AmbiguousApplyError extends Error {
 	constructor(message: string) {
 		super(message);
@@ -34,6 +40,13 @@ export function capturePlanningBase(repoRoot: string): PlanningBase {
 		headCommit: parseGitCommitId(gitText(repoRoot, ["rev-parse", "--verify", "HEAD^{commit}"])),
 		tree: fullGitVisibleTree(repoRoot),
 	};
+}
+
+export function captureRepositoryState(repoRoot: string): RepositoryStateIdentity {
+	const headCommit = parseGitCommitId(gitText(repoRoot, ["rev-parse", "--verify", "HEAD^{commit}"]));
+	const headTree = parseGitTreeId(gitText(repoRoot, ["rev-parse", "--verify", "HEAD^{tree}"]));
+	const indexTree = parseGitTreeId(gitText(repoRoot, ["write-tree"]));
+	return { headCommit, headTree, indexTree, indexMatchesHead: indexTree === headTree, tree: fullGitVisibleTree(repoRoot) };
 }
 
 export function fullGitVisibleTree(repoRoot: string): GitTreeId {
@@ -75,7 +88,10 @@ export function applyAcceptedTransition(
 ): AcceptedStateTransition {
 	const transition = parseAcceptedStateTransition(value);
 	const { patch } = transition;
-	const before = fullGitVisibleTree(repoRoot);
+	const beforeIdentity = captureRepositoryState(repoRoot);
+	if (beforeIdentity.headCommit !== patch.headCommit) throw new Error(`accepted-state identity HEAD mismatch: expected ${patch.headCommit}, got ${beforeIdentity.headCommit}`);
+	if (!beforeIdentity.indexMatchesHead) throw new Error("accepted-state identity index diverges from HEAD");
+	const before = beforeIdentity.tree;
 	if (before !== patch.baseTree) throw new Error(`accepted-state base tree mismatch: expected ${patch.baseTree}, got ${before}`);
 	const bytes = readVerifiedArtifact(artifactRoot, patch.artifact);
 	const predicted = predictedResultTree(repoRoot, bytes, before);
@@ -87,9 +103,9 @@ export function applyAcceptedTransition(
 	git(repoRoot, ["apply", "--check", "--binary", "-"], undefined, bytes);
 	git(repoRoot, ["apply", "--binary", "-"], undefined, bytes);
 	options.afterApply?.();
-	const after = fullGitVisibleTree(repoRoot);
-	if (after !== patch.resultTree) {
-		throw new AmbiguousApplyError(`repository changed during accepted-state apply: expected ${patch.resultTree}, got ${after}; manual reconciliation required`);
+	const after = captureRepositoryState(repoRoot);
+	if (after.headCommit !== patch.headCommit || !after.indexMatchesHead || after.tree !== patch.resultTree) {
+		throw new AmbiguousApplyError(`repository changed during accepted-state apply: expected HEAD ${patch.headCommit}, clean index, tree ${patch.resultTree}; got HEAD ${after.headCommit}, indexMatchesHead=${after.indexMatchesHead}, tree ${after.tree}; manual reconciliation required`);
 	}
 	return transition;
 }
@@ -117,6 +133,16 @@ export function createReconstructedWorktree(
 	if (actualBase.headCommit !== base.headCommit || actualBase.tree !== base.tree) throw new Error("reconstructed worktree does not match the planning base");
 	replayAcceptedTransitions(worktreePath, artifactRoot, ledger);
 	return { headCommit: base.headCommit, tree: fullGitVisibleTree(worktreePath) };
+}
+
+export function removeReconstructedWorktree(repoRoot: string, worktreePath: string): void {
+	try {
+		git(repoRoot, ["worktree", "remove", "--force", worktreePath]);
+	} catch {
+		rmSync(worktreePath, { recursive: true, force: true });
+		git(repoRoot, ["worktree", "prune"]);
+	}
+	rmSync(worktreePath, { recursive: true, force: true });
 }
 
 function inspectPatchCandidate(repoRoot: string, baseValue: PlanningBase, patchPath: string): { bytes: Buffer; patch: AcceptedPatch } {

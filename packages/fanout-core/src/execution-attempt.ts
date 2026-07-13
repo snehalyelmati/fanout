@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import { parseArtifactIdentity, type ArtifactIdentity } from "./artifact-identity.ts";
 import { correlateAttemptMetrics, isCorrelatedAttemptMetrics, type CorrelatedAttemptMetrics } from "./attempt-metrics.ts";
 import {
 	canonicalTimestamp,
@@ -56,6 +57,7 @@ export interface AttemptAllocation {
 	kind: AttemptKind;
 	assignment: AttemptAssignment;
 	sourceAttemptId?: string;
+	sourceFinalValidationEvidence?: ArtifactIdentity;
 	budgetTransition: BudgetTransition;
 }
 
@@ -91,6 +93,7 @@ export interface AttemptOutcome {
 	kind: AttemptKind;
 	assignment: AttemptAssignment;
 	sourceAttemptId?: string;
+	sourceFinalValidationEvidence?: ArtifactIdentity;
 	startedAt: string;
 	finishedAt: string;
 	durationMs: number;
@@ -136,15 +139,17 @@ export function createNodeAttemptState(nodeId: string): NodeAttemptState {
 	return state;
 }
 
-export function allocateAttempt(state: NodeAttemptState, input: { runId: string; nodeId: string; kind: AttemptKind; assignment: AttemptAssignment; sourceAttemptId?: string; fallbackAllowed?: boolean }): AttemptAllocationResult {
+export function allocateAttempt(state: NodeAttemptState, input: { runId: string; nodeId: string; kind: AttemptKind; assignment: AttemptAssignment; sourceAttemptId?: string; sourceFinalValidationEvidence?: ArtifactIdentity; fallbackAllowed?: boolean }): AttemptAllocationResult {
 	validateNodeState(state);
 	if (input.nodeId !== state.nodeId) throw new Error(`attempt node ${input.nodeId} does not match budget state ${state.nodeId}`);
 	const runId = requiredIdentity(input.runId, "runId");
 	const nodeId = requiredIdentity(input.nodeId, "nodeId");
 	validateAssignment(input.assignment);
 	if (!(input.kind in KIND_BUDGET)) throw new TypeError(`unknown attempt kind: ${input.kind}`);
-	if (input.kind === "original" && input.sourceAttemptId !== undefined) throw new TypeError("original attempt cannot have a sourceAttemptId");
-	if (input.kind !== "original" && !input.sourceAttemptId) throw new TypeError(`${input.kind} attempt requires sourceAttemptId`);
+	const sourceCount = Number(input.sourceAttemptId !== undefined) + Number(input.sourceFinalValidationEvidence !== undefined);
+	if (input.kind === "original" && sourceCount) throw new TypeError("original attempt cannot have a source");
+	if (input.kind !== "original" && sourceCount !== 1) throw new TypeError(`${input.kind} attempt requires exactly one source`);
+	if (input.sourceFinalValidationEvidence && input.kind !== "validation-repair") throw new TypeError("only final validation repair may cite final-validation evidence");
 	if (input.sourceAttemptId) validateSourceAttemptId(input.sourceAttemptId, nodeId, state.nextAttemptNumber);
 	validateAllocationSequence(state, input);
 	const name = KIND_BUDGET[input.kind];
@@ -162,7 +167,8 @@ export function allocateAttempt(state: NodeAttemptState, input: { runId: string;
 			attemptNumber,
 			kind: input.kind,
 			assignment: { ...input.assignment },
-			...(input.sourceAttemptId ? { sourceAttemptId: requiredIdentity(input.sourceAttemptId, "sourceAttemptId") } : {}),
+		...(input.sourceAttemptId ? { sourceAttemptId: requiredIdentity(input.sourceAttemptId, "sourceAttemptId") } : {}),
+		...(input.sourceFinalValidationEvidence ? { sourceFinalValidationEvidence: parseArtifactIdentity(input.sourceFinalValidationEvidence) } : {}),
 			budgetTransition: transition,
 	};
 	const nextState = { nodeId, nextAttemptNumber: attemptNumber + 1, counts: nextCounts, allocations: [...state.allocations, allocation] };
@@ -215,10 +221,10 @@ export function prepareAttemptCompletion(allocation: AttemptAllocation, input: C
 	const validationFailure = terminalFact.stage === "validation" && action === "validation-repair";
 	const integrationFailure = terminalFact.stage === "apply" && action === "integration-repair";
 	const postTreeFailure = terminalFact.stage === "apply" && terminalFact.code === "post-tree-mismatch" && action === "fail";
-	if (validationFailure && (recovery?.kind !== "validation" || recovery.sourceAttemptId !== allocation.attemptId)) throw new Error("validation repair action requires correlated typed validation recovery evidence");
+	if (validationFailure && (recovery?.kind === "validation" ? recovery.sourceAttemptId !== allocation.attemptId : recovery?.kind === "final-validation" ? !allocation.sourceFinalValidationEvidence && !allocation.sourceAttemptId : true)) throw new Error("validation repair action requires correlated typed validation recovery evidence");
 	if ((integrationFailure || postTreeFailure) && (recovery?.kind !== "integration" || recovery.sourceAttemptId !== allocation.attemptId)) throw new Error("apply outcome requires correlated typed integration evidence");
 	if (!validationFailure && !integrationFailure && !postTreeFailure && recovery) throw new Error("recovery evidence does not match the terminal stage fact");
-	if (terminalFact.stage === "validation" && recovery?.kind === "validation") {
+	if (terminalFact.stage === "validation" && (recovery?.kind === "validation" || recovery?.kind === "final-validation")) {
 		const failed = recovery.commands.filter((command) => command.status !== "passed" && command.status !== "unexecuted").map((command) => command.index);
 		if (JSON.stringify(terminalFact.failedCommandIndexes ?? []) !== JSON.stringify(failed)) throw new Error("validation fact indexes do not match recovery command evidence");
 	}
@@ -238,6 +244,7 @@ export function prepareAttemptCompletion(allocation: AttemptAllocation, input: C
 		kind: allocation.kind,
 		assignment: { ...allocation.assignment },
 		...(allocation.sourceAttemptId ? { sourceAttemptId: allocation.sourceAttemptId } : {}),
+		...(allocation.sourceFinalValidationEvidence ? { sourceFinalValidationEvidence: structuredClone(allocation.sourceFinalValidationEvidence) } : {}),
 		startedAt,
 		finishedAt,
 		durationMs,
@@ -282,7 +289,7 @@ export function appendTerminalOutcome(outcomes: readonly AttemptOutcome[], outco
 }
 
 export function parseAttemptAllocation(value: unknown): AttemptAllocation {
-	const item = exactRecord(value, ["runId", "nodeId", "attemptId", "attemptNumber", "kind", "assignment", "sourceAttemptId", "budgetTransition"], ["sourceAttemptId"], "attempt allocation");
+	const item = exactRecord(value, ["runId", "nodeId", "attemptId", "attemptNumber", "kind", "assignment", "sourceAttemptId", "sourceFinalValidationEvidence", "budgetTransition"], ["sourceAttemptId", "sourceFinalValidationEvidence"], "attempt allocation");
 	const allocation = {
 		runId: requiredIdentity(item.runId, "allocation.runId"),
 		nodeId: requiredIdentity(item.nodeId, "allocation.nodeId"),
@@ -291,17 +298,20 @@ export function parseAttemptAllocation(value: unknown): AttemptAllocation {
 		kind: item.kind as AttemptKind,
 		assignment: parseAssignment(item.assignment),
 		...(item.sourceAttemptId === undefined ? {} : { sourceAttemptId: requiredIdentity(item.sourceAttemptId, "allocation.sourceAttemptId") }),
+		...(item.sourceFinalValidationEvidence === undefined ? {} : { sourceFinalValidationEvidence: parseArtifactIdentity(item.sourceFinalValidationEvidence) }),
 		budgetTransition: parseBudgetTransition(item.budgetTransition),
 	};
 	if (!Object.hasOwn(KIND_BUDGET, allocation.kind)) throw new TypeError(`unknown attempt kind: ${String(item.kind)}`);
 	validateAllocation(allocation);
 	if (allocation.attemptId !== `${allocation.nodeId}:${String(allocation.attemptNumber).padStart(6, "0")}`) throw new TypeError("allocation attemptId must match its node and attempt number");
-	if (allocation.kind === "original" ? allocation.sourceAttemptId !== undefined : allocation.sourceAttemptId === undefined) throw new TypeError(`${allocation.kind} sourceAttemptId is invalid`);
+	const sourceCount = Number(allocation.sourceAttemptId !== undefined) + Number(allocation.sourceFinalValidationEvidence !== undefined);
+	if (allocation.kind === "original" ? sourceCount !== 0 : sourceCount !== 1) throw new TypeError(`${allocation.kind} source is invalid`);
+	if (allocation.sourceFinalValidationEvidence && allocation.kind !== "validation-repair") throw new TypeError("only final validation repair may cite final-validation evidence");
 	return allocation;
 }
 
 export function parseAttemptOutcome(value: unknown): AttemptOutcome {
-	const item = exactRecord(value, ["schema", "version", "runId", "nodeId", "attemptId", "attemptNumber", "kind", "assignment", "sourceAttemptId", "startedAt", "finishedAt", "durationMs", "terminalFact", "action", "budgetTransition", "metrics", "recovery", "evidenceRefs", "diagnostic"], ["sourceAttemptId", "recovery", "diagnostic"], "attempt outcome");
+	const item = exactRecord(value, ["schema", "version", "runId", "nodeId", "attemptId", "attemptNumber", "kind", "assignment", "sourceAttemptId", "sourceFinalValidationEvidence", "startedAt", "finishedAt", "durationMs", "terminalFact", "action", "budgetTransition", "metrics", "recovery", "evidenceRefs", "diagnostic"], ["sourceAttemptId", "sourceFinalValidationEvidence", "recovery", "diagnostic"], "attempt outcome");
 	if (item.schema !== ATTEMPT_OUTCOME_SCHEMA || item.version !== ATTEMPT_OUTCOME_VERSION) throw new TypeError("attempt outcome schema/version is unsupported");
 	const startedAt = canonicalTimestamp(item.startedAt, "startedAt");
 	const finishedAt = canonicalTimestamp(item.finishedAt, "finishedAt");
@@ -331,6 +341,7 @@ export function parseAttemptOutcome(value: unknown): AttemptOutcome {
 		kind: item.kind as AttemptKind,
 		assignment: parseAssignment(item.assignment),
 		...(item.sourceAttemptId === undefined ? {} : { sourceAttemptId: requiredIdentity(item.sourceAttemptId, "outcome.sourceAttemptId") }),
+		...(item.sourceFinalValidationEvidence === undefined ? {} : { sourceFinalValidationEvidence: parseArtifactIdentity(item.sourceFinalValidationEvidence) }),
 		startedAt,
 		finishedAt,
 		durationMs,
@@ -342,15 +353,15 @@ export function parseAttemptOutcome(value: unknown): AttemptOutcome {
 		evidenceRefs,
 		...(item.diagnostic === undefined ? {} : { diagnostic: requiredString(item.diagnostic, "diagnostic") }),
 	};
-	parseAttemptAllocation({ runId: outcome.runId, nodeId: outcome.nodeId, attemptId: outcome.attemptId, attemptNumber: outcome.attemptNumber, kind: outcome.kind, assignment: outcome.assignment, ...(outcome.sourceAttemptId ? { sourceAttemptId: outcome.sourceAttemptId } : {}), budgetTransition: outcome.budgetTransition });
+	parseAttemptAllocation({ runId: outcome.runId, nodeId: outcome.nodeId, attemptId: outcome.attemptId, attemptNumber: outcome.attemptNumber, kind: outcome.kind, assignment: outcome.assignment, ...(outcome.sourceAttemptId ? { sourceAttemptId: outcome.sourceAttemptId } : {}), ...(outcome.sourceFinalValidationEvidence ? { sourceFinalValidationEvidence: outcome.sourceFinalValidationEvidence } : {}), budgetTransition: outcome.budgetTransition });
 	if (outcome.action === "accept" && !outcome.metrics.complete) throw new TypeError("accepted attempt requires complete correlated metrics");
 	const validationFailure = outcome.terminalFact.stage === "validation" && outcome.action === "validation-repair";
 	const integrationFailure = outcome.terminalFact.stage === "apply" && outcome.action === "integration-repair";
 	const postTreeFailure = outcome.terminalFact.stage === "apply" && outcome.terminalFact.code === "post-tree-mismatch" && outcome.action === "fail";
-	if (validationFailure && (outcome.recovery?.kind !== "validation" || outcome.recovery.sourceAttemptId !== outcome.attemptId)) throw new TypeError("validation repair action requires correlated recovery evidence");
+	if (validationFailure && (outcome.recovery?.kind === "validation" ? outcome.recovery.sourceAttemptId !== outcome.attemptId : outcome.recovery?.kind === "final-validation" ? !outcome.sourceFinalValidationEvidence && !outcome.sourceAttemptId : true)) throw new TypeError("validation repair action requires correlated recovery evidence");
 	if ((integrationFailure || postTreeFailure) && (outcome.recovery?.kind !== "integration" || outcome.recovery.sourceAttemptId !== outcome.attemptId)) throw new TypeError("apply outcome requires correlated recovery evidence");
 	if (!validationFailure && !integrationFailure && !postTreeFailure && outcome.recovery) throw new TypeError("recovery evidence does not match the terminal stage fact");
-	if (outcome.terminalFact.stage === "validation" && outcome.recovery?.kind === "validation") {
+	if (outcome.terminalFact.stage === "validation" && (outcome.recovery?.kind === "validation" || outcome.recovery?.kind === "final-validation")) {
 		const failed = outcome.recovery.commands.filter((command) => command.status !== "passed" && command.status !== "unexecuted").map((command) => command.index);
 		if (JSON.stringify(outcome.terminalFact.failedCommandIndexes ?? []) !== JSON.stringify(failed)) throw new TypeError("validation fact indexes do not match recovery command evidence");
 	}
@@ -458,14 +469,14 @@ function validateAllocation(value: AttemptAllocation): void {
 	if (value.budgetTransition.name !== KIND_BUDGET[value.kind] || !Number.isSafeInteger(value.budgetTransition.before) || value.budgetTransition.before < 0 || value.budgetTransition.after !== value.budgetTransition.before + 1 || value.budgetTransition.after > value.budgetTransition.limit || value.budgetTransition.limit !== LIMITS[value.budgetTransition.name]) throw new Error("invalid allocation budget transition");
 }
 
-function validateAllocationSequence(state: NodeAttemptState, input: { kind: AttemptKind; assignment: AttemptAssignment; sourceAttemptId?: string; fallbackAllowed?: boolean }): void {
+function validateAllocationSequence(state: NodeAttemptState, input: { kind: AttemptKind; assignment: AttemptAssignment; sourceAttemptId?: string; sourceFinalValidationEvidence?: ArtifactIdentity; fallbackAllowed?: boolean }): void {
 	const source = state.allocations.find((allocation) => allocation.attemptId === input.sourceAttemptId);
 	const sourceOutcome = source ? completedAllocations.get(source) : undefined;
-	if (input.kind !== "original" && !source) throw new Error("sourceAttemptId does not identify an allocated launch");
-	if (input.kind !== "original" && !sourceOutcome) throw new Error("source attempt must have one terminal outcome before another launch is allocated");
+	if (input.kind !== "original" && !input.sourceFinalValidationEvidence && !source) throw new Error("sourceAttemptId does not identify an allocated launch");
+	if (input.kind !== "original" && !input.sourceFinalValidationEvidence && !sourceOutcome) throw new Error("source attempt must have one terminal outcome before another launch is allocated");
 	if (input.kind === "retry" && (source?.kind !== "original" || sourceOutcome?.action !== "retry" || !sameAssignment(source.assignment, input.assignment))) throw new Error("retry must follow its original outcome and retain the assignment");
 	if (input.kind === "fallback" && (source?.kind !== "retry" || sourceOutcome?.action !== "fallback" || source.assignment.tier !== "tier2" || input.assignment.tier !== "tier1" || input.fallbackAllowed !== true || state.counts.retry !== LIMITS.retry)) throw new Error("fallback requires exhausted retryable Tier 2 work and explicit permission");
-	if (input.kind === "validation-repair" && (sourceOutcome?.action !== "validation-repair" || input.assignment.tier !== "tier1")) throw new Error("validation repair must follow its source outcome and use Tier 1");
+	if (input.kind === "validation-repair" && ((!input.sourceFinalValidationEvidence && sourceOutcome?.action !== "validation-repair") || input.assignment.tier !== "tier1")) throw new Error("validation repair must follow typed final-validation evidence or its source outcome and use Tier 1");
 	if (input.kind === "integration-repair" && (sourceOutcome?.action !== "integration-repair" || input.assignment.tier !== "tier1")) throw new Error("integration repair must follow its source outcome and use Tier 1");
 }
 

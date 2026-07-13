@@ -1,4 +1,4 @@
-import { parseAcceptedPatch, parseGitTreeId, type AcceptedPatch, type GitTreeId } from "./artifact-identity.ts";
+import { parseAcceptedPatch, parseArtifactIdentity, parseGitTreeId, type AcceptedPatch, type ArtifactIdentity, type GitTreeId } from "./artifact-identity.ts";
 import { parseValidationCommand, type ValidationCommand } from "./validation-command.ts";
 import { validateWorkContract, type WorkContract } from "./work-contract.ts";
 
@@ -49,18 +49,38 @@ export interface IntegrationRecoveryContext {
 	reconstructedTree: GitTreeId;
 }
 
-export type AttemptRecoveryContext = ValidationRecoveryContext | IntegrationRecoveryContext;
+export interface FinalValidationRecoveryContext {
+	kind: "final-validation";
+	sourceFinalValidationEvidence: ArtifactIdentity;
+	workContract: WorkContract;
+	commands: ValidationCommandEvidence[];
+	acceptedLedger: AcceptedLedgerProvenance[];
+	reconstructedTree: GitTreeId;
+}
+
+export type AttemptRecoveryContext = ValidationRecoveryContext | IntegrationRecoveryContext | FinalValidationRecoveryContext;
 
 const VALIDATION_FIELDS = ["kind", "sourceAttemptId", "workContract", "commands", "rejectedPatch", "reconstructedTree"];
 const INTEGRATION_FIELDS = ["kind", "sourceAttemptId", "workContract", "applyFailure", "rejectedPatch", "acceptedLedger", "reconstructedTree"];
+const FINAL_VALIDATION_FIELDS = ["kind", "sourceFinalValidationEvidence", "workContract", "commands", "acceptedLedger", "reconstructedTree"];
 const COMMAND_FIELDS = ["index", "command", "status", "exitCode", "signal", "timeoutMs", "stdout", "stderr", "durationMs"];
 const APPLY_FIELDS = ["stage", "code", "exitCode", "signal", "timeoutMs", "stdout", "stderr", "durationMs"];
 
 export function parseAttemptRecoveryContext(value: unknown): AttemptRecoveryContext {
-	const root = exactRecord(value, record(value)?.kind === "validation" ? VALIDATION_FIELDS : INTEGRATION_FIELDS, "recovery context");
-	const sourceAttemptId = identity(root.sourceAttemptId, "sourceAttemptId");
+	const kind = record(value)?.kind;
+	const root = exactRecord(value, kind === "validation" ? VALIDATION_FIELDS : kind === "final-validation" ? FINAL_VALIDATION_FIELDS : INTEGRATION_FIELDS, "recovery context");
 	const validation = validateWorkContract(root.workContract);
 	if (!validation.ok || !validation.contract) throw new TypeError(`invalid recovery work contract: ${validation.errors.map((error) => error.message).join("; ")}`);
+	if (root.kind === "final-validation") {
+		if (!Array.isArray(root.commands) || !root.commands.length) throw new TypeError("final-validation recovery requires ordered command evidence");
+		const commands = root.commands.map(parseCommandEvidence);
+		if (!commands.some((command) => command.status !== "passed" && command.status !== "unexecuted")) throw new TypeError("final-validation recovery requires a failed command");
+		const acceptedLedger = parseLedger(root.acceptedLedger);
+		const reconstructedTree = parseGitTreeId(root.reconstructedTree);
+		if (acceptedLedger.length && acceptedLedger.at(-1)?.patch.resultTree !== reconstructedTree) throw new TypeError("final-validation reconstructed tree must match acceptedLedger state");
+		return { kind: "final-validation", sourceFinalValidationEvidence: parseArtifactIdentity(root.sourceFinalValidationEvidence), workContract: validation.contract, commands, acceptedLedger, reconstructedTree };
+	}
+	const sourceAttemptId = identity(root.sourceAttemptId, "sourceAttemptId");
 	const rejectedPatch = parseAcceptedPatch(root.rejectedPatch);
 	const reconstructedTree = parseGitTreeId(root.reconstructedTree);
 	if (root.kind === "validation") {
@@ -78,16 +98,21 @@ export function parseAttemptRecoveryContext(value: unknown): AttemptRecoveryCont
 		return { kind: "validation", sourceAttemptId, workContract: validation.contract, commands, rejectedPatch, reconstructedTree };
 	}
 	if (root.kind !== "integration") throw new TypeError("recovery kind must be validation or integration");
-	if (!Array.isArray(root.acceptedLedger)) throw new TypeError("integration acceptedLedger must be an array");
-	const acceptedLedger = root.acceptedLedger.map((entry, index) => {
-		const item = exactRecord(entry, ["sourceAttemptId", "patch"], `acceptedLedger[${index}]`);
-		return { sourceAttemptId: identity(item.sourceAttemptId, `acceptedLedger[${index}].sourceAttemptId`), patch: parseAcceptedPatch(item.patch) };
-	});
-	if (new Set(acceptedLedger.map((entry) => entry.sourceAttemptId)).size !== acceptedLedger.length) throw new TypeError("integration acceptedLedger source attempts must be unique");
-	for (let index = 1; index < acceptedLedger.length; index++) if (acceptedLedger[index - 1].patch.resultTree !== acceptedLedger[index].patch.baseTree) throw new TypeError("integration acceptedLedger tree chain diverges");
+	const acceptedLedger = parseLedger(root.acceptedLedger);
 	if (acceptedLedger.length && acceptedLedger.at(-1)?.patch.resultTree !== reconstructedTree) throw new TypeError("integration reconstructed tree must match acceptedLedger state");
 	if (rejectedPatch.baseTree !== reconstructedTree) throw new TypeError("integration rejected patch must target the reconstructed accepted state");
 	return { kind: "integration", sourceAttemptId, workContract: validation.contract, applyFailure: parseApplyFailure(root.applyFailure), rejectedPatch, acceptedLedger, reconstructedTree };
+}
+
+function parseLedger(value: unknown): AcceptedLedgerProvenance[] {
+	if (!Array.isArray(value)) throw new TypeError("acceptedLedger must be an array");
+	const ledger = value.map((entry, index) => {
+		const item = exactRecord(entry, ["sourceAttemptId", "patch"], `acceptedLedger[${index}]`);
+		return { sourceAttemptId: identity(item.sourceAttemptId, `acceptedLedger[${index}].sourceAttemptId`), patch: parseAcceptedPatch(item.patch) };
+	});
+	if (new Set(ledger.map((entry) => entry.sourceAttemptId)).size !== ledger.length) throw new TypeError("acceptedLedger source attempts must be unique");
+	for (let index = 1; index < ledger.length; index++) if (ledger[index - 1].patch.resultTree !== ledger[index].patch.baseTree) throw new TypeError("acceptedLedger tree chain diverges");
+	return ledger;
 }
 
 function parseCommandEvidence(value: unknown, index: number): ValidationCommandEvidence {

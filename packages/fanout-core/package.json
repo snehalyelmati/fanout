@@ -14,6 +14,7 @@
     "./execution-event": "./src/execution-event.ts",
     "./execution-projection": "./src/execution-projection.ts",
     "./execution-report": "./src/execution-report.ts",
+    "./final-validation": "./src/final-validation.ts",
     "./execution-run": "./src/execution-run.ts",
     "./fanout-compiler": "./src/fanout-compiler.ts",
     "./observability": "./src/observability.ts",
