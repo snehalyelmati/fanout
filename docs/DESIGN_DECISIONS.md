@@ -20,6 +20,12 @@ Decision: Every worker attempt keeps Pi's trusted automatic extension/provider d
 
 Reason: Model capability restriction must happen before tool execution, while repository integration authority must remain exact bytes and tree transitions rather than mutable patch paths, overlays, stdout scanning, or error-text routing. This is repository hardening under Pi's local trust model, not containment of trusted extensions, providers, validation programs, ignored files, external paths, network, or processes.
 
+### Prepare disposable worktrees only through explicit ignored paths
+
+Decision: Dependency and tool availability in disposable worker and final-validation worktrees uses one explicit preparation input, supplied through `FANOUT_WORKTREE_SHARED_PATHS` or the equivalent executor option. Every entry must be a unique top-level repository-relative path that already exists in the active checkout and is ignored by Git. Preflight validates the complete list and live confirmation displays it before any worker allocation. The preparation boundary links the selected paths into each fresh reconstruction after authoritative patch replay; generic reconstruction has no language-, runtime-, or package-manager-specific path.
+
+Reason: Reinstalling dependencies in every detached worktree adds network and lifecycle authority, while hard-coding one ecosystem's dependency directory would couple Fanout to a runtime. Explicit ignored paths reuse the user's preinstalled local environment without entering the Git-visible planning tree, accepted patch, or result-tree identity. Their contents remain outside Fanout write containment and may be read or mutated by trusted local extensions and validation programs under the existing local-Pi trust model.
+
 ## 2026-07-13
 
 ### Enforce planning capabilities and context-free reports
