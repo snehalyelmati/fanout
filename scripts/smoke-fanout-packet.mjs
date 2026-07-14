@@ -8,20 +8,29 @@ import { validateExecutionPacket } from "../packages/fanout-core/src/execution-p
 import { publishExecutionPacket } from "../packages/fanout-pi/src/planning-publication.ts";
 
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
-const root = mkdtempSync(join(tmpdir(), "fanout-v5-packet-"));
+const root = mkdtempSync(join(tmpdir(), "fanout-v6-packet-"));
 try {
   const runDir = join(root, "run"); mkdirSync(runDir);
   const git = "1".repeat(40);
   const plan = { schema: "fanout.implementation-plan", version: 2, planId: "p", createdAt: new Date(0).toISOString(), planningHost: { platform: process.platform }, planningBase: { headCommit: git, tree: git }, objective: "x", userContext: [], discoveredRepoFacts: [], assumptions: [], implementationItems: [{ id: "x", goals: ["x"], writeResources: [{ kind: "file", path: "x.ts" }], readResources: [], forbiddenWrites: [], semanticReviewCriteria: ["x"], advisoryNotes: [] }] };
   const planIdentity = artifactIdentity("implementation-plan.json", Buffer.from(JSON.stringify(plan)));
   const command = { executable: "node", args: ["--version"] };
-  const details = { schema: "fanout.implementation-details", version: 3, detailsId: "p", createdAt: new Date(0).toISOString(), plan: planIdentity, items: [{ id: "x", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "x.ts" }, sourcePlanIds: ["x"] }, contentIntent: "x" }], readDependencies: [], forbiddenWrites: [], validationCommands: [command], advisoryNotes: [] }], finalValidationCommands: [command] };
+  const normalizationCommands = [{ executable: "normalizer", args: ["--first"] }, { executable: "normalizer", args: ["--second"] }];
+  const details = { schema: "fanout.implementation-details", version: 4, detailsId: "p", createdAt: new Date(0).toISOString(), plan: planIdentity, candidateNormalizationCommands: normalizationCommands, items: [{ id: "x", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "x.ts" }, sourcePlanIds: ["x"] }, contentIntent: "x" }], readDependencies: [], forbiddenWrites: [], validationCommands: [command], advisoryNotes: [] }], finalValidationCommands: [command] };
   const detailsIdentity = artifactIdentity("implementation-details.json", Buffer.from(JSON.stringify(details)));
   const summary = { provider: "p", model: "m", thinking: "off", source: "test", status: "available", reason: "test" };
   const result = compileExecutionPacket({ implementationPlan: plan, implementationDetails: details, planIdentity, detailsIdentity, tierPlan: { tier1: summary, tier2: { ...summary, status: "unavailable", fallback: "tier1" }, tier2Fallback: summary }, runtimePolicy: { maxConcurrency: 2, failFast: false, fallbackAllowed: true }, createdAt: new Date(0).toISOString() });
   assert(result.packet, result.errors.join("; "));
   const malformedNode = structuredClone(result.packet); malformedNode.nodes[0].workContract = null;
   assert(!validateExecutionPacket(malformedNode).ok, "malformed node contract was silently dropped");
+  const legacyContract = structuredClone(result.packet); legacyContract.nodes[0].workContract.version = 1;
+  assert(!validateExecutionPacket(legacyContract).ok, "packet v6 admitted a legacy work-contract v1 node");
+  const reversedNormalization = structuredClone(result.packet); reversedNormalization.nodes.at(-1).workContract.candidateNormalizationCommands.reverse();
+  assert(validateExecutionPacket(reversedNormalization).errors.some((error) => error.code === "candidate-normalization-manifest-mismatch"), "packet admission accepted a divergent normalization command order");
+  const changedNormalization = structuredClone(result.packet); changedNormalization.nodes.at(-1).workContract.candidateNormalizationCommands[0].args[0] = "--changed";
+  assert(validateExecutionPacket(changedNormalization).errors.some((error) => error.code === "candidate-normalization-manifest-mismatch"), "packet admission accepted divergent normalization command content");
+  const shortenedNormalization = structuredClone(result.packet); shortenedNormalization.nodes.at(-1).workContract.candidateNormalizationCommands.pop();
+  assert(validateExecutionPacket(shortenedNormalization).errors.some((error) => error.code === "candidate-normalization-manifest-mismatch"), "packet admission accepted a divergent normalization command list");
   const renamedFinal = structuredClone(result.packet); renamedFinal.nodes.find((node) => node.kind === "final-validation").id = "renamed-final";
   const renamedFinalValidation = validateExecutionPacket(renamedFinal);
   assert(!renamedFinalValidation.ok && renamedFinalValidation.errors.some((error) => error.code === "invalid-final-validation-id"), "packet admission accepted a renamed final-validation node");
@@ -44,7 +53,8 @@ try {
   assert(validateExecutionPacket(missingUnavailableFallback).errors.some((error) => error.code === "invalid-tier-fallback-policy"), "packet admission accepted unavailable tier2 without the declared tier1 fallback");
   const paths = publishExecutionPacket(result.packet, root, runDir, join(root, "active-packet.json"));
   const loaded = loadActiveExecutionPacket(paths.activePointerPath, root);
-  assert(loaded.packet.version === 5 && loaded.pointer.version === 2, "v5/v2 tuple did not load");
+  assert(loaded.packet.version === 6 && loaded.pointer.version === 2, "v6/v2 tuple did not load");
+  assert(loaded.packet.nodes.every((node) => JSON.stringify(node.workContract.candidateNormalizationCommands) === JSON.stringify(normalizationCommands)), "packet lost the repository normalization list");
   const historical = JSON.stringify({ schema: "fanout.active-packet", version: 1, updatedAt: "old", packetPath: paths.packetPath });
   writeFileSync(join(root, "legacy-pointer.json"), historical);
   assert(!validateActivePacketPointer(JSON.parse(historical)).ok, "legacy pointer v1 admitted");

@@ -1,6 +1,6 @@
 /**
  * @deprecated Import the event/projection modules directly. This subpath is a
- * fail-closed source-compatibility shim and exposes only the hardened v1/v2
+ * fail-closed source-compatibility shim and exposes only the hardened v2/v3
  * generation; it does not parse or recreate execution-run v1.
  */
 export { EXECUTION_EVENT_NAMES } from "./execution-event.ts";

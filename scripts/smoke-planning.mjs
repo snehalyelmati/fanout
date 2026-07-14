@@ -13,6 +13,7 @@ assert(phaseA.includes("writeResources") && phaseA.includes('"kind":"file"'), "P
 assert(phaseA.includes("Do not add a `final-validation` implementation item") && phaseA.includes("compiler-owned final-validation node"), "Phase A permits duplicate final-validation authority");
 assert(phaseA.includes("packet-global") && phaseA.includes("worker ownership"), "Phase A does not explain monotonic forbidden-write scope");
 assert(phaseB.includes('"changes"') && phaseB.includes('"executable"') && phaseB.includes('"args"'), "Phase B omitted typed changes/direct argv");
+assert(phaseB.includes('"candidateNormalizationCommands"') && phaseB.includes("before patch capture") && phaseB.includes("original validation stays authoritative"), "Phase B omitted explicit candidate-normalization authority or ordering");
 assert(phaseB.includes("packet-global") && phaseB.includes("worker ownership"), "Phase B does not explain monotonic forbidden-write scope");
 
 const context = { projectArtifactRoot: "/tmp/fanout" };
@@ -24,4 +25,4 @@ assert(detailsPrompt.includes("post-change-required") && detailsPrompt.includes(
 const repairPrompt = buildImplementationDetailsRepairPrompt("Typed plan", {}, run, [{ code: "planned-read-not-grounded", message: "diagnostic wording", path: "planned[0].readResources[0]" }]);
 assert(repairPrompt.includes('"code": "planned-read-not-grounded"') && repairPrompt.includes('"path": "planned[0].readResources[0]"') && !repairPrompt.includes("planned-read-not-grounded:"), "repair prompt flattened structured compiler issues");
 
-console.log("planning prompt smoke passed (plan v2/details v3 controller envelopes)");
+console.log("planning prompt smoke passed (plan v2/details v4 controller envelopes)");

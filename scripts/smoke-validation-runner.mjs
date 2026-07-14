@@ -156,6 +156,14 @@ async function runOutcomeChecks() {
   assert((await import("node:fs")).readFileSync(orderPath, "utf8") === "axx", "order or duplicates changed");
   assert(ordered.commands.map((command) => command.id).join(",") === "ordered/0,ordered/1,ordered/2", "command ids are not positional");
 
+  rmSync(orderPath, { force: true });
+  const continued = await runValidationCommands([
+    nodeCommand(`require("node:fs").appendFileSync(${JSON.stringify(orderPath)}, "a"); process.exit(7)`),
+    append("b"),
+  ], { ...options("continue-nonzero"), continueAfterNonzero: true });
+  assert(continued.status === "failed" && continued.executedCount === 2 && continued.commands[0].outcome === "nonzero" && continued.commands[1].outcome === "passed", JSON.stringify(continued));
+  assert((await import("node:fs")).readFileSync(orderPath, "utf8") === "ab", "continue-after-nonzero skipped or repeated a command");
+
   const splitUtf8 = await runValidationCommands([
     nodeCommand("process.stdout.write(Buffer.from([0xe2])); setTimeout(() => process.stdout.write(Buffer.from([0x82, 0xac])), 20)"),
   ], options("utf8"));

@@ -12,7 +12,7 @@ import {
 import { parseAttemptAllocation, parseAttemptOutcome, type AttemptOutcome } from "./execution-attempt.ts";
 
 export const EXECUTION_EVENT_SCHEMA = "fanout.execution-event";
-export const EXECUTION_EVENT_VERSION = 1;
+export const EXECUTION_EVENT_VERSION = 2;
 export const EXECUTION_EVENT_NAMES = ["run-started", "preflight-completed", "confirmation-decided", "attempt-allocated", "attempt-completed", "node-completed", "final-validation-started", "final-validation-completed", "run-finished"] as const;
 
 export type ExecutionEventName = (typeof EXECUTION_EVENT_NAMES)[number];

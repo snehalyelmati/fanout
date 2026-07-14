@@ -286,6 +286,7 @@ function validPlan(_artifactDir) {
 function validDetails(_state, _objective) {
   const command = { executable: "rtk", args: ["npm", "run", "check"] };
   return {
+    candidateNormalizationCommands: [],
     finalValidationCommands: [command],
     items: [{ id: "code", kind: "docs", changes: [{ kind: "modify", target: { resource: { kind: "file", path: "README.md" }, sourcePlanIds: ["code"] }, intent: "Test", anchors: [{ kind: "section", section: "Test" }] }], readDependencies: [], forbiddenWrites: [], validationCommands: [command], advisoryNotes: [] }],
   };

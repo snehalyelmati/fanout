@@ -26,6 +26,7 @@ const plan = {
 const planBytes = Buffer.from(`${JSON.stringify(plan, null, 2)}\n`);
 const planIdentity = artifactIdentity("implementation-plan.json", planBytes);
 const command = { executable: "rtk", args: ["npm", "run", "check"] };
+const normalizationCommands = [{ executable: "normalizer", args: ["--first"] }, { executable: "normalizer", args: ["--second"] }];
 
 const reservedFinalPlan = structuredClone(plan);
 reservedFinalPlan.implementationItems.push({
@@ -49,6 +50,7 @@ assert(!packetGlobalForbiddenResult.ok && packetGlobalForbiddenResult.errors.som
 
 const details = {
   schema: "fanout.implementation-details", version: IMPLEMENTATION_DETAILS_VERSION, detailsId: "plan-1", createdAt: "2026-07-14T00:01:00.000Z", plan: planIdentity,
+  candidateNormalizationCommands: normalizationCommands,
   items: [{
     id: "feature", kind: "implement",
     changes: [{ kind: "create", target: { resource: { kind: "file", path: "src/feature.ts" }, sourcePlanIds: ["feature"] }, contentIntent: "feature implementation" }],
@@ -62,7 +64,11 @@ const tier = (provider, model, status = "available") => ({ provider, model, thin
 const tierPlan = { tier1: tier("local", "one"), tier2: { ...tier("local", "two", "unavailable"), fallback: "tier1" }, tier2Fallback: tier("local", "fallback") };
 
 assert(validateImplementationPlan(plan).ok, "plan v2 rejected");
-assert(validateImplementationDetailsArtifact(details, { planIdentity, planIds: ["feature"] }).ok, "details v3 rejected");
+assert(validateImplementationDetailsArtifact(details, { planIdentity, planIds: ["feature"] }).ok, "details v4 rejected");
+const missingNormalization = structuredClone(details); delete missingNormalization.candidateNormalizationCommands;
+assert(!validateImplementationDetailsArtifact(missingNormalization, { planIdentity, planIds: ["feature"] }).ok, "details v4 admitted a missing repository normalization list");
+const perItemNormalization = structuredClone(details); perItemNormalization.items[0].candidateNormalizationCommands = normalizationCommands;
+assert(!validateImplementationDetailsArtifact(perItemNormalization, { planIdentity, planIds: ["feature"] }).ok, "details v4 admitted per-item normalization authority");
 const crossOwnerPlan = structuredClone(plan);
 crossOwnerPlan.implementationItems.push({
   ...structuredClone(plan.implementationItems[0]),
@@ -83,7 +89,7 @@ packetGlobalForbiddenDetails.items.push({
 const packetGlobalForbiddenDetailsResult = validateImplementationDetailsArtifact(packetGlobalForbiddenDetails, { planIdentity: crossOwnerPlanIdentity, plan: crossOwnerPlan });
 assert(!packetGlobalForbiddenDetailsResult.ok && packetGlobalForbiddenDetailsResult.errors.some((error) => error.includes("packet-global") && error.includes("worker ownership")), "Phase B admitted a forbidden write that cancels planned write authority");
 assert(!validateImplementationPlan({ ...plan, version: 1 }).ok, "legacy plan v1 admitted");
-assert(!validateImplementationDetailsArtifact({ ...details, version: 2 }, { planIdentity }).ok, "legacy details v2 admitted");
+assert(!validateImplementationDetailsArtifact({ ...details, version: 3 }, { planIdentity }).ok, "legacy details v3 admitted");
 assert(!validateImplementationDetailsArtifact({ ...details, plan: { ...planIdentity, sha256: "2".repeat(64) } }, { planIdentity }).ok, "mixed plan/details identity admitted");
 const duplicateFinalValidation = validateImplementationDetailsArtifact({
   ...details,
@@ -99,17 +105,18 @@ const runtimePolicy = { maxConcurrency: 2, failFast: false, fallbackAllowed: tru
 const compiled = compileExecutionPacket({ implementationPlan: plan, implementationDetails: details, planIdentity, detailsIdentity, tierPlan, runtimePolicy, createdAt: "2026-07-14T00:02:00.000Z" });
 assert(compiled.ok && compiled.packet, `compile failed: ${compiled.errors.join("; ")}`);
 const packet = compiled.packet;
-assert(packet.version === EXECUTION_PACKET_VERSION && packet.version === 5, "packet is not v5");
+assert(packet.version === EXECUTION_PACKET_VERSION && packet.version === 6, "packet is not v6");
 assert(packet.nodes.length === 2 && packet.nodes.at(-1).kind === "final-validation", "canonical nodes/final validation missing");
+assert(packet.nodes.every((node) => JSON.stringify(node.workContract.candidateNormalizationCommands) === JSON.stringify(normalizationCommands)), "repository normalization list was not copied into every packet contract");
 assert(packet.nodes.at(-1).workContract.validationCommands.length === 2, "command order/duplicates were not preserved");
-assert(JSON.stringify(packet.runtimePolicy) === JSON.stringify(runtimePolicy), "immutable runtime policy was not stored in packet v5");
+assert(JSON.stringify(packet.runtimePolicy) === JSON.stringify(runtimePolicy), "immutable runtime policy was not stored in packet v6");
 const forbidden = ["artifactDir", "blockers", "workUnits", "estimates", "stopRules", "risks", "finalValidationPlan", "goal", "dependencies", "ownedFiles", "readOnlyFiles", "steps", "validationCommands", "acceptanceCriteria", "rollbackNotes", "workerPacket"];
 assert(!forbidden.some((key) => Object.hasOwn(packet, key) || packet.nodes.some((node) => Object.hasOwn(node, key))), "packet retains flattened legacy authority");
-assert(validateExecutionPacket(packet).executable, "packet v5 rejected");
-assert(!validateExecutionPacket({ ...packet, version: 4 }).executable, "packet v4 admitted");
+assert(validateExecutionPacket(packet).executable, "packet v6 rejected");
+assert(!validateExecutionPacket({ ...packet, version: 5 }).executable, "packet v5 admitted");
 assert(!validateExecutionPacket({ ...packet, status: "ready" }).executable, "legacy status field admitted");
 assert(!validateExecutionPacket({ ...packet, runtimePolicy: { ...packet.runtimePolicy, maxConcurrency: 0 } }).executable, "invalid packet runtime policy admitted");
-assert(EXECUTION_RUN_VERSION === 2 && SHIM_EVENT_NAMES.length === 9, "execution-run compatibility subpath exposed legacy runtime authority");
+assert(EXECUTION_RUN_VERSION === 3 && SHIM_EVENT_NAMES.length === 9, "execution-run compatibility subpath exposed legacy runtime authority");
 const graph = deriveExecutionGraph(packet);
 assert(JSON.stringify(graph.edges) === JSON.stringify([["feature", "final-validation"]]), "graph was not derived from contracts");
 const context = { objective: packet.objective, userContext: packet.userContext, discoveredRepoFacts: packet.discoveredRepoFacts, assumptions: packet.assumptions };
@@ -123,4 +130,4 @@ for (const name of readdirSync("packages/fanout-core/src").filter((name) => name
 const providerPackage = JSON.parse(readFileSync("packages/doubleword-provider/package.json", "utf8"));
 assert(!JSON.stringify(providerPackage).includes("fanout-core") && !JSON.stringify(providerPackage).includes("fanout-pi"), "standalone Doubleword package depends on Fanout");
 
-console.log("hardened compiler cutover smoke passed (plan v2, details v3, packet v5, package independence)");
+console.log("hardened compiler cutover smoke passed (plan v2, details v4, packet v6, package independence)");

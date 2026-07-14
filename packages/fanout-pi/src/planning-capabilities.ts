@@ -71,7 +71,7 @@ function controllerEnvelope(state: FanoutPhaseState, body: unknown, planIdentity
 			implementationItems: body.implementationItems,
 		};
 	}
-	exactBody(body, ["items", "finalValidationCommands"]);
+	exactBody(body, ["items", "candidateNormalizationCommands", "finalValidationCommands"]);
 	return {
 		schema: IMPLEMENTATION_DETAILS_SCHEMA,
 		version: IMPLEMENTATION_DETAILS_VERSION,
@@ -79,6 +79,7 @@ function controllerEnvelope(state: FanoutPhaseState, body: unknown, planIdentity
 		createdAt: new Date().toISOString(),
 		plan: planIdentity,
 		items: body.items,
+		candidateNormalizationCommands: body.candidateNormalizationCommands,
 		finalValidationCommands: body.finalValidationCommands,
 	};
 }

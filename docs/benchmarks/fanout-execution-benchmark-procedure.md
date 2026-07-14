@@ -156,8 +156,8 @@ Required metrics:
 
 | Metric | Notes |
 | --- | --- |
-| run/node/worker duration | Projection-v2 run totals plus correlated attempt metrics |
-| worker launch count | Canonical event-v1 `attempt-allocated` records and projection attempts |
+| run/node/worker duration | Projection-v3 run totals plus correlated attempt metrics |
+| worker launch count | Canonical event-v2 `attempt-allocated` records and projection attempts |
 | retry/fallback/rejection count | Typed attempt kinds/actions and projection totals |
 | validation pass/fail and duration | Attempt `validation.json`, final-validation evidence v1, and projection disposition |
 | token/cost provenance | Correlated attempt outcomes, including observed partial failed-attempt usage |

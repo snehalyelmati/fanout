@@ -20,7 +20,7 @@ customType: fanout.execution-report
 data: { schema: "fanout.execution-report", version: 1, content: string }
 ```
 
-Each renderer is registered for one matching custom type. It accepts only the three own data fields `schema`, `version`, and `content`; requires the matching schema and version `1`; and rejects missing, legacy, future, unknown-field, non-string, and cross-type input. At render time it wraps the unchanged content to Pi's supplied component width with Pi's ANSI-aware text utility, because every returned TUI line must fit that width. The data is presentation-only: planning Markdown derives from packet v5, while execution Markdown derives from projection v2 and the event-v1 log remains run-state authority.
+Each renderer is registered for one matching custom type. It accepts only the three own data fields `schema`, `version`, and `content`; requires the matching schema and version `1`; and rejects missing, legacy, future, unknown-field, non-string, and cross-type input. At render time it wraps the unchanged content to Pi's supplied component width with Pi's ANSI-aware text utility, because every returned TUI line must fit that width. The data is presentation-only: planning Markdown derives from packet v6, while execution Markdown derives from projection v3 and the event-v2 log remains run-state authority.
 
 If either safe API is absent, registration throws, append throws, or data is malformed, Fanout does not fall back to `sendMessage`, `sendUserMessage`, a tool result, or `before_agent_start.message`. Artifact creation and the model-context boundary remain separate concerns.
 

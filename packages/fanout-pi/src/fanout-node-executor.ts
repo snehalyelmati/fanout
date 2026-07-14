@@ -60,6 +60,7 @@ import {
 	validationFailureEvidence,
 } from "./attempt-evidence.ts";
 import { prepareSharedWorktreePaths } from "./worktree-preparation.ts";
+import { normalizeCandidate, type CandidateNormalizationEvidence, type CandidateNormalizationFailure } from "./candidate-normalization.ts";
 
 interface WorkerTier {
 	tier: TierName;
@@ -69,7 +70,7 @@ interface WorkerTier {
 }
 
 type AttemptKind = "original" | "retry" | "fallback" | "validation-repair" | "integration-repair";
-type FailureKind = "process" | "metrics" | "patch" | "unsafe" | "ownership" | "validation" | "apply" | "bookkeeping";
+type FailureKind = "process" | "metrics" | "normalization" | "patch" | "unsafe" | "ownership" | "validation" | "apply" | "bookkeeping";
 
 interface WorkerAttempt {
 	ok: boolean;
@@ -89,6 +90,7 @@ interface WorkerAttempt {
 	correlatedMetrics: CorrelatedAttemptMetrics;
 	terminalFact?: StageFact;
 	recovery?: AttemptRecoveryContext;
+	excludedEvidenceRefs?: readonly string[];
 	fallbackAllowed: boolean;
 }
 
@@ -116,6 +118,8 @@ export interface FanoutNodeExecutorOptions {
 	maxIntegrationRepairAttempts?: number;
 	worktreeSharedPaths?: readonly string[];
 	afterActiveApply?: () => void;
+	/** Deterministic normalization audit-race injection for repository-boundary regression tests. */
+	beforeNormalizationAuditRewrite?: () => void;
 }
 
 export interface RuntimeAttemptRecorder {
@@ -138,6 +142,7 @@ export class FanoutNodeExecutor {
 	readonly #planningBase: PlanningBase;
 	readonly #worktreeSharedPaths: readonly string[];
 	readonly #afterActiveApply?: () => void;
+	readonly #beforeNormalizationAuditRewrite?: () => void;
 	#attemptStates = new Map<string, NodeAttemptState>();
 	#outcomes: AttemptOutcome[] = [];
 	#acceptedLedger: AcceptedLedgerProvenance[] = [];
@@ -158,6 +163,7 @@ export class FanoutNodeExecutor {
 		this.#workerTimeoutMs = positiveInteger(options.workerTimeoutMs, 600_000, "workerTimeoutMs");
 		this.#validationTimeoutMs = positiveInteger(options.validationTimeoutMs, 600_000, "validationTimeoutMs");
 		this.#afterActiveApply = options.afterActiveApply;
+		this.#beforeNormalizationAuditRewrite = options.beforeNormalizationAuditRewrite;
 		fixedRepairLimit(options.maxValidationRepairAttempts, "maxValidationRepairAttempts");
 		fixedRepairLimit(options.maxIntegrationRepairAttempts, "maxIntegrationRepairAttempts");
 		this.#planningBase = this.#packet.planningBase;
@@ -419,18 +425,18 @@ export class FanoutNodeExecutor {
 		}, stdoutPath, observabilityPath, processResult.firstOutputMs);
 		const metricsCorrelated = base.correlatedMetrics.complete;
 
+		const processOk = processResult.exitCode === 0 && !processResult.timedOut && !processResult.spawnError;
 		let patch: AcceptedPatch | undefined;
 		let patchError: string | undefined;
-		try {
-			const patchPath = `${relative(this.#runDir, attemptDir).split("\\").join("/")}/patch.bin`;
-			patch = capturePatchCandidate(worktreePath, attemptBase, this.#runDir, patchPath);
-		} catch (error) {
-			patchError = errorMessage(error);
-		}
-
-		const processOk = processResult.exitCode === 0 && !processResult.timedOut && !processResult.spawnError;
-		const hasUsablePatch = Boolean(patch && (patch.artifact.byteLength > 0 || contractWriteResources(unit.workContract).length === 0));
-		const resultData = {
+		const capturePatch = () => {
+			try {
+				const patchPath = `${relative(this.#runDir, attemptDir).split("\\").join("/")}/patch.bin`;
+				patch = capturePatchCandidate(worktreePath, attemptBase, this.#runDir, patchPath);
+			} catch (error) {
+				patchError = errorMessage(error);
+			}
+		};
+		const writeResult = () => writeJson(join(attemptDir, "result.json"), {
 			nodeId: unit.id,
 			attemptId,
 			kind,
@@ -442,9 +448,11 @@ export class FanoutNodeExecutor {
 			metricErrors: imported.errors,
 			patch: patch ? { artifact: patch.artifact, changedFiles: patch.changedPaths, stats: patch.stats, baseTree: patch.baseTree, resultTree: patch.resultTree } : undefined,
 			patchError,
-		};
-		writeJson(join(attemptDir, "result.json"), resultData);
+		});
 		if (!processOk) {
+			capturePatch();
+			writeResult();
+			const hasUsablePatch = Boolean(patch && (patch.artifact.byteLength > 0 || contractWriteResources(unit.workContract).length === 0));
 			const details = [processResult.timedOut ? "worker timed out" : undefined, processResult.spawnError, processResult.exitCode !== 0 ? `worker exited ${processResult.exitCode}` : undefined, processResult.stderr.trim()].filter(Boolean).join(": ");
 			return await this.#finishFailedAttempt({
 				...base,
@@ -458,7 +466,74 @@ export class FanoutNodeExecutor {
 				terminalFact: processStageFact(processResult, observabilityPath, { runId: providerRunId, provider: tier.provider, model: tier.model }),
 			});
 		}
-		if (!imported.ok || !imported.metrics || !metricsCorrelated) return await this.#finishFailedAttempt({ ...base, worktreePath, base: attemptBase, patch, error: [...imported.errors, ...(metricsCorrelated ? [] : ["attempt identity correlation incomplete"])].join("; "), failureKind: "metrics", retryable: false, terminalFact: { stage: "metrics", code: metricsCorrelated ? "malformed" : "correlation-mismatch" } });
+		if (!imported.ok || !imported.metrics || !metricsCorrelated) {
+			capturePatch();
+			writeResult();
+			return await this.#finishFailedAttempt({ ...base, worktreePath, base: attemptBase, patch, error: [...imported.errors, ...(metricsCorrelated ? [] : ["attempt identity correlation incomplete"])].join("; "), failureKind: "metrics", retryable: false, terminalFact: { stage: "metrics", code: metricsCorrelated ? "malformed" : "correlation-mismatch" } });
+		}
+
+		const normalizationCommands = this.#contract(unit).candidateNormalizationCommands;
+		if (normalizationCommands.length) {
+			let normalization = await normalizeCandidate({
+				attemptId,
+				worktreePath,
+				commands: normalizationCommands,
+				expectedPlatform: process.platform,
+				timeoutMs: this.#validationTimeoutMs,
+				inheritedEnv: process.env,
+				signal,
+			});
+			const normalizationPath = `${relative(this.#runDir, attemptDir).split("\\").join("/")}/candidate-normalization.json`;
+			const publishNormalization = (evidence: CandidateNormalizationEvidence) => writeArtifactAtomically(this.#runDir, normalizationPath, Buffer.from(`${JSON.stringify(evidence, null, 2)}\n`));
+			const abortEvidence = (): CandidateNormalizationEvidence => ({
+				...normalization,
+				status: "interrupted",
+				failure: { code: "user-abort", ...(signal?.reason === undefined ? {} : { detail: errorMessage(signal.reason) }) },
+			});
+			const failNormalization = async (failure: CandidateNormalizationFailure, excludedEvidenceRefs: readonly string[] = []) => {
+				try { writeResult(); } catch { /* Typed normalization authority remains terminal when optional diagnostics fail. */ }
+				return await this.#finishFailedAttempt({
+					...base,
+					worktreePath,
+					base: attemptBase,
+					metrics: imported.metrics,
+					error: failure.detail ?? `candidate normalization ${failure.code}`,
+					failureKind: "normalization",
+					retryable: false,
+					excludedEvidenceRefs,
+					terminalFact: { stage: "candidate-normalization", code: failure.code, ...(failure.commandIndex === undefined ? {} : { commandIndex: failure.commandIndex }) },
+				});
+			};
+			if (!normalization.failure && signal?.aborted) normalization = abortEvidence();
+			try {
+				publishNormalization(normalization);
+			} catch (error) {
+				return await this.#finishFailedAttempt({
+					...base,
+					worktreePath,
+					base: attemptBase,
+					metrics: imported.metrics,
+					error: `candidate normalization audit publication failed: ${errorMessage(error)}`,
+					failureKind: "normalization",
+					retryable: false,
+					terminalFact: { stage: "candidate-normalization", code: "audit-failure" },
+				});
+			}
+			if (normalization.failure) return await failNormalization(normalization.failure);
+			if (signal?.aborted) {
+				normalization = abortEvidence();
+				try {
+					this.#beforeNormalizationAuditRewrite?.();
+					publishNormalization(normalization);
+				} catch (error) {
+					return await failNormalization({ ...normalization.failure as CandidateNormalizationFailure, detail: `candidate normalization audit update failed after user abort: ${errorMessage(error)}` }, ["candidate-normalization.json"]);
+				}
+				return await failNormalization(normalization.failure as CandidateNormalizationFailure);
+			}
+		}
+
+		capturePatch();
+		writeResult();
 		if (!patch) return await this.#finishFailedAttempt({ ...base, worktreePath, base: attemptBase, metrics: imported.metrics, error: patchError ?? "patch could not be captured", failureKind: "patch", retryable: false, terminalFact: { stage: "worker-gate", code: "malformed-patch" } });
 		if (patch.artifact.byteLength === 0 && contractWriteResources(unit.workContract).length > 0) return await this.#finishFailedAttempt({ ...base, worktreePath, base: attemptBase, metrics: imported.metrics, patch, error: "worker produced no patch for a mutating work unit", failureKind: "patch", retryable: false, terminalFact: { stage: "worker-gate", code: "mutating-noop" } });
 

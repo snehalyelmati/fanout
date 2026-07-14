@@ -1,6 +1,6 @@
 # p-map AbortSignal manual Fanout E2E
 
-Status: ready for an explicitly authorized hardened-generation canary. Pre-cutover plan/dry-run artifacts are historical and must not be reused. No hardened live execution result, latency, token, routing, or cost claim has been recorded.
+Status: hardened packet planning and dry-run passed; live execution attempts are retained in the canary tracker, but no full E2E result has completed yet.
 
 ## Objective
 
@@ -13,15 +13,15 @@ Do not automate the benchmark, create routing variations, or modify benchmark fi
 | Item | Value |
 | --- | --- |
 | Task | Add `AbortSignal` support to `pMapIterable` |
-| Task brief | `/Users/snehalyelmati/Documents/doubleword-pi/runs/fanout-execution-benchmarks/p-map-abort-signal/TASK.md` |
-| Nested repository | `/Users/snehalyelmati/Documents/doubleword-pi/runs/fanout-execution-benchmarks/p-map-abort-signal/repo` |
+| Task brief | `/Users/snehalyelmati/Documents/p-map-abort-signal/TASK.md` |
+| Nested repository | `/Users/snehalyelmati/Documents/p-map-abort-signal/repo` |
 | Upstream SHA | `3ada5f36632aca8df860c376856270b6d2ba2de8` |
 | Reproducible local baseline | `c3c261e2189f94d1a09724e8f03d5345af518017` |
 | Baseline difference | committed `package-lock.json` only |
 | Install | `rtk npm ci --ignore-scripts` |
 | Baseline validation | `rtk npm test`; 51 tests |
 
-The outer repository ignores `runs/`, but the nested p-map repository must have no Git-visible changes when planning or executing. Hardened preflight requires the captured planning tree to equal its commit tree so detached workers can reconstruct it, then requires the active commit/full Git-visible tree to remain identical to that packet base.
+The benchmark lives outside the Fanout repository, and the nested p-map repository must have no Git-visible changes when planning or executing. Hardened preflight requires the captured planning tree to equal its commit tree so detached workers can reconstruct it, then requires the active commit/full Git-visible tree to remain identical to that packet base.
 
 ## Constraints
 
@@ -40,7 +40,7 @@ The outer repository ignores `runs/`, but the nested p-map repository must have 
 Change to the nested repository:
 
 ```bash
-cd /Users/snehalyelmati/Documents/doubleword-pi/runs/fanout-execution-benchmarks/p-map-abort-signal/repo
+cd /Users/snehalyelmati/Documents/p-map-abort-signal/repo
 ```
 
 Confirm the fixed baseline:
@@ -66,11 +66,11 @@ The nested branch being one commit ahead of upstream is expected because the rep
 From the nested repository:
 
 ```bash
-rtk pi --approve \
+rtk env -u DOUBLEWORD_API_KEY FANOUT_WORKTREE_SHARED_PATHS='["node_modules"]' pi --approve --no-extensions --thinking medium \
   -e /Users/snehalyelmati/Documents/doubleword-pi/packages/fanout-pi/src/index.ts
 ```
 
-This loads the local Fanout implementation. Starting Pi does not authorize the monitoring assistant to initiate later provider calls.
+This loads only the local Fanout implementation, removes the live Doubleword credential, and explicitly shares the repository's already-installed, Git-ignored dependency directory into disposable worktrees. Fanout's preparation boundary accepts generic top-level repository paths and has no Node-specific default. Starting Pi does not authorize the monitoring assistant to initiate later provider calls.
 
 ## 3. Inspect routing configuration
 
@@ -101,9 +101,10 @@ Provider-cost gate: the user must explicitly choose to run this command.
 Expected flow:
 
 1. Phase A reads `../TASK.md`, explores p-map, and writes an implementation plan with the resolved objective.
-2. Phase B binds the exact accepted plan identity and grounds each item in files, anchors, edit intent, and validation commands; details v3 does not repeat the objective.
-3. The deterministic compiler emits plan v2, details v3, and packet v5 with embedded work-contract v1 nodes and concrete Tier 1, Tier 2, and Tier 2 fallback summaries.
-4. Planning writes immutable artifacts under Pi-owned storage, derives the human views from packet v5, and publishes pointer v2 last without modifying p-map.
+2. Phase B binds the exact accepted plan identity and grounds each item in files, anchors, edit intent, validation commands, and one repository-level candidate-normalization manifest; details v4 does not repeat the objective.
+3. For this canary, the candidate-normalization manifest must contain the repository-provided direct argv `npx xo --fix`. This is explicit packet authority, not a Fanout-inferred Node or XO behavior.
+4. The deterministic compiler emits plan v2, details v4, and packet v6 with embedded work-contract v2 nodes and concrete Tier 1, Tier 2, and Tier 2 fallback summaries.
+5. Planning writes immutable artifacts under Pi-owned storage, derives the human views from packet v6, and publishes pointer v2 last without modifying p-map.
 
 The task brief is decision-complete. A clarification question is acceptable only if repository evidence exposes a real unresolved choice.
 
@@ -128,6 +129,8 @@ Expected ownership and validation:
 | `runtime-tests` | `test.js` | `runtime-abort` | `npx ava` |
 | final validation | none | all workers | `npm test` |
 
+The details artifact must also declare the single ordered repository-level candidate normalizer `npx xo --fix`. The compiler copies it unchanged into every node contract, including final repair authority. It runs once after a successful worker edit and before patch capture; the original node validation commands and final `npm test` remain authoritative.
+
 Evaluate this contract semantically rather than by textual equality with the table. Safe, non-mutating validation commands may be added when they are traceable to task requirements and preserve the authoritative final validation. Command wrappers such as `rtk` are operational conveniences, not packet-correctness requirements. Record harmless presentation differences separately; reject only behavior that changes ownership, dependencies, safety boundaries, required behavior, or authoritative validation. Generated summaries must either agree with the authoritative packet or clearly label omitted detail.
 
 Only these files may be writable:
@@ -148,7 +151,7 @@ Also check:
 - concurrency and expected cost information are visible;
 - artifact paths and the next action are obvious.
 - the pointer is schema/version `fanout.active-packet`/2 and binds the exact packet digest, byte length, and artifact-relative path;
-- the packet is schema/version `fanout.execution-packet`/5, binds plan v2/details v3 source identities plus the exact planning commit/tree/platform, and contains no flattened legacy ownership/dependency/validation fields.
+- the packet is schema/version `fanout.execution-packet`/6, binds plan v2/details v4 source identities plus the exact planning commit/tree/platform, embeds work-contract v2 nodes, and contains no flattened legacy ownership/dependency/normalization/validation fields.
 
 If the packet is wrong, stop. Classify and diagnose the planning, routing, benchmark-task, or repository-grounding issue before editing anything.
 
@@ -160,7 +163,7 @@ If the packet is wrong, stop. Classify and diagnose the planning, routing, bench
 
 Expected behavior:
 
-- exact pointer-v2/packet-v5 identity, planning commit/tree/platform, paths, derived DAG, direct validation executables, worker capability, and execution lock checks pass;
+- exact pointer-v2/packet-v6 identity, planning commit/tree/platform, paths, derived DAG, direct normalization and validation executables, worker capability, and execution lock checks pass;
 - no workers or provider calls launch;
 - no p-map files change;
 - an execution audit is written;
@@ -259,7 +262,7 @@ Maintain this table during the session:
 
 | ID | Step | Classification | Symptom/reproduction | Owner/files | Severity | Decision/fix | Validation/status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| P2-OBS-1 | Dry-run gate | observability gap | Historical dry run `2026-07-10T19-53-13-301Z-675e78e1` used a generic execution title and could be mistaken for a completed live run. | `packages/fanout-core/src/execution-report.ts`, `packages/fanout-pi/src/fanout-execute.ts` | medium | Projection v2 now renders an explicit dry-run outcome and states that workers/final validation did not run. | Full keyless checks pass; hardened pointer-v2/packet-v5 dry run remains part of the external canary. |
+| P2-OBS-1 | Dry-run gate | observability gap | Historical dry run `2026-07-10T19-53-13-301Z-675e78e1` used a generic execution title and could be mistaken for a completed live run. | `packages/fanout-core/src/execution-report.ts`, `packages/fanout-pi/src/fanout-execute.ts` | medium | Projection v3 renders an explicit dry-run outcome and states that workers/final validation did not run. | Full keyless checks pass; hardened pointer-v2/packet-v6 dry run remains part of the external canary. |
 
 Allowed classifications:
 
@@ -300,8 +303,8 @@ Start the monitoring chat with this document as the source of truth and provide:
 
 ```text
 Runbook: docs/benchmarks/p-map-abort-signal-manual-e2e.md
-Task: /Users/snehalyelmati/Documents/doubleword-pi/runs/fanout-execution-benchmarks/p-map-abort-signal/TASK.md
-Repo: /Users/snehalyelmati/Documents/doubleword-pi/runs/fanout-execution-benchmarks/p-map-abort-signal/repo
+Task: /Users/snehalyelmati/Documents/p-map-abort-signal/TASK.md
+Repo: /Users/snehalyelmati/Documents/p-map-abort-signal/repo
 Baseline: c3c261e2189f94d1a09724e8f03d5345af518017
 Mode: manual product-debugging E2E; no automated variations
 Constraint: do not initiate live or cost-incurring calls without explicit authorization

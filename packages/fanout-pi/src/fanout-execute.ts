@@ -155,12 +155,15 @@ function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPack
 	if (pi.status !== 0) issues.push({ code: "capability-unavailable", detail: "Pi worker command is unavailable" });
 	if (repoRoot) try { preflightValidationCommands(packet.nodes.flatMap((node) => node.workContract.validationCommands), { checkoutRoot: repoRoot, expectedPlatform: packet.planningHost.platform }); }
 	catch (error) { issues.push({ code: "executable-unavailable", detail: message(error) }); }
+	if (repoRoot) try { preflightValidationCommands(packet.nodes.flatMap((node) => node.workContract.candidateNormalizationCommands), { checkoutRoot: repoRoot, expectedPlatform: packet.planningHost.platform }); }
+	catch (error) { issues.push({ code: "executable-unavailable", detail: `candidate normalization: ${message(error)}` }); }
 	return { repoRoot, tree, issues };
 }
 
 function confirmationSummary(packet: FanoutExecutionPacket, maxConcurrency: number, runDir: string, worktreeSharedPaths: readonly string[]): string {
 	const writes = [...new Set(packet.nodes.flatMap((node) => contractWriteResources(node.workContract).map((resource) => `${resource.kind}:${resource.path}`)))];
-	return [`Objective: ${packet.objective}`, `Packet: ${packet.sourceArtifacts.details.sha256.slice(0, 12)} / base ${packet.planningBase.tree}`, `Work nodes: ${packet.nodes.length - 1}`, `Maximum concurrency: ${maxConcurrency}`, `Typed writes: ${writes.join(", ") || "none"}`, `Validation manifests: ${packet.nodes.reduce((sum, node) => sum + node.workContract.validationCommands.length, 0)}`, `Shared worktree paths: ${worktreeSharedPaths.join(", ") || "none"}`, WORKER_TRUST_BOUNDARY, `Audit artifacts: ${runDir}`].join("\n");
+	const normalizers = [...new Set(packet.nodes.flatMap((node) => node.workContract.candidateNormalizationCommands.map((command) => JSON.stringify(command))))];
+	return [`Objective: ${packet.objective}`, `Packet: ${packet.sourceArtifacts.details.sha256.slice(0, 12)} / base ${packet.planningBase.tree}`, `Work nodes: ${packet.nodes.length - 1}`, `Maximum concurrency: ${maxConcurrency}`, `Typed writes: ${writes.join(", ") || "none"}`, `Candidate normalization manifests: ${normalizers.join(", ") || "none"}`, `Validation manifests: ${packet.nodes.reduce((sum, node) => sum + node.workContract.validationCommands.length, 0)}`, `Shared worktree paths: ${worktreeSharedPaths.join(", ") || "none"}`, WORKER_TRUST_BOUNDARY, `Audit artifacts: ${runDir}`].join("\n");
 }
 
 function command(executable: string, args: string[], cwd: string) { const result = spawnSync(executable, executable === "git" ? ["-c", "core.fsmonitor=false", ...args] : args, { cwd, encoding: "utf8", timeout: 30_000 }); return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" }; }

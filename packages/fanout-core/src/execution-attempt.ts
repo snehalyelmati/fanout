@@ -15,7 +15,7 @@ import {
 import { parseAttemptRecoveryContext, type AttemptRecoveryContext } from "./recovery-evidence.ts";
 
 export const ATTEMPT_OUTCOME_SCHEMA = "fanout.attempt-outcome";
-export const ATTEMPT_OUTCOME_VERSION = 1;
+export const ATTEMPT_OUTCOME_VERSION = 2;
 
 export type AttemptKind = "original" | "retry" | "fallback" | "validation-repair" | "integration-repair";
 export type ControllerAction = "accept" | "retry" | "fallback" | "validation-repair" | "integration-repair" | "fail" | "abort";
@@ -70,11 +70,12 @@ export type CompilerFact = { stage: "compiler"; code: "artifact-invalid" | "sche
 export type ProcessFact = { stage: "process"; code: "completed" | "spawn-failed" | "timeout" | "signal" | "nonzero" | "infrastructure-failure" | "user-abort"; exitCode?: number; signal?: string; timeoutMs?: number; durationMs: number };
 export type ProviderFact = { stage: "provider"; code: "completed" | "rate-limit" | "retryable-service" | "network" | "authentication" | "quota" | "invalid-request" | "invalid-model" | "abort" | "protocol"; httpStatus?: number; networkCode?: string; providerCode?: string };
 export type MetricsFact = { stage: "metrics"; code: "complete" | "malformed" | "missing-identity" | "correlation-mismatch" | "duplicate-identity" | "usage-mismatch" | "pricing-mismatch" | "missing-timing" | "missing-poll" | "missing-tool" | "invalid-number" };
+export type CandidateNormalizationFact = { stage: "candidate-normalization"; code: "preflight-failure" | "spawn-failure" | "timeout" | "signal" | "head-drift" | "index-drift" | "identity-failure" | "audit-failure" | "user-abort"; commandIndex?: number };
 export type WorkerGateFact = { stage: "worker-gate"; code: "passed" | "missing-patch" | "malformed-patch" | "mutating-noop" | "worker-commit" | "forbidden-change" | "unauthorized-change" | "post-validation-change" | "capability-violation" };
 export type ValidationFact = { stage: "validation"; code: "passed" | "program-failure" | "spawn-failure" | "timeout" | "signal" | "abort" | "malformed-evidence"; failedCommandIndexes?: number[] };
 export type ApplyFact = { stage: "apply"; code: "applied" | "check-conflict" | "apply-failure" | "post-tree-mismatch" | "identity-failure" | "state-drift" };
 export type BookkeepingFact = { stage: "bookkeeping"; code: "failed-after-mutation" | "publication-failure" };
-export type StageFact = CompilerFact | ProcessFact | ProviderFact | MetricsFact | WorkerGateFact | ValidationFact | ApplyFact | BookkeepingFact;
+export type StageFact = CompilerFact | ProcessFact | ProviderFact | MetricsFact | CandidateNormalizationFact | WorkerGateFact | ValidationFact | ApplyFact | BookkeepingFact;
 
 export interface RoutingContext {
 	kind: AttemptKind;
@@ -189,7 +190,7 @@ export function routeAttempt(fact: StageFact, context: RoutingContext): Controll
 	validateAssignment(context.assignment);
 	validateCounts(context.remaining, "remaining");
 	if (fact.stage === "apply" && fact.code === "applied") return "accept";
-	if ((fact.stage === "process" && fact.code === "user-abort") || (fact.stage === "provider" && fact.code === "abort") || (fact.stage === "validation" && fact.code === "abort")) return "abort";
+	if ((fact.stage === "process" && fact.code === "user-abort") || (fact.stage === "provider" && fact.code === "abort") || (fact.stage === "candidate-normalization" && fact.code === "user-abort") || (fact.stage === "validation" && fact.code === "abort")) return "abort";
 	if (fact.stage === "validation" && (fact.code === "program-failure" || fact.code === "timeout" || fact.code === "signal")) return context.remaining.validationRepair > 0 ? "validation-repair" : "fail";
 	if (fact.stage === "apply" && (fact.code === "check-conflict" || fact.code === "apply-failure")) return context.remaining.integrationRepair > 0 ? "integration-repair" : "fail";
 	if (isTransient(fact)) return transientAction(context);
@@ -380,6 +381,7 @@ export function parseStageFact(value: unknown): StageFact {
 		process: ["completed", "spawn-failed", "timeout", "signal", "nonzero", "infrastructure-failure", "user-abort"],
 		provider: ["completed", "rate-limit", "retryable-service", "network", "authentication", "quota", "invalid-request", "invalid-model", "abort", "protocol"],
 		metrics: ["complete", "malformed", "missing-identity", "correlation-mismatch", "duplicate-identity", "usage-mismatch", "pricing-mismatch", "missing-timing", "missing-poll", "missing-tool", "invalid-number"],
+		"candidate-normalization": ["preflight-failure", "spawn-failure", "timeout", "signal", "head-drift", "index-drift", "identity-failure", "audit-failure", "user-abort"],
 		"worker-gate": ["passed", "missing-patch", "malformed-patch", "mutating-noop", "worker-commit", "forbidden-change", "unauthorized-change", "post-validation-change", "capability-violation"],
 		validation: ["passed", "program-failure", "spawn-failure", "timeout", "signal", "abort", "malformed-evidence"],
 		apply: ["applied", "check-conflict", "apply-failure", "post-tree-mismatch", "identity-failure", "state-drift"],
@@ -391,6 +393,7 @@ export function parseStageFact(value: unknown): StageFact {
 		process: new Set(["stage", "code", "exitCode", "signal", "timeoutMs", "durationMs"]),
 		provider: new Set(["stage", "code", "httpStatus", "networkCode", "providerCode"]),
 		metrics: new Set(["stage", "code"]),
+		"candidate-normalization": new Set(["stage", "code", "commandIndex"]),
 		"worker-gate": new Set(["stage", "code"]),
 		validation: new Set(["stage", "code", "failedCommandIndexes"]),
 		apply: new Set(["stage", "code"]),
@@ -415,6 +418,7 @@ export function parseStageFact(value: unknown): StageFact {
 		if (value.httpStatus !== undefined && (!Number.isSafeInteger(value.httpStatus) || Number(value.httpStatus) < 100 || Number(value.httpStatus) > 599)) throw new TypeError("provider httpStatus must be an HTTP status integer");
 		for (const field of ["networkCode", "providerCode"] as const) if (value[field] !== undefined && (typeof value[field] !== "string" || !value[field])) throw new TypeError(`provider ${field} must be a non-empty string`);
 	}
+	if (value.stage === "candidate-normalization" && value.commandIndex !== undefined && (!Number.isSafeInteger(value.commandIndex) || Number(value.commandIndex) < 0)) throw new TypeError("candidate-normalization commandIndex must be a non-negative safe integer");
 	if (value.stage === "validation" && value.failedCommandIndexes !== undefined) {
 		if (!Array.isArray(value.failedCommandIndexes) || value.failedCommandIndexes.some((index) => !Number.isSafeInteger(index) || Number(index) < 0)) throw new TypeError("validation failedCommandIndexes must be non-negative integers");
 		if (new Set(value.failedCommandIndexes).size !== value.failedCommandIndexes.length || value.failedCommandIndexes.some((index, position) => position > 0 && Number(index) <= Number(value.failedCommandIndexes?.[position - 1]))) throw new TypeError("validation failedCommandIndexes must be unique and ordered");

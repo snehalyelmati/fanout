@@ -35,6 +35,7 @@ export interface ValidationRunnerOptions {
 	timeoutMs?: number;
 	inheritedEnv?: NodeJS.ProcessEnv;
 	controllerEnv?: NodeJS.ProcessEnv;
+	continueAfterNonzero?: boolean;
 	signal?: AbortSignal;
 }
 
@@ -90,7 +91,7 @@ export async function runValidationCommands(value: unknown, options: ValidationR
 			break;
 		}
 		commands[index] = await runCommand(commands[index], current, timeoutMs, options.signal);
-		if (commands[index].outcome !== "passed") break;
+		if (commands[index].outcome !== "passed" && !(options.continueAfterNonzero && commands[index].outcome === "nonzero")) break;
 	}
 
 	const executedCount = commands.filter((command) => command.outcome !== "unexecuted").length;

@@ -9,7 +9,7 @@ import { FINAL_VALIDATION_NODE_ID } from "./work-contract-graph.ts";
 export const IMPLEMENTATION_PLAN_SCHEMA = "fanout.implementation-plan";
 export const IMPLEMENTATION_PLAN_VERSION = 2;
 export const IMPLEMENTATION_DETAILS_SCHEMA = "fanout.implementation-details";
-export const IMPLEMENTATION_DETAILS_VERSION = 3;
+export const IMPLEMENTATION_DETAILS_VERSION = 4;
 
 export interface ImplementationPlan {
 	schema: typeof IMPLEMENTATION_PLAN_SCHEMA;
@@ -31,6 +31,7 @@ export interface ImplementationDetails {
 	detailsId: string;
 	createdAt: string;
 	plan: ArtifactIdentity;
+	candidateNormalizationCommands: ReturnType<typeof parseValidationCommands>;
 	items: GroundedWorkInput[];
 	finalValidationCommands: ReturnType<typeof parseValidationCommands>;
 }
@@ -57,7 +58,7 @@ export interface CompileExecutionPacketResult { ok: boolean; errors: string[]; w
 
 const PLAN_FIELDS = new Set(["schema", "version", "planId", "createdAt", "planningHost", "planningBase", "objective", "userContext", "discoveredRepoFacts", "assumptions", "implementationItems"]);
 const PLAN_ITEM_FIELDS = new Set(["id", "goals", "writeResources", "readResources", "forbiddenWrites", "semanticReviewCriteria", "advisoryNotes"]);
-const DETAILS_FIELDS = new Set(["schema", "version", "detailsId", "createdAt", "plan", "items", "finalValidationCommands"]);
+const DETAILS_FIELDS = new Set(["schema", "version", "detailsId", "createdAt", "plan", "candidateNormalizationCommands", "items", "finalValidationCommands"]);
 const DETAIL_ITEM_FIELDS = new Set(["id", "kind", "changes", "readDependencies", "forbiddenWrites", "validationCommands", "advisoryNotes"]);
 export function validateImplementationPlan(value: unknown): { ok: boolean; errors: string[]; itemCount: number; plan?: ImplementationPlan } {
 	const errors: string[] = [];
@@ -93,7 +94,7 @@ export function compileExecutionPacket(input: CompileExecutionPacketInput): Comp
 	const detailsResult = validateImplementationDetailsArtifact(input.implementationDetails, { planIdentity: input.planIdentity, plan: planResult.plan });
 	const errors = [...planResult.errors, ...detailsResult.errors];
 	if (!planResult.plan || !detailsResult.details || errors.length) return { ok: false, errors, warnings: [], issues: errors.map((message) => ({ code: "artifact-admission", message })), warningIssues: [] };
-	const compiled = compileWorkContracts(planResult.plan.implementationItems, detailsResult.details.items, detailsResult.details.finalValidationCommands, { sequentialReadFallback: input.sequentialReadFallback });
+	const compiled = compileWorkContracts(planResult.plan.implementationItems, detailsResult.details.items, detailsResult.details.finalValidationCommands, { sequentialReadFallback: input.sequentialReadFallback, candidateNormalizationCommands: detailsResult.details.candidateNormalizationCommands });
 	if (!compiled.ok) return { ok: false, errors: compiled.errors.map(showIssue), warnings: compiled.warnings.map(showIssue), issues: compiled.errors, warningIssues: compiled.warnings };
 	const nodes: FanoutPacketNode[] = compiled.nodes.map((node) => {
 		const tier = deriveTierAssignment(derivePreferredTier(node.kind as WorkUnitKind), input.tierPlan);
@@ -170,11 +171,13 @@ function parseDetails(value: unknown, expected: { planIdentity?: ArtifactIdentit
 	try { plan = parseArtifactIdentity(value.plan); } catch (error) { errors.push(`invalid plan identity: ${message(error)}`); }
 	if (plan && expected.planIdentity && JSON.stringify(plan) !== JSON.stringify(expected.planIdentity)) errors.push("implementation details plan identity does not match the accepted plan bytes; rerun /fanout-plan");
 	const planIds = new Set(expected.planIds ?? []);
+	let candidateNormalizationCommands: ReturnType<typeof parseValidationCommands> = [];
+	try { candidateNormalizationCommands = parseValidationCommands(value.candidateNormalizationCommands); } catch (error) { errors.push(`invalid candidate normalization commands: ${message(error)}`); }
 	const items = Array.isArray(value.items) ? value.items.flatMap((item, index) => detailItem(item, index, planIds, errors)) : (errors.push("items must be an array"), []);
 	let finalValidationCommands: ReturnType<typeof parseValidationCommands> = [];
 	try { finalValidationCommands = parseValidationCommands(value.finalValidationCommands); } catch (error) { errors.push(`invalid final validation commands: ${message(error)}`); }
 	if (!items.length || !finalValidationCommands.length) errors.push("details need grounded items and finalValidationCommands");
-	return plan ? { schema: IMPLEMENTATION_DETAILS_SCHEMA, version: IMPLEMENTATION_DETAILS_VERSION, detailsId, createdAt: created, plan, items, finalValidationCommands } : undefined;
+	return plan ? { schema: IMPLEMENTATION_DETAILS_SCHEMA, version: IMPLEMENTATION_DETAILS_VERSION, detailsId, createdAt: created, plan, candidateNormalizationCommands, items, finalValidationCommands } : undefined;
 }
 
 function detailItem(value: unknown, index: number, planIds: Set<string>, errors: string[]): GroundedWorkInput[] {
@@ -195,6 +198,7 @@ function detailItem(value: unknown, index: number, planIds: Set<string>, errors:
 		changes: value.changes,
 		readDependencies: value.readDependencies,
 		forbiddenWrites: value.forbiddenWrites,
+		candidateNormalizationCommands: [],
 		validationCommands: value.validationCommands,
 		capabilities: FIXED_WORKER_CAPABILITIES,
 		semanticReviewCriteria: [{ sourcePlanId: "details-admission", statement: "Grounded detail fields are strict." }],

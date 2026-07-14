@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { AcceptedPatch } from "../../fanout-core/src/artifact-identity.ts";
 import { correlateAttemptMetrics, type CorrelatedAttemptMetrics } from "../../fanout-core/src/attempt-metrics.ts";
@@ -19,6 +19,7 @@ interface PatchAttemptEvidence {
 	attemptDir: string;
 	metrics?: WorkerMetrics;
 	patch?: AcceptedPatch;
+	excludedEvidenceRefs?: readonly string[];
 }
 
 export function validationFailureEvidence(
@@ -81,12 +82,15 @@ export function integrationFailureEvidence(
 
 export function attemptEvidenceRefs(runDir: string, attempt: PatchAttemptEvidence): string[] {
 	const prefix = relative(runDir, attempt.attemptDir).split("\\").join("/");
-	const refs = ["result.json"];
-	if (existsSync(join(attempt.attemptDir, "observability.jsonl"))) refs.push("observability.jsonl");
+	const excluded = new Set(attempt.excludedEvidenceRefs ?? []);
+	const refs = artifactFile(join(attempt.attemptDir, "result.json")) ? ["result.json"] : [];
+	if (artifactFile(join(attempt.attemptDir, "observability.jsonl"))) refs.push("observability.jsonl");
 	if (attempt.patch) refs.push(attempt.patch.artifact.path);
-	for (const name of ["validation.json", "ownership-check.json", "apply-check.json"]) if (existsSync(join(attempt.attemptDir, name))) refs.push(name);
-	return [...new Set(refs.map((reference) => reference.includes("/") ? reference : `${prefix}/${reference}`))];
+	for (const name of ["candidate-normalization.json", "validation.json", "ownership-check.json", "apply-check.json"]) if (artifactFile(join(attempt.attemptDir, name))) refs.push(name);
+	return [...new Set(refs.filter((reference) => !excluded.has(reference)).map((reference) => reference.includes("/") ? reference : `${prefix}/${reference}`))];
 }
+
+function artifactFile(path: string): boolean { return existsSync(path) && lstatSync(path).isFile(); }
 
 interface ProviderIdentity {
 	runId: string;

@@ -3,7 +3,7 @@ import { validateWorkContractNodes, type WorkContractGraph } from "./work-contra
 import { type WorkContract, type WorkContractIssue } from "./work-contract.ts";
 
 export const EXECUTION_PACKET_SCHEMA = "fanout.execution-packet";
-export const EXECUTION_PACKET_VERSION = 5;
+export const EXECUTION_PACKET_VERSION = 6;
 export const ACTIVE_PACKET_SCHEMA = "fanout.active-packet";
 
 export type TierName = "tier1" | "tier2";
@@ -127,6 +127,7 @@ export function validateExecutionPacket(value: unknown): PacketValidationResult 
 	if (tierPlan) validateTierAssignments(nodes, tierPlan, errors);
 	const validated = validateWorkContractNodes(nodes.map(({ id, kind, workContract }) => ({ id, kind, workContract })));
 	errors.push(...validated.errors);
+	if (validated.nodes) validateCandidateNormalizationManifest(validated.nodes, errors);
 	if (nodes.filter((node) => node.kind === "final-validation").length !== 1) add(errors, "final-validation-count", "exactly one final-validation node is required", "nodes");
 	if (errors.length || !sourceArtifacts || !planningHost || !planningBase || !tierPlan || !runtimePolicy || !validated.graph) return { ok: false, executable: false, errors, warnings: [] };
 	const packet: FanoutExecutionPacket = { schema: EXECUTION_PACKET_SCHEMA, version: EXECUTION_PACKET_VERSION, createdAt: value.createdAt as string, sourceArtifacts, planningHost, planningBase, objective, userContext, discoveredRepoFacts, assumptions, tierPlan, runtimePolicy, nodes };
@@ -202,6 +203,31 @@ function validateTierAssignments(nodes: readonly FanoutPacketNode[], plan: Fanou
 		const expectedActive: WorkActiveState = expected.assigned === "tier2" ? "background" : "active";
 		if (node.active !== expectedActive) add(errors, "tier-active-mismatch", `node active state must be ${expectedActive} for ${expected.assigned}`, `${path}.active`);
 	}
+}
+
+function validateCandidateNormalizationManifest(nodes: readonly Pick<FanoutPacketNode, "workContract">[], errors: WorkContractIssue[]): void {
+	const expected = nodes[0]?.workContract.candidateNormalizationCommands;
+	if (!expected) return;
+	for (const [index, node] of nodes.entries()) if (!sameCommands(node.workContract.candidateNormalizationCommands, expected)) {
+		add(errors, "candidate-normalization-manifest-mismatch", "every work contract must carry the same ordered candidateNormalizationCommands manifest", `nodes[${index}].workContract.candidateNormalizationCommands`);
+	}
+}
+
+function sameCommands(left: FanoutPacketNode["workContract"]["candidateNormalizationCommands"], right: FanoutPacketNode["workContract"]["candidateNormalizationCommands"]): boolean {
+	return left.length === right.length && left.every((command, index) => {
+		const expected = right[index];
+		return command.executable === expected.executable
+			&& command.cwd === expected.cwd
+			&& command.args.length === expected.args.length
+			&& command.args.every((arg, argIndex) => arg === expected.args[argIndex])
+			&& sameEnvironment(command.env, expected.env);
+	});
+}
+
+function sameEnvironment(left: Record<string, string> | undefined, right: Record<string, string> | undefined): boolean {
+	if (left === undefined || right === undefined) return left === right;
+	const names = Object.keys(left);
+	return names.length === Object.keys(right).length && names.every((name) => left[name] === right[name]);
 }
 
 function strings(value: unknown, path: string, errors: WorkContractIssue[]): string[] { if (!Array.isArray(value)) { add(errors, "invalid-string-list", `${path} must be an array`, path); return []; } return value.map((item, index) => text(item, `${path}[${index}]`, errors)); }

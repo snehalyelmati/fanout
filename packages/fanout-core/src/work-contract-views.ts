@@ -25,8 +25,9 @@ export function renderWorkContractMarkdown(context: WorkContractPacketContext, n
 export function renderWorkContractLaunchSummary(context: Pick<WorkContractPacketContext, "objective">, nodes: readonly WorkContractNode[]): string {
 	requireGraph(nodes);
 	const writes = unique(nodes.flatMap((node) => contractWriteResources(node.workContract)).map((resource) => `${resource.kind}:${resource.path}`));
+	const normalizationCommandCount = nodes.reduce((count, node) => count + node.workContract.candidateNormalizationCommands.length, 0);
 	const commandCount = nodes.reduce((count, node) => count + node.workContract.validationCommands.length, 0);
-	return [`Objective: ${context.objective}`, `Work nodes: ${nodes.length}`, `Typed write resources: ${writes.join(", ") || "none"}`, `Validation commands: ${commandCount}`].join("\n");
+	return [`Objective: ${context.objective}`, `Work nodes: ${nodes.length}`, `Typed write resources: ${writes.join(", ") || "none"}`, `Candidate normalization commands: ${normalizationCommandCount}`, `Validation commands: ${commandCount}`].join("\n");
 }
 
 function requireGraph(nodes: readonly WorkContractNode[]): WorkContractGraph { const result = deriveWorkContractGraph(nodes); if (!result.graph) throw new Error(result.errors.map((issue) => issue.message).join("; ")); return result.graph; }

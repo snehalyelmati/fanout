@@ -19,7 +19,7 @@ import {
 import { FINAL_VALIDATION_NODE_ID } from "./work-contract-graph.ts";
 
 export const EXECUTION_PROJECTION_SCHEMA = "fanout.execution-run";
-export const EXECUTION_PROJECTION_VERSION = 2;
+export const EXECUTION_PROJECTION_VERSION = 3;
 
 export interface AttemptProjection {
 	allocationSequence: number;

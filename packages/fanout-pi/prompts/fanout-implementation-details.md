@@ -11,10 +11,13 @@ Phase B is already active. `implementationDetailsPath` is the controller-owned o
 
 Do not add a `final-validation` item. `finalValidationCommands` is the sole input for the compiler-owned final-validation node.
 
+Provide exactly one repository-level `candidateNormalizationCommands` direct-argv list. The controller runs this same ordered list once after every successful worker or repair edit and before patch capture, typed ownership enforcement, and the existing validation commands. Use `[]` when no repository-provided deterministic normalizer is appropriate. Commands must be language-agnostic to Fanout and suitable for every candidate worktree; Fanout never infers fixers from diagnostics. Nonzero normalizer results remain audit evidence and original validation stays authoritative.
+
 Submit only:
 
 ```json
 {
+  "candidateNormalizationCommands": [],
   "items": [{
     "id": "grounded-id",
     "kind": "implement",

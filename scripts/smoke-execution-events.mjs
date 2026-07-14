@@ -28,7 +28,7 @@ const patch = {
 };
 
 try {
-  assert(EXECUTION_EVENT_NAMES.join(",") === "run-started,preflight-completed,confirmation-decided,attempt-allocated,attempt-completed,node-completed,final-validation-started,final-validation-completed,run-finished", "execution-event v1 does not expose exactly the nine approved transitions");
+  assert(EXECUTION_EVENT_NAMES.join(",") === "run-started,preflight-completed,confirmation-decided,attempt-allocated,attempt-completed,node-completed,final-validation-started,final-validation-completed,run-finished", "execution-event v2 does not expose exactly the nine approved transitions");
   const legacyTimestamp = allocationFor("legacy-time");
   const legacyMetrics = correlateAttemptMetrics(metricEvidence(legacyTimestamp.allocation.attemptId));
   assert(completeAttempt(legacyTimestamp.allocation, { state: legacyTimestamp.state, startedAt: "2026-07-13T00:00:00Z", finishedAt: "2026-07-13T00:00:01Z", terminalFact: { stage: "apply", code: "applied" }, fallbackAllowed: false, metrics: legacyMetrics.metrics }).durationMs === 1000, "serialized-event hardening changed the existing completeAttempt timestamp contract");
@@ -38,6 +38,7 @@ try {
     event(3, "run-finished", { outcome: "dry-run-completed", durationMs: 2, cause: { kind: "event", eventSequence: 2, code: "dry-run" } }),
   ];
   const dry = replayExecutionEvents(dryEvents);
+  assert(dry.version === 3, "execution projection did not advance to v3");
   assert(dry.mode === "dry-run" && dry.terminalOutcome?.outcome === "dry-run-completed", "A14 lost the explicit dry-run outcome");
   assert(dry.finalValidation.disposition === "not-run" && dry.finalValidation.reason === "dry-run", "A14 inferred final validation from absence");
   assert(dry.phase === "finished" && dry.lastEventSequence === 3, "dry-run projection did not terminate explicitly");
@@ -71,6 +72,7 @@ try {
   ]), "controller cause contradicted the current phase");
 
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], surprise: true }), "unknown event field was admitted");
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], version: 1 }), "legacy execution event v1 was admitted");
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, mode: "preview" } }), "unknown run mode was admitted");
   const { fallbackAllowed: _fallbackAllowed, ...incompletePolicy } = dryEvents[0].payload.policy;
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, policy: incompletePolicy } }), "run-started admitted an incomplete immutable runtime policy");
@@ -274,7 +276,7 @@ try {
 }
 
 function event(sequence, name, payload) {
-  return { schema: "fanout.execution-event", version: 1, runId: "run", sequence, occurredAt: `2026-07-13T00:00:00.${String(sequence).padStart(3, "0")}Z`, event: name, payload };
+  return { schema: "fanout.execution-event", version: 2, runId: "run", sequence, occurredAt: `2026-07-13T00:00:00.${String(sequence).padStart(3, "0")}Z`, event: name, payload };
 }
 
 function acceptedOutcome() {

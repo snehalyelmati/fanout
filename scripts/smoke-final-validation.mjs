@@ -92,13 +92,15 @@ try {
   assert(outsideContainment.status === "passed" && existsSync(external), "A20 ignored/external effects were falsely treated as contained");
   for (const phrase of ["ignored files", "external paths", "network", "processes", "outside containment"]) assert(FINAL_VALIDATION_TRUST_BOUNDARY.includes(phrase), `A20 trust boundary omitted ${phrase}`);
 
-  const finalContract = contract([], [], [node("process.exit(7)"), node("process.exit(0)")]);
+  const finalNormalizationCommands = [node("process.exit(0)"), node("process.exit(0)")];
+  const finalContract = contract([], [], [node("process.exit(7)"), node("process.exit(0)")], finalNormalizationCommands);
   const upstreamWorkContracts = [
     { nodeId: "source", workContract: contract([modify("source.txt")], [forbidden("forbidden.txt")], [node("process.exit(0)")]) },
     { nodeId: "other", workContract: contract([modify("other.txt")], [], [node("process.exit(0)")]) },
   ];
   const packetIdentity = artifactIdentity("execution-packet.json", Buffer.from("packet\n"));
   const repairContract = deriveFinalRepairWorkContract(upstreamWorkContracts.map((entry) => entry.workContract), finalContract);
+  assert(JSON.stringify(repairContract.candidateNormalizationCommands) === JSON.stringify(finalNormalizationCommands), "final repair did not derive the final contract's ordered normalization list");
   const repairContext = { packetIdentity, finalValidationContract: finalContract, upstreamWorkContracts };
   const coordinated = makeCandidate("coordinated", [accepted], (worktree) => {
     writeFileSync(join(worktree, "source.txt"), "coordinated\n");
@@ -302,7 +304,7 @@ function node(source, imports = "writeFileSync,rmSync") {
   return { executable: process.execPath, args: ["--input-type=module", "-e", `import { ${imports} } from 'node:fs';${source}`] };
 }
 
-function contract(changes, forbiddenWrites, validationCommands) {
+function contract(changes, forbiddenWrites, validationCommands, candidateNormalizationCommands = []) {
   return {
     schema: WORK_CONTRACT_SCHEMA,
     version: WORK_CONTRACT_VERSION,
@@ -310,6 +312,7 @@ function contract(changes, forbiddenWrites, validationCommands) {
     changes,
     readDependencies: [],
     forbiddenWrites,
+    candidateNormalizationCommands,
     validationCommands,
     capabilities: FIXED_WORKER_CAPABILITIES,
     semanticReviewCriteria: [{ sourcePlanId: "plan", statement: "The final checks pass" }],

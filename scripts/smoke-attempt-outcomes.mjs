@@ -29,6 +29,12 @@ assert(routeAttempt({ stage: "provider", code: "authentication", httpStatus: 401
 assert(routeAttempt({ stage: "provider", code: "quota" }, retryContext) === "fail", "quota exhaustion retried");
 assert(routeAttempt({ stage: "provider", code: "invalid-model" }, retryContext) === "fail", "invalid model retried");
 assert(routeAttempt({ stage: "process", code: "user-abort", durationMs: 1 }, retryContext) === "abort", "user abort did not abort");
+for (const code of ["preflight-failure", "spawn-failure", "timeout", "signal", "head-drift", "index-drift", "identity-failure", "audit-failure"]) {
+  assert(routeAttempt({ stage: "candidate-normalization", code, commandIndex: 0 }, retryContext) === "fail", `candidate normalization ${code} consumed model retry authority`);
+}
+assert(routeAttempt({ stage: "candidate-normalization", code: "user-abort", commandIndex: 0 }, retryContext) === "abort", "candidate normalization user abort did not abort");
+assert(parseStageFact({ stage: "candidate-normalization", code: "timeout", commandIndex: 1 }).commandIndex === 1, "candidate normalization command identity did not round trip");
+expectThrow(() => parseStageFact({ stage: "candidate-normalization", code: "timeout", commandIndex: -1 }), "candidate normalization admitted a negative command index");
 assert(routeAttempt({ stage: "validation", code: "program-failure", failedCommandIndexes: [1] }, { ...retryContext, remaining: { ...noBudgets, validationRepair: 1 } }) === "validation-repair", "typed validation failure did not repair");
 assert(routeAttempt({ stage: "apply", code: "check-conflict" }, { ...retryContext, remaining: { ...noBudgets, integrationRepair: 1 } }) === "integration-repair", "typed apply conflict did not repair");
 assert(routeAttempt({ stage: "apply", code: "applied" }, { ...retryContext, remaining: noBudgets }) === "accept", "applied fact did not accept");
@@ -222,6 +228,8 @@ const accepted = completeAttempt(forged.allocation, {
   diagnostic: "human-only text: 429 network crash",
 });
 assert(accepted.action === "accept" && accepted.durationMs === 1000 && accepted.budgetTransition.name === "original", "terminal outcome lost actual action or budget transition");
+assert(accepted.version === 2, "attempt outcome did not advance to v2");
+expectThrow(() => parseAttemptOutcome({ ...accepted, version: 1 }), "legacy attempt outcome v1 was admitted");
 let outcomes = appendTerminalOutcome([], accepted);
 assert(outcomes.length === 1, "terminal outcome was not recorded");
 expectThrow(() => appendTerminalOutcome(outcomes, accepted), "duplicate terminal outcome was admitted");
@@ -435,11 +443,12 @@ function commandEvidence(index, status, extra = {}) {
 function workContract() {
   return {
     schema: "fanout.work-contract",
-    version: 1,
+    version: 2,
     goals: [{ sourcePlanId: "plan", statement: "Update the file." }],
     changes: [{ kind: "create", target: { resource: { kind: "file", path: "src/value.ts" }, sourcePlanIds: ["plan"] }, contentIntent: "Create the value module." }],
     readDependencies: [],
     forbiddenWrites: [],
+    candidateNormalizationCommands: [],
     validationCommands: [{ executable: "node", args: ["check.mjs"] }],
     capabilities: FIXED_WORKER_CAPABILITIES,
     semanticReviewCriteria: [{ sourcePlanId: "plan", statement: "The module validates." }],
