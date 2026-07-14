@@ -65,9 +65,15 @@ export function validateImplementationPlan(value: unknown): { ok: boolean; error
 	return { ok: errors.length === 0, errors, itemCount: plan?.implementationItems.length ?? 0, ...(errors.length || !plan ? {} : { plan }) };
 }
 
-export function validateImplementationDetailsArtifact(value: unknown, expected: { planIdentity?: ArtifactIdentity; planIds?: Iterable<string> } = {}): { ok: boolean; errors: string[]; itemCount: number; details?: ImplementationDetails } {
+export function validateImplementationDetailsArtifact(value: unknown, expected: { planIdentity?: ArtifactIdentity; planIds?: Iterable<string>; plan?: ImplementationPlan } = {}): { ok: boolean; errors: string[]; itemCount: number; details?: ImplementationDetails } {
 	const errors: string[] = [];
-	const details = parseDetails(value, expected, errors);
+	const planIds = expected.plan?.implementationItems.map((item) => item.id) ?? expected.planIds;
+	const details = parseDetails(value, { planIdentity: expected.planIdentity, planIds }, errors);
+	if (details && expected.plan) for (const [itemIndex, item] of details.items.entries()) for (const [forbiddenIndex, forbidden] of item.forbiddenWrites.entries()) {
+		if (expected.plan.implementationItems.some((candidate) => candidate.writeResources.some((resource) => resourcesOverlap(resource, forbidden.resource)))) {
+			errors.push(`items[${itemIndex}].forbiddenWrites[${forbiddenIndex}] overlaps planned write authority; forbiddenWrites are packet-global and worker ownership is already defined by changes`);
+		}
+	}
 	return { ok: errors.length === 0, errors, itemCount: details?.items.length ?? 0, ...(errors.length || !details ? {} : { details }) };
 }
 
@@ -84,7 +90,7 @@ export function buildRequiredReadClassifications(value: unknown): RequiredReadCl
 
 export function compileExecutionPacket(input: CompileExecutionPacketInput): CompileExecutionPacketResult {
 	const planResult = validateImplementationPlan(input.implementationPlan);
-	const detailsResult = validateImplementationDetailsArtifact(input.implementationDetails, { planIdentity: input.planIdentity, planIds: planResult.plan?.implementationItems.map((item) => item.id) });
+	const detailsResult = validateImplementationDetailsArtifact(input.implementationDetails, { planIdentity: input.planIdentity, plan: planResult.plan });
 	const errors = [...planResult.errors, ...detailsResult.errors];
 	if (!planResult.plan || !detailsResult.details || errors.length) return { ok: false, errors, warnings: [], issues: errors.map((message) => ({ code: "artifact-admission", message })), warningIssues: [] };
 	const compiled = compileWorkContracts(planResult.plan.implementationItems, detailsResult.details.items, detailsResult.details.finalValidationCommands, { sequentialReadFallback: input.sequentialReadFallback });

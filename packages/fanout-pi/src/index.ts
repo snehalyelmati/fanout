@@ -321,8 +321,7 @@ export default async function (pi: ExtensionAPI) {
 				if (JSON.stringify(planIdentity) !== JSON.stringify(finishedFanoutPlan.planIdentity) || JSON.stringify(detailsIdentity) !== JSON.stringify(finishedFanoutPlan.acceptedSubmission?.identity)) throw new Error("accepted planning artifact bytes changed; restart /fanout-plan");
 				const implementationPlan = JSON.parse(planBytes.toString("utf8"));
 				const implementationDetails = JSON.parse(detailsBytes.toString("utf8"));
-				const planIds = isRecord(implementationPlan) && Array.isArray(implementationPlan.implementationItems) ? implementationPlan.implementationItems.filter(isRecord).map((item) => stringField(item.id)).filter((id) => id !== "unknown") : [];
-				const detailsValidation = validateImplementationDetailsArtifact(implementationDetails, { planIdentity, planIds });
+				const detailsValidation = validateImplementationDetailsArtifact(implementationDetails, { planIdentity, plan: finishedFanoutPlan.acceptedPlan });
 				writeJsonl("fanout_implementation_details_validation", { planRunId: finishedFanoutPlan.runId, phase: "details", artifactDir: finishedFanoutPlan.artifactDir, ...detailsValidation }, ctx.cwd);
 				if (!detailsValidation.ok) {
 					finishPlanningPhase(finishedFanoutPlan.metrics, "details");

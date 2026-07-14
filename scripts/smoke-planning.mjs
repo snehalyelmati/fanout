@@ -11,6 +11,7 @@ for (const text of [phaseA, phaseB]) {
 }
 assert(phaseA.includes("writeResources") && phaseA.includes('"kind":"file"'), "Phase A omitted typed resources");
 assert(phaseA.includes("Do not add a `final-validation` implementation item") && phaseA.includes("compiler-owned final-validation node"), "Phase A permits duplicate final-validation authority");
+assert(phaseA.includes("packet-global") && phaseA.includes("worker ownership"), "Phase A does not explain monotonic forbidden-write scope");
 assert(phaseB.includes('"changes"') && phaseB.includes('"executable"') && phaseB.includes('"args"'), "Phase B omitted typed changes/direct argv");
 assert(phaseB.includes("packet-global") && phaseB.includes("worker ownership"), "Phase B does not explain monotonic forbidden-write scope");
 

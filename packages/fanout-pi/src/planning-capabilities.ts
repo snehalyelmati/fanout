@@ -39,7 +39,7 @@ export function submitPlanningArtifact(state: FanoutPhaseState, artifact: unknow
 	const submitted = controllerEnvelope(state, artifact, planIdentity);
 	const validation = state.phase === "implementation"
 		? validateImplementationPlan(submitted)
-		: validateImplementationDetailsArtifact(submitted, { planIdentity, planIds: acceptedPlanIds(state) });
+		: validateImplementationDetailsArtifact(submitted, { planIdentity, plan: acceptedPlan(state) });
 	if (!validation.ok) throw new Error(validation.errors.join("; "));
 
 	const relativePath = relative(resolve(root), resolve(destination)).split(sep).join("/");
@@ -96,9 +96,9 @@ function readAcceptedPlanBytes(path: string, expected: ReturnType<typeof artifac
 	return bytes;
 }
 
-function acceptedPlanIds(state: FanoutPhaseState): string[] {
+function acceptedPlan(state: FanoutPhaseState) {
 	if (!state.acceptedPlan) throw new Error("accepted implementation plan is missing; restart /fanout-plan");
-	return state.acceptedPlan.implementationItems.map((item) => item.id);
+	return state.acceptedPlan;
 }
 
 function exactBody(value: Record<string, unknown>, fields: string[]): void {

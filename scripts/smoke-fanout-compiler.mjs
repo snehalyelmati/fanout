@@ -63,6 +63,25 @@ const tierPlan = { tier1: tier("local", "one"), tier2: { ...tier("local", "two",
 
 assert(validateImplementationPlan(plan).ok, "plan v2 rejected");
 assert(validateImplementationDetailsArtifact(details, { planIdentity, planIds: ["feature"] }).ok, "details v3 rejected");
+const crossOwnerPlan = structuredClone(plan);
+crossOwnerPlan.implementationItems.push({
+  ...structuredClone(plan.implementationItems[0]),
+  id: "feature-tests",
+  writeResources: [{ kind: "file", path: "test/feature.test.ts" }],
+  forbiddenWrites: [],
+});
+const crossOwnerPlanIdentity = artifactIdentity("implementation-plan.json", Buffer.from(`${JSON.stringify(crossOwnerPlan, null, 2)}\n`));
+const packetGlobalForbiddenDetails = structuredClone(details);
+packetGlobalForbiddenDetails.plan = crossOwnerPlanIdentity;
+packetGlobalForbiddenDetails.items.push({
+  id: "feature-tests", kind: "implement",
+  changes: [{ kind: "create", target: { resource: { kind: "file", path: "test/feature.test.ts" }, sourcePlanIds: ["feature-tests"] }, contentIntent: "feature coverage" }],
+  readDependencies: [],
+  forbiddenWrites: [{ resource: { kind: "file", path: "src/feature.ts" }, sourcePlanIds: ["feature-tests"], reason: "A different worker owns implementation." }],
+  validationCommands: [command], advisoryNotes: [],
+});
+const packetGlobalForbiddenDetailsResult = validateImplementationDetailsArtifact(packetGlobalForbiddenDetails, { planIdentity: crossOwnerPlanIdentity, plan: crossOwnerPlan });
+assert(!packetGlobalForbiddenDetailsResult.ok && packetGlobalForbiddenDetailsResult.errors.some((error) => error.includes("packet-global") && error.includes("worker ownership")), "Phase B admitted a forbidden write that cancels planned write authority");
 assert(!validateImplementationPlan({ ...plan, version: 1 }).ok, "legacy plan v1 admitted");
 assert(!validateImplementationDetailsArtifact({ ...details, version: 2 }, { planIdentity }).ok, "legacy details v2 admitted");
 assert(!validateImplementationDetailsArtifact({ ...details, plan: { ...planIdentity, sha256: "2".repeat(64) } }, { planIdentity }).ok, "mixed plan/details identity admitted");

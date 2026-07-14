@@ -30,3 +30,5 @@ Submit only these fields:
 Resources are explicit file/directory objects and must use literal canonical repository-relative paths. Phase A defines maximum authority. Semantic dependencies that are not typed reads belong in advisory notes. Do not submit status, paths, timestamps, graph fields, commands, anchors, routing, or packet fields. Do not mutate the repository.
 
 Do not add a `final-validation` implementation item. Phase B `finalValidationCommands` are the sole input for the compiler-owned final-validation node.
+
+`forbiddenWrites` are monotonic packet-global bans. Do not use them to express worker ownership or to forbid any resource named by an implementation item's `writeResources`; typed write resources already define worker ownership. List only resources that no worker may change.
