@@ -42,6 +42,12 @@ try {
   writeFileSync(partialObservability, `${JSON.stringify({ event: "turn_end", turnIndex: 0 })}\n`);
   const partial = correlatedWorkerMetrics("partial:000001", { provider: "fake", model: "worker", tier: "tier1", workerDurationMs: 8 }, partialStdout, partialObservability, undefined);
   assert(!partial.complete && deriveAttemptMetricTotals(partial).costUsd === 0.01 && deriveAttemptMetricTotals(partial).totalTokens === 6, "failed runtime attempt discarded observed partial usage/cost");
+  const cachedStdout = join(root, "cached-stdout.jsonl");
+  const cachedObservability = join(root, "cached-observability.jsonl");
+  writeFileSync(cachedStdout, `${JSON.stringify({ type: "message_end", message: { role: "assistant", provider: "fake", model: "worker", usage: { input: 4, output: 2, cacheRead: 10, cacheWrite: 1, totalTokens: 17, cost: { total: 0.01 } }, content: [] } })}\n`);
+  writeFileSync(cachedObservability, `${JSON.stringify({ event: "turn_end", turnIndex: 0 })}\n`);
+  const cached = correlatedWorkerMetrics("cached:000001", { provider: "fake", model: "worker", tier: "tier1", workerDurationMs: 8 }, cachedStdout, cachedObservability, 1);
+  assert(cached.complete && deriveAttemptMetricTotals(cached).inputTokens === 4 && deriveAttemptMetricTotals(cached).totalTokens === 17, "Pi cached tokens were rejected or omitted from generic attempt metrics");
   testDiscoveredExtensionWithFixedProfile(root);
   console.log("worker pipeline smoke passed (A7, A19, A20)");
 } finally {
@@ -76,6 +82,7 @@ function testDiscoveredExtensionWithFixedProfile(root) {
     },
   });
   assert(result.status === 0, `A19 real Pi worker failed: ${result.stderr || result.stdout}`);
+  assert(!result.stderr.includes("Extension error"), `normal worker shutdown crashed the Fanout extension: ${result.stderr}`);
   assert(existsSync(marker), "A19 project extension was not automatically discovered");
   const active = JSON.parse(readFileSync(marker, "utf8"));
   assert(active.join(",") === WORKER_MODEL_TOOLS.join(","), `A19 discovered extension widened active tools: ${active.join(",")}`);

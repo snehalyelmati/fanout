@@ -322,12 +322,13 @@ export function parseAttemptOutcome(value: unknown): AttemptOutcome {
 	const metricsInput = { ...serializedMetrics };
 	delete metricsInput.complete;
 	const correlated = correlateAttemptMetrics(metricsInput);
-	const metrics = correlated.ok ? correlated.metrics : correlated.partialMetrics;
+	const parsedMetrics = correlated.ok ? correlated.metrics : correlated.partialMetrics;
 	const serializedWithoutComplete = { ...serializedMetrics };
 	delete serializedWithoutComplete.complete;
-	const parsedWithoutComplete: Record<string, unknown> = { ...metrics };
+	const parsedWithoutComplete: Record<string, unknown> = { ...parsedMetrics };
 	delete parsedWithoutComplete.complete;
-	if (!metrics || serializedMetrics.complete !== metrics.complete || !isDeepStrictEqual(serializedWithoutComplete, parsedWithoutComplete)) throw new TypeError("attempt metrics are not a canonical correlated record");
+	if (!parsedMetrics || typeof serializedMetrics.complete !== "boolean" || serializedMetrics.complete && !correlated.ok || !isDeepStrictEqual(serializedWithoutComplete, parsedWithoutComplete)) throw new TypeError("attempt metrics are not a canonical correlated record");
+	const metrics: CorrelatedAttemptMetrics = serializedMetrics.complete ? parsedMetrics : deepFreeze({ ...parsedMetrics, complete: false });
 	const action = item.action as ControllerAction;
 	if (!["accept", "retry", "fallback", "validation-repair", "integration-repair", "fail", "abort"].includes(String(action))) throw new TypeError("attempt action is invalid");
 	const evidenceRefs = identityArray(item.evidenceRefs, "evidenceRefs");

@@ -275,6 +275,21 @@ expectThrow(() => parseAttemptRecoveryContext(contradictoryPostTree), "contradic
 const failedCase = originalLaunch("failed-case", assignment);
 const failed = finishAttempt(failedCase.allocation, failedCase.state, processTimeout);
 assert(failed.action === "retry" && deriveAttemptMetricTotals(failed.metrics).costUsd === 0.18, "partial failed-attempt outcome lost routing or cost");
+const replayedFailed = parseAttemptOutcome(JSON.parse(JSON.stringify(failed)));
+assert(!replayedFailed.metrics.complete && deriveAttemptMetricTotals(replayedFailed.metrics).costUsd === 0.18, "serialized partial failed-attempt metrics did not round-trip conservatively");
+const filteredPartialCase = originalLaunch("filtered-partial", assignment);
+const filteredEvidence = genericEvidence(filteredPartialCase.allocation.attemptId);
+for (const turnEvidence of filteredEvidence.turns) {
+  turnEvidence.tier = filteredPartialCase.allocation.assignment.tier;
+  turnEvidence.provider = filteredPartialCase.allocation.assignment.provider;
+  turnEvidence.model = filteredPartialCase.allocation.assignment.model;
+}
+filteredEvidence.turns[1].totalTokens--;
+const filteredMetrics = correlateAttemptMetrics(filteredEvidence);
+assert(!filteredMetrics.ok && !filteredMetrics.partialMetrics.complete, "filtered partial fixture unexpectedly correlated");
+const filteredPartialOutcome = completeAttempt(filteredPartialCase.allocation, { startedAt: accepted.startedAt, finishedAt: accepted.finishedAt, terminalFact: { stage: "metrics", code: "usage-mismatch" }, state: filteredPartialCase.state, fallbackAllowed: true, metrics: filteredMetrics.partialMetrics });
+const replayedFilteredPartial = parseAttemptOutcome(JSON.parse(JSON.stringify(filteredPartialOutcome)));
+assert(!replayedFilteredPartial.metrics.complete && deriveAttemptMetricTotals(replayedFilteredPartial.metrics).costUsd === 0.06, "filtered partial metrics became complete or lost observed cost during replay");
 for (const diagnostic of ["429", "503", "network", "crash", "authentication failed", "quota exhausted"]) {
   const proseCase = originalLaunch(`prose-${diagnostic.replace(/\W+/g, "-")}`, assignment);
   const proseOutcome = finishAttempt(proseCase.allocation, proseCase.state, { stage: "process", code: "nonzero", exitCode: 1, durationMs: 100 }, { diagnostic });

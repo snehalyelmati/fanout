@@ -257,7 +257,7 @@ export default async function (pi: ExtensionAPI) {
 		agentStarted = undefined;
 
 		const finishedFanoutPlan = pendingFanoutPlan;
-		const phaseTurnStarted = startedFanoutPlan?.runId === finishedFanoutPlan?.runId && startedFanoutPlan?.phase === finishedFanoutPlan?.phase;
+		const phaseTurnStarted = finishedFanoutPlan !== undefined && startedFanoutPlan?.runId === finishedFanoutPlan.runId && startedFanoutPlan.phase === finishedFanoutPlan.phase;
 		const expectedSubmissionPath = finishedFanoutPlan?.phase === "implementation" ? finishedFanoutPlan.implementationPlanPath : finishedFanoutPlan?.implementationDetailsPath;
 		const phaseSubmitted = phaseTurnStarted && finishedFanoutPlan?.acceptedSubmission?.runId === finishedFanoutPlan.runId && finishedFanoutPlan.acceptedSubmission.phase === finishedFanoutPlan.phase && finishedFanoutPlan.acceptedSubmission.path === expectedSubmissionPath;
 		startedFanoutPlan = undefined;

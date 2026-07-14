@@ -218,7 +218,7 @@ function parseTurn(value: unknown, index: number, errors: MetricIssue[]): TurnMe
 		responseIds: identities(record.responseIds, `${path}.responseIds`, errors),
 		toolCallIds: identities(record.toolCallIds, `${path}.toolCallIds`, errors),
 	};
-	if (result.totalTokens !== result.inputTokens + result.outputTokens) add(errors, "usage-mismatch", `${path}.totalTokens`, "totalTokens must equal inputTokens + outputTokens");
+	if (result.totalTokens < result.inputTokens + result.outputTokens) add(errors, "usage-mismatch", `${path}.totalTokens`, "totalTokens must be at least inputTokens + outputTokens");
 	return errors.length === before ? [result] : [];
 }
 
@@ -242,7 +242,7 @@ function parseResponse(value: unknown, index: number, errors: MetricIssue[]): Re
 		costUsd: parseNonNegativeNumber(record.costUsd, `${path}.costUsd`, errors),
 		pricingSource: identity(record.pricingSource, `${path}.pricingSource`, errors),
 	};
-	if (result.totalTokens !== result.inputTokens + result.outputTokens) add(errors, "usage-mismatch", `${path}.totalTokens`, "totalTokens must equal inputTokens + outputTokens");
+	if (result.totalTokens < result.inputTokens + result.outputTokens) add(errors, "usage-mismatch", `${path}.totalTokens`, "totalTokens must be at least inputTokens + outputTokens");
 	return errors.length === before ? [result] : [];
 }
 
