@@ -9,6 +9,8 @@ This is read-only Phase B. Read the controller-provided accepted plan and inspec
 
 Phase B is already active. `implementationDetailsPath` is the controller-owned output destination, not an input or prerequisite; it may be absent before the initial submission. `active-packet.json` is published only after this submission; do not read it. Use the accepted plan embedded in Phase B input, inspect repository files, and submit the grounding body now.
 
+Do not add a `final-validation` item. `finalValidationCommands` is the sole input for the compiler-owned final-validation node.
+
 Submit only:
 
 ```json

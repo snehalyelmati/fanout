@@ -45,6 +45,15 @@ assert(validateImplementationDetailsArtifact(details, { planIdentity, planIds: [
 assert(!validateImplementationPlan({ ...plan, version: 1 }).ok, "legacy plan v1 admitted");
 assert(!validateImplementationDetailsArtifact({ ...details, version: 2 }, { planIdentity }).ok, "legacy details v2 admitted");
 assert(!validateImplementationDetailsArtifact({ ...details, plan: { ...planIdentity, sha256: "2".repeat(64) } }, { planIdentity }).ok, "mixed plan/details identity admitted");
+const duplicateFinalValidation = validateImplementationDetailsArtifact({
+  ...details,
+  items: [...details.items, {
+    id: "final-validation", kind: "final-validation", changes: [],
+    readDependencies: [{ resource: { kind: "file", path: "src/feature.ts" }, timing: "post-change-required", timingSource: "phase-b", sourcePlanIds: ["feature"], reason: "integrated validation input" }],
+    forbiddenWrites: [], validationCommands: [command], advisoryNotes: [],
+  }],
+}, { planIdentity, planIds: ["feature"] });
+assert(!duplicateFinalValidation.ok && duplicateFinalValidation.errors.some((error) => error.includes("finalValidationCommands")), "duplicate Phase B final-validation authority was admitted");
 
 const runtimePolicy = { maxConcurrency: 2, failFast: false, fallbackAllowed: true };
 const compiled = compileExecutionPacket({ implementationPlan: plan, implementationDetails: details, planIdentity, detailsIdentity, tierPlan, runtimePolicy, createdAt: "2026-07-14T00:02:00.000Z" });

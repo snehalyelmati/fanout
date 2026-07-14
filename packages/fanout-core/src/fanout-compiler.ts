@@ -4,6 +4,7 @@ import { parseValidationCommands } from "./validation-command.ts";
 import { compileWorkContracts, type GroundedWorkInput, type PlannedWorkSource } from "./work-contract-compiler.ts";
 import { derivePreferredTier, deriveTierAssignment, validateExecutionPacket, EXECUTION_PACKET_SCHEMA, EXECUTION_PACKET_VERSION, type FanoutExecutionPacket, type FanoutRuntimePolicy, type FanoutTierPlan, type FanoutPacketNode, type WorkUnitKind } from "./execution-packet.ts";
 import { FIXED_WORKER_CAPABILITIES, WORK_CONTRACT_SCHEMA, WORK_CONTRACT_VERSION, validateWorkContract, type AdvisoryNote, type ChangeIntent, type ForbiddenWrite, type WorkContractIssue, type WorkReadDependency } from "./work-contract.ts";
+import { FINAL_VALIDATION_NODE_ID } from "./work-contract-graph.ts";
 
 export const IMPLEMENTATION_PLAN_SCHEMA = "fanout.implementation-plan";
 export const IMPLEMENTATION_PLAN_VERSION = 2;
@@ -167,6 +168,10 @@ function detailItem(value: unknown, index: number, planIds: Set<string>, errors:
 	unknown(value, DETAIL_ITEM_FIELDS, path, errors);
 	const id = canonical(value.id, `${path}.id`, errors);
 	const kind = canonical(value.kind, `${path}.kind`, errors);
+	if (id === FINAL_VALIDATION_NODE_ID || kind === "final-validation") {
+		errors.push(`${path} must omit reserved final-validation work; use top-level finalValidationCommands`);
+		return [];
+	}
 	const detailNotes = notes(value.advisoryNotes, `${path}.advisoryNotes`, errors, "phase-b");
 	const admitted = validateWorkContract({
 		schema: WORK_CONTRACT_SCHEMA,
