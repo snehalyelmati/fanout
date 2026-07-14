@@ -27,6 +27,7 @@ import {
 	AcceptedTransitionProcessError,
   AmbiguousApplyError,
   applyAcceptedTransition,
+  applyRepairSeedOverlay,
   capturePatchCandidate,
   capturePlanningBase,
   fullGitVisibleTree,
@@ -42,9 +43,42 @@ try {
   runPlanningBaseChecks();
   runA8();
   runTypedApplyFailures();
+  runRepairSeedOverlay();
   console.log("artifact identity smoke passed (A4, A5, A8)");
 } finally {
   rmSync(root, { recursive: true, force: true });
+}
+
+function runRepairSeedOverlay() {
+  const source = join(root, "repair-seed-source");
+  const artifacts = join(root, "repair-seed-artifacts");
+  initRepo(source);
+  writeFileSync(join(source, "seed.txt"), "zero\n");
+  writeFileSync(join(source, "sibling.txt"), "zero\n");
+  git(source, ["add", "."]);
+  git(source, ["commit", "-m", "repair seed base"]);
+  writeFileSync(join(source, "planning-untracked.txt"), "planning base\n");
+  const base = capturePlanningBase(source);
+
+  writeFileSync(join(source, "seed.txt"), "candidate\n");
+  const seed = capturePatchCandidate(source, base, artifacts, "attempts/seed.patch");
+  writeFileSync(join(source, "seed.txt"), "zero\n");
+  writeFileSync(join(source, "sibling.txt"), "accepted\n");
+  const sibling = capturePatchCandidate(source, base, artifacts, "attempts/sibling.patch");
+
+  const repair = checkoutAt("repair-seed-overlay", source, base.headCommit);
+  applyAcceptedTransition(repair, artifacts, { patch: sibling });
+  expectThrows(() => applyAcceptedTransition(repair, artifacts, { patch: seed }), "strict accepted transition admitted a stale whole-tree repair seed");
+  applyRepairSeedOverlay(repair, artifacts, { patch: seed });
+  assert(readFileSync(join(repair, "seed.txt"), "utf8") === "candidate\n" && readFileSync(join(repair, "sibling.txt"), "utf8") === "accepted\n", "repair seed overlay lost the seed or disjoint accepted change");
+  const composed = capturePatchCandidate(repair, { headCommit: base.headCommit, tree: sibling.resultTree }, artifacts, "attempts/composed.patch");
+  assert(composed.changedPaths.join(",") === "seed.txt", `repair seed overlay recaptured disjoint accepted paths: ${composed.changedPaths}`);
+
+  const conflict = checkoutAt("repair-seed-conflict", source, base.headCommit);
+  writeFileSync(join(conflict, "seed.txt"), "parallel\n");
+  const conflictTree = fullGitVisibleTree(conflict);
+  expectThrows(() => applyRepairSeedOverlay(conflict, artifacts, { patch: seed }), "repair seed overlay replaced a concurrently changed owned path");
+  assert(fullGitVisibleTree(conflict) === conflictTree, "rejected repair seed overlay mutated the conflicting worktree");
 }
 
 function runTypedApplyFailures() {

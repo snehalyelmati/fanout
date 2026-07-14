@@ -81,7 +81,7 @@ if (process.env.FANOUT_RUN_ID === "provider-abort") {
   appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_error", runId: process.env.DOUBLEWORD_RUN_ID, provider, model, turnIndex: 0, responseId: "response-1", failureCode: "abort" }) + "\\n");
   process.exit(1);
 }
-if (process.env.FANOUT_RUN_ID !== "post-worker-abort" && process.env.FANOUT_WORKER_DIR.endsWith("001-original")) {
+if (!['post-worker-abort', 'repair-overlay'].includes(process.env.FANOUT_RUN_ID) && process.env.FANOUT_WORKER_DIR.endsWith("001-original")) {
   appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_error", runId: process.env.DOUBLEWORD_RUN_ID, provider, model, turnIndex: 0, responseId: "response-1", failureCode: "rate-limit", httpStatus: 429 }) + "\\n");
   process.exit(1);
 }
@@ -171,6 +171,37 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   catch (error) { postWorkerRejected = error?.name === "AbortError"; }
   finally { postWorkerExecutor.cleanupWorktrees(); }
   assert(postWorkerRejected && postWorkerAllocations.length === 1 && postWorkerCompletions.length === 1 && postWorkerCompletions[0].action === "abort" && postWorkerCompletions[0].attemptId === postWorkerAllocations[0].attemptId, "abort after successful worker launch stranded its allocation before the gate");
+
+  const repairPrimary = structuredClone(compiled.packet.nodes[0]);
+  repairPrimary.workContract.validationCommands = [{ executable: process.execPath, args: ["-e", `const fs = require('node:fs'); const deadline = Date.now() + 5000; while (!fs.existsSync(${JSON.stringify(join(repo, "y.ts"))})) { if (Date.now() >= deadline) process.exit(2); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10); } if (fs.readFileSync('x.ts','utf8') !== 'export const x = 1;\\n') process.exit(1)`] }];
+  const repairSibling = structuredClone(compiled.packet.nodes[0]);
+  repairSibling.id = "y";
+  repairSibling.workContract.goals = repairSibling.workContract.goals.map((goal) => ({ ...goal, sourcePlanId: "y" }));
+  repairSibling.workContract.semanticReviewCriteria = repairSibling.workContract.semanticReviewCriteria.map((criterion) => ({ ...criterion, sourcePlanId: "y" }));
+  repairSibling.workContract.changes = repairSibling.workContract.changes.map((change) => ({ ...change, target: { ...change.target, resource: { kind: "file", path: "y.ts" }, sourcePlanIds: ["y"] } }));
+  repairSibling.workContract.validationCommands = [{ executable: process.execPath, args: ["-e", "if (require('node:fs').readFileSync('y.ts','utf8') !== 'export const x = 0;\\n') process.exit(1)"] }];
+  const repairPacket = { ...compiled.packet, nodes: [repairPrimary, repairSibling, compiled.packet.nodes.at(-1)] };
+  const repairCompletions = [];
+  const repairExecutor = createFanoutNodeExecutor({
+    packet: repairPacket,
+    packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(repairPacket)),
+    repoRoot: repo,
+    runDir: join(runDir, "executions", "repair-overlay"),
+    runId: "repair-overlay",
+    extensionEntry: "packages/fanout-pi/src/index.ts",
+    piCommand: fakePi,
+    validationTimeoutMs: 10_000,
+    recorder: { async recordAttemptAllocated() {}, async recordAttemptCompleted(outcome, acceptedTransition) { repairCompletions.push({ outcome, acceptedTransition }); }, async flush() {} },
+  });
+  let repairResults;
+  try { repairResults = await Promise.all([repairExecutor.runNode(repairPrimary), repairExecutor.runNode(repairSibling)]); }
+  finally { repairExecutor.cleanupWorktrees(); }
+  const repairAccepted = repairCompletions.filter((entry) => entry.acceptedTransition);
+  assert(repairResults.every((result) => result.ok) && repairAccepted.length === 2 && repairAccepted[0].outcome.nodeId === "y" && repairAccepted[1].outcome.nodeId === "x" && repairAccepted[1].acceptedTransition.patch.baseTree === repairAccepted[0].acceptedTransition.patch.resultTree, "validation repair did not rebase its verified seed over the disjoint concurrently accepted tree");
+  assert(!repairCompletions.some(({ outcome }) => outcome.terminalFact.stage === "process" && outcome.terminalFact.code === "infrastructure-failure"), "validation repair seed overlay failed before model work");
+  rmSync(join(repo, "x.ts"), { force: true });
+  rmSync(join(repo, "y.ts"), { force: true });
+  assert(fullGitVisibleTree(repo) === base.tree, "repair seed overlay fixture did not restore the planning tree");
 
   const providerAbort = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: () => true, piCommand: fakePi, runId: "provider-abort", workerTimeoutMs: 10_000, validationTimeoutMs: 10_000 });
   const abortCause = providerAbort.snapshot.terminalOutcome.cause;

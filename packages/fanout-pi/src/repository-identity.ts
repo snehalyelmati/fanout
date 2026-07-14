@@ -152,6 +152,25 @@ export function applyAcceptedTransition(
 	return transition;
 }
 
+export function applyRepairSeedOverlay(repoRoot: string, artifactRoot: string, value: unknown): void {
+	let bytes: Buffer;
+	try {
+		const { patch } = parseAcceptedStateTransition(value);
+		const before = captureRepositoryState(repoRoot);
+		if (before.headCommit !== patch.headCommit) throw new Error(`repair seed HEAD mismatch: expected ${patch.headCommit}, got ${before.headCommit}`);
+		if (!before.indexMatchesHead) throw new Error("repair seed index diverges from HEAD");
+		bytes = readVerifiedArtifact(artifactRoot, patch.artifact);
+	} catch (error) {
+		if (error instanceof AcceptedTransitionIdentityError) throw error;
+		throw new AcceptedTransitionIdentityError(errorMessage(error), { cause: error });
+	}
+	if (bytes.byteLength === 0) return;
+	try { git(repoRoot, ["apply", "--check", "--binary", "-"], undefined, bytes); }
+	catch (error) { throw transitionProcessError("check", error); }
+	try { git(repoRoot, ["apply", "--binary", "-"], undefined, bytes); }
+	catch (error) { throw transitionProcessError("apply", error); }
+}
+
 export function replayAcceptedTransitions(repoRoot: string, artifactRoot: string, values: readonly unknown[]): AcceptedStateTransition[] {
 	return values.map((value) => applyAcceptedTransition(repoRoot, artifactRoot, value));
 }

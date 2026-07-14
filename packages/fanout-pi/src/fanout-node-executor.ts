@@ -36,6 +36,7 @@ import {
 	AcceptedTransitionProcessError,
 	AmbiguousApplyError,
 	applyAcceptedTransition,
+	applyRepairSeedOverlay,
 	capturePatchCandidate,
 	createReconstructedWorktree,
 	fullGitVisibleTree,
@@ -338,7 +339,7 @@ export class FanoutNodeExecutor {
 			this.#worktrees.add(worktreePath);
 			const attemptBase = createReconstructedWorktree(this.#repoRoot, worktreePath, this.#planningBase, this.#runDir, ledger);
 			if (seedPatch) {
-				applyAcceptedTransition(worktreePath, this.#runDir, seedPatch);
+				applyRepairSeedOverlay(worktreePath, this.#runDir, seedPatch);
 			}
 			prepareSharedWorktreePaths(this.#repoRoot, worktreePath, this.#worktreeSharedPaths);
 
