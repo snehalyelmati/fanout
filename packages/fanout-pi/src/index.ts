@@ -61,6 +61,9 @@ export default async function (pi: ExtensionAPI) {
 		pendingFanoutPlan = undefined;
 		startedFanoutPlan = undefined;
 	};
+	const startPlanningTurn = (state: FanoutPhaseState, message: string) => setTimeout(() => {
+		if (pendingFanoutPlan?.runId === state.runId && pendingFanoutPlan.phase === state.phase && pendingFanoutPlan.systemPrompt) pi.sendUserMessage(message);
+	}, 0);
 
 	setDoublewordRunId(RUN_ID);
 	configureMainObservability(fanoutRuntimeContext(process.cwd(), undefined, undefined));
@@ -225,7 +228,7 @@ export default async function (pi: ExtensionAPI) {
 			planningToolsBefore = activatePlanningTools(pi);
 		}
 		return {
-			systemPrompt: phasePrompt ? `${runtimePrompt}\n\n${phasePrompt}` : runtimePrompt,
+			systemPrompt: phasePrompt ? `${batchingPrompt}\n\n${phasePrompt}` : runtimePrompt,
 		};
 	});
 
@@ -293,7 +296,7 @@ export default async function (pi: ExtensionAPI) {
 			pendingFanoutPlan = { ...detailsState, systemPrompt };
 			writeJsonl("fanout_required_read_classifications", { planRunId: finishedFanoutPlan.runId, phase: "implementation", objective: planObjective, artifactDir: finishedFanoutPlan.artifactDir, count: requiredReadClassifications.length, requiredReadClassifications }, ctx.cwd);
 			ctx.ui.notify("Implementation plan validated; grounding edit details.", "info");
-			pi.sendUserMessage(`Continue Fanout planning details for: ${planObjective}`, { deliverAs: "followUp" });
+			startPlanningTurn(pendingFanoutPlan, `Continue Fanout planning details for: ${planObjective}`);
 		} else if (finishedFanoutPlan?.phase === "details") {
 			if (!phaseSubmitted) {
 				if (!phaseTurnStarted) return;
@@ -334,7 +337,7 @@ export default async function (pi: ExtensionAPI) {
 					pendingFanoutPlan = { ...finishedFanoutPlan, systemPrompt, acceptedSubmission: undefined, repairAttempted: true };
 					writeJsonl("fanout_compiler_repair_requested", { planRunId: finishedFanoutPlan.runId, phase: "details", artifactDir: finishedFanoutPlan.artifactDir, issues: compiled.issues }, ctx.cwd);
 					ctx.ui.notify("Fanout compiler found ambiguous read overlaps; repairing implementation details.", "info");
-					pi.sendUserMessage(`Repair Fanout planning details for: ${finishedFanoutPlan.objective}`, { deliverAs: "followUp" });
+					startPlanningTurn(pendingFanoutPlan, `Repair Fanout planning details for: ${finishedFanoutPlan.objective}`);
 					return;
 				}
 				if (!compiled.ok || !compiled.packet) {

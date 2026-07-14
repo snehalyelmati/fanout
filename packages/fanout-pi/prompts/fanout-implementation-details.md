@@ -7,6 +7,8 @@ Ground the verified Phase A plan for: $ARGUMENTS
 
 This is read-only Phase B. Read the controller-provided accepted plan and inspect stable anchors. Submit exactly one grounding body with `fanout_submit_artifact`. The controller supplies schema/version, identity, time, exact plan identity, and destination.
 
+Phase B is already active. `implementationDetailsPath` is the expected-absent output destination, not an input or prerequisite. `active-packet.json` is published only after this submission; do not read it. Use the accepted plan embedded in Phase B input, inspect repository files, and submit the grounding body now.
+
 Submit only:
 
 ```json

@@ -159,6 +159,7 @@ async function testPlanningLifecycle() {
     }
     if (scenario === "cancellation") harness.handler("session_shutdown")({}, harness.ctx);
     else harness.handler("agent_end")({}, harness.ctx);
+    await new Promise((resolve) => setTimeout(resolve, 0));
     assert(JSON.stringify(harness.activeTools) === JSON.stringify(baseTools), `${scenario}: exact prior profile was not restored`);
     if (scenario === "unsubmitted-file") assert(harness.messages.length === 1, "an unsubmitted Phase A file advanced planning");
     if (scenario === "failure") assert(!existsSync(harness.activePointerPath) && harness.notifications.some((entry) => entry.message.includes("prior active packet selection remains invalidated")), "planning failure contradicted or recreated the invalidated active selection");
@@ -170,7 +171,7 @@ async function testPlanningLifecycle() {
 
     if (scenario === "mutated-details-submission") {
       const phaseBPrompt = harness.messages.at(-1);
-      assert(phaseBPrompt.options?.deliverAs === "followUp", "queued Phase A did not enqueue Phase B for the details mutation regression");
+      assert(phaseBPrompt.options === undefined, "Phase B was queued inside agent_end and bypassed before_agent_start");
       before({ prompt: phaseBPrompt.content, systemPrompt: "base" }, harness.ctx);
       assert(JSON.stringify(harness.activeTools) === JSON.stringify(FANOUT_PLANNING_TOOLS), "details mutation regression did not activate the Phase B profile");
       await harness.submit.execute("submit", { artifact: validDetails() }, undefined, undefined, harness.ctx);
@@ -184,8 +185,10 @@ async function testPlanningLifecycle() {
 
     if (scenario === "queued-transition") {
       const phaseBPrompt = harness.messages.at(-1);
-      assert(phaseBPrompt.options?.deliverAs === "followUp", "queued Phase A did not enqueue Phase B");
-      before({ prompt: phaseBPrompt.content, systemPrompt: "base" }, harness.ctx);
+      assert(phaseBPrompt.options === undefined, "Phase B was queued inside agent_end and bypassed before_agent_start");
+      const phaseBStarted = before({ prompt: phaseBPrompt.content, systemPrompt: "base" }, harness.ctx);
+      assert(!phaseBStarted.systemPrompt.includes(harness.activePointerPath), "Phase B exposed the unpublished active packet as apparent input");
+      assert(phaseBStarted.systemPrompt.includes("expected-absent output destination") && phaseBStarted.systemPrompt.includes("submit the grounding body now"), "Phase B did not distinguish its output from prerequisites");
       assert(JSON.stringify(harness.activeTools) === JSON.stringify(FANOUT_PLANNING_TOOLS), "queued Phase B profile was not activated");
       harness.handler("session_before_switch")({}, harness.ctx);
       assert(JSON.stringify(harness.activeTools) === JSON.stringify(baseTools), "session switch did not restore the queued Phase B profile");
