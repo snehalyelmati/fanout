@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 export const FANOUT_PLAN_REPORT_ENTRY = "fanout.planning-report";
 export const FANOUT_EXECUTION_REPORT_ENTRY = "fanout.execution-report";
@@ -36,7 +36,7 @@ export function appendFanoutReport(
 function reportRenderer(schema: FanoutReportData["schema"]) {
 	return (entry: { data?: unknown }) => {
 		const data = parseFanoutReportData(entry.data, schema);
-		return { render: (width: number) => wrapTextWithAnsi(data.content, Math.max(1, width)), invalidate() {} };
+		return { render: (width: number) => width <= 0 ? [""] : wrapTextWithAnsi(data.content, width).map((line) => truncateToWidth(line, width, "")), invalidate() {} };
 	};
 }
 

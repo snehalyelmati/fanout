@@ -100,6 +100,10 @@ function testReportPresentation() {
   assert(registrations[0].renderer({ data: entries[0].data }).render(80).join("\n").includes("PRIVATE_REPORT"), "renderer did not use entry.data");
   const narrowLines = registrations[0].renderer({ data: { ...entries[0].data, content: `Objective: ${"abort scheduling cleanup ".repeat(20)}` } }).render(40);
   assert(narrowLines.length > 1 && narrowLines.every((line) => visibleWidth(line) <= 40), "planning report renderer exceeded Pi's render width");
+  for (const { width, content } of [{ width: 0, content: "zero" }, { width: 1, content: "✅" }]) {
+    const lines = registrations[0].renderer({ data: { ...entries[0].data, content } }).render(width);
+    assert(lines.every((line) => visibleWidth(line) <= width), `planning report renderer exceeded edge width ${width}`);
+  }
   for (const invalid of [
     undefined,
     { schema: FANOUT_PLAN_REPORT_ENTRY, version: 1 },
