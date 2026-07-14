@@ -26,6 +26,27 @@ const plan = {
 const planBytes = Buffer.from(`${JSON.stringify(plan, null, 2)}\n`);
 const planIdentity = artifactIdentity("implementation-plan.json", planBytes);
 const command = { executable: "rtk", args: ["npm", "run", "check"] };
+
+const reservedFinalPlan = structuredClone(plan);
+reservedFinalPlan.implementationItems.push({
+  ...structuredClone(plan.implementationItems[0]),
+  id: "final-validation",
+  writeResources: [],
+  readResources: structuredClone(plan.implementationItems[0].writeResources),
+});
+const reservedFinalPlanResult = validateImplementationPlan(reservedFinalPlan);
+assert(!reservedFinalPlanResult.ok && reservedFinalPlanResult.errors.some((error) => error.includes("finalValidationCommands")), "reserved Phase A final-validation authority was admitted");
+
+const packetGlobalForbiddenPlan = structuredClone(plan);
+packetGlobalForbiddenPlan.implementationItems.push({
+  ...structuredClone(plan.implementationItems[0]),
+  id: "feature-tests",
+  writeResources: [{ kind: "file", path: "test/feature.test.ts" }],
+  forbiddenWrites: [{ resource: { kind: "file", path: "src/feature.ts" }, reason: "The test worker must not repair implementation." }],
+});
+const packetGlobalForbiddenResult = validateImplementationPlan(packetGlobalForbiddenPlan);
+assert(!packetGlobalForbiddenResult.ok && packetGlobalForbiddenResult.errors.some((error) => error.includes("packet-global") && error.includes("worker ownership")), "Phase A admitted a forbidden write that cancels another item's write authority");
+
 const details = {
   schema: "fanout.implementation-details", version: IMPLEMENTATION_DETAILS_VERSION, detailsId: "plan-1", createdAt: "2026-07-14T00:01:00.000Z", plan: planIdentity,
   items: [{

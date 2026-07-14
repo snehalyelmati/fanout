@@ -127,6 +127,11 @@ function parsePlan(value: unknown, errors: string[]): ImplementationPlan | undef
 	const implementationItems = Array.isArray(value.implementationItems) ? value.implementationItems.flatMap((item, index) => planItem(item, index, errors)) : (errors.push("implementationItems must be an array"), []);
 	if (!implementationItems.length) errors.push("implementationItems must not be empty");
 	if (new Set(implementationItems.map((item) => item.id)).size !== implementationItems.length) errors.push("implementation item ids must be unique");
+	for (const [itemIndex, item] of implementationItems.entries()) for (const [forbiddenIndex, forbidden] of item.forbiddenWrites.entries()) {
+		if (implementationItems.some((candidate) => candidate.writeResources.some((resource) => resourcesOverlap(resource, forbidden.resource)))) {
+			errors.push(`implementationItems[${itemIndex}].forbiddenWrites[${forbiddenIndex}] overlaps planned write authority; forbiddenWrites are packet-global and worker ownership is already defined by writeResources`);
+		}
+	}
 	return planningHost && planningBase ? { schema: IMPLEMENTATION_PLAN_SCHEMA, version: IMPLEMENTATION_PLAN_VERSION, planId, createdAt: created, planningHost, planningBase, objective, userContext, discoveredRepoFacts, assumptions, implementationItems } : undefined;
 }
 
@@ -135,6 +140,10 @@ function planItem(value: unknown, index: number, errors: string[]): PlannedWorkS
 	if (!record(value)) { errors.push(`${path} must be an object`); return []; }
 	unknown(value, PLAN_ITEM_FIELDS, path, errors);
 	const id = canonical(value.id, `${path}.id`, errors);
+	if (id === FINAL_VALIDATION_NODE_ID) {
+		errors.push(`${path} must omit reserved final-validation work; Phase B finalValidationCommands create the compiler-owned node`);
+		return [];
+	}
 	const goals = strings(value.goals, `${path}.goals`, errors);
 	const writeResources = resources(value.writeResources, `${path}.writeResources`, errors);
 	const readResources = resources(value.readResources, `${path}.readResources`, errors);
