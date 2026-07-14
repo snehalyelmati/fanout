@@ -171,7 +171,7 @@ async function testPlanningLifecycle() {
 
     if (scenario === "mutated-details-submission") {
       const phaseBPrompt = harness.messages.at(-1);
-      assert(phaseBPrompt.options === undefined, "Phase B was queued inside agent_end and bypassed before_agent_start");
+      assert(harness.messages.length === 2 && phaseBPrompt.options === undefined && !phaseBPrompt.queuedWhileStreaming, "Phase B was queued inside agent_end and bypassed before_agent_start");
       before({ prompt: phaseBPrompt.content, systemPrompt: "base" }, harness.ctx);
       assert(JSON.stringify(harness.activeTools) === JSON.stringify(FANOUT_PLANNING_TOOLS), "details mutation regression did not activate the Phase B profile");
       await harness.submit.execute("submit", { artifact: validDetails() }, undefined, undefined, harness.ctx);
@@ -185,10 +185,10 @@ async function testPlanningLifecycle() {
 
     if (scenario === "queued-transition") {
       const phaseBPrompt = harness.messages.at(-1);
-      assert(phaseBPrompt.options === undefined, "Phase B was queued inside agent_end and bypassed before_agent_start");
+      assert(harness.messages.length === 2 && phaseBPrompt.options === undefined && !phaseBPrompt.queuedWhileStreaming, "Phase B was queued inside agent_end and bypassed before_agent_start");
       const phaseBStarted = before({ prompt: phaseBPrompt.content, systemPrompt: "base" }, harness.ctx);
       assert(!phaseBStarted.systemPrompt.includes(harness.activePointerPath), "Phase B exposed the unpublished active packet as apparent input");
-      assert(phaseBStarted.systemPrompt.includes("expected-absent output destination") && phaseBStarted.systemPrompt.includes("submit the grounding body now"), "Phase B did not distinguish its output from prerequisites");
+      assert(phaseBStarted.systemPrompt.includes("controller-owned output destination") && phaseBStarted.systemPrompt.includes("submit the grounding body now"), "Phase B did not distinguish its output from prerequisites");
       assert(JSON.stringify(harness.activeTools) === JSON.stringify(FANOUT_PLANNING_TOOLS), "queued Phase B profile was not activated");
       harness.handler("session_before_switch")({}, harness.ctx);
       assert(JSON.stringify(harness.activeTools) === JSON.stringify(baseTools), "session switch did not restore the queued Phase B profile");
@@ -202,6 +202,7 @@ async function extensionHarness(extension, scenario, queued, modelAvailable = tr
   const tools = new Map();
   const messages = [];
   const notifications = [];
+  let streaming = false;
   const pi = {
     activeTools: ["read", "bash", "extension_tool"],
     on: (event, handler) => handlers.set(event, handler),
@@ -213,7 +214,10 @@ async function extensionHarness(extension, scenario, queued, modelAvailable = tr
     getActiveTools() { return [...this.activeTools]; },
     setActiveTools(value) { this.activeTools = [...value]; },
     getThinkingLevel: () => "low",
-    sendUserMessage: (content, options) => messages.push({ content, options }),
+    sendUserMessage: (content, options) => {
+      if (streaming && options?.deliverAs !== "followUp") return;
+      messages.push({ content, options, queuedWhileStreaming: streaming });
+    },
   };
   process.env.FANOUT_ARTIFACT_DIR = join(root, "extension-artifacts");
   await extension(pi);
@@ -239,7 +243,15 @@ async function extensionHarness(extension, scenario, queued, modelAvailable = tr
   return {
     get activeTools() { return pi.activeTools; },
     messages, notifications, activePointerPath, ctx, submit: tools.get("fanout_submit_artifact"),
-    handler(event) { const value = handlers.get(event); if (!value) throw new Error(`missing ${event} handler`); return value; },
+    handler(event) {
+      const value = handlers.get(event);
+      if (!value) throw new Error(`missing ${event} handler`);
+      if (event !== "agent_end") return value;
+      return (...args) => {
+        streaming = true;
+        try { return value(...args); } finally { streaming = false; }
+      };
+    },
   };
 }
 
