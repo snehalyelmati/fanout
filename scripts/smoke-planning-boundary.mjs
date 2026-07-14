@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import {
   activatePlanningTools,
   FANOUT_PLANNING_TOOLS,
@@ -96,7 +97,9 @@ function testReportPresentation() {
   appendFanoutReport(safe, true, { kind: "execution", reportPath });
   assert(entries.length === 2 && entries.every((entry) => entry.data.content === "PRIVATE_REPORT\n"), "report entries did not retain artifact-derived data");
   assert(JSON.stringify(entries.map((entry) => [entry.type, entry.data.schema, Object.keys(entry.data).sort()])) === JSON.stringify([[FANOUT_PLAN_REPORT_ENTRY, "fanout.planning-report", ["content", "schema", "version"]], [FANOUT_EXECUTION_REPORT_ENTRY, "fanout.execution-report", ["content", "schema", "version"]]]), "report entries were not the two closed presentation-only v1 schemas");
-  assert(registrations[0].renderer({ data: entries[0].data }).render().join("\n").includes("PRIVATE_REPORT"), "renderer did not use entry.data");
+  assert(registrations[0].renderer({ data: entries[0].data }).render(80).join("\n").includes("PRIVATE_REPORT"), "renderer did not use entry.data");
+  const narrowLines = registrations[0].renderer({ data: { ...entries[0].data, content: `Objective: ${"abort scheduling cleanup ".repeat(20)}` } }).render(40);
+  assert(narrowLines.length > 1 && narrowLines.every((line) => visibleWidth(line) <= 40), "planning report renderer exceeded Pi's render width");
   for (const invalid of [
     undefined,
     { schema: FANOUT_PLAN_REPORT_ENTRY, version: 1 },

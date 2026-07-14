@@ -20,7 +20,7 @@ customType: fanout.execution-report
 data: { schema: "fanout.execution-report", version: 1, content: string }
 ```
 
-Each renderer is registered for one matching custom type. It accepts only the three own data fields `schema`, `version`, and `content`; requires the matching schema and version `1`; and rejects missing, legacy, future, unknown-field, non-string, and cross-type input. The data is presentation-only: planning Markdown derives from packet v5, while execution Markdown derives from projection v2 and the event-v1 log remains run-state authority.
+Each renderer is registered for one matching custom type. It accepts only the three own data fields `schema`, `version`, and `content`; requires the matching schema and version `1`; and rejects missing, legacy, future, unknown-field, non-string, and cross-type input. At render time it wraps the unchanged content to Pi's supplied component width with Pi's ANSI-aware text utility, because every returned TUI line must fit that width. The data is presentation-only: planning Markdown derives from packet v5, while execution Markdown derives from projection v2 and the event-v1 log remains run-state authority.
 
 If either safe API is absent, registration throws, append throws, or data is malformed, Fanout does not fall back to `sendMessage`, `sendUserMessage`, a tool result, or `before_agent_start.message`. Artifact creation and the model-context boundary remain separate concerns.
 
@@ -30,6 +30,7 @@ The installed Pi runtime and documentation agree on the boundary:
 
 - `appendEntry` creates a persisted `custom` session entry.
 - `registerEntryRenderer` supplies interactive rendering for that custom type.
+- A custom component's `render(width)` output must contain no line wider than `width`; Pi 0.80.6 throws an uncaught TUI error when an extension violates this contract.
 - `sessionEntryToContextMessages()` maps `custom_message` into model context and maps `custom` to no messages.
 - Renderer failures affect display only; they do not turn entry data into provider context.
 - Pi 0.80.4 is the first documented release with the complete entry-renderer surface, but Fanout relies on feature detection rather than a version string.
@@ -65,6 +66,7 @@ Neither rule treats `display`, delivery mode, `triggerTurn`, truncation, or late
 - both exact custom types are registered;
 - appended data contains exactly `schema`, `version`, and `content`;
 - each renderer accepts its matching v1 data and rejects missing, future, unknown-field, and cross-type data;
+- a long report line is wrapped at a narrow supplied width and every rendered line stays within that width;
 - missing, partial, or throwing capabilities fail closed without a context-bearing fallback;
 - TUI, RPC, JSON, and print session-context probes exclude private planning/execution report text and custom types from later provider requests;
 - Phase A and Phase B lifecycle cleanup restores the exact prior tool profile, including malformed accepted bytes.
