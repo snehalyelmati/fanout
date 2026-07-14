@@ -39,6 +39,7 @@ export interface FinalValidationRoundOptions {
 	candidate?: AcceptedStateTransition;
 	timeoutMs?: number;
 	signal?: AbortSignal;
+	prepareWorktree?: (worktreePath: string) => void;
 }
 
 export interface FinalRepairHooks<T> {
@@ -96,6 +97,7 @@ export async function runFinalValidationRound(options: FinalValidationRoundOptio
 	const replay = [...options.ledger, ...(options.candidate ? [options.candidate] : [])];
 	try {
 		createReconstructedWorktree(options.repoRoot, worktreePath, options.planningBase, options.runDir, replay);
+		options.prepareWorktree?.(worktreePath);
 		const validationBefore = captureRepositoryState(worktreePath);
 		const activeBefore = captureRepositoryState(options.repoRoot);
 		const validationReady = matchesExpected(validationBefore, options.planningBase.headCommit, options.expectedValidationTree);

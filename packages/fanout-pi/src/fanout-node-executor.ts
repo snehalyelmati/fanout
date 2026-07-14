@@ -58,6 +58,7 @@ import {
 	retryableProcessFailure,
 	validationFailureEvidence,
 } from "./attempt-evidence.ts";
+import { prepareSharedWorktreePaths } from "./worktree-preparation.ts";
 
 interface WorkerTier {
 	tier: TierName;
@@ -112,6 +113,7 @@ export interface FanoutNodeExecutorOptions {
 	validationTimeoutMs?: number;
 	maxValidationRepairAttempts?: number;
 	maxIntegrationRepairAttempts?: number;
+	worktreeSharedPaths?: readonly string[];
 	afterActiveApply?: () => void;
 }
 
@@ -133,6 +135,7 @@ export class FanoutNodeExecutor {
 	readonly #workerTimeoutMs: number;
 	readonly #validationTimeoutMs: number;
 	readonly #planningBase: PlanningBase;
+	readonly #worktreeSharedPaths: readonly string[];
 	readonly #afterActiveApply?: () => void;
 	#attemptStates = new Map<string, NodeAttemptState>();
 	#outcomes: AttemptOutcome[] = [];
@@ -157,6 +160,7 @@ export class FanoutNodeExecutor {
 		fixedRepairLimit(options.maxValidationRepairAttempts, "maxValidationRepairAttempts");
 		fixedRepairLimit(options.maxIntegrationRepairAttempts, "maxIntegrationRepairAttempts");
 		this.#planningBase = this.#packet.planningBase;
+		this.#worktreeSharedPaths = [...(options.worktreeSharedPaths ?? [])];
 	}
 
 	get manualReconciliationRequired(): boolean { return this.#manualReconciliationRequired; }
@@ -194,6 +198,7 @@ export class FanoutNodeExecutor {
 			expectedValidationTree: initialTree,
 			expectedActiveTree: initialTree,
 			timeoutMs: this.#validationTimeoutMs,
+			prepareWorktree: (worktreePath) => prepareSharedWorktreePaths(this.#repoRoot, worktreePath, this.#worktreeSharedPaths),
 			...(repairUnit && repairContract ? { repair: {
 				packetIdentity: this.#packetIdentity,
 				workContract: repairContract,
@@ -335,6 +340,7 @@ export class FanoutNodeExecutor {
 			if (seedPatch) {
 				applyAcceptedTransition(worktreePath, this.#runDir, seedPatch);
 			}
+			prepareSharedWorktreePaths(this.#repoRoot, worktreePath, this.#worktreeSharedPaths);
 
 			const promptPath = join(attemptDir, "prompt.md");
 		const stdoutPath = join(attemptDir, "stdout.log");

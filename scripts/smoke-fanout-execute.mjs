@@ -19,7 +19,10 @@ try {
   const repo = join(root, "repo"); const artifacts = join(root, "artifacts"); const runDir = join(artifacts, "plan");
   mkdirSync(repo); mkdirSync(runDir, { recursive: true });
   git(repo, ["init", "-q"]); git(repo, ["config", "user.email", "fanout@example.invalid"]); git(repo, ["config", "user.name", "Fanout Test"]);
-  writeFileSync(join(repo, "README.md"), "# Fixture\n"); git(repo, ["add", "README.md"]); git(repo, ["commit", "-qm", "fixture"]);
+  writeFileSync(join(repo, ".gitignore"), ".preinstalled\n");
+  writeFileSync(join(repo, "README.md"), "# Fixture\n"); git(repo, ["add", ".gitignore", "README.md"]); git(repo, ["commit", "-qm", "fixture"]);
+  mkdirSync(join(repo, ".preinstalled"));
+  writeFileSync(join(repo, ".preinstalled", "ready"), "ready\n");
   const base = capturePlanningBase(repo);
   const plan = { schema: "fanout.implementation-plan", version: 2, planId: "p", createdAt: new Date(0).toISOString(), planningHost: { platform: process.platform }, planningBase: base, objective: "Add x", userContext: [], discoveredRepoFacts: [], assumptions: [], implementationItems: [{ id: "x", goals: ["Add x"], writeResources: [{ kind: "file", path: "x.ts" }], readResources: [], forbiddenWrites: [], semanticReviewCriteria: ["x exists"], advisoryNotes: [] }] };
   const planIdentity = artifactIdentity("implementation-plan.json", Buffer.from(JSON.stringify(plan)));
@@ -67,12 +70,13 @@ try {
 
   const fakePi = join(root, "fake-pi.mjs");
   writeFileSync(fakePi, `#!/usr/bin/env node
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 if (process.argv.includes("--version")) { console.log("fake-pi 1.0.0"); process.exit(0); }
 const args = process.argv.slice(2);
 const [provider, ...modelParts] = args[args.indexOf("--model") + 1].split("/");
 const model = modelParts.join("/");
 const usage = { input: 4, output: 2, totalTokens: 6, cost: { total: 0.001 } };
+if (process.env.FANOUT_RUN_ID === "live" && readFileSync(".preinstalled/ready", "utf8") !== "ready\\n") process.exit(9);
 if (process.env.FANOUT_RUN_ID === "provider-abort") {
   appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_error", runId: process.env.DOUBLEWORD_RUN_ID, provider, model, turnIndex: 0, responseId: "response-1", failureCode: "abort" }) + "\\n");
   process.exit(1);
@@ -195,9 +199,11 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   rmSync(join(repo, "raced.ts"), { force: true });
   assert(fullGitVisibleTree(repo) === base.tree, "ambiguous-lock fixture cleanup did not restore the planning base");
 
-  const live = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: () => true, piCommand: fakePi, runId: "live", workerTimeoutMs: 10_000, validationTimeoutMs: 10_000 });
+  let liveConfirmation = "";
+  const live = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: (_title, message) => { liveConfirmation = message; return true; }, piCommand: fakePi, runId: "live", workerTimeoutMs: 10_000, validationTimeoutMs: 10_000, worktreeSharedPaths: [".preinstalled"] });
   assert(live.status === "succeeded" && existsSync(join(repo, "x.ts")) && readFileSync(join(repo, "x.ts"), "utf8") === "export const x = 1;\n", `public executeFanout live seam did not apply the accepted patch: ${JSON.stringify({ status: live.status, error: live.error, snapshot: live.snapshot })}`);
   assert(live.snapshot.acceptedLedger.length === 1 && live.snapshot.finalValidation.disposition === "passed" && live.snapshot.totals.totalTokens === 12 && live.snapshot.totals.attemptKinds.retry === 1 && live.snapshot.totals.attemptKinds["validation-repair"] === 1, "live projection lost retry success, repair, accepted transition, final validation, or metrics");
+  assert(liveConfirmation.includes("Shared worktree paths: .preinstalled"), "live confirmation omitted explicit worktree preparation input");
   const liveEvents = readFileSync(live.paths.eventsPath, "utf8").trim().split("\n").map(JSON.parse);
   assert(liveEvents.length === 13 && liveEvents.every((event, index) => event.sequence === index + 1), "live executeFanout retry/repair seam did not produce a gapless causal lifecycle");
   const projectionBytes = readFileSync(live.paths.snapshotPath, "utf8");

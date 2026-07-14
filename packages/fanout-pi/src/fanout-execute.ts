@@ -13,6 +13,7 @@ import { fullGitVisibleTree } from "./repository-identity.ts";
 import { RuntimeEventRecorder, commandIdentity } from "./runtime-event-recorder.ts";
 import { preflightValidationCommands } from "./validation-runner.ts";
 import { WORKER_TRUST_BOUNDARY } from "./worker-capabilities.ts";
+import { parseSharedWorktreePaths, validateSharedWorktreePaths } from "./worktree-preparation.ts";
 
 export interface ExecuteFanoutOptions {
 	cwd: string;
@@ -25,6 +26,7 @@ export interface ExecuteFanoutOptions {
 	runId?: string;
 	workerTimeoutMs?: number;
 	validationTimeoutMs?: number;
+	worktreeSharedPaths?: readonly string[];
 	/** Deterministic crash-race injection for repository-boundary regression tests. */
 	afterActiveApply?: () => void;
 }
@@ -47,6 +49,7 @@ export async function executeFanout(options: ExecuteFanoutOptions): Promise<Exec
 	const loaded = loadActiveExecutionPacket(options.activePointerPath, options.projectArtifactRoot);
 	rejectArtifactStorageInsideWorktree(options.cwd, loaded.projectArtifactRoot, loaded.artifactDir);
 	const runId = options.runId === undefined ? executionRunId() : canonicalRunId(options.runId);
+	const worktreeSharedPaths = options.worktreeSharedPaths === undefined ? parseSharedWorktreePaths() : parseSharedWorktreePaths(JSON.stringify(options.worktreeSharedPaths));
 	const { maxConcurrency, failFast, fallbackAllowed } = loaded.packet.runtimePolicy;
 	const runDir = join(loaded.artifactDir, "executions", runId);
 	const release = acquireExecutionLock(executionLockPath(options.cwd, loaded.projectArtifactRoot), runId);
@@ -64,16 +67,16 @@ export async function executeFanout(options: ExecuteFanoutOptions): Promise<Exec
 			nodeIds: loaded.packet.nodes.filter((node) => node.kind !== "final-validation").map((node) => node.id),
 			policy: { maxConcurrency, failFast, fallbackAllowed },
 		});
-		const preflight = runPreflight(options, loaded.packet);
+		const preflight = runPreflight(options, loaded.packet, worktreeSharedPaths);
 		let projection = await recorder.record("preflight-completed", { status: preflight.issues.length ? "failed" : "passed", planningBaseTree: loaded.packet.planningBase.tree, repositoryTree: preflight.tree, issues: preflight.issues });
 		if (preflight.issues.length) return await finish(recorder, loaded, started, "failed", { kind: "event", eventSequence: projection.preflight!.eventSequence, code: "preflight-failed" }, { error: `Fanout preflight failed: ${preflight.issues.map((issue) => issue.detail).join("; ")}` });
 		if (options.dryRun) return await finish(recorder, loaded, started, "dry-run-completed", { kind: "event", eventSequence: projection.preflight!.eventSequence, code: "dry-run" }, { dryRun: true });
 
-		const confirmed = options.confirm ? await options.confirm("Execute Fanout packet", confirmationSummary(loaded.packet, maxConcurrency, runDir)) : false;
+		const confirmed = options.confirm ? await options.confirm("Execute Fanout packet", confirmationSummary(loaded.packet, maxConcurrency, runDir, worktreeSharedPaths)) : false;
 		projection = await recorder.record("confirmation-decided", { decision: confirmed ? "accepted" : "declined" });
 		if (!confirmed) return await finish(recorder, loaded, started, "aborted", { kind: "event", eventSequence: projection.confirmationEventSequence!, code: "confirmation-declined" });
 
-		executor = createFanoutNodeExecutor({ packet: loaded.packet, packetIdentity: loaded.pointer.packet, repoRoot: preflight.repoRoot!, runDir, runId, extensionEntry: options.extensionEntry, recorder, piCommand: options.piCommand, workerTimeoutMs: options.workerTimeoutMs, validationTimeoutMs: options.validationTimeoutMs, afterActiveApply: options.afterActiveApply });
+		executor = createFanoutNodeExecutor({ packet: loaded.packet, packetIdentity: loaded.pointer.packet, repoRoot: preflight.repoRoot!, runDir, runId, extensionEntry: options.extensionEntry, recorder, piCommand: options.piCommand, workerTimeoutMs: options.workerTimeoutMs, validationTimeoutMs: options.validationTimeoutMs, worktreeSharedPaths, afterActiveApply: options.afterActiveApply });
 		dag = await runDag(loaded.packet, {
 			maxConcurrency,
 			failFast,
@@ -129,7 +132,7 @@ async function finish(recorder: RuntimeEventRecorder, loaded: ReturnType<typeof 
 	return { status: outcome === "completed" || outcome === "dry-run-completed" ? "succeeded" : outcome, runId: projection.runId, packetPath: loaded.packetPath, paths: recorder.paths, snapshot: projection, ...extra } as ExecuteFanoutResult;
 }
 
-function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPacket): { repoRoot?: string; tree: string; issues: Array<{ code: string; detail: string }> } {
+function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPacket, worktreeSharedPaths: readonly string[]): { repoRoot?: string; tree: string; issues: Array<{ code: string; detail: string }> } {
 	const issues: Array<{ code: string; detail: string }> = [];
 	const top = command("git", ["rev-parse", "--show-toplevel"], options.cwd);
 	const repoRoot = top.status === 0 ? resolve(top.stdout.trim()) : undefined;
@@ -143,6 +146,8 @@ function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPack
 		else if (committedTree.stdout.trim() !== packet.planningBase.tree) issues.push({ code: "planning-base-mismatch", detail: "packet planning base contains non-HEAD content that detached workers cannot reconstruct; commit, stash, or remove it and rerun /fanout-plan" });
 		try { tree = fullGitVisibleTree(repoRoot); if (tree !== packet.planningBase.tree) issues.push({ code: "repository-tree-mismatch", detail: "active Git-visible tree differs from the packet planning base; rerun /fanout-plan" }); }
 		catch (error) { issues.push({ code: "controller-failure", detail: message(error) }); }
+		try { validateSharedWorktreePaths(repoRoot, worktreeSharedPaths); }
+		catch (error) { issues.push({ code: "capability-unavailable", detail: message(error) }); }
 	}
 	if (packet.planningHost.platform !== process.platform) issues.push({ code: "platform-mismatch", detail: `packet was planned for ${packet.planningHost.platform}, running ${process.platform}; rerun /fanout-plan` });
 	if (!existsSync(resolve(options.extensionEntry))) issues.push({ code: "capability-unavailable", detail: "Fanout extension entry is unavailable" });
@@ -153,9 +158,9 @@ function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPack
 	return { repoRoot, tree, issues };
 }
 
-function confirmationSummary(packet: FanoutExecutionPacket, maxConcurrency: number, runDir: string): string {
+function confirmationSummary(packet: FanoutExecutionPacket, maxConcurrency: number, runDir: string, worktreeSharedPaths: readonly string[]): string {
 	const writes = [...new Set(packet.nodes.flatMap((node) => contractWriteResources(node.workContract).map((resource) => `${resource.kind}:${resource.path}`)))];
-	return [`Objective: ${packet.objective}`, `Packet: ${packet.sourceArtifacts.details.sha256.slice(0, 12)} / base ${packet.planningBase.tree}`, `Work nodes: ${packet.nodes.length - 1}`, `Maximum concurrency: ${maxConcurrency}`, `Typed writes: ${writes.join(", ") || "none"}`, `Validation manifests: ${packet.nodes.reduce((sum, node) => sum + node.workContract.validationCommands.length, 0)}`, WORKER_TRUST_BOUNDARY, `Audit artifacts: ${runDir}`].join("\n");
+	return [`Objective: ${packet.objective}`, `Packet: ${packet.sourceArtifacts.details.sha256.slice(0, 12)} / base ${packet.planningBase.tree}`, `Work nodes: ${packet.nodes.length - 1}`, `Maximum concurrency: ${maxConcurrency}`, `Typed writes: ${writes.join(", ") || "none"}`, `Validation manifests: ${packet.nodes.reduce((sum, node) => sum + node.workContract.validationCommands.length, 0)}`, `Shared worktree paths: ${worktreeSharedPaths.join(", ") || "none"}`, WORKER_TRUST_BOUNDARY, `Audit artifacts: ${runDir}`].join("\n");
 }
 
 function command(executable: string, args: string[], cwd: string) { const result = spawnSync(executable, executable === "git" ? ["-c", "core.fsmonitor=false", ...args] : args, { cwd, encoding: "utf8", timeout: 30_000 }); return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" }; }

@@ -9,6 +9,7 @@ import { FIXED_WORKER_CAPABILITIES, WORK_CONTRACT_SCHEMA, WORK_CONTRACT_VERSION 
 import { checkContractOwnership, checkFinalRepairOwnership, ownershipViolationFactCode } from "../packages/fanout-pi/src/fanout-git.ts";
 import { recordAcceptedFinalRepair, runFinalValidation, runFinalValidationRound } from "../packages/fanout-pi/src/final-validation.ts";
 import { buildCanonicalWorkerPrompt } from "../packages/fanout-pi/src/fanout-worker-contract.ts";
+import { parseSharedWorktreePaths, prepareSharedWorktreePaths } from "../packages/fanout-pi/src/worktree-preparation.ts";
 import {
   applyAcceptedTransition,
   capturePatchCandidate,
@@ -26,11 +27,15 @@ try {
   git(root, ["init", "repo"]);
   git(repo, ["config", "user.email", "fanout@example.test"]);
   git(repo, ["config", "user.name", "Fanout Test"]);
-  writeFileSync(join(repo, ".gitignore"), ".repair-cache\n.validation-cache\n");
+  writeFileSync(join(repo, ".gitignore"), ".repair-cache\n.validation-cache\n.preinstalled\n");
   writeFileSync(join(repo, "source.txt"), "base\n");
   writeFileSync(join(repo, "other.txt"), "base\n");
   git(repo, ["add", "."]);
   git(repo, ["commit", "-m", "fixture"]);
+  mkdirSync(join(repo, ".preinstalled", "dependency"), { recursive: true });
+  writeFileSync(join(repo, ".preinstalled", "dependency", "ready"), "ready\n");
+  assert(JSON.stringify(parseSharedWorktreePaths('[".preinstalled"]')) === '[".preinstalled"]', "explicit shared-worktree preparation input did not parse");
+  assertThrows(() => parseSharedWorktreePaths('["../escape"]'), "shared-worktree preparation admitted a repository escape");
 
   const planningBase = capturePlanningBase(repo);
   const accepted = makeCandidate("accepted", [], (worktree) => writeFileSync(join(worktree, "source.txt"), "accepted\n"));
@@ -41,6 +46,8 @@ try {
   const restored = await round("restored", [node("writeFileSync('transient.txt','x')"), node("rmSync('transient.txt')")]);
   assert(restored.status === "passed", "sequence-boundary validation rejected restored intermediate mutation");
   assert(!existsSync(join(repo, "transient.txt")), "final validation ran in the active checkout");
+  const sharedDependency = await round("shared-dependency", [node("if (readFileSync('.preinstalled/dependency/ready','utf8') !== 'ready\\n') process.exit(1)", "readFileSync")]);
+  assert(sharedDependency.status === "passed", "reconstructed validation worktree could not resolve installed ignored dependencies");
   for (const code of ["active-drift", "validation-drift"]) {
     const fabricatedDrift = structuredClone(restored.evidence);
     fabricatedDrift.status = "failed";
@@ -273,7 +280,7 @@ try {
   console.log("final validation smoke passed (A16, A17, A20)");
 
   async function round(roundId, commands) {
-    return await runFinalValidationRound({ repoRoot: repo, runDir, roundId, planningBase, ledger: [accepted], commands, expectedValidationTree: acceptedTree, expectedActiveTree: acceptedTree });
+    return await runFinalValidationRound({ repoRoot: repo, runDir, roundId, planningBase, ledger: [accepted], commands, expectedValidationTree: acceptedTree, expectedActiveTree: acceptedTree, prepareWorktree: (worktree) => prepareSharedWorktreePaths(repo, worktree, [".preinstalled"]) });
   }
 
   function makeCandidate(name, ledger, edit) {

@@ -218,12 +218,12 @@ export function prepareAttemptCompletion(allocation: AttemptAllocation, input: C
 	if (input.metrics.turns.some((turn) => turn.provider !== allocation.assignment.provider || turn.model !== allocation.assignment.model || turn.tier !== allocation.assignment.tier)) throw new Error("metric turn assignment does not match attempt allocation");
 	if (action === "accept" && !input.metrics.complete) throw new Error("accepted attempt requires complete correlated metrics");
 	const recovery = input.recovery ? parseAttemptRecoveryContext(input.recovery) : undefined;
-	const validationFailure = terminalFact.stage === "validation" && action === "validation-repair";
-	const integrationFailure = terminalFact.stage === "apply" && action === "integration-repair";
-	const postTreeFailure = terminalFact.stage === "apply" && terminalFact.code === "post-tree-mismatch" && action === "fail";
-	if (validationFailure && (recovery?.kind === "validation" ? recovery.sourceAttemptId !== allocation.attemptId : recovery?.kind === "final-validation" ? !allocation.sourceFinalValidationEvidence && !allocation.sourceAttemptId : true)) throw new Error("validation repair action requires correlated typed validation recovery evidence");
-	if ((integrationFailure || postTreeFailure) && (recovery?.kind !== "integration" || recovery.sourceAttemptId !== allocation.attemptId)) throw new Error("apply outcome requires correlated typed integration evidence");
-	if (!validationFailure && !integrationFailure && !postTreeFailure && recovery) throw new Error("recovery evidence does not match the terminal stage fact");
+	const validationFailure = terminalFact.stage === "validation" && ["program-failure", "timeout", "signal"].includes(terminalFact.code);
+	const integrationFailure = terminalFact.stage === "apply" && ["check-conflict", "apply-failure", "post-tree-mismatch"].includes(terminalFact.code);
+	const validationRecoveryMismatch = recovery && (recovery.kind === "validation" ? recovery.sourceAttemptId !== allocation.attemptId : recovery.kind === "final-validation" ? !allocation.sourceFinalValidationEvidence && !allocation.sourceAttemptId : true);
+	if (validationFailure && (validationRecoveryMismatch || action === "validation-repair" && !recovery)) throw new Error("validation repair action requires correlated typed validation recovery evidence");
+	if (integrationFailure && (recovery ? recovery.kind !== "integration" || recovery.sourceAttemptId !== allocation.attemptId : action === "integration-repair" || terminalFact.code === "post-tree-mismatch")) throw new Error("apply outcome requires correlated typed integration evidence");
+	if (!validationFailure && !integrationFailure && recovery) throw new Error("recovery evidence does not match the terminal stage fact");
 	if (terminalFact.stage === "validation" && (recovery?.kind === "validation" || recovery?.kind === "final-validation")) {
 		const failed = recovery.commands.filter((command) => command.status !== "passed" && command.status !== "unexecuted").map((command) => command.index);
 		if (JSON.stringify(terminalFact.failedCommandIndexes ?? []) !== JSON.stringify(failed)) throw new Error("validation fact indexes do not match recovery command evidence");
@@ -356,12 +356,12 @@ export function parseAttemptOutcome(value: unknown): AttemptOutcome {
 	};
 	parseAttemptAllocation({ runId: outcome.runId, nodeId: outcome.nodeId, attemptId: outcome.attemptId, attemptNumber: outcome.attemptNumber, kind: outcome.kind, assignment: outcome.assignment, ...(outcome.sourceAttemptId ? { sourceAttemptId: outcome.sourceAttemptId } : {}), ...(outcome.sourceFinalValidationEvidence ? { sourceFinalValidationEvidence: outcome.sourceFinalValidationEvidence } : {}), budgetTransition: outcome.budgetTransition });
 	if (outcome.action === "accept" && !outcome.metrics.complete) throw new TypeError("accepted attempt requires complete correlated metrics");
-	const validationFailure = outcome.terminalFact.stage === "validation" && outcome.action === "validation-repair";
-	const integrationFailure = outcome.terminalFact.stage === "apply" && outcome.action === "integration-repair";
-	const postTreeFailure = outcome.terminalFact.stage === "apply" && outcome.terminalFact.code === "post-tree-mismatch" && outcome.action === "fail";
-	if (validationFailure && (outcome.recovery?.kind === "validation" ? outcome.recovery.sourceAttemptId !== outcome.attemptId : outcome.recovery?.kind === "final-validation" ? !outcome.sourceFinalValidationEvidence && !outcome.sourceAttemptId : true)) throw new TypeError("validation repair action requires correlated recovery evidence");
-	if ((integrationFailure || postTreeFailure) && (outcome.recovery?.kind !== "integration" || outcome.recovery.sourceAttemptId !== outcome.attemptId)) throw new TypeError("apply outcome requires correlated recovery evidence");
-	if (!validationFailure && !integrationFailure && !postTreeFailure && outcome.recovery) throw new TypeError("recovery evidence does not match the terminal stage fact");
+	const validationFailure = outcome.terminalFact.stage === "validation" && ["program-failure", "timeout", "signal"].includes(outcome.terminalFact.code);
+	const integrationFailure = outcome.terminalFact.stage === "apply" && ["check-conflict", "apply-failure", "post-tree-mismatch"].includes(outcome.terminalFact.code);
+	const validationRecoveryMismatch = outcome.recovery && (outcome.recovery.kind === "validation" ? outcome.recovery.sourceAttemptId !== outcome.attemptId : outcome.recovery.kind === "final-validation" ? !outcome.sourceFinalValidationEvidence && !outcome.sourceAttemptId : true);
+	if (validationFailure && (validationRecoveryMismatch || outcome.action === "validation-repair" && !outcome.recovery)) throw new TypeError("validation repair action requires correlated recovery evidence");
+	if (integrationFailure && (outcome.recovery ? outcome.recovery.kind !== "integration" || outcome.recovery.sourceAttemptId !== outcome.attemptId : outcome.action === "integration-repair" || outcome.terminalFact.code === "post-tree-mismatch")) throw new TypeError("apply outcome requires correlated recovery evidence");
+	if (!validationFailure && !integrationFailure && outcome.recovery) throw new TypeError("recovery evidence does not match the terminal stage fact");
 	if (outcome.terminalFact.stage === "validation" && (outcome.recovery?.kind === "validation" || outcome.recovery?.kind === "final-validation")) {
 		const failed = outcome.recovery.commands.filter((command) => command.status !== "passed" && command.status !== "unexecuted").map((command) => command.index);
 		if (JSON.stringify(outcome.terminalFact.failedCommandIndexes ?? []) !== JSON.stringify(failed)) throw new TypeError("validation fact indexes do not match recovery command evidence");

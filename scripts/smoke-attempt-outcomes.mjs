@@ -129,6 +129,18 @@ const transientIntegrationTwo = allocateAttempt(transientRepair, { runId: "run",
 transientRepair = transientIntegrationTwo.state;
 finishAttempt(transientIntegrationTwo.allocation, transientRepair, { stage: "metrics", code: "missing-timing" });
 
+let exhaustedValidation = createNodeAttemptState("exhausted-validation");
+const exhaustedOriginal = allocateAttempt(exhaustedValidation, { runId: "run", nodeId: "exhausted-validation", kind: "original", assignment });
+exhaustedValidation = exhaustedOriginal.state;
+finishAttempt(exhaustedOriginal.allocation, exhaustedValidation, { stage: "validation", code: "timeout", failedCommandIndexes: [1] }, { recovery: parseAttemptRecoveryContext(validationRecoveryEvidence(exhaustedOriginal.allocation.attemptId)) });
+const exhaustedRepairOne = allocateAttempt(exhaustedValidation, { runId: "run", nodeId: "exhausted-validation", kind: "validation-repair", assignment: { ...assignment, tier: "tier1" }, sourceAttemptId: exhaustedOriginal.allocation.attemptId });
+exhaustedValidation = exhaustedRepairOne.state;
+finishAttempt(exhaustedRepairOne.allocation, exhaustedValidation, { stage: "validation", code: "timeout", failedCommandIndexes: [1] }, { recovery: parseAttemptRecoveryContext(validationRecoveryEvidence(exhaustedRepairOne.allocation.attemptId)) });
+const exhaustedRepairTwo = allocateAttempt(exhaustedValidation, { runId: "run", nodeId: "exhausted-validation", kind: "validation-repair", assignment: { ...assignment, tier: "tier1" }, sourceAttemptId: exhaustedRepairOne.allocation.attemptId });
+exhaustedValidation = exhaustedRepairTwo.state;
+const exhaustedOutcome = finishAttempt(exhaustedRepairTwo.allocation, exhaustedValidation, { stage: "validation", code: "timeout", failedCommandIndexes: [1] }, { recovery: parseAttemptRecoveryContext(validationRecoveryEvidence(exhaustedRepairTwo.allocation.attemptId)) });
+assert(exhaustedOutcome.action === "fail" && exhaustedOutcome.recovery?.kind === "validation" && parseAttemptOutcome(JSON.parse(JSON.stringify(exhaustedOutcome))).recovery?.kind === "validation", "exhausted validation failure lost its typed terminal evidence");
+
 // A11: identity correlation, not event order or provider/model equality, admits metrics.
 const generic = correlateAttemptMetrics(genericEvidence(original.allocation.attemptId));
 assert(generic.ok && generic.metrics?.complete && deriveAttemptMetricTotals(generic.metrics).totalTokens === 18 && deriveAttemptMetricTotals(generic.metrics).toolDurationMs === 3, `generic correlation failed: ${JSON.stringify(generic.errors)}`);
