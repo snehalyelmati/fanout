@@ -182,6 +182,10 @@ function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPack
 				launcher,
 				modelCallableTools: [...WORKER_MODEL_TOOLS],
 			},
+			commandCounts: {
+				candidateNormalization: packet.nodes.map((node) => node.workContract.candidateNormalizationCommands.length),
+				validation: packet.nodes.map((node) => node.workContract.validationCommands.length),
+			},
 			candidateNormalizationCommands,
 			validationCommands,
 		},

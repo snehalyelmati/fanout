@@ -5,9 +5,10 @@ import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { UNIFIED_LIVE_PROVIDER, UNIFIED_STUB_PROVIDER } from "../../doubleword-provider/src/config.ts";
 import { setDoublewordObservabilityFile } from "../../doubleword-provider/src/index.ts";
+import type { FanoutTierPlan, TierModelSummary } from "../../fanout-core/src/execution-packet.ts";
 import { RUN_ID, setObservabilityCwd, setObservabilityFile } from "../../fanout-core/src/observability.ts";
 
-const FANOUT_CONTEXT_MARKER = "## Fanout runtime context";
+export const FANOUT_CONTEXT_MARKER = "## Fanout runtime context";
 const TIER2_DEFAULT = { provider: "doubleword", model: "zai-org/GLM-5.2-FP8", thinking: "medium" };
 const doublewordModelMetadata = new Map<string, Record<string, unknown>>();
 
@@ -90,6 +91,7 @@ export function fanoutRuntimeContext(cwd: string, model: unknown, thinking: unkn
 	const tier1 = resolveTier1(active, activeThinking);
 	const tier2 = resolveTier2(tierDefaults.tier2, registryModels, Object.keys(tier2Settings).length > 0);
 	const tier2Fallback = resolveTier2Fallback(tier2FallbackSettings, tier1.summary, registryModels);
+	const resolvedTierPlan: FanoutTierPlan = { tier1: tier1.summary, tier2: tier2.summary, tier2Fallback };
 	return {
 		artifactRoot,
 		projectId,
@@ -99,7 +101,7 @@ export function fanoutRuntimeContext(cwd: string, model: unknown, thinking: unkn
 		activeModel: active,
 		activeThinking,
 		tierDefaults,
-		resolvedTierPlan: { tier1: tier1.summary, tier2: tier2.summary, tier2Fallback },
+		resolvedTierPlan,
 		tier2Availability: tier2.availability,
 		executionDefaults: {
 			maxConcurrency: executionSettings.maxConcurrency ?? 2,
@@ -115,7 +117,7 @@ export function fanoutRuntimeContext(cwd: string, model: unknown, thinking: unkn
 	};
 }
 
-function resolveTier1(active: ReturnType<typeof modelInfo>, activeThinking: string) {
+function resolveTier1(active: ReturnType<typeof modelInfo>, activeThinking: string): { summary: TierModelSummary } {
 	return { summary: { provider: active.provider, model: active.model, thinking: activeThinking, source: "current Pi active model", status: "available", reason: "realtime control plane for planning, safety, review, synthesis, and final decisions" } };
 }
 
@@ -123,7 +125,7 @@ export function tier1Resolved(summary: Record<string, unknown>): boolean {
 	return optionalString(summary.provider) !== undefined && optionalString(summary.model) !== undefined;
 }
 
-function resolveTier2(config: Record<string, unknown>, models: Array<Record<string, unknown>>, configured: boolean) {
+function resolveTier2(config: Record<string, unknown>, models: Array<Record<string, unknown>>, configured: boolean): { availability: { available: boolean; reason: string; fanout: { async: boolean; background: boolean; authReady: boolean } }; summary: FanoutTierPlan["tier2"] } {
 	const provider = optionalString(config.provider) ?? TIER2_DEFAULT.provider;
 	const model = optionalString(config.model) ?? TIER2_DEFAULT.model;
 	const modelRecord = findModel(models, provider, model);
@@ -139,7 +141,7 @@ function resolveTier2(config: Record<string, unknown>, models: Array<Record<stri
 	};
 }
 
-function resolveTier2Fallback(config: Record<string, unknown>, tier1: Record<string, unknown>, models: Array<Record<string, unknown>>) {
+function resolveTier2Fallback(config: Record<string, unknown>, tier1: Record<string, unknown>, models: Array<Record<string, unknown>>): TierModelSummary {
 	const provider = optionalString(config.provider);
 	const model = optionalString(config.model);
 	const modelRecord = provider && model ? findModel(models, provider, model) : undefined;

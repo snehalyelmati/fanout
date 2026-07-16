@@ -35,11 +35,15 @@ const preflightEvidence = {
     launcher: { executable: process.execPath, args: ["--version"], resolvedExecutable: process.execPath, resolvedCwd: "/repo", version: process.version, status: "available" },
     modelCallableTools: ["read", "grep", "find", "ls", "edit", "write"],
   },
+  commandCounts: { candidateNormalization: [2, 0], validation: [1, 1] },
   candidateNormalizationCommands: [
     commandEvidence(0, "node-a", 0, ["normalize-a"]),
     commandEvidence(0, "node-a", 1, ["normalize-b"]),
   ],
-  validationCommands: [commandEvidence(0, "node-a", 0, ["validate"])],
+  validationCommands: [
+    commandEvidence(0, "node-a", 0, ["validate"]),
+    commandEvidence(1, "final-validation", 0, ["final-validate"]),
+  ],
 };
 
 try {
@@ -114,6 +118,22 @@ try {
     { ...dryEvents[0], payload: { ...dryEvents[0].payload, preflightEvidence: { ...preflightEvidence, repositoryTree: { expected: trees.base, actual: trees.nodeA, status: "mismatched" } } } },
     dryEvents[1],
   ]), "passed preflight contradicted repository-tree evidence");
+  expectThrow(() => replayExecutionEvents([
+    { ...dryEvents[0], payload: { ...dryEvents[0].payload, preflightEvidence: { ...preflightEvidence, validationCommands: [] } } },
+    dryEvents[1],
+  ]), "passed preflight admitted omitted validation-command evidence");
+  expectThrow(() => replayExecutionEvents([
+    { ...dryEvents[0], payload: { ...dryEvents[0].payload, preflightEvidence: { ...preflightEvidence, candidateNormalizationCommands: preflightEvidence.candidateNormalizationCommands.slice(0, 1) } } },
+    dryEvents[1],
+  ]), "passed preflight admitted omitted candidate-normalization evidence");
+  expectThrow(() => parseExecutionEvent({
+    ...dryEvents[0],
+    payload: { ...dryEvents[0].payload, preflightEvidence: { ...preflightEvidence, commandCounts: { ...preflightEvidence.commandCounts, validation: ["one", 0] } } },
+  }), "run-started admitted malformed command counts");
+  expectThrow(() => replayExecutionEvents([
+    { ...dryEvents[0], payload: { ...dryEvents[0].payload, preflightEvidence: { ...preflightEvidence, commandCounts: { ...preflightEvidence.commandCounts, validation: [0, 0] }, validationCommands: [] } } },
+    dryEvents[1],
+  ]), "passed preflight admitted zero final-validation evidence");
   const duplicateCommands = parseExecutionEvent(event(7, "final-validation-started", { commandIdentities: ["validation:duplicate", "validation:duplicate"], expectedTree: trees.base }));
   assert(duplicateCommands.payload.commandIdentities.length === 2, "final-validation event admission discarded or rejected ordered duplicate commands");
   expectThrow(() => replayExecutionEvents([dryEvents[0], { ...dryEvents[1], sequence: 3 }]), "gapped log was admitted");
@@ -320,7 +340,31 @@ function event(sequence, name, payload) {
 }
 
 function startedPayload(payload) {
-  return { ...payload, preflightEvidence };
+  const packetNodeCount = payload.nodeIds.length + 1;
+  const candidateNormalizationCommands = placeFinalEvidence(preflightEvidence.candidateNormalizationCommands, payload.nodeIds.length);
+  const validationCommands = placeFinalEvidence(preflightEvidence.validationCommands, payload.nodeIds.length);
+  return {
+    ...payload,
+    preflightEvidence: {
+      ...preflightEvidence,
+      commandCounts: {
+        candidateNormalization: countsByPacketNode(candidateNormalizationCommands, packetNodeCount),
+        validation: countsByPacketNode(validationCommands, packetNodeCount),
+      },
+      candidateNormalizationCommands,
+      validationCommands,
+    },
+  };
+}
+
+function placeFinalEvidence(commands, finalNodeIndex) {
+  return commands.map((command) => command.nodeId === "final-validation" ? { ...command, packetNodeIndex: finalNodeIndex } : command);
+}
+
+function countsByPacketNode(commands, packetNodeCount) {
+  const counts = Array(packetNodeCount).fill(0);
+  for (const command of commands) counts[command.packetNodeIndex]++;
+  return counts;
 }
 
 function commandEvidence(packetNodeIndex, nodeId, commandIndex, args) {

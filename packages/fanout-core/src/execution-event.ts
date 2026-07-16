@@ -54,6 +54,7 @@ export interface PreflightEvidence {
 		launcher: { executable: string; args: string[]; resolvedExecutable: string | null; resolvedCwd: string | null; version: string | null; status: "available" | "unavailable" };
 		modelCallableTools: string[];
 	};
+	commandCounts: { candidateNormalization: number[]; validation: number[] };
 	candidateNormalizationCommands: PreflightCommandEvidence[];
 	validationCommands: PreflightCommandEvidence[];
 }
@@ -191,8 +192,9 @@ function parsePayload(name: ExecutionEventName, value: unknown): Record<string, 
 }
 
 function parsePreflightEvidence(value: unknown): PreflightEvidence {
-	const item = exactRecord(value, ["planningCommit", "repositoryTree", "platform", "worker", "candidateNormalizationCommands", "validationCommands"], [], "preflightEvidence");
+	const item = exactRecord(value, ["planningCommit", "repositoryTree", "platform", "worker", "commandCounts", "candidateNormalizationCommands", "validationCommands"], [], "preflightEvidence");
 	const worker = exactRecord(item.worker, ["extension", "launcher", "modelCallableTools"], [], "preflightEvidence.worker");
+	const commandCounts = exactRecord(item.commandCounts, ["candidateNormalization", "validation"], [], "preflightEvidence.commandCounts");
 	const extension = exactRecord(worker.extension, ["requested", "resolved", "status"], [], "preflightEvidence.worker.extension");
 	if (extension.status !== "available" && extension.status !== "unavailable") throw new TypeError("preflight extension status is invalid");
 	const resolvedExtension = nullableIdentity(extension.resolved, "preflightEvidence.worker.extension.resolved");
@@ -218,6 +220,10 @@ function parsePreflightEvidence(value: unknown): PreflightEvidence {
 			extension: { requested: identity(extension.requested, "preflightEvidence.worker.extension.requested"), resolved: resolvedExtension, status: extension.status },
 			launcher: { executable: identity(launcher.executable, "preflightEvidence.worker.launcher.executable"), args: strings(launcher.args, "preflightEvidence.worker.launcher.args"), resolvedExecutable, resolvedCwd, version, status: launcher.status },
 			modelCallableTools: tools,
+		},
+		commandCounts: {
+			candidateNormalization: nonNegativeIntegers(commandCounts.candidateNormalization, "preflightEvidence.commandCounts.candidateNormalization"),
+			validation: nonNegativeIntegers(commandCounts.validation, "preflightEvidence.commandCounts.validation"),
 		},
 		candidateNormalizationCommands,
 		validationCommands,
@@ -274,12 +280,21 @@ function assertConsistentCommandNodes(...groups: PreflightCommandEvidence[][]): 
 }
 
 function assertPacketOrderedCommandNodes(evidence: PreflightEvidence, nodeIds: string[]): void {
+	const packetNodeIds = [...nodeIds, FINAL_VALIDATION_NODE_ID];
 	for (const entry of [...evidence.candidateNormalizationCommands, ...evidence.validationCommands]) {
-		const expectedNodeId = entry.packetNodeIndex < nodeIds.length
-			? nodeIds[entry.packetNodeIndex]
-			: entry.packetNodeIndex === nodeIds.length ? FINAL_VALIDATION_NODE_ID : undefined;
+		const expectedNodeId = packetNodeIds[entry.packetNodeIndex];
 		if (entry.nodeId !== expectedNodeId) throw new TypeError(`preflight command evidence does not match packet node ${entry.packetNodeIndex}`);
 	}
+	assertCommandCoverage(evidence.candidateNormalizationCommands, evidence.commandCounts.candidateNormalization, packetNodeIds.length, "candidate normalization");
+	assertCommandCoverage(evidence.validationCommands, evidence.commandCounts.validation, packetNodeIds.length, "validation", true);
+}
+
+function assertCommandCoverage(commands: PreflightCommandEvidence[], expected: number[], packetNodeCount: number, label: string, requireFinal = false): void {
+	if (expected.length !== packetNodeCount) throw new TypeError(`preflight ${label} command counts must cover every packet node`);
+	if (requireFinal && expected[packetNodeCount - 1] === 0) throw new TypeError("preflight validation evidence must cover the required final-validation command");
+	const actual = Array<number>(packetNodeCount).fill(0);
+	for (const command of commands) actual[command.packetNodeIndex]++;
+	if (actual.some((count, index) => count !== expected[index])) throw new TypeError(`preflight ${label} command evidence is incomplete`);
 }
 
 function nullableIdentity(value: unknown, path: string): string | null {
@@ -289,6 +304,11 @@ function nullableIdentity(value: unknown, path: string): string | null {
 function strings(value: unknown, path: string): string[] {
 	if (!Array.isArray(value)) throw new TypeError(`${path} must be an array`);
 	return value.map((item, index) => string(item, `${path}[${index}]`));
+}
+
+function nonNegativeIntegers(value: unknown, path: string): number[] {
+	if (!Array.isArray(value)) throw new TypeError(`${path} must be an array`);
+	return value.map((item, index) => nonNegativeInteger(item, `${path}[${index}]`));
 }
 
 function identities(value: unknown, path: string): string[] {

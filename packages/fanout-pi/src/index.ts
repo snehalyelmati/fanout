@@ -12,6 +12,7 @@ import { executeFanout } from "./fanout-execute.ts";
 import {
 	augmentRegistryModels,
 	configureMainObservability,
+	FANOUT_CONTEXT_MARKER,
 	fanoutRuntimeContext,
 	fanoutRuntimePrompt,
 	globalSettingsPath,
@@ -23,8 +24,6 @@ import { FanoutPlanningController } from "./fanout-planning-controller.ts";
 import { roundedDuration } from "./planning-observability.ts";
 import { displayFanoutExecutionReport, registerFanoutReportPresentation } from "./report-presentation.ts";
 import { workerToolBlockReason } from "./worker-capabilities.ts";
-
-const FANOUT_CONTEXT_MARKER = "## Fanout runtime context";
 
 export default async function (pi: ExtensionAPI) {
 	let agentStarted: number | undefined;

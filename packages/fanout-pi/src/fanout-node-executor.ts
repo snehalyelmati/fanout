@@ -69,8 +69,6 @@ export interface FanoutNodeExecutorOptions {
 	piCommand?: string;
 	workerTimeoutMs?: number;
 	validationTimeoutMs?: number;
-	maxValidationRepairAttempts?: number;
-	maxIntegrationRepairAttempts?: number;
 	worktreeSharedPaths?: readonly string[];
 	afterActiveApply?: () => void;
 	/** Deterministic normalization audit-race injection for repository-boundary regression tests. */
@@ -101,7 +99,6 @@ export class FanoutNodeExecutor {
 	#attemptStates = new Map<string, NodeAttemptState>();
 	#outcomes: AttemptOutcome[] = [];
 	#acceptedLedger: AcceptedLedgerProvenance[] = [];
-	#contracts = new Map<string, WorkContract>();
 	#applyTail: Promise<void> = Promise.resolve();
 	#worktrees = new Set<string>();
 	#manualReconciliationRequired = false;
@@ -119,8 +116,6 @@ export class FanoutNodeExecutor {
 		this.#validationTimeoutMs = positiveInteger(options.validationTimeoutMs, 600_000, "validationTimeoutMs");
 		this.#afterActiveApply = options.afterActiveApply;
 		this.#beforeNormalizationAuditRewrite = options.beforeNormalizationAuditRewrite;
-		fixedRepairLimit(options.maxValidationRepairAttempts, "maxValidationRepairAttempts");
-		fixedRepairLimit(options.maxIntegrationRepairAttempts, "maxIntegrationRepairAttempts");
 		this.#planningBase = this.#packet.planningBase;
 		this.#worktreeSharedPaths = [...(options.worktreeSharedPaths ?? [])];
 	}
@@ -129,7 +124,7 @@ export class FanoutNodeExecutor {
 
 	finalValidationCommands(fallback: readonly ValidationCommand[]): ValidationCommand[] {
 		const finalUnit = this.#packet.nodes.find((unit) => unit.kind === "final-validation");
-		return finalUnit ? [...this.#contract(finalUnit).validationCommands] : [...fallback];
+		return finalUnit ? [...finalUnit.workContract.validationCommands] : [...fallback];
 	}
 
 	cleanupWorktrees(): void {
@@ -145,12 +140,11 @@ export class FanoutNodeExecutor {
 	async runFinalValidation(commands: readonly ValidationCommand[]): Promise<FinalValidationResult> {
 		const initialTree = this.#acceptedLedger.at(-1)?.patch.resultTree ?? this.#planningBase.tree;
 		const finalUnit = this.#packet.nodes.find((unit) => unit.kind === "final-validation");
-		const finalContract = finalUnit ? this.#contract(finalUnit) : undefined;
-		const upstreamWorkContracts = this.#packet.nodes.filter((unit) => unit.kind !== "final-validation").map((unit) => ({ nodeId: unit.id, workContract: this.#contract(unit) }));
+		const finalContract = finalUnit?.workContract;
+		const upstreamWorkContracts = this.#packet.nodes.filter((unit) => unit.kind !== "final-validation").map((unit) => ({ nodeId: unit.id, workContract: unit.workContract }));
 		const authoritativeCommands = finalContract?.validationCommands ?? commands;
-		const repairContract = finalContract ? deriveFinalRepairWorkContract(this.#packet.nodes.filter((unit) => unit !== finalUnit).map((unit) => this.#contract(unit)), finalContract) : undefined;
-		const repairUnit = finalUnit && repairContract ? { ...finalUnit, kind: "implement" as const } : undefined;
-		if (repairUnit && repairContract) this.#contracts.set(repairUnit.id, repairContract);
+		const repairContract = finalContract ? deriveFinalRepairWorkContract(this.#packet.nodes.filter((unit) => unit !== finalUnit).map((unit) => unit.workContract), finalContract) : undefined;
+		const repairUnit = finalUnit && repairContract ? { ...finalUnit, kind: "implement" as const, workContract: repairContract } : undefined;
 		return await coordinateFinalValidation<WorkerAttempt>({
 			repoRoot: this.#repoRoot,
 			runDir: this.#runDir,
@@ -196,11 +190,6 @@ export class FanoutNodeExecutor {
 
 	async runNode(unit: FanoutWorkUnit, signal?: AbortSignal): Promise<DagNodeResult> {
 		signal?.throwIfAborted();
-		try {
-			this.#contract(unit);
-		} catch (error) {
-			return { ok: false, error: errorMessage(error) };
-		}
 		const original = await this.#runOriginalWithRetry(unit, signal);
 		if (!original.ok) return await this.#result(original);
 
@@ -284,7 +273,7 @@ export class FanoutNodeExecutor {
 		const attempt = await executeWorkerAttempt({
 			packet: this.#packet,
 			unit,
-			contract: this.#contract(unit),
+			contract: unit.workContract,
 			repoRoot: this.#repoRoot,
 			runDir: this.#runDir,
 			runId: this.#runId,
@@ -315,7 +304,7 @@ export class FanoutNodeExecutor {
 		if (signal?.aborted) return await this.#completeAbortedAttempt(attempt, signal.reason);
 		let ownership;
 		try {
-			ownership = checkContractOwnership(this.#contract(unit), attempt.patch, attempt.attemptDir, this.#repoRoot);
+			ownership = checkContractOwnership(unit.workContract, attempt.patch, attempt.attemptDir, this.#repoRoot);
 		} catch (error) {
 			ownership = { ok: false, violations: [{ file: "packet", code: "unauthorized-change" as const, reason: errorMessage(error) }] };
 		}
@@ -330,7 +319,7 @@ export class FanoutNodeExecutor {
 			});
 		}
 
-		const validationCommands = this.#contract(unit).validationCommands;
+		const validationCommands = unit.workContract.validationCommands;
 		let validation: ValidationRunResult;
 		try {
 			signal?.throwIfAborted();
@@ -363,7 +352,7 @@ export class FanoutNodeExecutor {
 			return await this.#completeTerminalAttempt({ ...attempt, ok: false, error, failureKind: "patch", retryable: false, terminalFact: { stage: "worker-gate", code: "post-validation-change" } });
 		}
 		if (validation.status === "failed") {
-			const evidence = validationFailureEvidence(this.#contract(unit), attempt, validation);
+			const evidence = validationFailureEvidence(unit.workContract, attempt, validation);
 			const failedAttempt = {
 				...attempt,
 				ok: false,
@@ -455,7 +444,7 @@ export class FanoutNodeExecutor {
 					failureKind: "apply" as const,
 					retryable: false,
 					terminalFact: { stage: "apply", code: error.code } as const,
-					recovery: integrationFailureEvidence(this.#contract(unit), attempt, error.evidence, this.#acceptedLedger, acceptedTree),
+					recovery: integrationFailureEvidence(unit.workContract, attempt, error.evidence, this.#acceptedLedger, acceptedTree),
 				};
 				return await this.#completeTerminalAttempt(failedAttempt);
 			}
@@ -568,13 +557,6 @@ export class FanoutNodeExecutor {
 		}
 	}
 
-	#contract(unit: FanoutWorkUnit): WorkContract {
-		const existing = this.#contracts.get(unit.id);
-		if (existing) return existing;
-		const contract = unit.workContract;
-		this.#contracts.set(unit.id, contract);
-		return contract;
-	}
 }
 
 function tierForUnit(unit: FanoutWorkUnit): WorkerTier {
@@ -602,10 +584,6 @@ function positiveInteger(value: number | undefined, fallback: number, name: stri
 	const result = value ?? fallback;
 	if (!Number.isInteger(result) || result < 1) throw new Error(`${name} must be a positive integer`);
 	return result;
-}
-
-function fixedRepairLimit(value: number | undefined, name: string): void {
-	if (value !== undefined && value !== 2) throw new Error(`${name} is fixed at 2`);
 }
 
 function errorMessage(error: unknown): string {
