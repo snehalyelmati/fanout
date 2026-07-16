@@ -1,6 +1,6 @@
 {
   "schema": "fanout.execution-packet",
-  "version": 3,
+  "version": 4,
   "status": "ready",
   "objective": "Invalid unsafe command fixture",
   "createdAt": "2026-07-03T00:00:00.000Z",
@@ -88,6 +88,14 @@
       "status": "unavailable",
       "reason": "async capability unavailable",
       "fallback": "tier1"
+    },
+    "tier2Fallback": {
+      "provider": "current",
+      "model": "current-session-model",
+      "thinking": "auto",
+      "source": "tier1 inheritance",
+      "status": "available",
+      "reason": "realtime fallback for tier2 execution; inherits tier1"
     }
   }
 }

@@ -82,8 +82,8 @@ try {
 
   const mixed = join(dir, "mixed.jsonl");
   writeFileSync(mixed, [
-    { runId: "mixed", event: "turn_end", turnIndex: 0, toolCallCount: 2 },
-    { runId: "mixed", event: "agent_end", turnCount: 1, toolCallCount: 2 },
+    { sessionRunId: "mixed", event: "turn_end", turnIndex: 0, toolCallCount: 2 },
+    { sessionRunId: "mixed", event: "agent_end", turnCount: 1, toolCallCount: 2 },
     { runId: "mixed", event: "turn_end", turnIndex: 1, toolCallCount: 3 },
     { runId: "mixed", event: "turn_end", turnIndex: 2, toolCallCount: 4 },
   ].map((event) => JSON.stringify(event)).join("\n"));

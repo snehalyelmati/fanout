@@ -1,254 +1,133 @@
-import { readFileSync } from "node:fs";
-import { buildRequiredReadClassifications, compileExecutionPacket } from "../packages/fanout-core/src/fanout-compiler.ts";
-import { validateExecutionPacket } from "../packages/fanout-core/src/execution-packet.ts";
+import { readFileSync, readdirSync } from "node:fs";
+import { artifactIdentity } from "../packages/fanout-core/src/artifact-identity.ts";
+import {
+  IMPLEMENTATION_DETAILS_VERSION,
+  IMPLEMENTATION_PLAN_VERSION,
+  compileExecutionPacket,
+  validateImplementationDetailsArtifact,
+  validateImplementationPlan,
+} from "../packages/fanout-core/src/fanout-compiler.ts";
+import { EXECUTION_PACKET_VERSION, deriveExecutionGraph, validateExecutionPacket } from "../packages/fanout-core/src/execution-packet.ts";
+import { renderWorkContractMarkdown, renderWorkContractMermaid } from "../packages/fanout-core/src/work-contract-views.ts";
+import { EXECUTION_EVENT_NAMES as SHIM_EVENT_NAMES, EXECUTION_RUN_VERSION } from "../packages/fanout-core/src/execution-run.ts";
 
-const phaseA = readFileSync("packages/fanout-pi/prompts/fanout-implementation-plan.md", "utf8");
-const phaseB = readFileSync("packages/fanout-pi/prompts/fanout-implementation-details.md", "utf8");
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+const hash = "1".repeat(40);
+const plan = {
+  schema: "fanout.implementation-plan", version: IMPLEMENTATION_PLAN_VERSION, planId: "plan-1", createdAt: "2026-07-14T00:00:00.000Z",
+  planningHost: { platform: process.platform }, planningBase: { headCommit: hash, tree: hash }, objective: "Add the checked feature",
+  userContext: ["requested"], discoveredRepoFacts: ["src exists"], assumptions: [],
+  implementationItems: [{
+    id: "feature", goals: ["Add feature"], writeResources: [{ kind: "file", path: "src/feature.ts" }], readResources: [{ kind: "file", path: "package.json" }],
+    forbiddenWrites: [{ resource: { kind: "directory", path: "generated" }, reason: "generated output stays untouched" }], semanticReviewCriteria: ["feature is observable"],
+    advisoryNotes: [{ kind: "rationale", reference: "feature", text: "smallest implementation" }],
+  }],
+};
+const planBytes = Buffer.from(`${JSON.stringify(plan, null, 2)}\n`);
+const planIdentity = artifactIdentity("implementation-plan.json", planBytes);
+const command = { executable: "rtk", args: ["npm", "run", "check"] };
+const normalizationCommands = [{ executable: "normalizer", args: ["--first"] }, { executable: "normalizer", args: ["--second"] }];
 
-for (const phrase of ["what must change and why", "behavior/contracts", "likely modules", "validation intent", "forbidden scope", "contract-first", "authorable from the contract", "Do not add dependencies for final verification", "not execution DAG edges"]) {
-  if (!phaseA.includes(phrase)) throw new Error(`Phase A prompt missing reduced planning phrase: ${phrase}`);
+const reservedFinalPlan = structuredClone(plan);
+reservedFinalPlan.implementationItems.push({
+  ...structuredClone(plan.implementationItems[0]),
+  id: "final-validation",
+  writeResources: [],
+  readResources: structuredClone(plan.implementationItems[0].writeResources),
+});
+const reservedFinalPlanResult = validateImplementationPlan(reservedFinalPlan);
+assert(!reservedFinalPlanResult.ok && reservedFinalPlanResult.errors.some((error) => error.includes("finalValidationCommands")), "reserved Phase A final-validation authority was admitted");
+
+const packetGlobalForbiddenPlan = structuredClone(plan);
+packetGlobalForbiddenPlan.implementationItems.push({
+  ...structuredClone(plan.implementationItems[0]),
+  id: "feature-tests",
+  writeResources: [{ kind: "file", path: "test/feature.test.ts" }],
+  forbiddenWrites: [{ resource: { kind: "file", path: "src/feature.ts" }, reason: "The test worker must not repair implementation." }],
+});
+const packetGlobalForbiddenResult = validateImplementationPlan(packetGlobalForbiddenPlan);
+assert(!packetGlobalForbiddenResult.ok && packetGlobalForbiddenResult.errors.some((error) => error.includes("packet-global") && error.includes("worker ownership")), "Phase A admitted a forbidden write that cancels another item's write authority");
+
+const details = {
+  schema: "fanout.implementation-details", version: IMPLEMENTATION_DETAILS_VERSION, detailsId: "plan-1", createdAt: "2026-07-14T00:01:00.000Z", plan: planIdentity,
+  candidateNormalizationCommands: normalizationCommands,
+  items: [{
+    id: "feature", kind: "implement",
+    changes: [{ kind: "create", target: { resource: { kind: "file", path: "src/feature.ts" }, sourcePlanIds: ["feature"] }, contentIntent: "feature implementation" }],
+    readDependencies: [{ resource: { kind: "file", path: "package.json" }, timing: "baseline-context", timingSource: "phase-b", sourcePlanIds: ["feature"], reason: "package metadata" }],
+    forbiddenWrites: [], validationCommands: [command], advisoryNotes: [{ kind: "context", reference: "feature", text: "grounded source" }],
+  }],
+  finalValidationCommands: [command, command],
+};
+const detailsIdentity = artifactIdentity("implementation-details.json", Buffer.from(`${JSON.stringify(details, null, 2)}\n`));
+const tier = (provider, model, status = "available") => ({ provider, model, thinking: "medium", source: "test", status, reason: "test" });
+const tierPlan = { tier1: tier("local", "one"), tier2: { ...tier("local", "two", "unavailable"), fallback: "tier1" }, tier2Fallback: tier("local", "fallback") };
+
+assert(validateImplementationPlan(plan).ok, "plan v2 rejected");
+assert(validateImplementationDetailsArtifact(details, { planIdentity, planIds: ["feature"] }).ok, "details v4 rejected");
+const missingNormalization = structuredClone(details); delete missingNormalization.candidateNormalizationCommands;
+assert(!validateImplementationDetailsArtifact(missingNormalization, { planIdentity, planIds: ["feature"] }).ok, "details v4 admitted a missing repository normalization list");
+const perItemNormalization = structuredClone(details); perItemNormalization.items[0].candidateNormalizationCommands = normalizationCommands;
+assert(!validateImplementationDetailsArtifact(perItemNormalization, { planIdentity, planIds: ["feature"] }).ok, "details v4 admitted per-item normalization authority");
+const crossOwnerPlan = structuredClone(plan);
+crossOwnerPlan.implementationItems.push({
+  ...structuredClone(plan.implementationItems[0]),
+  id: "feature-tests",
+  writeResources: [{ kind: "file", path: "test/feature.test.ts" }],
+  forbiddenWrites: [],
+});
+const crossOwnerPlanIdentity = artifactIdentity("implementation-plan.json", Buffer.from(`${JSON.stringify(crossOwnerPlan, null, 2)}\n`));
+const packetGlobalForbiddenDetails = structuredClone(details);
+packetGlobalForbiddenDetails.plan = crossOwnerPlanIdentity;
+packetGlobalForbiddenDetails.items.push({
+  id: "feature-tests", kind: "implement",
+  changes: [{ kind: "create", target: { resource: { kind: "file", path: "test/feature.test.ts" }, sourcePlanIds: ["feature-tests"] }, contentIntent: "feature coverage" }],
+  readDependencies: [],
+  forbiddenWrites: [{ resource: { kind: "file", path: "src/feature.ts" }, sourcePlanIds: ["feature-tests"], reason: "A different worker owns implementation." }],
+  validationCommands: [command], advisoryNotes: [],
+});
+const packetGlobalForbiddenDetailsResult = validateImplementationDetailsArtifact(packetGlobalForbiddenDetails, { planIdentity: crossOwnerPlanIdentity, plan: crossOwnerPlan });
+assert(!packetGlobalForbiddenDetailsResult.ok && packetGlobalForbiddenDetailsResult.errors.some((error) => error.includes("packet-global") && error.includes("worker ownership")), "Phase B admitted a forbidden write that cancels planned write authority");
+assert(!validateImplementationPlan({ ...plan, version: 1 }).ok, "legacy plan v1 admitted");
+assert(!validateImplementationDetailsArtifact({ ...details, version: 3 }, { planIdentity }).ok, "legacy details v3 admitted");
+assert(!validateImplementationDetailsArtifact({ ...details, plan: { ...planIdentity, sha256: "2".repeat(64) } }, { planIdentity }).ok, "mixed plan/details identity admitted");
+const duplicateFinalValidation = validateImplementationDetailsArtifact({
+  ...details,
+  items: [...details.items, {
+    id: "final-validation", kind: "final-validation", changes: [],
+    readDependencies: [{ resource: { kind: "file", path: "src/feature.ts" }, timing: "post-change-required", timingSource: "phase-b", sourcePlanIds: ["feature"], reason: "integrated validation input" }],
+    forbiddenWrites: [], validationCommands: [command], advisoryNotes: [],
+  }],
+}, { planIdentity, planIds: ["feature"] });
+assert(!duplicateFinalValidation.ok && duplicateFinalValidation.errors.some((error) => error.includes("finalValidationCommands")), "duplicate Phase B final-validation authority was admitted");
+
+const runtimePolicy = { maxConcurrency: 2, failFast: false, fallbackAllowed: true };
+const compiled = compileExecutionPacket({ implementationPlan: plan, implementationDetails: details, planIdentity, detailsIdentity, tierPlan, runtimePolicy, createdAt: "2026-07-14T00:02:00.000Z" });
+assert(compiled.ok && compiled.packet, `compile failed: ${compiled.errors.join("; ")}`);
+const packet = compiled.packet;
+assert(packet.version === EXECUTION_PACKET_VERSION && packet.version === 6, "packet is not v6");
+assert(packet.nodes.length === 2 && packet.nodes.at(-1).kind === "final-validation", "canonical nodes/final validation missing");
+assert(packet.nodes.every((node) => JSON.stringify(node.workContract.candidateNormalizationCommands) === JSON.stringify(normalizationCommands)), "repository normalization list was not copied into every packet contract");
+assert(packet.nodes.at(-1).workContract.validationCommands.length === 2, "command order/duplicates were not preserved");
+assert(JSON.stringify(packet.runtimePolicy) === JSON.stringify(runtimePolicy), "immutable runtime policy was not stored in packet v6");
+const forbidden = ["artifactDir", "blockers", "workUnits", "estimates", "stopRules", "risks", "finalValidationPlan", "goal", "dependencies", "ownedFiles", "readOnlyFiles", "steps", "validationCommands", "acceptanceCriteria", "rollbackNotes", "workerPacket"];
+assert(!forbidden.some((key) => Object.hasOwn(packet, key) || packet.nodes.some((node) => Object.hasOwn(node, key))), "packet retains flattened legacy authority");
+assert(validateExecutionPacket(packet).executable, "packet v6 rejected");
+assert(!validateExecutionPacket({ ...packet, version: 5 }).executable, "packet v5 admitted");
+assert(!validateExecutionPacket({ ...packet, status: "ready" }).executable, "legacy status field admitted");
+assert(!validateExecutionPacket({ ...packet, runtimePolicy: { ...packet.runtimePolicy, maxConcurrency: 0 } }).executable, "invalid packet runtime policy admitted");
+assert(EXECUTION_RUN_VERSION === 3 && SHIM_EVENT_NAMES.length === 9, "execution-run compatibility subpath exposed legacy runtime authority");
+const graph = deriveExecutionGraph(packet);
+assert(JSON.stringify(graph.edges) === JSON.stringify([["feature", "final-validation"]]), "graph was not derived from contracts");
+const context = { objective: packet.objective, userContext: packet.userContext, discoveredRepoFacts: packet.discoveredRepoFacts, assumptions: packet.assumptions };
+assert(renderWorkContractMarkdown(context, packet.nodes) === renderWorkContractMarkdown(context, packet.nodes), "Markdown is unstable");
+assert(renderWorkContractMermaid(packet.nodes) === renderWorkContractMermaid(packet.nodes), "Mermaid is unstable");
+
+for (const name of readdirSync("packages/fanout-core/src").filter((name) => name.endsWith(".ts"))) {
+  const source = readFileSync(`packages/fanout-core/src/${name}`, "utf8");
+  assert(!/from\s+["'][^"']*(?:fanout-pi|doubleword)/.test(source), `fanout-core ${name} imports Pi or Doubleword`);
 }
-for (const forbidden of ["workerPacket", "parallelGroups", "lineRangeHint", "anchorText"]) {
-  if (phaseA.includes(forbidden)) throw new Error(`Phase A prompt leaked grounding/execution term: ${forbidden}`);
-}
-for (const phrase of ["implementation-details.json", "where to edit and the exact edit intent", "anchorText", "symbolName", "baseline-context", "post-change-required", "deterministic compiler", "post-change-required`: only when", "one details item per independently editable file/resource", "Reuse the same `sourcePlanIds`", "Phase A `filesToRead` entry overlaps", "Every Phase A `filesToChange` entry must be covered", "only as a concrete `post-change-required` file read", "Do not serialize tests, docs, fixtures, or package scripts behind implementation unless", "exact upstream artifact, file, or decision"]) {
-  if (!phaseB.includes(phrase)) throw new Error(`Phase B prompt missing grounding phrase: ${phrase}`);
-}
-for (const forbidden of ["parallelGroups", "tierPlan", "workerPacket"]) {
-  if (phaseB.includes(forbidden)) throw new Error(`Phase B prompt leaked packet field: ${forbidden}`);
-}
+const providerPackage = JSON.parse(readFileSync("packages/doubleword-provider/package.json", "utf8"));
+assert(!JSON.stringify(providerPackage).includes("fanout-core") && !JSON.stringify(providerPackage).includes("fanout-pi"), "standalone Doubleword package depends on Fanout");
 
-const base = compile(samplePlan(), sampleDetails());
-expectCompileOk("base", base);
-if (base.packet.workUnits.some((unit) => /contract/i.test(unit.id))) throw new Error(`compiler emitted a default contract node: ${base.packet.workUnits.map((unit) => unit.id).join(",")}`);
-
-const tier2Worker = compile(samplePlan([item("a", ["src/a.ts"])]), sampleDetails([detail("a", "src/a.ts")]), { tier2Eligible: ["implement"], tier1Only: ["final-validation"], fallbackTier: "tier1" }, availableTierPlan());
-expectCompileOk("tier2 worker", tier2Worker);
-expectTier("tier2 worker assignment", tier2Worker.packet.workUnits.find((unit) => unit.id === "a"), "tier2", "tier2", "background");
-
-const tier1Veto = compile(samplePlan([item("docs", ["README.md"])]), sampleDetails([detail("docs", "README.md")]), { tier2Eligible: ["docs"], tier1Only: ["docs"], fallbackTier: "tier1" }, availableTierPlan());
-expectCompileOk("tier1 veto", tier1Veto);
-expectTier("tier1Only veto", tier1Veto.packet.workUnits.find((unit) => unit.id === "docs"), "tier1", "tier1", "active");
-
-const sameFile = compile(samplePlan([item("a", ["src/shared.ts"]), item("b", ["src/shared.ts"])]), sampleDetails([
-  detail("a", "src/shared.ts"),
-  detail("b", "src/shared.ts", { anchorText: "export function b" }),
-]));
-expectCompileOk("same file merge", sameFile);
-if (sameFile.packet.workUnits.filter((unit) => unit.id !== "final-validation").length !== 1) throw new Error("same-file details did not merge into one worker packet");
-
-const splitSource = compile(samplePlan([item("a", ["src/a.ts", "src/a-extra.ts"])]), sampleDetails([
-  detail("a", "src/a.ts"),
-  detail("a", "src/a-extra.ts", { anchorText: "export const aExtra", symbolName: "symbolAExtra" }),
-]));
-expectCompileOk("split source id", splitSource);
-const splitSourceUnits = splitSource.packet.workUnits.filter((unit) => unit.id !== "final-validation");
-if (splitSourceUnits.length !== 2) throw new Error(`split source id did not create separate workers: ${splitSourceUnits.map((unit) => unit.id).join(",")}`);
-if (new Set(splitSourceUnits.map((unit) => unit.id)).size !== splitSourceUnits.length) throw new Error(`split source id created duplicate worker ids: ${splitSourceUnits.map((unit) => unit.id).join(",")}`);
-
-const splitDependency = compile(samplePlan([item("a", ["src/a.ts", "src/a-extra.ts"]), item("b", ["src/b.ts"], ["a"])]), sampleDetails([
-  detail("a", "src/a.ts"),
-  detail("a", "src/a-extra.ts", { anchorText: "export const aExtra", symbolName: "symbolAExtra" }),
-  detail("b", "src/b.ts"),
-]));
-expectCompileOk("semantic dependency does not schedule", splitDependency);
-const splitDependencyIds = splitDependency.packet.workUnits.filter((unit) => unit.id !== "final-validation" && unit.workerPacket.sourcePlanIds.includes("a")).map((unit) => unit.id);
-const splitDependencyB = splitDependency.packet.workUnits.find((unit) => unit.id !== "final-validation" && unit.workerPacket.sourcePlanIds.includes("b"));
-if (splitDependencyIds.length !== 2 || !splitDependencyB) throw new Error(`split dependency shape was not preserved: ${splitDependency.packet.workUnits.map((unit) => unit.id).join(",")}`);
-for (const id of splitDependencyIds) if (splitDependencyB.dependencies.includes(id)) throw new Error(`semantic dependency ${id} leaked into execution dependencies: ${splitDependencyB.dependencies.join(",")}`);
-
-const mixedSourceCycle = compile(samplePlan([item("contract", ["src/core.ts"]), item("command", ["src/index.ts", "src/execute.ts"], ["contract"])]), sampleDetails([
-  detail("contract", "src/core.ts"),
-  detail(["contract", "command"], "src/index.ts", {}, [{ file: "src/execute.ts", classification: "post-change-required", reason: "Must import the new helper." }]),
-  detail("command", "src/execute.ts"),
-]));
-expectCompileOk("mixed source semantic dependency cycle", mixedSourceCycle);
-const mixedIndex = mixedSourceCycle.packet.workUnits.find((unit) => unit.ownedFiles.includes("src/index.ts"));
-const mixedExecute = mixedSourceCycle.packet.workUnits.find((unit) => unit.ownedFiles.includes("src/execute.ts"));
-if (!mixedIndex || !mixedExecute) throw new Error(`mixed source regression lost expected units: ${mixedSourceCycle.packet.workUnits.map((unit) => unit.id).join(",")}`);
-if (!mixedIndex.dependencies.includes(mixedExecute.id)) throw new Error(`post-change-required edge missing from index to execute: ${mixedIndex.dependencies.join(",")}`);
-if (mixedExecute.dependencies.includes(mixedIndex.id)) throw new Error(`semantic dependency created a cycle back to index: ${mixedExecute.dependencies.join(",")}`);
-
-const missingAnchor = compile(samplePlan(), sampleDetails([detail("a", "src/a.ts", { anchorText: undefined, symbolName: undefined, section: undefined, lineRangeHint: undefined })]));
-expectCompileError("missing anchors", missingAnchor, "missing anchor");
-
-const missingEditIntent = compile(samplePlan([item("a", ["src/a.ts"])]), sampleDetails([{ ...detail("a", "src/a.ts"), existingFileEdits: [], newFiles: [] }]));
-expectCompileError("missing edit intent", missingEditIntent, "existingFileEdits or newFiles");
-
-const unknownSource = compile(samplePlan(), sampleDetails([detail("missing", "src/a.ts")]));
-expectCompileError("unknown Phase A ids", unknownSource, "unknown Phase A id missing");
-
-const missingWriteCoverage = compile(samplePlan([item("a", ["src/a.ts"])]), sampleDetails([detail("a", "src/b.ts")]));
-expectCompileError("missing filesToChange coverage", missingWriteCoverage, "filesToChange src/a.ts is not covered");
-
-const missingContracts = compile(samplePlan([item("a", ["src/a.ts"], [], [])]), sampleDetails([detail("a", "src/a.ts")]));
-expectCompileError("missing contracts", missingContracts, "missing contract inputs");
-
-const noRequiredClassifications = buildRequiredReadClassifications(samplePlan([item("a", ["src/a.ts"]), item("b", ["src/b.ts"])]));
-if (noRequiredClassifications.length !== 0) throw new Error(`unexpected required read classifications: ${JSON.stringify(noRequiredClassifications)}`);
-
-const requiredClassifications = buildRequiredReadClassifications(samplePlan([item("a", ["src/a.ts"]), { ...item("b", ["src/b.ts"]), filesToRead: ["src/a.ts"] }]));
-expectRequiredRows("required read classifications", requiredClassifications, [{ readerPlanId: "b", readFile: "src/a.ts", ownerPlanId: "a", ownerFile: "src/a.ts" }]);
-
-const dedupedClassifications = buildRequiredReadClassifications(samplePlan([item("a", ["src/a.ts", "./src/a.ts"]), { ...item("b", ["src/b.ts"]), filesToRead: ["src/a.ts", "./src/a.ts"] }]));
-expectRequiredRows("deduped required read classifications", dedupedClassifications, [{ readerPlanId: "b", readFile: "src/a.ts", ownerPlanId: "a", ownerFile: "src/a.ts" }]);
-
-const unclassifiedPlanRead = compile(samplePlan([item("a", ["src/a.ts"]), { ...item("b", ["src/b.ts"]), filesToRead: ["src/a.ts"] }]), sampleDetails([
-  detail("a", "src/a.ts"),
-  detail("b", "src/b.ts"),
-]));
-expectCompileError("unclassified Phase A read overlap", unclassifiedPlanRead, "ambiguous");
-
-const baseline = compile(samplePlan([item("a", ["src/a.ts"]), { ...item("b", ["src/b.ts"]), filesToRead: ["src/a.ts"] }]), sampleDetails([
-  detail("a", "src/a.ts"),
-  detail("b", "src/b.ts", {}, [
-    { file: "src/a.ts", classification: "baseline-context", reason: "Read the old API shape." },
-    { file: "./src/a.ts", classification: "baseline-context", reason: "Duplicate baseline row." },
-  ]),
-]));
-expectCompileOk("baseline overlap", baseline);
-expectGroup("baseline overlap stays parallel", baseline.packet, ["a", "b"]);
-const baselineB = baseline.packet.workUnits.find((unit) => unit.id === "b");
-if (baselineB?.workerPacket.readDependencies.length !== 1) throw new Error(`baseline read dependencies were not deduped: ${JSON.stringify(baselineB?.workerPacket.readDependencies)}`);
-const baselineValidation = validateExecutionPacket(baseline.packet);
-if (baselineValidation.warnings.some((warning) => warning.code === "read-write-overlap")) throw new Error(`baseline overlap still warned: ${JSON.stringify(baselineValidation.warnings)}`);
-const unmarkedBaselinePacket = structuredClone(baseline.packet);
-unmarkedBaselinePacket.workUnits.find((unit) => unit.id === "b").workerPacket.readDependencies = [];
-const unmarkedValidation = validateExecutionPacket(unmarkedBaselinePacket);
-if (!unmarkedValidation.warnings.some((warning) => warning.code === "read-write-overlap")) throw new Error("unmarked read-write overlap did not warn");
-const malformedWorkerPacket = structuredClone(baseline.packet);
-delete malformedWorkerPacket.workUnits.find((unit) => unit.id === "b").workerPacket;
-const malformedWorkerValidation = validateExecutionPacket(malformedWorkerPacket);
-if (!malformedWorkerValidation.errors.some((error) => error.code === "missing-worker-packet")) throw new Error(`malformed workerPacket did not return a structured error: ${JSON.stringify(malformedWorkerValidation)}`);
-const malformedReadDependenciesPacket = structuredClone(baseline.packet);
-malformedReadDependenciesPacket.workUnits.find((unit) => unit.id === "b").workerPacket.readDependencies = "bad";
-const malformedReadDependenciesValidation = validateExecutionPacket(malformedReadDependenciesPacket);
-if (!malformedReadDependenciesValidation.errors.some((error) => error.path?.endsWith(".readDependencies"))) throw new Error(`malformed readDependencies did not return a structured error: ${JSON.stringify(malformedReadDependenciesValidation)}`);
-
-const postChange = compile(samplePlan([item("a", ["src/a.ts"]), { ...item("b", ["src/b.ts"]), filesToRead: ["src/a.ts"] }]), sampleDetails([
-  detail("a", "src/a.ts"),
-  detail("b", "src/b.ts", {}, [{ file: "src/a.ts", classification: "post-change-required", reason: "Must consume the changed export." }]),
-]));
-expectCompileOk("post-change overlap", postChange);
-const postB = postChange.packet.workUnits.find((unit) => unit.id === "b");
-if (!postB?.dependencies.includes("a")) throw new Error("post-change-required overlap did not create dependency");
-
-const sequentialFallback = compileSequential(samplePlan([item("a", ["src/a.ts"]), { ...item("b", ["src/b.ts"]), filesToRead: ["src/a.ts"] }]), sampleDetails([
-  detail("a", "src/a.ts"),
-  detail("b", "src/b.ts"),
-]));
-expectCompileOk("sequential fallback overlap", sequentialFallback);
-const sequentialB = sequentialFallback.packet.workUnits.find((unit) => unit.id === "b");
-if (!sequentialB?.dependencies.includes("a")) throw new Error(`sequential fallback did not add dependency: ${sequentialB?.dependencies.join(",")}`);
-if (!sequentialFallback.warnings.some((warning) => warning.includes("Implicit post-change-required fallback"))) throw new Error(`sequential fallback did not warn: ${sequentialFallback.warnings.join("; ")}`);
-if (!sequentialFallback.packet.risks.some((risk) => risk.includes("Implicit post-change-required fallback"))) throw new Error(`sequential fallback warning missing from packet risks: ${sequentialFallback.packet.risks.join("; ")}`);
-
-const ambiguous = compile(samplePlan(), sampleDetails([
-  detail("a", "src/a.ts"),
-  detail("b", "src/b.ts", {}, [{ file: "src/a.ts", classification: "later", reason: "Not classified." }]),
-]));
-expectCompileError("ambiguous overlap", ambiguous, "ambiguous");
-
-console.log("fanout compiler smoke passed");
-
-function compile(plan, details, policy = { tier2Eligible: ["implement", "docs"], tier1Only: ["final-validation"], fallbackTier: "tier1" }, tiers = tierPlan()) {
-  return compileExecutionPacket({ implementationPlan: plan, implementationDetails: details, tierPlan: tiers, nodeKindTierPolicy: policy, artifactDir: plan.artifactDir, createdAt: "2026-07-08T00:00:00.000Z" });
-}
-
-function compileSequential(plan, details) {
-  return compileExecutionPacket({ implementationPlan: plan, implementationDetails: details, tierPlan: tierPlan(), nodeKindTierPolicy: { tier2Eligible: ["implement", "docs"], tier1Only: ["final-validation"], fallbackTier: "tier1" }, unclassifiedOverlapPolicy: "sequential", artifactDir: plan.artifactDir, createdAt: "2026-07-08T00:00:00.000Z" });
-}
-
-function samplePlan(items = [item("a", ["src/a.ts"]), item("b", ["src/b.ts"])]) {
-  return {
-    schema: "fanout.implementation-plan",
-    version: 1,
-    status: "ready",
-    objective: "Compiler smoke",
-    createdAt: "2026-07-08T00:00:00.000Z",
-    artifactDir: "/tmp/fanout-compiler-smoke",
-    userContext: ["User requested compiler smoke."],
-    discoveredRepoFacts: ["Repo has TypeScript files."],
-    assumptions: [],
-    implementationItems: items,
-    validationPlan: ["rtk npm run smoke:fanout-compiler"],
-    risks: [],
-  };
-}
-
-function item(id, filesToChange, dependencies = [], acceptanceCriteria = [`${id} satisfies the contract.`]) {
-  return {
-    id,
-    goal: `Update ${id}`,
-    rationale: `${id} is required by the objective.`,
-    filesToChange,
-    filesToRead: [],
-    dependencies,
-    validation: ["rtk npm run smoke:fanout-compiler"],
-    acceptanceCriteria,
-    risks: [],
-  };
-}
-
-function sampleDetails(items = [detail("a", "src/a.ts"), detail("b", "src/b.ts")]) {
-  return {
-    schema: "fanout.implementation-details",
-    version: 1,
-    status: "ready",
-    objective: "Compiler smoke",
-    artifactDir: "/tmp/fanout-compiler-smoke",
-    sourcePlanPath: "/tmp/fanout-compiler-smoke/implementation-plan.json",
-    items,
-  };
-}
-
-function detail(sourcePlanId, file, overrides = {}, readDependencies = []) {
-  const sourcePlanIds = Array.isArray(sourcePlanId) ? sourcePlanId : [sourcePlanId];
-  const anchorId = sourcePlanIds[0];
-  return {
-    sourcePlanIds,
-    ownedResources: [file],
-    existingFileEdits: [{ file, symbolName: `symbol${anchorId.toUpperCase()}`, section: "exports", anchorText: `export const ${anchorId}`, lineRangeHint: "1-5", editIntent: `Apply ${anchorId}.`, ...overrides }],
-    newFiles: [],
-    readDependencies,
-    forbiddenChanges: ["Do not change unrelated files."],
-    validationCommands: ["rtk npm run smoke:fanout-compiler"],
-  };
-}
-
-function tierPlan() {
-  return {
-    tier1: { provider: "current", model: "current-session-model", thinking: "auto", source: "current Pi active model", status: "available", reason: "control plane, review, synthesis, fallback" },
-    tier2: { provider: "doubleword", model: "zai-org/GLM-5.2-FP8", thinking: "medium", source: "default settings", status: "unavailable", reason: "async unavailable", fallback: "tier1" },
-  };
-}
-
-function availableTierPlan() {
-  return {
-    tier1: { provider: "current", model: "current-session-model", thinking: "auto", source: "current Pi active model", status: "available", reason: "control plane, review, synthesis, fallback" },
-    tier2: { provider: "doubleword", model: "zai-org/GLM-5.2-FP8", thinking: "medium", source: "default settings", status: "available", reason: "parallel async worker nodes" },
-  };
-}
-
-function expectCompileOk(name, result) {
-  if (!result.ok || !result.packet) throw new Error(`${name} compile failed: ${JSON.stringify(result.errors)}`);
-  const validation = validateExecutionPacket(result.packet);
-  if (!validation.ok) throw new Error(`${name} packet did not validate: ${JSON.stringify(validation, null, 2)}`);
-}
-
-function expectCompileError(name, result, substring) {
-  if (result.ok || !result.errors.some((error) => error.includes(substring))) throw new Error(`${name}: expected ${substring}, got ${JSON.stringify(result.errors)}`);
-}
-
-function expectGroup(name, packet, ids) {
-  const groups = packet.estimates.parallelGroups.map((group) => new Set(group));
-  if (!groups.some((group) => ids.every((id) => group.has(id)))) throw new Error(`${name}: ${JSON.stringify(packet.estimates.parallelGroups)}`);
-}
-
-function expectRequiredRows(name, actual, expected) {
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`${name}: ${JSON.stringify(actual)}`);
-}
-
-function expectTier(name, unit, preferred, assigned, active) {
-  if (!unit || unit.tier.preferred !== preferred || unit.tier.assigned !== assigned || unit.active !== active) throw new Error(`${name}: ${JSON.stringify(unit?.tier)} active=${unit?.active}`);
-}
+console.log("hardened compiler cutover smoke passed (plan v2, details v4, packet v6, package independence)");

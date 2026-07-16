@@ -66,7 +66,6 @@ DOUBLEWORD_EXECUTION_MODE          realtime or async; defaults to realtime
 - Discovers models from Doubleword `/models` and caches the catalog locally.
 - Falls back to a small known model list when discovery is unavailable.
 - Supports realtime priority execution and async/flex background polling.
-- Marks registered Doubleword models with Fanout tier metadata for realtime, async, and batch.
 - Sends top-level Doubleword `reasoning_effort` for reasoning-capable models; OCR/embedding models are marked non-reasoning.
 - Converts Doubleword reasoning output into Pi thinking blocks.
 - Supports Responses function-call tool use.

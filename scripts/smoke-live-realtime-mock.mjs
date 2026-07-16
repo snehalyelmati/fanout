@@ -198,6 +198,7 @@ try {
   const events = readFileSync(logFile, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
   const providerEnds = events.filter((event) => event.event === "provider_end" && event.provider === "doubleword" && event.model === "deepseek-ai/DeepSeek-V4-Flash" && event.tier === "realtime");
   assert(providerEnds.length >= 2, `missing realtime provider_end events\n${readFileSync(logFile, "utf8")}`);
+  assert(providerEnds.every((event) => event.usageSource === "provider" && event.pricingSource === "doubleword-model-metadata"), `realtime provider_end missing usage provenance\n${readFileSync(logFile, "utf8")}`);
   assert(providerEnds.some((event) => event.responseId === toolReplayResponseId), `missing tool-call final provider_end\n${readFileSync(logFile, "utf8")}`);
 
   console.log(`live realtime mock smoke passed (${requests.length} requests, ${events.length} events)`);

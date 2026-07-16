@@ -14,13 +14,6 @@ export type ProviderModel = {
 	name: string;
 	reasoning: boolean;
 	thinkingLevelMap?: Model<Api>["thinkingLevelMap"];
-	fanout?: {
-		tiers: Array<"realtime" | "async" | "batch">;
-		async: boolean;
-		background: boolean;
-		batch: boolean;
-		authReady: boolean;
-	};
 	input: Array<"text" | "image">;
 	cost: ModelCost;
 	contextWindow: number;
@@ -31,20 +24,15 @@ const MODEL_CACHE_FILE = process.env.DOUBLEWORD_MODEL_CACHE_FILE ?? join(homedir
 export const ZERO_COST: ModelCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 export const DOUBLEWORD_THINKING_LEVEL_MAP = { off: "none", minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh" } satisfies NonNullable<Model<Api>["thinkingLevelMap"]>;
 
-function fanoutMetadata(authReady: boolean): NonNullable<ProviderModel["fanout"]> {
-	return { tiers: ["realtime", "async", "batch"], async: true, background: true, batch: true, authReady };
-}
-
 function isGenerationModel(id: string, name = id): boolean {
 	return !/(ocr|embed|embedding|embeddings)/i.test(`${id} ${name}`);
 }
 
-export const stubModel = (id: string, name: string, cost: ModelCost = ZERO_COST, maxTokens = DEFAULT_MAX_OUTPUT_TOKENS, authReady = true): ProviderModel => ({
+export const stubModel = (id: string, name: string, cost: ModelCost = ZERO_COST, maxTokens = DEFAULT_MAX_OUTPUT_TOKENS): ProviderModel => ({
 	id,
 	name,
 	reasoning: true,
 	thinkingLevelMap: DOUBLEWORD_THINKING_LEVEL_MAP,
-	fanout: fanoutMetadata(authReady),
 	input: ["text"],
 	cost,
 	contextWindow: 128000,
@@ -57,8 +45,8 @@ export const REALTIME_STUB_MODELS = [
 ];
 
 const fallbackLiveModels = (): ProviderModel[] => [
-	stubModel(LIVE_GLM_MODEL_ID, "GLM-5.2-FP8", ZERO_COST, DEFAULT_MAX_OUTPUT_TOKENS, Boolean(process.env.DOUBLEWORD_API_KEY)),
-	stubModel(LIVE_DEEPSEEK_MODEL_ID, "DeepSeek-V4-Flash", ZERO_COST, DEFAULT_MAX_OUTPUT_TOKENS, Boolean(process.env.DOUBLEWORD_API_KEY)),
+	stubModel(LIVE_GLM_MODEL_ID, "GLM-5.2-FP8", ZERO_COST, DEFAULT_MAX_OUTPUT_TOKENS),
+	stubModel(LIVE_DEEPSEEK_MODEL_ID, "DeepSeek-V4-Flash", ZERO_COST, DEFAULT_MAX_OUTPUT_TOKENS),
 ];
 
 const KNOWN_TIER_COSTS: Record<string, TierCosts> = {
@@ -96,6 +84,10 @@ function tierCost(id: string, tier: "realtime" | "async"): ModelCost {
 	return KNOWN_TIER_COSTS[id.toLowerCase()]?.[tier] ?? ZERO_COST;
 }
 
+export function tierPricingSource(id: string, tier: "realtime" | "async"): string | undefined {
+	return KNOWN_TIER_COSTS[id.toLowerCase()]?.[tier] ? "doubleword-model-metadata" : undefined;
+}
+
 export function withTierCost<T extends Model<Api> | ProviderModel>(model: T, tier: "realtime" | "async"): T {
 	return { ...model, cost: tierCost(model.id, tier) };
 }
@@ -106,8 +98,6 @@ function modelFromCatalogEntry(entry: any): ProviderModel | undefined {
 	const name = typeof entry.name === "string" ? entry.name : id;
 	const capabilities = Array.isArray(entry.capabilities) ? entry.capabilities.map(String) : undefined;
 	const reasoning = typeof entry.reasoning === "boolean" ? entry.reasoning : capabilities ? capabilities.includes("reasoning") : isGenerationModel(id, name);
-	const authReady = Boolean(process.env.DOUBLEWORD_API_KEY);
-	const catalogFanout = typeof entry.fanout === "object" && entry.fanout ? entry.fanout : {};
 	const rawThinkingLevelMap = entry.thinkingLevelMap ?? entry.thinking_level_map;
 	const catalogThinkingLevelMap = typeof rawThinkingLevelMap === "object" && rawThinkingLevelMap ? rawThinkingLevelMap : {};
 	return {
@@ -115,7 +105,6 @@ function modelFromCatalogEntry(entry: any): ProviderModel | undefined {
 		name,
 		reasoning,
 		...(reasoning ? { thinkingLevelMap: { ...DOUBLEWORD_THINKING_LEVEL_MAP, ...catalogThinkingLevelMap } } : {}),
-		fanout: { ...fanoutMetadata(authReady), ...catalogFanout, authReady },
 		input: ["text"],
 		cost: ZERO_COST,
 		contextWindow: numberFrom(entry.context_window ?? entry.contextWindow, 128000),

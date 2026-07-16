@@ -1,6 +1,6 @@
 # Fanout execution benchmark procedure
 
-Purpose: define the benchmark path from today's read-only Fanout DAG prompt experiments to future executable `/fanout-execute` benchmarks, including TermBench-style terminal task suites once execution exists.
+Purpose: define the benchmark path from read-only Fanout DAG prompt experiments through executable `/fanout-execute` benchmarks, including TermBench-style terminal task suites.
 
 Evidence scope: this procedure tracks workflow quality, runtime execution quality, and provider/model cost separately. A good prompt-DAG score is not proof of executable correctness; a good executable benchmark is not proof of provider-tier savings unless cost/time telemetry is captured.
 
@@ -9,14 +9,14 @@ Evidence scope: this procedure tracks workflow quality, runtime execution qualit
 | Stage | When | What it measures | Primary artifacts |
 | --- | --- | --- | --- |
 | P0: prompt-DAG dry runs | Before `/fanout-execute` | Whether `/fanout-plan` prompts produce safe, parallel execution DAGs | `runs/fanout-dag-prompt-experiments/` |
-| P1: packet smoke execution | `/fanout-execute` MVP | Active packet loading, guardrails, confirmation, stub launch, summaries | packet fixtures, smoke transcripts |
+| P1: packet smoke execution | `/fanout-execute` MVP | Active packet loading, guardrails, fake-worker launch, patch gates, summaries | packet fixtures, smoke transcripts |
 | P2: local repo task execution | `/fanout-execute` can launch workers | Real subagent execution on controlled repo tasks | execution packets, worker logs, validation output |
 | P3: TermBench-style suites | Stable execution loop | End-to-end terminal task success, latency, retries, cost | suite results, traces, summaries |
 | P4: tier-routing comparisons | Doubleword tier integration | Realtime vs async/batch cost/time tradeoff under Fanout | observability traces, cost reports |
 
 ## P0: prompt-DAG dry-run benchmark
 
-Use this while `/fanout-execute` is not implemented or while improving `/fanout-plan` prompt wording.
+Use this while improving `/fanout-plan` prompt wording; executable-runtime claims still require P1/P2 evidence.
 
 Tracked durable summaries:
 
@@ -140,33 +140,34 @@ This is a prompt-quality gate only. It does not replace runtime benchmarks.
 
 ## P1: `/fanout-execute` packet smoke benchmark
 
-Start after the MVP can load an active packet and run a stub worker launch.
+Current status: the deterministic public `/fanout-execute` dry-run and live seams are implemented and passing with a fake Pi subprocess worker. The live smoke covers retry, validation repair, accepted apply, fresh final validation, causal event replay, abort/drain, and lock/worktree cleanup. A real-provider macOS p-map canary remains an explicit cost/owner release gate, not missing executor functionality.
 
 Minimum task set:
 
-- valid active packet, user confirms, stub launch summary is emitted;
+- valid compiler-produced active packet, user confirms, fake workers execute, and the summary is emitted;
 - missing active pointer is rejected;
-- invalid packet is rejected;
-- stale packet is rejected;
-- dirty/conflicting worktree is rejected or requires explicit confirmation;
-- user declines confirmation;
-- docs and metrics summary match the observed behavior.
+- malformed, unsafe, or escaping packets are rejected;
+- dirty worktrees and in-repo artifact roots are rejected;
+- user decline and dry-run paths do not mutate worktree files;
+- ownership, validation, apply, retry/fallback, and typed-recovery gates are exercised;
+- deterministic final validation and audit artifacts match the observed behavior.
 
 Required metrics:
 
 | Metric | Notes |
 | --- | --- |
-| active packet load time | Time from command start to packet validation result |
-| confirmation wait | User/fixture confirmation duration, excluded from provider time when possible |
-| worker launch count | Stub or real subagent count |
-| guardrail rejection count | By error code |
-| validation pass/fail | Per command/check |
-| summary fields present | packet path, DAG depth/width, worker counts, errors, artifacts |
-| tool timings | file reads, git/worktree checks, validation commands |
+| run/node/worker duration | Projection-v3 run totals plus correlated attempt metrics |
+| worker launch count | Canonical event-v2 `attempt-allocated` records and projection attempts |
+| retry/fallback/rejection count | Typed attempt kinds/actions and projection totals |
+| validation pass/fail and duration | Attempt `validation.json`, final-validation evidence v1, and projection disposition |
+| token/cost provenance | Correlated attempt outcomes, including observed partial failed-attempt usage |
+| patch statistics | Accepted-ledger aggregate files/insertions/deletions; `result.json` retains per-attempt patch identity, changed paths, and stats |
+| tool/poll timing | Correlated provider/extension observability per attempt |
+| summary fields present | unified title; mode/phase/outcome; node status/attempts; totals; final-validation disposition; ledger tree transitions; stable audit links |
 
 ## P2: controlled local repo execution benchmark
 
-Start when `/fanout-execute` can launch real workers or isolated write tasks.
+The public executor already launches isolated Pi subprocess workers. Use this stage for controlled repository tasks; using a paid/live provider requires explicit authorization, while deterministic fake/stub workers remain suitable for keyless regression runs.
 
 Task selection rules:
 
