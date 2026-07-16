@@ -103,6 +103,7 @@ function runPi(baseUrl, { logFile, runId, pollMs = "0", asyncTimeoutMs = "30000"
         DOUBLEWORD_BASE_URL: baseUrl,
         DOUBLEWORD_MAX_OUTPUT_TOKENS: "16384",
         DOUBLEWORD_OBSERVABILITY_FILE: logFile,
+        DOUBLEWORD_MODEL_CACHE_FILE: join(dir, "models.json"),
         DOUBLEWORD_RUN_ID: runId,
         DOUBLEWORD_EXECUTION_MODE: "async",
         DOUBLEWORD_LIVE_ASYNC_POLL_MS: pollMs,
@@ -157,6 +158,7 @@ try {
   assert(submit.body.service_tier === "flex", `POST /responses missing service_tier flex: ${JSON.stringify(submit.body)}`);
   assert(submit.body.background === true, `POST /responses missing background true: ${JSON.stringify(submit.body)}`);
   assert(submit.body.max_output_tokens === 16384, `POST /responses wrong max_output_tokens: ${JSON.stringify(submit.body)}`);
+  assert(submit.body.reasoning_effort === "medium", `POST /responses missing reasoning_effort medium: ${JSON.stringify(submit.body)}`);
   assert(requests.filter((request) => request.method === "GET" && request.path === `/responses/${successResponseId}`).length === 2, `GET /responses/${successResponseId} retry did not happen: ${JSON.stringify(requests)}`);
 
   const events = readEvents(successLogFile);
@@ -166,6 +168,7 @@ try {
   assert(has("async_poll_retry", liveEvent), `missing live async_poll_retry event\n${readFileSync(successLogFile, "utf8")}`);
   assert(has("async_poll", liveEvent), `missing live async_poll event\n${readFileSync(successLogFile, "utf8")}`);
   assert(has("provider_end", (event) => event.provider === "doubleword" && event.model === "deepseek-ai/DeepSeek-V4-Flash" && event.tier === "async"), `missing provider_end for doubleword/deepseek-ai/DeepSeek-V4-Flash\n${readFileSync(successLogFile, "utf8")}`);
+  assert(has("provider_end", (event) => event.usageSource === "provider" && event.pricingSource === "doubleword-model-metadata"), `missing async provider usage provenance\n${readFileSync(successLogFile, "utf8")}`);
 
   const timeoutResult = await runPi(baseUrl, {
     logFile: timeoutLogFile,

@@ -2,9 +2,10 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { DOUBLEWORD_API_BASE_URL, type ExecutionMode, UNIFIED_LIVE_PROVIDER, UNIFIED_STUB_PROVIDER } from "./config.ts";
 import { streamLiveAsync, streamLiveRealtime } from "./live.ts";
-import { discoverLiveModels, withTierCost } from "./models.ts";
+import { discoverLiveModels, type ProviderModel, withTierCost } from "./models.ts";
 
 const MULTI_TIER_PROVIDERS = new Set([UNIFIED_STUB_PROVIDER, UNIFIED_LIVE_PROVIDER]);
+export type DoublewordModelMetadataSink = (provider: string, models: ProviderModel[]) => void;
 let executionMode: ExecutionMode = process.env.DOUBLEWORD_EXECUTION_MODE === "async" ? "async" : "realtime";
 
 export function currentExecutionMode(): ExecutionMode {
@@ -53,8 +54,9 @@ export function registerControls(pi: ExtensionAPI): void {
 	pi.on("model_select", (_event, ctx) => updateExecutionModeStatus(ctx));
 }
 
-export async function registerDoublewordLiveProvider(pi: ExtensionAPI): Promise<void> {
+export async function registerDoublewordLiveProvider(pi: ExtensionAPI, onModels?: DoublewordModelMetadataSink): Promise<void> {
 	const liveModels = await discoverLiveModels();
+	onModels?.(UNIFIED_LIVE_PROVIDER, liveModels);
 	pi.registerProvider(UNIFIED_LIVE_PROVIDER, {
 		name: "Doubleword",
 		baseUrl: DOUBLEWORD_API_BASE_URL,
@@ -65,7 +67,7 @@ export async function registerDoublewordLiveProvider(pi: ExtensionAPI): Promise<
 	});
 }
 
-export async function registerDoublewordProviders(pi: ExtensionAPI): Promise<void> {
+export async function registerDoublewordProviders(pi: ExtensionAPI, onModels?: DoublewordModelMetadataSink): Promise<void> {
 	registerControls(pi);
-	await registerDoublewordLiveProvider(pi);
+	await registerDoublewordLiveProvider(pi, onModels);
 }

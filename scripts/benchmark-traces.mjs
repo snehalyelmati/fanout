@@ -927,7 +927,7 @@ function groupByTrace(rows) {
   const groups = new Map();
   for (const row of rows) {
     const format = rowFormat(row);
-    const runId = format === "observability" ? row.runId ?? `unknown-${basename(row.sourceFile)}` : format === "hybrid-workflow" ? row.workflowId ?? basename(row.sourceFile).replace(/\.jsonl$/, "") : basename(row.sourceFile).replace(/\.jsonl$/, "");
+    const runId = format === "observability" ? row.sessionRunId ?? row.runId ?? `unknown-${basename(row.sourceFile)}` : format === "hybrid-workflow" ? row.workflowId ?? basename(row.sourceFile).replace(/\.jsonl$/, "") : basename(row.sourceFile).replace(/\.jsonl$/, "");
     const key = `${format}\0${row.sourceFile}\0${runId}`;
     if (!groups.has(key)) groups.set(key, { format, runId, source: row.sourceFile, rows: [] });
     groups.get(key).rows.push(row);

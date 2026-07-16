@@ -1,0 +1,154 @@
+{
+  "schema": "fanout.execution-packet",
+  "version": 4,
+  "status": "ready",
+  "objective": "Invalid ownership conflict fixture",
+  "createdAt": "2026-07-03T00:00:00.000Z",
+  "userContext": [],
+  "discoveredRepoFacts": [],
+  "assumptions": [],
+  "blockers": [],
+  "workUnits": [
+    {
+      "id": "docs-a",
+      "goal": "Update first docs section.",
+      "dependencies": [],
+      "ownedFiles": [
+        "README.md"
+      ],
+      "readOnlyFiles": [],
+      "steps": [
+        "Edit README.md section A."
+      ],
+      "validationCommands": [
+        "rtk npm run smoke:planning"
+      ],
+      "acceptanceCriteria": [
+        "Section A is updated."
+      ],
+      "rollbackNotes": [
+        "Revert README.md."
+      ],
+      "kind": "docs",
+      "tier": {
+        "preferred": "tier2",
+        "assigned": "tier1",
+        "fallback": "tier1",
+        "provider": "current",
+        "model": "current-session-model",
+        "thinking": "auto",
+        "reason": "tier2 unavailable; realtime fallback"
+      },
+      "workerPacket": {
+        "sourcePlanIds": [
+          "docs-a"
+        ],
+        "targetAnchors": [
+          "README.md: fixture anchor"
+        ],
+        "requiredChanges": [
+          "Edit README.md section A."
+        ],
+        "contractInputs": [
+          "Section A is updated."
+        ],
+        "readDependencies": [],
+        "forbiddenChanges": [],
+        "handoffContext": []
+      }
+    },
+    {
+      "id": "docs-b",
+      "goal": "Update second docs section.",
+      "dependencies": [],
+      "ownedFiles": [
+        "./README.md"
+      ],
+      "readOnlyFiles": [],
+      "steps": [
+        "Edit README.md section B."
+      ],
+      "validationCommands": [
+        "rtk npm run smoke:planning"
+      ],
+      "acceptanceCriteria": [
+        "Section B is updated."
+      ],
+      "rollbackNotes": [
+        "Revert README.md."
+      ],
+      "kind": "docs",
+      "tier": {
+        "preferred": "tier2",
+        "assigned": "tier1",
+        "fallback": "tier1",
+        "provider": "current",
+        "model": "current-session-model",
+        "thinking": "auto",
+        "reason": "tier2 unavailable; realtime fallback"
+      },
+      "workerPacket": {
+        "sourcePlanIds": [
+          "docs-b"
+        ],
+        "targetAnchors": [
+          "./README.md: fixture anchor"
+        ],
+        "requiredChanges": [
+          "Edit README.md section B."
+        ],
+        "contractInputs": [
+          "Section B is updated."
+        ],
+        "readDependencies": [],
+        "forbiddenChanges": [],
+        "handoffContext": []
+      }
+    }
+  ],
+  "estimates": {
+    "activeWait": "unknown",
+    "backgroundCompletion": "unknown",
+    "cost": "unknown",
+    "criticalPath": [],
+    "parallelGroups": [
+      [
+        "docs-a",
+        "docs-b"
+      ]
+    ]
+  },
+  "stopRules": [],
+  "risks": [],
+  "finalValidationPlan": [
+    "rtk npm run smoke:planning"
+  ],
+  "artifactDir": "/tmp/fanout-artifacts/example",
+  "tierPlan": {
+    "tier1": {
+      "provider": "current",
+      "model": "current-session-model",
+      "thinking": "auto",
+      "source": "current Pi active model",
+      "status": "available",
+      "reason": "control plane, review, synthesis, fallback"
+    },
+    "tier2": {
+      "provider": "doubleword",
+      "model": "zai-org/GLM-5.2-FP8",
+      "thinking": "medium",
+      "source": "default settings",
+      "status": "unavailable",
+      "reason": "async capability unavailable",
+      "fallback": "tier1"
+    },
+    "tier2Fallback": {
+      "provider": "current",
+      "model": "current-session-model",
+      "thinking": "auto",
+      "source": "tier1 inheritance",
+      "status": "available",
+      "reason": "realtime fallback for tier2 execution; inherits tier1"
+    }
+  }
+}

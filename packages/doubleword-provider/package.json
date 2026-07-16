@@ -1,12 +1,12 @@
 {
   "name": "@snehalyelmati/pi-doubleword-provider",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "type": "module",
   "publishConfig": {
     "access": "public"
   },
-  "description": "Doubleword realtime and async model provider for Pi.",
-  "keywords": ["pi-package", "pi", "doubleword", "provider", "ai"],
+  "description": "Pi extension for the Doubleword model provider.",
+  "keywords": ["pi-package", "pi-extension", "pi", "doubleword", "provider", "ai"],
   "files": [
     "README.md",
     "assets/model-picker.png",
@@ -28,6 +28,6 @@
   },
   "pi": {
     "extensions": ["./src/index.ts"],
-    "image": "https://unpkg.com/@snehalyelmati/pi-doubleword-provider@0.1.2/assets/model-picker.png"
+    "image": "https://unpkg.com/@snehalyelmati/pi-doubleword-provider/assets/model-picker.png"
   }
 }

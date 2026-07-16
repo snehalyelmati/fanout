@@ -1,10 +1,10 @@
 # Pi Doubleword Provider
 
-Doubleword realtime and async model provider for [Pi](https://pi.dev).
+Pi extension for the Doubleword realtime and async model provider.
 
 ![Doubleword models in Pi](./assets/model-picker.png)
 
-[Doubleword](https://doubleword.ai) provides model inference with multiple execution tiers. This Pi package registers the live `doubleword` provider, discovers available models from Doubleword when an API key is present, and lets you toggle realtime vs async execution from inside Pi.
+[Doubleword](https://doubleword.ai) provides model inference with multiple execution tiers. This extension registers the live `doubleword` provider, discovers available models from Doubleword when an API key is present, and lets you toggle realtime vs async execution from inside Pi.
 
 ## Why Doubleword?
 
@@ -38,6 +38,8 @@ pi --model doubleword/deepseek-ai/DeepSeek-V4-Flash
 
 Use `Alt+T` or `/doubleword-mode` to toggle realtime vs async execution for Doubleword models.
 
+Supported Doubleword generation models use medium reasoning by default. Press `Shift+Tab` to change thinking depth or turn reasoning off; the provider sends the selected level to Doubleword as `reasoning_effort`.
+
 ## Configuration
 
 Required for live models:
@@ -64,6 +66,7 @@ DOUBLEWORD_EXECUTION_MODE          realtime or async; defaults to realtime
 - Discovers models from Doubleword `/models` and caches the catalog locally.
 - Falls back to a small known model list when discovery is unavailable.
 - Supports realtime priority execution and async/flex background polling.
+- Sends top-level Doubleword `reasoning_effort` for reasoning-capable models; OCR/embedding models are marked non-reasoning.
 - Converts Doubleword reasoning output into Pi thinking blocks.
 - Supports Responses function-call tool use.
 - Reports usage/cost metadata when returned by the provider.

@@ -4,7 +4,27 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./active-packet": "./src/active-packet.ts",
+    "./artifact-identity": "./src/artifact-identity.ts",
+    "./attempt-metrics": "./src/attempt-metrics.ts",
     "./batching-discipline": "./src/batching-discipline.ts",
-    "./observability": "./src/observability.ts"
+    "./dag-scheduler": "./src/dag-scheduler.ts",
+    "./execution-packet": "./src/execution-packet.ts",
+    "./execution-attempt": "./src/execution-attempt.ts",
+    "./execution-event": "./src/execution-event.ts",
+    "./execution-projection": "./src/execution-projection.ts",
+    "./execution-report": "./src/execution-report.ts",
+    "./execution-run": "./src/execution-run.ts",
+    "./final-validation": "./src/final-validation.ts",
+    "./fanout-compiler": "./src/fanout-compiler.ts",
+    "./observability": "./src/observability.ts",
+    "./recovery-evidence": "./src/recovery-evidence.ts",
+    "./repository-resource": "./src/repository-resource.ts",
+    "./validation-command": "./src/validation-command.ts",
+    "./work-contract": "./src/work-contract.ts",
+    "./work-contract-compiler": "./src/work-contract-compiler.ts",
+    "./work-contract-graph": "./src/work-contract-graph.ts",
+    "./work-contract-views": "./src/work-contract-views.ts",
+    "./worker-metrics": "./src/worker-metrics.ts"
   }
 }

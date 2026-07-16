@@ -1,63 +1,28 @@
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import { buildImplementationDetailsPrompt, buildImplementationDetailsRepairPrompt, buildImplementationPlanPrompt, createFanoutPlanRun } from "../packages/fanout-pi/src/fanout-plan-orchestration.ts";
 
-const promptPath = "packages/fanout-pi/prompts/dw-plan.md";
-if (!existsSync(promptPath)) throw new Error(`${promptPath} is missing`);
-
-const prompt = readFileSync(promptPath, "utf8");
-
-const piPkg = JSON.parse(readFileSync("packages/fanout-pi/package.json", "utf8"));
-if (!piPkg.pi?.prompts?.includes("./prompts/dw-plan.md")) throw new Error("packages/fanout-pi/package.json does not expose ./prompts/dw-plan.md");
-for (const phrase of ["Planning only", "Clarify until the ask is clear", "<proposed_plan>"]) {
-  if (!prompt.includes(phrase)) throw new Error(`${promptPath} is missing phrase: ${phrase}`);
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+const phaseA = readFileSync("packages/fanout-pi/prompts/fanout-implementation-plan.md", "utf8");
+const phaseB = readFileSync("packages/fanout-pi/prompts/fanout-implementation-details.md", "utf8");
+for (const text of [phaseA, phaseB]) {
+  assert(text.includes("fanout_submit_artifact"), "phase prompt omitted controller submission");
+  assert(text.includes("controller supplies schema/version"), "phase prompt asks the model to own its envelope");
+  assert(!/status.{0,8}ready|artifactDir|sourcePlanPath|ownedResources|forbiddenChanges|shell command|string\[\] of literal/i.test(text), "phase prompt retains legacy executable authority");
 }
+assert(phaseA.includes("writeResources") && phaseA.includes('"kind":"file"'), "Phase A omitted typed resources");
+assert(phaseA.includes("Do not add a `final-validation` implementation item") && phaseA.includes("compiler-owned final-validation node"), "Phase A permits duplicate final-validation authority");
+assert(phaseA.includes("packet-global") && phaseA.includes("worker ownership"), "Phase A does not explain monotonic forbidden-write scope");
+assert(phaseB.includes('"changes"') && phaseB.includes('"executable"') && phaseB.includes('"args"'), "Phase B omitted typed changes/direct argv");
+assert(phaseB.includes('"candidateNormalizationCommands"') && phaseB.includes("before patch capture") && phaseB.includes("original validation stays authoritative"), "Phase B omitted explicit candidate-normalization authority or ordering");
+assert(phaseB.includes("packet-global") && phaseB.includes("worker ownership"), "Phase B does not explain monotonic forbidden-write scope");
 
-const dir = mkdtempSync(join(tmpdir(), "doubleword-pi-plan-"));
+const context = { projectArtifactRoot: "/tmp/fanout" };
+const run = createFanoutPlanRun("Typed plan", context, new Date("2026-07-14T00:00:00.000Z"));
+const planPrompt = buildImplementationPlanPrompt("Typed plan", { planningBase: { headCommit: "1".repeat(40), tree: "1".repeat(40) }, planningHost: { platform: process.platform } }, run);
+const detailsPrompt = buildImplementationDetailsPrompt("Typed plan", {}, run, [{ readerPlanId: "a", readResource: { kind: "file", path: "a.ts" }, ownerPlanId: "b", ownerResource: { kind: "file", path: "a.ts" } }]);
+assert(planPrompt.includes('"phase":"implementation"') && detailsPrompt.includes('"phase":"details"'), "typed pending phase attribution missing");
+assert(detailsPrompt.includes("post-change-required") && detailsPrompt.includes('"readResource"'), "typed Phase B read checklist missing");
+const repairPrompt = buildImplementationDetailsRepairPrompt("Typed plan", {}, run, [{ code: "planned-read-not-grounded", message: "diagnostic wording", path: "planned[0].readResources[0]" }]);
+assert(repairPrompt.includes('"code": "planned-read-not-grounded"') && repairPrompt.includes('"path": "planned[0].readResources[0]"') && !repairPrompt.includes("planned-read-not-grounded:"), "repair prompt flattened structured compiler issues");
 
-function readEvents(logFile) {
-  return readFileSync(logFile, "utf8")
-    .trim()
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line));
-}
-
-function run(name, promptText) {
-  const logFile = join(dir, `${name}.jsonl`);
-  const result = spawnSync("pi", ["-e", ".", "--model", "doubleword-stub/deepseek-v4-flash", "-p", promptText], {
-    cwd: process.cwd(),
-    env: { ...process.env, DOUBLEWORD_OBSERVABILITY_FILE: logFile, DOUBLEWORD_RUN_ID: `smoke-planning-${name}` },
-    encoding: "utf8",
-  });
-
-  if (result.status !== 0 || !result.stdout.includes("Doubleword stub response.")) {
-    throw new Error(`${name} planning smoke failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
-  }
-
-  const events = readEvents(logFile);
-  if (!events.some((event) => event.event === "provider_start")) throw new Error(`${name}: missing provider_start event`);
-  const providerEnd = events.find((event) => event.event === "provider_end");
-  if (!providerEnd) throw new Error(`${name}: missing provider_end event`);
-  const input = providerEnd.usage?.input;
-  if (typeof input !== "number") throw new Error(`${name}: missing provider_end.usage.input`);
-  return { events, input, logFile };
-}
-
-try {
-  const plain = run("plain", "Prepare a docs-only change plan");
-  const planned = run("dw-plan", "/dw-plan Prepare a docs-only change plan");
-  const minimumLift = 20;
-
-  if (planned.input <= plain.input + minimumLift) {
-    throw new Error(`dw-plan did not materially increase provider input: plain=${plain.input}, dw-plan=${planned.input}, logs=${plain.logFile},${planned.logFile}`);
-  }
-
-  console.log(`planning smoke passed (plain input=${plain.input}, dw-plan input=${planned.input}, events=${plain.events.length}+${planned.events.length})`);
-  rmSync(dir, { recursive: true, force: true });
-} catch (error) {
-  console.error(error instanceof Error ? error.message : error);
-  console.error(`observability logs: ${dir}`);
-  process.exit(1);
-}
+console.log("planning prompt smoke passed (plan v2/details v4 controller envelopes)");

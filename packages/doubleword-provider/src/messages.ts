@@ -65,6 +65,14 @@ export function usageFromResponse(model: Model<Api>, context: Context, outputTex
 	};
 }
 
+export function responseUsageSource(response: Record<string, any>): "provider" | "estimated" {
+	const raw = response.usage;
+	if (!raw || typeof raw !== "object") return "estimated";
+	const input = raw.input_tokens ?? raw.prompt_tokens;
+	const output = raw.output_tokens ?? raw.completion_tokens;
+	return typeof input === "number" && Number.isFinite(input) && typeof output === "number" && Number.isFinite(output) ? "provider" : "estimated";
+}
+
 function inputContent(content: unknown): any[] {
 	if (typeof content === "string") return [{ type: "input_text", text: content }];
 	if (!Array.isArray(content)) return [];

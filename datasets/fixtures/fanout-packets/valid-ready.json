@@ -1,0 +1,175 @@
+{
+  "schema": "fanout.execution-packet",
+  "version": 4,
+  "status": "ready",
+  "objective": "Add a small docs note for Fanout planning",
+  "createdAt": "2026-07-03T00:00:00.000Z",
+  "userContext": [
+    "User wants a docs-only change."
+  ],
+  "discoveredRepoFacts": [
+    "README.md documents the Fanout workflow."
+  ],
+  "assumptions": [
+    "No source code behavior changes are required."
+  ],
+  "blockers": [],
+  "workUnits": [
+    {
+      "id": "update-readme",
+      "goal": "Update README with the docs note.",
+      "dependencies": [],
+      "ownedFiles": [
+        "README.md"
+      ],
+      "readOnlyFiles": [
+        "docs/ROADMAP.md"
+      ],
+      "steps": [
+        "Edit README.md with the requested note."
+      ],
+      "validationCommands": [
+        "rtk npm run smoke:planning"
+      ],
+      "acceptanceCriteria": [
+        "README explains the planning note clearly."
+      ],
+      "rollbackNotes": [
+        "Revert README.md."
+      ],
+      "active": "active",
+      "kind": "docs",
+      "tier": {
+        "preferred": "tier2",
+        "assigned": "tier1",
+        "fallback": "tier1",
+        "provider": "current",
+        "model": "current-session-model",
+        "thinking": "auto",
+        "reason": "tier2 unavailable; realtime fallback"
+      },
+      "workerPacket": {
+        "sourcePlanIds": [
+          "update-readme"
+        ],
+        "targetAnchors": [
+          "README.md: fixture anchor"
+        ],
+        "requiredChanges": [
+          "Edit README.md with the requested note."
+        ],
+        "contractInputs": [
+          "README explains the planning note clearly."
+        ],
+        "readDependencies": [
+          "docs/ROADMAP.md"
+        ],
+        "forbiddenChanges": [],
+        "handoffContext": []
+      }
+    },
+    {
+      "id": "final-review",
+      "goal": "Review docs diff and summarize validation.",
+      "dependencies": [
+        "update-readme"
+      ],
+      "ownedFiles": [],
+      "readOnlyFiles": [
+        "README.md"
+      ],
+      "steps": [
+        "Review README.md diff."
+      ],
+      "validationCommands": [],
+      "acceptanceCriteria": [
+        "Diff matches the requested scope."
+      ],
+      "rollbackNotes": [
+        "No artifact changes to roll back."
+      ],
+      "active": "active",
+      "kind": "final-review",
+      "tier": {
+        "preferred": "tier1",
+        "assigned": "tier1",
+        "fallback": "tier1",
+        "provider": "current",
+        "model": "current-session-model",
+        "thinking": "auto",
+        "reason": "tier1 control-plane node"
+      },
+      "workerPacket": {
+        "sourcePlanIds": [
+          "update-readme"
+        ],
+        "targetAnchors": [],
+        "requiredChanges": [
+          "Review README.md diff."
+        ],
+        "contractInputs": [
+          "Diff matches the requested scope."
+        ],
+        "readDependencies": [
+          "README.md"
+        ],
+        "forbiddenChanges": [],
+        "handoffContext": []
+      }
+    }
+  ],
+  "estimates": {
+    "activeWait": "under 5 minutes",
+    "backgroundCompletion": "none",
+    "cost": "one tier1 planning pass plus local validation",
+    "criticalPath": [
+      "update-readme",
+      "final-review"
+    ],
+    "parallelGroups": [
+      [
+        "update-readme"
+      ],
+      [
+        "final-review"
+      ]
+    ]
+  },
+  "stopRules": [
+    "Stop if README.md has unrelated local changes."
+  ],
+  "risks": [
+    "Low risk docs-only change."
+  ],
+  "finalValidationPlan": [
+    "rtk npm run smoke:planning"
+  ],
+  "artifactDir": "/tmp/fanout-artifacts/example",
+  "tierPlan": {
+    "tier1": {
+      "provider": "current",
+      "model": "current-session-model",
+      "thinking": "auto",
+      "source": "current Pi active model",
+      "status": "available",
+      "reason": "control plane, review, synthesis, fallback"
+    },
+    "tier2": {
+      "provider": "doubleword",
+      "model": "zai-org/GLM-5.2-FP8",
+      "thinking": "medium",
+      "source": "default settings",
+      "status": "unavailable",
+      "reason": "async capability unavailable",
+      "fallback": "tier1"
+    },
+    "tier2Fallback": {
+      "provider": "current",
+      "model": "current-session-model",
+      "thinking": "auto",
+      "source": "tier1 inheritance",
+      "status": "available",
+      "reason": "realtime fallback for tier2 execution; inherits tier1"
+    }
+  }
+}

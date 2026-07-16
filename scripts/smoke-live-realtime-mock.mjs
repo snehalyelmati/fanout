@@ -1,11 +1,14 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const dir = mkdtempSync(join(tmpdir(), "doubleword-pi-live-realtime-mock-"));
 const logFile = join(dir, "observability.jsonl");
+const agentDir = join(dir, "agent");
+mkdirSync(agentDir, { recursive: true });
+writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ retry: { enabled: false } }));
 const requests = [];
 const finalText = "Doubleword live realtime mock response.";
 const toolCallFinalText = "Doubleword live realtime mock tool call response.";
@@ -127,8 +130,11 @@ function runPi(baseUrl, prompt = "Respond 'hello', do not say anything else.") {
         DOUBLEWORD_API_KEY: "mock-key",
         DOUBLEWORD_BASE_URL: baseUrl,
         DOUBLEWORD_MAX_OUTPUT_TOKENS: "16384",
+        DOUBLEWORD_EXECUTION_MODE: "realtime",
         DOUBLEWORD_OBSERVABILITY_FILE: logFile,
+        DOUBLEWORD_MODEL_CACHE_FILE: join(dir, "models.json"),
         DOUBLEWORD_RUN_ID: "smoke-live-realtime-mock",
+        PI_CODING_AGENT_DIR: agentDir,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -186,11 +192,13 @@ try {
   assert(submit.body.service_tier === "priority", `POST /responses missing service_tier priority: ${JSON.stringify(submit.body)}`);
   assert(submit.body.stream === true, `POST /responses missing stream=true: ${JSON.stringify(submit.body)}`);
   assert(submit.body.max_output_tokens === 16384, `POST /responses wrong max_output_tokens: ${JSON.stringify(submit.body)}`);
+  assert(submit.body.reasoning_effort === "medium", `POST /responses missing reasoning_effort medium: ${JSON.stringify(submit.body)}`);
   assert(submit.body.background === undefined, `POST /responses should be blocking realtime: ${JSON.stringify(submit.body)}`);
 
   const events = readFileSync(logFile, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
   const providerEnds = events.filter((event) => event.event === "provider_end" && event.provider === "doubleword" && event.model === "deepseek-ai/DeepSeek-V4-Flash" && event.tier === "realtime");
   assert(providerEnds.length >= 2, `missing realtime provider_end events\n${readFileSync(logFile, "utf8")}`);
+  assert(providerEnds.every((event) => event.usageSource === "provider" && event.pricingSource === "doubleword-model-metadata"), `realtime provider_end missing usage provenance\n${readFileSync(logFile, "utf8")}`);
   assert(providerEnds.some((event) => event.responseId === toolReplayResponseId), `missing tool-call final provider_end\n${readFileSync(logFile, "utf8")}`);
 
   console.log(`live realtime mock smoke passed (${requests.length} requests, ${events.length} events)`);

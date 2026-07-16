@@ -1,0 +1,153 @@
+{
+  "schema": "fanout.execution-packet",
+  "version": 4,
+  "status": "ready",
+  "objective": "Invalid cycle fixture",
+  "createdAt": "2026-07-03T00:00:00.000Z",
+  "userContext": [],
+  "discoveredRepoFacts": [],
+  "assumptions": [],
+  "blockers": [],
+  "workUnits": [
+    {
+      "id": "a",
+      "goal": "A",
+      "dependencies": [
+        "b"
+      ],
+      "ownedFiles": [
+        "a.txt"
+      ],
+      "readOnlyFiles": [],
+      "steps": [
+        "Edit a.txt."
+      ],
+      "validationCommands": [
+        "rtk node --check scripts/smoke-fanout-packet.mjs"
+      ],
+      "acceptanceCriteria": [
+        "A is done."
+      ],
+      "rollbackNotes": [
+        "Revert a.txt."
+      ],
+      "kind": "implement",
+      "tier": {
+        "preferred": "tier2",
+        "assigned": "tier1",
+        "fallback": "tier1",
+        "provider": "current",
+        "model": "current-session-model",
+        "thinking": "auto",
+        "reason": "tier2 unavailable; realtime fallback"
+      },
+      "workerPacket": {
+        "sourcePlanIds": [
+          "a"
+        ],
+        "targetAnchors": [
+          "a.txt: fixture anchor"
+        ],
+        "requiredChanges": [
+          "Edit a.txt."
+        ],
+        "contractInputs": [
+          "A is done."
+        ],
+        "readDependencies": [],
+        "forbiddenChanges": [],
+        "handoffContext": []
+      }
+    },
+    {
+      "id": "b",
+      "goal": "B",
+      "dependencies": [
+        "a"
+      ],
+      "ownedFiles": [
+        "b.txt"
+      ],
+      "readOnlyFiles": [],
+      "steps": [
+        "Edit b.txt."
+      ],
+      "validationCommands": [
+        "rtk node --check scripts/smoke-fanout-packet.mjs"
+      ],
+      "acceptanceCriteria": [
+        "B is done."
+      ],
+      "rollbackNotes": [
+        "Revert b.txt."
+      ],
+      "kind": "implement",
+      "tier": {
+        "preferred": "tier2",
+        "assigned": "tier1",
+        "fallback": "tier1",
+        "provider": "current",
+        "model": "current-session-model",
+        "thinking": "auto",
+        "reason": "tier2 unavailable; realtime fallback"
+      },
+      "workerPacket": {
+        "sourcePlanIds": [
+          "b"
+        ],
+        "targetAnchors": [
+          "b.txt: fixture anchor"
+        ],
+        "requiredChanges": [
+          "Edit b.txt."
+        ],
+        "contractInputs": [
+          "B is done."
+        ],
+        "readDependencies": [],
+        "forbiddenChanges": [],
+        "handoffContext": []
+      }
+    }
+  ],
+  "estimates": {
+    "activeWait": "unknown",
+    "backgroundCompletion": "unknown",
+    "cost": "unknown",
+    "criticalPath": [],
+    "parallelGroups": []
+  },
+  "stopRules": [],
+  "risks": [],
+  "finalValidationPlan": [
+    "rtk node scripts/smoke-fanout-packet.mjs"
+  ],
+  "artifactDir": "/tmp/fanout-artifacts/example",
+  "tierPlan": {
+    "tier1": {
+      "provider": "current",
+      "model": "current-session-model",
+      "thinking": "auto",
+      "source": "current Pi active model",
+      "status": "available",
+      "reason": "control plane, review, synthesis, fallback"
+    },
+    "tier2": {
+      "provider": "doubleword",
+      "model": "zai-org/GLM-5.2-FP8",
+      "thinking": "medium",
+      "source": "default settings",
+      "status": "unavailable",
+      "reason": "async capability unavailable",
+      "fallback": "tier1"
+    },
+    "tier2Fallback": {
+      "provider": "current",
+      "model": "current-session-model",
+      "thinking": "auto",
+      "source": "tier1 inheritance",
+      "status": "available",
+      "reason": "realtime fallback for tier2 execution; inherits tier1"
+    }
+  }
+}

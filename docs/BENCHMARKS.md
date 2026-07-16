@@ -2,6 +2,75 @@
 
 This is the primary running document for Doubleword cost/time experiments. Update it whenever workflow changes, routing changes, pricing changes, or benchmark datasets change.
 
+Benchmark procedure: [`docs/benchmarks/fanout-execution-benchmark-procedure.md`](benchmarks/fanout-execution-benchmark-procedure.md) defines the staged path from read-only Fanout DAG prompt experiments through `/fanout-execute` and TermBench-style execution benchmarks.
+
+## P0 — Fanout prompt-DAG dry-run benchmark
+
+Date: 2026-07-07
+
+Purpose: tune `/fanout-plan` DAG prompt wording before `/fanout-execute` existed. This measures prompt-produced DAG quality only, not executable task success.
+
+Tracked summaries:
+
+- [`docs/benchmarks/fanout-dag-prompt-results.md`](benchmarks/fanout-dag-prompt-results.md)
+- [`docs/benchmarks/fanout-dag-best-prompts.md`](benchmarks/fanout-dag-best-prompts.md)
+- [`docs/benchmarks/fanout-dag-experiment-template.md`](benchmarks/fanout-dag-experiment-template.md)
+
+Raw artifacts remain ignored under:
+
+```text
+runs/fanout-dag-prompt-experiments/loop-20260707-145016/
+```
+
+Current graduated prompt: `combined-general-conflict-proof`.
+
+| Metric | Value |
+| --- | ---: |
+| Prompt variants in graduating loop | 5 |
+| Tasks in graduating loop | 5 |
+| Heldout tasks | 2 |
+| Best average score | 4.916 / 5 |
+| Best minimum task score | 4.88 / 5 |
+| Stop condition | Passed |
+
+Caveat: P0 uses generated DAGs and evaluator rubrics. Revalidate the winning prompt under P1/P2 execution benchmarks before treating it as an executable-runtime default.
+
+## P1 — `/fanout-execute` packet smoke benchmark
+
+Date: 2026-07-09
+
+Purpose: validate deterministic Phase 3 controller mechanics with fake Pi subprocesses before controlled live-provider execution. This is runtime safety/contract evidence, not a model-quality, latency, or provider-cost baseline.
+
+Command:
+
+```bash
+rtk npm run smoke:fanout-execute
+```
+
+Current result: the prior plan-v2/details-v3/packet-v5 generation passed locally, but the live canary reopened deterministic-glue scope in issue #32. The coordinated replacement is plan v2, details v4, packet v6, pointer v2, work-contract v2, attempt outcome v2, final evidence v1, event v2, and projection v3. Its added proof covers one explicit candidate-normalization manifest, run-once pre-capture execution, nonzero continuation into authoritative validation, hard-failure routing without model-repair budget, audit identities/results, and ownership rejection of normalizer-created unauthorized changes. Do not treat the replacement as locally green until the full `rtk npm run check` result is recorded after implementation.
+
+The attempt-outcome check passes A10–A12 offline: prose-like output cannot affect typed routing, accepted generic and instrumented metrics require exact correlated identities, failed attempts retain observed partial cost, and nested validation/integration repair cannot exceed either fixed two-launch pool. This remains contract evidence only.
+
+The companion execution-event check passes A13–A14 offline: serialized commits remain gapless, projection/report publication failures leave a complete authoritative log, audit replay regenerates only derived views, corrupt logs fail closed, live/dry-run outcomes remain explicit, and accepted final repair rolls projection authority to the newly validated tree. Reports have a byte-stable projection-only contract.
+
+Caveat: worker usage and cost in this smoke are synthetic fake-provider fixtures. P2 controlled real Pi workers and P4 live tier-routing measurements remain pending; no observed latency or cost claim is added here.
+
+## P2 — Manual p-map AbortSignal E2E
+
+Date prepared: 2026-07-10; release-candidate update: 2026-07-14
+
+Status: repeated live execution reached all four successful work nodes but not a passing final validation. Attempts 11 and 12 independently exhausted both final-repair launches on deterministic XO formatting before AVA/tsd, despite complete typed evidence, exact ownership, and correct fail-closed ledger behavior. Reconstructing Attempt 11, running explicit repository command `npx xo --fix`, then `npm test` passed all 55 tests. Issue #32 therefore owns a coordinated packet-declared candidate-normalization revision and replan; unchanged stochastic reruns are stopped until that reviewed cutover is ready.
+
+Runbook: [`docs/benchmarks/p-map-abort-signal-manual-e2e.md`](benchmarks/p-map-abort-signal-manual-e2e.md)
+
+Live tracker: [`docs/benchmarks/p-map-abort-signal-canary-tracker.md`](benchmarks/p-map-abort-signal-canary-tracker.md)
+
+Purpose: exercise `/fanout-config` → `/fanout-plan` → `/fanout-execute --dry-run` → `/fanout-execute` manually against a fixed `sindresorhus/p-map` task before building a benchmark harness or routing variations. The run prioritizes correctness, UX, recovery, artifact quality, and observability. It uses local baseline `c3c261e2189f94d1a09724e8f03d5345af518017` and the decision-complete `pMapIterable` AbortSignal benchmark under `/Users/snehalyelmati/Documents/p-map-abort-signal`.
+
+The user operates Pi and authorizes every live or cost-incurring step. Preserve failed artifacts, diagnose the owning component before edits, and record results only after comparing Fanout reports with the nested repository Git state and independent `npm test` output. The fresh attempt ran from a clean 51-test baseline with Tier 1 `openai-codex/gpt-5.6-sol` medium, async Tier 2 disabled, and `openai-codex/gpt-5.6-terra` medium as the realtime worker fallback; the Pi process had the Doubleword credential removed. Pi displayed `$0.759` cumulative planning cost, while correlated Phase A events total `$0.492058`; Phase B events lacked phase/run correlation, so do not use this partial measurement as a provider comparison or completed-canary baseline.
+
+Deferred until this manual path is reliable: automated execution harnesses, policy/model variations, and provider-tier cost or latency comparisons. Add a running-experiment ledger row only after observed artifacts and metrics exist.
+
 ## Current baseline: B0 — Pi session traces, GLM 5.2 pricing
 
 Date: 2026-06-25
@@ -348,6 +417,9 @@ Add one row per meaningful workflow or routing change.
 | D8 | 2026-06-25 | Planned Parallel RPE direction | simulator docs + manual Pi trace reviews | design/evaluation only | n/a | no runtime TAT claim | Generic tier2 DAG and duplicate implementations deferred; next step is prefix-based safe-work-unit evaluation |
 | E1 | 2026-06-25 | Safe work unit prefix evaluation | Pi trace prefix + prediction artifact fixture | offline evaluator | safety precision primary | no runtime TAT claim | Reports safe independent, dependent, unsafe, and inconclusive verdicts from prefix context plus suffix evidence |
 | E2 | 2026-06-26 | TAT bucket code-shard evaluation | 15 full `pi-mono` traces, 3 per TAT bucket | offline safe-unit evaluator + tier2 wait estimate | safety precision primary | 5-40m tier2 background by DAG depth | 49 code-edit units; long decomposable traces often compress remaining realtime loops to shallow tier2 DAGs |
+| P1-fallback-role | 2026-07-10 | Introduced separate Tier 2 fallback model role in the then-current packet v4 | fake-provider execution smoke | Tier 1 control plane + Tier 2 async + independent realtime fallback | synthetic | synthetic | Historical schema evidence; the role persists in packet v5. No live cost/TAT claim. |
+| P1-hardened-cutover | 2026-07-14 | Cut planning and execution to plan v2/details v3/packet v5/pointer v2 with event-v1/projection-v2 runtime, exact patch-ledger replay, and typed bounded recovery | complete keyless A1-A20 smoke matrix with fake/stub workers | immutable packet tier policy; public dry-run/live seams | synthetic; no provider-cost claim | synthetic; no live TAT claim | Offline implementation evidence only. The explicitly authorized macOS p-map canary and repository-owner approval remain release gates. |
+| P1-normalization-canary | 2026-07-14 | Packet-declared, language-agnostic candidate normalization with details v4/work-contract v2/packet v6 and event-v2/projection-v3 audit evidence | live `p-map` AbortSignal canary, Attempt 14 | Sol control/final review; Terra workers; async Tier 2 disabled | `$1.1384025` estimated | 465.391s | Full DAG completed: 6 attempts, 655,081 tokens, five accepted files (+327/-30), all normalizers exited 0, and final `npm test` passed 56 tests. Post-E2E review fixes are separately validated at 59 tests and are not attributed to the immutable canary tree. |
 
 ## E1 - Safe work unit prefix evaluation
 
@@ -420,20 +492,19 @@ Conclusion: tier2 Planned Parallel RPE is not a generic realtime accelerator. It
 
 The 15-trace prediction artifact is tracked at `datasets/fixtures/tat-bucket-code-shards-predictions.jsonl`; it acts as the selected trace manifest because each row includes the target `traceId` and `prefixBoundary`. The full command may load all local `badlogicgames/pi-mono` JSONL traces from `datasets/traces/pi-mono-full` (626 trace files in the downloaded sample), but only the 15 prediction rows are evaluated. The prediction protocol is documented in [`docs/benchmarks/safe-work-unit-eval-protocol.md`](benchmarks/safe-work-unit-eval-protocol.md).
 
-## Candidate improvements to test next
+## Hardened execution baseline
 
-1. **Define the RPE execution packet and scheduler policy**
-   - Execution packet: accepted plan, owned/read-only files, dependencies, constraints, validation contract, budget, user wait budget, stop rules, cancellation rules, and expected handoff.
-   - Scheduler policy: reject cycles and ownership conflicts, compute accepted safe-unit DAG critical path, estimate `tier2_exec_wait_worst_case = DAG_depth * 10m`, and launch only when it fits the user's background wait budget.
+1. **Measure the admitted packet-v5 scheduler policy**
+   - Execution authority is the exact packet-v5/work-contract tuple with typed resources, derived dependencies, direct-argv validation, immutable runtime policy, fixed attempt budgets, and causal events.
+   - Future routing experiments must preserve that authority and compare measured critical-path time, accepted metrics, and cost without adding prose stop-rule or budget fields.
 
 2. **Improve tier1 workflow efficiency**
    - Better batching, complete root-cause inspection, fewer redundant checks, and less tool-output bloat.
    - Measure this as `semantic-batching-tier1`, not as Doubleword savings.
 
-3. **Prototype RPE background execution after the contract exists**
-   - Tier1 research+plan creates an execution packet and validation contract.
-   - Tier2 executes in background with budget/concurrency caps.
-   - Tier1 reviews/synthesizes completed output before acceptance.
+3. **Evaluate the implemented background execution path**
+   - Tier 1 planning publishes the accepted packet; eligible Tier 2 nodes execute under packet-owned concurrency and fixed budgets.
+   - Controller-owned validation, exact accepted transitions, and fresh final reconstruction remain acceptance authority.
 
 4. **Measure sharded RPE concurrency only after scheduler policy exists**
    - Estimate N independent RPE execute jobs launched together.
