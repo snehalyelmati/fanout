@@ -1,5 +1,19 @@
 # Design Decisions
 
+## 2026-07-16
+
+### Keep Fanout capability metadata in the Fanout adapter
+
+Decision: The standalone Doubleword provider owns provider-native model discovery, reasoning metadata, pricing, and transport only. It does not expose or preserve `fanout` metadata from the live catalog. `fanout-pi` projects remembered Doubleword models into Pi's registry with realtime/async/background/auth-ready capabilities; live readiness follows `DOUBLEWORD_API_KEY`, while the local stub is ready by construction. This supersedes the 2026-07-05 provider-owned tier-metadata decision.
+
+Reason: Provider users should not acquire a Fanout-specific API or policy surface. The Pi adapter is the integration boundary that understands both the provider model and Fanout's routing contract, so it can derive the required capability view without coupling the standalone package to Fanout.
+
+### Record closed preflight evidence before execution starts
+
+Decision: Preflight completes before the first event is published, while `run-started` remains event sequence 1 and carries required closed evidence for expected/actual commit, tree, and platform; worker launcher, extension, and fixed tool capabilities; and packet-ordered normalization/validation argv resolution. Event v2 and projection v3 remain unchanged because this branch is an unreleased offline candidate; earlier pre-release logs without the evidence fail closed. Audit replay publishes `summary.md` only for terminal projections and removes a stale summary when replaying nonterminal state.
+
+Reason: A start record without the exact launch and command facts cannot prove which admitted environment was checked. Keeping the evidence in sequence 1 preserves causal replay, while terminal-only summaries prevent an old completion report from misrepresenting an incomplete log.
+
 ## 2026-07-14
 
 ### Cut every producer and consumer to one hardened generation
@@ -315,6 +329,8 @@ Reason: The current branch contains useful trace-derived direction. Merging shou
 ## 2026-07-05
 
 ### Doubleword provider owns model reasoning and tier metadata
+
+Status: Superseded on 2026-07-16 by [the Fanout adapter ownership decision](#keep-fanout-capability-metadata-in-the-fanout-adapter).
 
 Decision: Fill missing Doubleword `/v1/models` metadata in the provider by marking generation models reasoning-capable, OCR/embedding models non-reasoning, mapping Pi thinking levels to top-level `reasoning_effort`, and attaching realtime/async/batch Fanout tier metadata. Preserve live catalog metadata if Doubleword adds it later.
 

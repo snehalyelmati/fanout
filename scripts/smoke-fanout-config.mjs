@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { configureFanoutTier } from "../packages/fanout-pi/src/fanout-config.ts";
+import { augmentRegistryModels, fanoutDoublewordModel, rememberDoublewordModels } from "../packages/fanout-pi/src/fanout-runtime-context.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "fanout-config-"));
 const qualified = {
@@ -37,6 +38,7 @@ for (const phrase of ["SelectList", "Fanout model routing", "not a third tier", 
 }
 
 try {
+  testDoublewordAdapterMetadata();
   await testCurrentDisplay();
   await testQualifiedTier2Save();
   await testDisableTier2();
@@ -65,6 +67,22 @@ try {
   console.log("fanout config smoke passed");
 } finally {
   rmSync(dir, { recursive: true, force: true });
+}
+
+function testDoublewordAdapterMetadata() {
+  const raw = { id: "worker", reasoning: true };
+  const prior = process.env.DOUBLEWORD_API_KEY;
+  process.env.DOUBLEWORD_API_KEY = "test-key";
+  const live = fanoutDoublewordModel("doubleword", raw);
+  rememberDoublewordModels("doubleword", [{ ...raw, id: "remembered-worker", fanout: { async: false, background: false, authReady: false } }]);
+  const rememberedLive = augmentRegistryModels([]).find((model) => model.id === "remembered-worker");
+  delete process.env.DOUBLEWORD_API_KEY;
+  const unavailable = fanoutDoublewordModel("doubleword", raw);
+  const rememberedUnavailable = augmentRegistryModels([]).find((model) => model.id === "remembered-worker");
+  const stub = fanoutDoublewordModel("doubleword-stub", raw);
+  if (prior === undefined) delete process.env.DOUBLEWORD_API_KEY;
+  else process.env.DOUBLEWORD_API_KEY = prior;
+  assert(!("fanout" in raw) && live.fanout.async && live.fanout.background && live.fanout.authReady && rememberedLive?.fanout.authReady === true && rememberedLive.fanout.async === true && rememberedLive.fanout.background === true && !unavailable.fanout.authReady && rememberedUnavailable?.fanout.authReady === false && stub.fanout.authReady, "Pi adapter did not own Doubleword Fanout capability projection");
 }
 
 async function testCurrentDisplay() {

@@ -1,18 +1,20 @@
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { accessSync, constants, mkdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { loadActiveExecutionPacket } from "../../fanout-core/src/active-packet.ts";
 import { runDag, type DagRunResult, type DagNodeState } from "../../fanout-core/src/dag-scheduler.ts";
 import type { FanoutExecutionPacket } from "../../fanout-core/src/execution-packet.ts";
+import type { PreflightCommandEvidence, PreflightComparison, PreflightEvidence, PreflightIssue } from "../../fanout-core/src/execution-event.ts";
 import type { ExecutionRunProjection } from "../../fanout-core/src/execution-projection.ts";
 import type { FinalValidationResult } from "../../fanout-core/src/final-validation.ts";
+import type { ValidationCommand } from "../../fanout-core/src/validation-command.ts";
 import { contractWriteResources } from "../../fanout-core/src/work-contract.ts";
-import { createFanoutNodeExecutor } from "./fanout-node-executor.ts";
+import { FanoutNodeExecutor } from "./fanout-node-executor.ts";
 import { fullGitVisibleTree } from "./repository-identity.ts";
 import { RuntimeEventRecorder, commandIdentity } from "./runtime-event-recorder.ts";
 import { preflightValidationCommands } from "./validation-runner.ts";
-import { WORKER_TRUST_BOUNDARY } from "./worker-capabilities.ts";
+import { WORKER_MODEL_TOOLS, WORKER_TRUST_BOUNDARY } from "./worker-capabilities.ts";
 import { parseSharedWorktreePaths, validateSharedWorktreePaths } from "./worktree-preparation.ts";
 
 export interface ExecuteFanoutOptions {
@@ -54,20 +56,21 @@ export async function executeFanout(options: ExecuteFanoutOptions): Promise<Exec
 	const runDir = join(loaded.artifactDir, "executions", runId);
 	const release = acquireExecutionLock(executionLockPath(options.cwd, loaded.projectArtifactRoot), runId);
 	let recorder: RuntimeEventRecorder | undefined;
-	let executor: ReturnType<typeof createFanoutNodeExecutor> | undefined;
+	let executor: FanoutNodeExecutor | undefined;
 	const started = Date.now();
 	let dag: DagRunResult | undefined;
 	let finalValidation: FinalValidationResult | undefined;
 	try {
 		recorder = new RuntimeEventRecorder(runDir, runId);
+		const preflight = runPreflight(options, loaded.packet, worktreeSharedPaths);
 		await recorder.record("run-started", {
 			mode: options.dryRun ? "dry-run" : "live",
 			packet: loaded.pointer.packet,
 			planningBaseTree: loaded.packet.planningBase.tree,
 			nodeIds: loaded.packet.nodes.filter((node) => node.kind !== "final-validation").map((node) => node.id),
 			policy: { maxConcurrency, failFast, fallbackAllowed },
+			preflightEvidence: preflight.evidence,
 		});
-		const preflight = runPreflight(options, loaded.packet, worktreeSharedPaths);
 		let projection = await recorder.record("preflight-completed", { status: preflight.issues.length ? "failed" : "passed", planningBaseTree: loaded.packet.planningBase.tree, repositoryTree: preflight.tree, issues: preflight.issues });
 		if (preflight.issues.length) return await finish(recorder, loaded, started, "failed", { kind: "event", eventSequence: projection.preflight!.eventSequence, code: "preflight-failed" }, { error: `Fanout preflight failed: ${preflight.issues.map((issue) => issue.detail).join("; ")}` });
 		if (options.dryRun) return await finish(recorder, loaded, started, "dry-run-completed", { kind: "event", eventSequence: projection.preflight!.eventSequence, code: "dry-run" }, { dryRun: true });
@@ -76,7 +79,7 @@ export async function executeFanout(options: ExecuteFanoutOptions): Promise<Exec
 		projection = await recorder.record("confirmation-decided", { decision: confirmed ? "accepted" : "declined" });
 		if (!confirmed) return await finish(recorder, loaded, started, "aborted", { kind: "event", eventSequence: projection.confirmationEventSequence!, code: "confirmation-declined" });
 
-		executor = createFanoutNodeExecutor({ packet: loaded.packet, packetIdentity: loaded.pointer.packet, repoRoot: preflight.repoRoot!, runDir, runId, extensionEntry: options.extensionEntry, recorder, piCommand: options.piCommand, workerTimeoutMs: options.workerTimeoutMs, validationTimeoutMs: options.validationTimeoutMs, worktreeSharedPaths, afterActiveApply: options.afterActiveApply });
+		executor = new FanoutNodeExecutor({ packet: loaded.packet, packetIdentity: loaded.pointer.packet, repoRoot: preflight.repoRoot!, runDir, runId, extensionEntry: options.extensionEntry, recorder, piCommand: options.piCommand, workerTimeoutMs: options.workerTimeoutMs, validationTimeoutMs: options.validationTimeoutMs, worktreeSharedPaths, afterActiveApply: options.afterActiveApply });
 		dag = await runDag(loaded.packet, {
 			maxConcurrency,
 			failFast,
@@ -132,32 +135,101 @@ async function finish(recorder: RuntimeEventRecorder, loaded: ReturnType<typeof 
 	return { status: outcome === "completed" || outcome === "dry-run-completed" ? "succeeded" : outcome, runId: projection.runId, packetPath: loaded.packetPath, paths: recorder.paths, snapshot: projection, ...extra } as ExecuteFanoutResult;
 }
 
-function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPacket, worktreeSharedPaths: readonly string[]): { repoRoot?: string; tree: string; issues: Array<{ code: string; detail: string }> } {
-	const issues: Array<{ code: string; detail: string }> = [];
+function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPacket, worktreeSharedPaths: readonly string[]): { repoRoot?: string; tree: string; issues: PreflightIssue[]; evidence: PreflightEvidence } {
+	const issues: PreflightIssue[] = [];
 	const top = command("git", ["rev-parse", "--show-toplevel"], options.cwd);
 	const repoRoot = top.status === 0 ? resolve(top.stdout.trim()) : undefined;
-	let tree = packet.planningBase.tree;
+	let actualCommit: string | null = null;
+	let actualTree: string | null = null;
 	if (!repoRoot) issues.push({ code: "controller-failure", detail: "active directory is not a Git worktree" });
 	else {
 		const head = command("git", ["rev-parse", "--verify", "HEAD^{commit}"], repoRoot);
-		if (head.stdout.trim() !== packet.planningBase.headCommit) issues.push({ code: "planning-base-mismatch", detail: "active HEAD differs from the packet planning commit; rerun /fanout-plan" });
+		actualCommit = head.status === 0 ? head.stdout.trim() : null;
+		if (actualCommit !== packet.planningBase.headCommit) issues.push({ code: "planning-base-mismatch", detail: "active HEAD differs from the packet planning commit; rerun /fanout-plan" });
 		const committedTree = command("git", ["rev-parse", "--verify", `${packet.planningBase.headCommit}^{tree}`], repoRoot);
 		if (committedTree.status !== 0) issues.push({ code: "planning-base-mismatch", detail: "packet planning commit is unavailable; rerun /fanout-plan" });
 		else if (committedTree.stdout.trim() !== packet.planningBase.tree) issues.push({ code: "planning-base-mismatch", detail: "packet planning base contains non-HEAD content that detached workers cannot reconstruct; commit, stash, or remove it and rerun /fanout-plan" });
-		try { tree = fullGitVisibleTree(repoRoot); if (tree !== packet.planningBase.tree) issues.push({ code: "repository-tree-mismatch", detail: "active Git-visible tree differs from the packet planning base; rerun /fanout-plan" }); }
+		try { actualTree = fullGitVisibleTree(repoRoot); if (actualTree !== packet.planningBase.tree) issues.push({ code: "repository-tree-mismatch", detail: "active Git-visible tree differs from the packet planning base; rerun /fanout-plan" }); }
 		catch (error) { issues.push({ code: "controller-failure", detail: message(error) }); }
 		try { validateSharedWorktreePaths(repoRoot, worktreeSharedPaths); }
 		catch (error) { issues.push({ code: "capability-unavailable", detail: message(error) }); }
 	}
 	if (packet.planningHost.platform !== process.platform) issues.push({ code: "platform-mismatch", detail: `packet was planned for ${packet.planningHost.platform}, running ${process.platform}; rerun /fanout-plan` });
-	if (!existsSync(resolve(options.extensionEntry))) issues.push({ code: "capability-unavailable", detail: "Fanout extension entry is unavailable" });
-	const pi = command(options.piCommand ?? process.env.FANOUT_PI_COMMAND ?? "pi", ["--version"], options.cwd);
-	if (pi.status !== 0) issues.push({ code: "capability-unavailable", detail: "Pi worker command is unavailable" });
-	if (repoRoot) try { preflightValidationCommands(packet.nodes.flatMap((node) => node.workContract.validationCommands), { checkoutRoot: repoRoot, expectedPlatform: packet.planningHost.platform }); }
-	catch (error) { issues.push({ code: "executable-unavailable", detail: message(error) }); }
-	if (repoRoot) try { preflightValidationCommands(packet.nodes.flatMap((node) => node.workContract.candidateNormalizationCommands), { checkoutRoot: repoRoot, expectedPlatform: packet.planningHost.platform }); }
-	catch (error) { issues.push({ code: "executable-unavailable", detail: `candidate normalization: ${message(error)}` }); }
-	return { repoRoot, tree, issues };
+	const requestedExtension = resolve(options.extensionEntry);
+	let resolvedExtension: string | null = null;
+	try {
+		const candidate = realpathSync(requestedExtension);
+		accessSync(candidate, constants.R_OK);
+		if (statSync(candidate).isFile()) resolvedExtension = candidate;
+	}
+	catch { /* The closed unavailable evidence below is authoritative. */ }
+	if (!resolvedExtension) issues.push({ code: "capability-unavailable", detail: "Fanout extension entry is unavailable" });
+	const launcherExecutable = options.piCommand ?? process.env.FANOUT_PI_COMMAND ?? "pi";
+	const launcher = preflightLauncher(launcherExecutable, repoRoot ?? options.cwd, packet.planningHost.platform);
+	if (launcher.status === "unavailable") issues.push({ code: "capability-unavailable", detail: "Pi worker command is unavailable" });
+	const candidateNormalizationCommands = preflightCommands(packet, "candidateNormalizationCommands", repoRoot, issues, "candidate normalization");
+	const validationCommands = preflightCommands(packet, "validationCommands", repoRoot, issues, "validation");
+	return {
+		repoRoot,
+		tree: actualTree ?? packet.planningBase.tree,
+		issues,
+		evidence: {
+			planningCommit: comparison(packet.planningBase.headCommit, actualCommit),
+			repositoryTree: comparison(packet.planningBase.tree, actualTree),
+			platform: comparison(packet.planningHost.platform, process.platform),
+			worker: {
+				extension: { requested: requestedExtension, resolved: resolvedExtension, status: resolvedExtension ? "available" : "unavailable" },
+				launcher,
+				modelCallableTools: [...WORKER_MODEL_TOOLS],
+			},
+			candidateNormalizationCommands,
+			validationCommands,
+		},
+	};
+}
+
+function preflightLauncher(executable: string, checkoutRoot: string, expectedPlatform: NodeJS.Platform): PreflightEvidence["worker"]["launcher"] {
+	const args = ["--version"];
+	let resolvedExecutable: string | null = null;
+	let resolvedCwd: string | null = null;
+	try {
+		const prepared = preflightValidationCommands([{ executable, args }], { checkoutRoot, expectedPlatform })[0];
+		resolvedExecutable = prepared.resolvedExecutable;
+		resolvedCwd = prepared.resolvedCwd;
+		const result = command(resolvedExecutable, args, resolvedCwd);
+		const version = result.status === 0 ? result.stdout.trim() : "";
+		if (version) return { executable, args, resolvedExecutable, resolvedCwd, version, status: "available" };
+	} catch { /* Closed unavailable evidence is returned below. */ }
+	return { executable, args, resolvedExecutable, resolvedCwd, version: null, status: "unavailable" };
+}
+
+function preflightCommands(
+	packet: FanoutExecutionPacket,
+	field: "candidateNormalizationCommands" | "validationCommands",
+	repoRoot: string | undefined,
+	issues: PreflightIssue[],
+	label: string,
+): PreflightCommandEvidence[] {
+	return packet.nodes.flatMap((node, packetNodeIndex) => node.workContract[field].map((manifest, commandIndex) => {
+		let resolution: PreflightCommandEvidence["resolution"] = { status: "unavailable", resolvedExecutable: null, resolvedCwd: null };
+		if (repoRoot) {
+			try {
+				const prepared = preflightValidationCommands([manifest], { checkoutRoot: repoRoot, expectedPlatform: packet.planningHost.platform })[0];
+				resolution = { status: "available", resolvedExecutable: prepared.resolvedExecutable, resolvedCwd: prepared.resolvedCwd };
+			} catch (error) {
+				issues.push({ code: "executable-unavailable", detail: `${label} ${node.id}[${commandIndex}]: ${message(error)}` });
+			}
+		}
+		return { packetNodeIndex, nodeId: node.id, commandIndex, manifest: commandManifest(manifest), resolution };
+	}));
+}
+
+function commandManifest(command: ValidationCommand): PreflightCommandEvidence["manifest"] {
+	return { executable: command.executable, args: [...command.args], cwd: command.cwd ?? null };
+}
+
+function comparison(expected: string, actual: string | null): PreflightComparison {
+	return { expected, actual, status: actual === null ? "unavailable" : actual === expected ? "matched" : "mismatched" };
 }
 
 function confirmationSummary(packet: FanoutExecutionPacket, maxConcurrency: number, runDir: string, worktreeSharedPaths: readonly string[]): string {

@@ -1,9 +1,7 @@
-import { lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import type { AcceptedPatch, AcceptedStateTransition } from "../../fanout-core/src/artifact-identity.ts";
 import { verifyArtifactBytes, type ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
-import type { CorrelatedAttemptMetrics } from "../../fanout-core/src/attempt-metrics.ts";
 import {
 	allocateAttempt,
 	appendTerminalOutcome,
@@ -17,82 +15,39 @@ import {
 	type StageFact,
 } from "../../fanout-core/src/execution-attempt.ts";
 import { assertFinalValidationRecoverySource, type AcceptedLedgerProvenance, type AttemptRecoveryContext } from "../../fanout-core/src/recovery-evidence.ts";
-import { executionPacketBytes, type FanoutExecutionPacket, type FanoutWorkUnit, type TierName } from "../../fanout-core/src/execution-packet.ts";
+import { executionPacketBytes, type FanoutExecutionPacket, type FanoutWorkUnit } from "../../fanout-core/src/execution-packet.ts";
 import type { DagNodeResult } from "../../fanout-core/src/dag-scheduler.ts";
 import type { WorkerMetrics } from "../../fanout-core/src/worker-metrics.ts";
 import {
 	artifactSegment,
 	checkContractOwnership,
 	checkFinalRepairOwnership,
-	normalizeRepoPath,
 	ownershipViolationFactCode,
-	runProcess,
 	writeJson,
 } from "./fanout-git.ts";
-import { buildCanonicalWorkerPrompt, importWorkerMetrics, type SourceTaggedRepositoryInstruction } from "./fanout-worker-contract.ts";
-import { WORKER_MODEL_TOOLS } from "./worker-capabilities.ts";
 import {
 	AcceptedTransitionIdentityError,
 	AcceptedTransitionProcessError,
 	AmbiguousApplyError,
 	applyAcceptedTransition,
-	applyRepairSeedOverlay,
-	capturePatchCandidate,
-	createReconstructedWorktree,
 	fullGitVisibleTree,
 	removeReconstructedWorktree,
 	verifyPatchCandidate,
 	type PlanningBase,
 } from "./repository-identity.ts";
 import { writeArtifactAtomically } from "./artifact-store.ts";
-import { contractWriteResources, type WorkContract } from "../../fanout-core/src/work-contract.ts";
+import type { WorkContract } from "../../fanout-core/src/work-contract.ts";
 import { runValidationCommands, type ValidationRunResult } from "./validation-runner.ts";
 import { deriveFinalRepairWorkContract, type FinalValidationResult } from "../../fanout-core/src/final-validation.ts";
 import type { ValidationCommand } from "../../fanout-core/src/validation-command.ts";
 import { runFinalValidation as coordinateFinalValidation } from "./final-validation.ts";
 import {
 	attemptEvidenceRefs,
-	correlatedWorkerMetrics,
-	emptyAttemptMetrics,
 	integrationFailureEvidence,
-	processStageFact,
-	retryableProcessFailure,
 	validationFailureEvidence,
 } from "./attempt-evidence.ts";
 import { prepareSharedWorktreePaths } from "./worktree-preparation.ts";
-import { normalizeCandidate, type CandidateNormalizationEvidence, type CandidateNormalizationFailure } from "./candidate-normalization.ts";
-
-interface WorkerTier {
-	tier: TierName;
-	provider: string;
-	model: string;
-	thinking: string;
-}
-
-type AttemptKind = "original" | "retry" | "fallback" | "validation-repair" | "integration-repair";
-type FailureKind = "process" | "metrics" | "normalization" | "patch" | "unsafe" | "ownership" | "validation" | "apply" | "bookkeeping";
-
-interface WorkerAttempt {
-	ok: boolean;
-	attemptId: string;
-	attemptDir: string;
-	worktreePath?: string;
-	base?: PlanningBase;
-	tier: WorkerTier;
-	kind: AttemptKind;
-	metrics?: WorkerMetrics;
-	patch?: AcceptedPatch;
-	error?: string;
-	failureKind?: FailureKind;
-	retryable?: boolean;
-	allocation: AttemptAllocation;
-	startedAt: string;
-	correlatedMetrics: CorrelatedAttemptMetrics;
-	terminalFact?: StageFact;
-	recovery?: AttemptRecoveryContext;
-	excludedEvidenceRefs?: readonly string[];
-	fallbackAllowed: boolean;
-}
+import { executeWorkerAttempt, type AttemptKind, type WorkerAttempt, type WorkerTier } from "./worker-attempt-execution.ts";
 
 interface GatedAttempt extends WorkerAttempt {
 	ok: true;
@@ -308,6 +263,7 @@ export class FanoutNodeExecutor {
 			assertFinalValidationRecoverySource(recovery, sourceFinalValidationEvidence);
 		}
 		const previousState = this.#attemptStates.get(unit.id) ?? createNodeAttemptState(unit.id);
+		const fallbackAllowed = this.#packet.runtimePolicy.fallbackAllowed && unit.tier.fallback === "tier1";
 		const allocated = allocateAttempt(previousState, {
 			runId: this.#runId,
 			nodeId: unit.id,
@@ -315,251 +271,43 @@ export class FanoutNodeExecutor {
 			assignment: { tier: tier.tier, provider: tier.provider, model: tier.model },
 			...(sourceAttemptId ? { sourceAttemptId } : {}),
 			...(sourceFinalValidationEvidence ? { sourceFinalValidationEvidence } : {}),
-			fallbackAllowed: this.#packet.runtimePolicy.fallbackAllowed && unit.tier.fallback === "tier1",
+			fallbackAllowed,
 		});
 		this.#attemptStates.set(unit.id, allocated.state);
-		const { allocation } = allocated;
-		const attemptId = allocation.attemptId;
-		const artifactAttemptId = `${String(allocation.attemptNumber).padStart(3, "0")}-${kind}`;
+		const artifactAttemptId = `${String(allocated.allocation.attemptNumber).padStart(3, "0")}-${kind}`;
 		const attemptDir = join(this.#runDir, "workers", artifactSegment(unit.id), "attempts", artifactAttemptId);
 		const worktreePath = join(attemptDir, "worktree");
 		const startedAt = new Date().toISOString();
-		const base: WorkerAttempt = {
-			ok: false,
-			attemptId,
+		await this.#recorder.recordAttemptAllocated(allocated.allocation);
+		const ledger = await this.#withApplyLock(() => this.#acceptedLedger.map(({ patch }) => ({ patch })));
+		this.#worktrees.add(worktreePath);
+		const attempt = await executeWorkerAttempt({
+			packet: this.#packet,
+			unit,
+			contract: this.#contract(unit),
+			repoRoot: this.#repoRoot,
+			runDir: this.#runDir,
+			runId: this.#runId,
+			extensionEntry: this.#extensionEntry,
+			piCommand: this.#piCommand,
+			workerTimeoutMs: this.#workerTimeoutMs,
+			validationTimeoutMs: this.#validationTimeoutMs,
+			planningBase: this.#planningBase,
+			ledger,
+			worktreeSharedPaths: this.#worktreeSharedPaths,
+			allocation: allocated.allocation,
 			attemptDir,
+			worktreePath,
 			tier,
 			kind,
-			allocation,
 			startedAt,
-			correlatedMetrics: emptyAttemptMetrics(attemptId),
-			fallbackAllowed: this.#packet.runtimePolicy.fallbackAllowed && unit.tier.fallback === "tier1",
-		};
-		await this.#recorder.recordAttemptAllocated(allocation);
-		try {
-			signal?.throwIfAborted();
-			mkdirSync(attemptDir, { recursive: true });
-
-			const ledger = await this.#withApplyLock(() => this.#acceptedLedger.map(({ patch }) => ({ patch })));
-			signal?.throwIfAborted();
-			this.#worktrees.add(worktreePath);
-			const attemptBase = createReconstructedWorktree(this.#repoRoot, worktreePath, this.#planningBase, this.#runDir, ledger);
-			if (seedPatch) {
-				applyRepairSeedOverlay(worktreePath, this.#runDir, seedPatch);
-			}
-			prepareSharedWorktreePaths(this.#repoRoot, worktreePath, this.#worktreeSharedPaths);
-
-			const promptPath = join(attemptDir, "prompt.md");
-		const stdoutPath = join(attemptDir, "stdout.log");
-		const stderrPath = join(attemptDir, "stderr.log");
-		const observabilityPath = join(attemptDir, "observability.jsonl");
-		const sessionDir = join(attemptDir, "session");
-		writeFileSync(promptPath, buildCanonicalWorkerPrompt(
-			{
-				objective: this.#packet.objective,
-				userContext: this.#packet.userContext,
-				discoveredRepoFacts: this.#packet.discoveredRepoFacts,
-				assumptions: this.#packet.assumptions,
-			},
-			{ id: unit.id, kind: unit.kind, workContract: this.#contract(unit) },
-			collectRepositoryInstructions(worktreePath, unit),
-			recovery,
-		), "utf8");
-		writeFileSync(observabilityPath, "", { encoding: "utf8", flag: "wx" });
-		mkdirSync(sessionDir);
-
-		const extensionEntry = worktreeExtensionPath(this.#repoRoot, worktreePath, this.#extensionEntry);
-		const providerRunId = `${this.#runId}-${artifactSegment(unit.id)}-${attemptId}`;
-		const args = [
-			"--no-context-files",
-			"--approve",
-			"--tools",
-			WORKER_MODEL_TOOLS.join(","),
-			"-e",
-			extensionEntry,
-			"--model",
-			`${tier.provider}/${tier.model}`,
-			"--mode",
-			"json",
-			"--session-dir",
-			sessionDir,
-		];
-		if (CLI_THINKING_LEVELS.has(tier.thinking)) args.push("--thinking", tier.thinking);
-		args.push("-p", `@${promptPath}`);
-
-		const processResult = await runProcess(this.#piCommand, args, {
-			cwd: worktreePath,
-			timeoutMs: this.#workerTimeoutMs,
-			env: {
-				...process.env,
-				FANOUT_OBSERVABILITY_FILE: observabilityPath,
-				FANOUT_RUN_ID: this.#runId,
-				FANOUT_NODE_ID: unit.id,
-				FANOUT_WORKER_DIR: attemptDir,
-				FANOUT_WORKTREE_ROOT: worktreePath,
-				DOUBLEWORD_OBSERVABILITY_FILE: observabilityPath,
-				DOUBLEWORD_RUN_ID: providerRunId,
-				DOUBLEWORD_EXECUTION_MODE: tier.tier === "tier2" ? "async" : "realtime",
-			},
-			isFirstOutput: isAssistantOutput,
-			signal,
+			fallbackAllowed,
+			...(recovery ? { recovery } : {}),
+			...(seedPatch ? { seedPatch } : {}),
+			...(signal ? { signal } : {}),
+			...(this.#beforeNormalizationAuditRewrite ? { beforeNormalizationAuditRewrite: this.#beforeNormalizationAuditRewrite } : {}),
 		});
-		signal?.throwIfAborted();
-		writeFileSync(stdoutPath, processResult.stdout, "utf8");
-		writeFileSync(stderrPath, processResult.stderr, "utf8");
-
-		const imported = importWorkerMetrics({
-			stdoutPath,
-			observabilityPath,
-			tier: tier.tier,
-			workerDurationMs: processResult.durationMs,
-			firstOutputMs: processResult.firstOutputMs,
-			expectedProvider: tier.provider,
-			expectedModel: tier.model,
-		});
-		base.correlatedMetrics = correlatedWorkerMetrics(attemptId, imported.metrics ?? {
-			provider: typeof imported.partialMetrics.provider === "string" ? imported.partialMetrics.provider : tier.provider,
-			model: typeof imported.partialMetrics.model === "string" ? imported.partialMetrics.model : tier.model,
-			tier: tier.tier,
-			workerDurationMs: processResult.durationMs,
-		}, stdoutPath, observabilityPath, processResult.firstOutputMs);
-		const metricsCorrelated = base.correlatedMetrics.complete;
-
-		const processOk = processResult.exitCode === 0 && !processResult.timedOut && !processResult.spawnError;
-		let patch: AcceptedPatch | undefined;
-		let patchError: string | undefined;
-		const capturePatch = () => {
-			try {
-				const patchPath = `${relative(this.#runDir, attemptDir).split("\\").join("/")}/patch.bin`;
-				patch = capturePatchCandidate(worktreePath, attemptBase, this.#runDir, patchPath);
-			} catch (error) {
-				patchError = errorMessage(error);
-			}
-		};
-		const writeResult = () => writeJson(join(attemptDir, "result.json"), {
-			nodeId: unit.id,
-			attemptId,
-			kind,
-			tier,
-			process: { ...processResult, stdout: undefined, stderr: undefined },
-			metrics: imported.metrics ?? imported.partialMetrics,
-			metricsComplete: imported.ok,
-			correlatedMetrics: base.correlatedMetrics,
-			metricErrors: imported.errors,
-			patch: patch ? { artifact: patch.artifact, changedFiles: patch.changedPaths, stats: patch.stats, baseTree: patch.baseTree, resultTree: patch.resultTree } : undefined,
-			patchError,
-		});
-		if (!processOk) {
-			capturePatch();
-			writeResult();
-			const hasUsablePatch = Boolean(patch && (patch.artifact.byteLength > 0 || contractWriteResources(unit.workContract).length === 0));
-			const details = [processResult.timedOut ? "worker timed out" : undefined, processResult.spawnError, processResult.exitCode !== 0 ? `worker exited ${processResult.exitCode}` : undefined, processResult.stderr.trim()].filter(Boolean).join(": ");
-			return await this.#finishFailedAttempt({
-				...base,
-				worktreePath,
-				base: attemptBase,
-				metrics: imported.metrics,
-				patch,
-				error: details || "worker subprocess failed",
-				failureKind: "process",
-				retryable: (!hasUsablePatch || !imported.metrics) && retryableProcessFailure(processResult, observabilityPath, { runId: providerRunId, provider: tier.provider, model: tier.model }),
-				terminalFact: processStageFact(processResult, observabilityPath, { runId: providerRunId, provider: tier.provider, model: tier.model }),
-			});
-		}
-		if (!imported.ok || !imported.metrics || !metricsCorrelated) {
-			capturePatch();
-			writeResult();
-			return await this.#finishFailedAttempt({ ...base, worktreePath, base: attemptBase, patch, error: [...imported.errors, ...(metricsCorrelated ? [] : ["attempt identity correlation incomplete"])].join("; "), failureKind: "metrics", retryable: false, terminalFact: { stage: "metrics", code: metricsCorrelated ? "malformed" : "correlation-mismatch" } });
-		}
-
-		const normalizationCommands = this.#contract(unit).candidateNormalizationCommands;
-		if (normalizationCommands.length) {
-			let normalization = await normalizeCandidate({
-				attemptId,
-				worktreePath,
-				commands: normalizationCommands,
-				expectedPlatform: process.platform,
-				timeoutMs: this.#validationTimeoutMs,
-				inheritedEnv: process.env,
-				signal,
-			});
-			const normalizationPath = `${relative(this.#runDir, attemptDir).split("\\").join("/")}/candidate-normalization.json`;
-			const publishNormalization = (evidence: CandidateNormalizationEvidence) => writeArtifactAtomically(this.#runDir, normalizationPath, Buffer.from(`${JSON.stringify(evidence, null, 2)}\n`));
-			const abortEvidence = (): CandidateNormalizationEvidence => ({
-				...normalization,
-				status: "interrupted",
-				failure: { code: "user-abort", ...(signal?.reason === undefined ? {} : { detail: errorMessage(signal.reason) }) },
-			});
-			const failNormalization = async (failure: CandidateNormalizationFailure, excludedEvidenceRefs: readonly string[] = []) => {
-				try { writeResult(); } catch { /* Typed normalization authority remains terminal when optional diagnostics fail. */ }
-				return await this.#finishFailedAttempt({
-					...base,
-					worktreePath,
-					base: attemptBase,
-					metrics: imported.metrics,
-					error: failure.detail ?? `candidate normalization ${failure.code}`,
-					failureKind: "normalization",
-					retryable: false,
-					excludedEvidenceRefs,
-					terminalFact: { stage: "candidate-normalization", code: failure.code, ...(failure.commandIndex === undefined ? {} : { commandIndex: failure.commandIndex }) },
-				});
-			};
-			if (!normalization.failure && signal?.aborted) normalization = abortEvidence();
-			try {
-				publishNormalization(normalization);
-			} catch (error) {
-				return await this.#finishFailedAttempt({
-					...base,
-					worktreePath,
-					base: attemptBase,
-					metrics: imported.metrics,
-					error: `candidate normalization audit publication failed: ${errorMessage(error)}`,
-					failureKind: "normalization",
-					retryable: false,
-					terminalFact: { stage: "candidate-normalization", code: "audit-failure" },
-				});
-			}
-			if (normalization.failure) return await failNormalization(normalization.failure);
-			if (signal?.aborted) {
-				normalization = abortEvidence();
-				try {
-					this.#beforeNormalizationAuditRewrite?.();
-					publishNormalization(normalization);
-				} catch (error) {
-					return await failNormalization({ ...normalization.failure as CandidateNormalizationFailure, detail: `candidate normalization audit update failed after user abort: ${errorMessage(error)}` }, ["candidate-normalization.json"]);
-				}
-				return await failNormalization(normalization.failure as CandidateNormalizationFailure);
-			}
-		}
-
-		capturePatch();
-		writeResult();
-		if (!patch) return await this.#finishFailedAttempt({ ...base, worktreePath, base: attemptBase, metrics: imported.metrics, error: patchError ?? "patch could not be captured", failureKind: "patch", retryable: false, terminalFact: { stage: "worker-gate", code: "malformed-patch" } });
-		if (patch.artifact.byteLength === 0 && contractWriteResources(unit.workContract).length > 0) return await this.#finishFailedAttempt({ ...base, worktreePath, base: attemptBase, metrics: imported.metrics, patch, error: "worker produced no patch for a mutating work unit", failureKind: "patch", retryable: false, terminalFact: { stage: "worker-gate", code: "mutating-noop" } });
-
-			return { ...base, ok: true, worktreePath, base: attemptBase, metrics: imported.metrics, patch };
-		} catch (error) {
-			if (this.#outcomes.some((outcome) => outcome.attemptId === attemptId)) throw error;
-			const durationMs = Math.max(0, Date.now() - Date.parse(startedAt));
-			const aborted = signal?.aborted === true || (error instanceof Error && error.name === "AbortError");
-			const failedAttempt: WorkerAttempt = {
-				...base,
-				worktreePath,
-				error: errorMessage(error),
-				failureKind: "process",
-				retryable: !aborted,
-				terminalFact: aborted
-					? { stage: "process", code: "user-abort", durationMs }
-					: { stage: "process", code: "infrastructure-failure", durationMs },
-			};
-			try {
-				mkdirSync(attemptDir, { recursive: true });
-				writeJson(join(attemptDir, "result.json"), { nodeId: unit.id, attemptId, kind, tier, error: failedAttempt.error, failureKind: failedAttempt.failureKind });
-			} catch {
-				// Attempt completion remains the authoritative causal record when diagnostics cannot be written.
-			}
-			return await this.#finishFailedAttempt(failedAttempt);
-		}
+		return attempt.ok ? attempt : await this.#finishFailedAttempt(attempt);
 	}
 
 	async #gateOwnershipAndValidation(unit: FanoutWorkUnit, attempt: WorkerAttempt, signal?: AbortSignal): Promise<GatedAttempt | WorkerAttempt> {
@@ -829,10 +577,6 @@ export class FanoutNodeExecutor {
 	}
 }
 
-export function createFanoutNodeExecutor(options: FanoutNodeExecutorOptions): FanoutNodeExecutor {
-	return new FanoutNodeExecutor(options);
-}
-
 function tierForUnit(unit: FanoutWorkUnit): WorkerTier {
 	return { tier: unit.tier.assigned, provider: unit.tier.provider, model: unit.tier.model, thinking: unit.tier.thinking };
 }
@@ -852,54 +596,6 @@ function failed(attempt: WorkerAttempt): DagNodeResult {
 function validationError(result: ValidationRunResult): string {
 	const failedCommand = result.commands.find((command) => command.outcome !== "passed" && command.outcome !== "unexecuted");
 	return failedCommand ? `${failedCommand.command.executable} ${failedCommand.command.args.join(" ")}: ${failedCommand.spawnError || failedCommand.stderr.trim() || failedCommand.stdout.trim() || failedCommand.signal || failedCommand.outcome}` : "validation failed";
-}
-
-function worktreeExtensionPath(repoRoot: string, worktreePath: string, extensionEntry: string): string {
-	const path = relative(repoRoot, extensionEntry);
-	return path && path !== ".." && !path.startsWith("../") ? resolve(worktreePath, path) : extensionEntry;
-}
-
-function collectRepositoryInstructions(worktreePath: string, unit: FanoutWorkUnit): SourceTaggedRepositoryInstruction[] {
-	const directories = new Set([""]);
-	for (const rawPath of [...contractWriteResources(unit.workContract), ...unit.workContract.readDependencies.map((read) => read.resource)].map((resource) => resource.path)) {
-		const path = normalizeRepoPath(rawPath);
-		const segments = path.split("/");
-		let directorySegments = segments.slice(0, -1);
-		try {
-			if (lstatSync(resolve(worktreePath, path)).isDirectory()) directorySegments = segments;
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-			if (/[\\/]\s*$/.test(rawPath)) directorySegments = segments;
-		}
-		for (let length = 1; length <= directorySegments.length; length++) directories.add(directorySegments.slice(0, length).join("/"));
-	}
-
-	const sections: SourceTaggedRepositoryInstruction[] = [];
-	const orderedDirectories = Array.from(directories).sort((left, right) => left.split("/").filter(Boolean).length - right.split("/").filter(Boolean).length || (left < right ? -1 : left > right ? 1 : 0));
-	for (const directory of orderedDirectories) {
-		for (const name of ["AGENTS.md", "CLAUDE.md"]) {
-			const relativePath = directory ? `${directory}/${name}` : name;
-			const instructionPath = resolve(worktreePath, relativePath);
-			try {
-				if (!lstatSync(instructionPath).isFile()) continue;
-				const content = readFileSync(instructionPath, "utf8").trim();
-				if (content) sections.push({ source: relativePath, text: content });
-			} catch (error) {
-				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-			}
-		}
-	}
-	return sections;
-}
-
-function isAssistantOutput(line: string): boolean {
-	try {
-		const event = JSON.parse(line);
-		return (event?.type === "message_update" && ["text_delta", "thinking_delta", "toolcall_start", "toolcall_delta"].includes(event?.assistantMessageEvent?.type))
-			|| (event?.type === "message_end" && event?.message?.role === "assistant");
-	} catch {
-		return false;
-	}
 }
 
 function positiveInteger(value: number | undefined, fallback: number, name: string): number {
@@ -925,5 +621,3 @@ function abortError(message: string): Error {
 function roundMs(value: number): number {
 	return Math.round(value * 1000) / 1000;
 }
-
-const CLI_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);

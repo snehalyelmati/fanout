@@ -10,6 +10,8 @@ import {
 	positiveSafeInteger as positiveInteger,
 } from "./contract-value.ts";
 import { parseAttemptAllocation, parseAttemptOutcome, type AttemptOutcome } from "./execution-attempt.ts";
+import { FIXED_WORKER_CAPABILITIES } from "./work-contract.ts";
+import { FINAL_VALIDATION_NODE_ID } from "./work-contract-graph.ts";
 
 export const EXECUTION_EVENT_SCHEMA = "fanout.execution-event";
 export const EXECUTION_EVENT_VERSION = 2;
@@ -29,12 +31,40 @@ export interface RunPolicy {
 	fallbackAllowed: boolean;
 }
 
+export interface PreflightComparison {
+	expected: string;
+	actual: string | null;
+	status: "matched" | "mismatched" | "unavailable";
+}
+
+export interface PreflightCommandEvidence {
+	packetNodeIndex: number;
+	nodeId: string;
+	commandIndex: number;
+	manifest: { executable: string; args: string[]; cwd: string | null };
+	resolution: { status: "available" | "unavailable"; resolvedExecutable: string | null; resolvedCwd: string | null };
+}
+
+export interface PreflightEvidence {
+	planningCommit: PreflightComparison;
+	repositoryTree: PreflightComparison;
+	platform: PreflightComparison;
+	worker: {
+		extension: { requested: string; resolved: string | null; status: "available" | "unavailable" };
+		launcher: { executable: string; args: string[]; resolvedExecutable: string | null; resolvedCwd: string | null; version: string | null; status: "available" | "unavailable" };
+		modelCallableTools: string[];
+	};
+	candidateNormalizationCommands: PreflightCommandEvidence[];
+	validationCommands: PreflightCommandEvidence[];
+}
+
 export interface RunStartedPayload {
 	mode: RunMode;
 	packet: ArtifactIdentity;
 	planningBaseTree: GitTreeId;
 	nodeIds: string[];
 	policy: RunPolicy;
+	preflightEvidence: PreflightEvidence;
 }
 
 export interface PreflightIssue {
@@ -92,12 +122,16 @@ export function parseExecutionEvent(value: unknown): ExecutionEvent {
 
 function parsePayload(name: ExecutionEventName, value: unknown): Record<string, unknown> {
 	if (name === "run-started") {
-		const item = exactRecord(value, ["mode", "packet", "planningBaseTree", "nodeIds", "policy"], [], name);
+		const item = exactRecord(value, ["mode", "packet", "planningBaseTree", "nodeIds", "policy", "preflightEvidence"], [], name);
 		if (item.mode !== "live" && item.mode !== "dry-run") throw new TypeError("run mode must be live or dry-run");
 		const policy = exactRecord(item.policy, ["maxConcurrency", "failFast", "fallbackAllowed"], [], "run policy");
 		const nodeIds = identities(item.nodeIds, "nodeIds");
 		if (!nodeIds.length) throw new TypeError("run-started requires packet-ordered nodes");
-		return { mode: item.mode, packet: parseArtifactIdentity(item.packet), planningBaseTree: parseGitTreeId(item.planningBaseTree), nodeIds, policy: { maxConcurrency: positiveInteger(policy.maxConcurrency, "maxConcurrency"), failFast: boolean(policy.failFast, "failFast"), fallbackAllowed: boolean(policy.fallbackAllowed, "fallbackAllowed") } };
+		const planningBaseTree = parseGitTreeId(item.planningBaseTree);
+		const preflightEvidence = parsePreflightEvidence(item.preflightEvidence);
+		if (preflightEvidence.repositoryTree.expected !== planningBaseTree) throw new TypeError("preflight repository-tree expectation must match the run planning base");
+		assertPacketOrderedCommandNodes(preflightEvidence, nodeIds);
+		return { mode: item.mode, packet: parseArtifactIdentity(item.packet), planningBaseTree, nodeIds, policy: { maxConcurrency: positiveInteger(policy.maxConcurrency, "maxConcurrency"), failFast: boolean(policy.failFast, "failFast"), fallbackAllowed: boolean(policy.fallbackAllowed, "fallbackAllowed") }, preflightEvidence };
 	}
 	if (name === "preflight-completed") {
 		const item = exactRecord(value, ["status", "planningBaseTree", "repositoryTree", "issues"], [], name);
@@ -154,6 +188,107 @@ function parsePayload(name: ExecutionEventName, value: unknown): Record<string, 
 		cause = { kind: "controller", stage: parsed.stage as ControllerRunStage, code: parsed.code as "internal-failure" | "publication-failure", detail: string(parsed.detail, "cause.detail") };
 	}
 	return { outcome: item.outcome, durationMs: nonNegativeNumber(item.durationMs, "durationMs"), cause };
+}
+
+function parsePreflightEvidence(value: unknown): PreflightEvidence {
+	const item = exactRecord(value, ["planningCommit", "repositoryTree", "platform", "worker", "candidateNormalizationCommands", "validationCommands"], [], "preflightEvidence");
+	const worker = exactRecord(item.worker, ["extension", "launcher", "modelCallableTools"], [], "preflightEvidence.worker");
+	const extension = exactRecord(worker.extension, ["requested", "resolved", "status"], [], "preflightEvidence.worker.extension");
+	if (extension.status !== "available" && extension.status !== "unavailable") throw new TypeError("preflight extension status is invalid");
+	const resolvedExtension = nullableIdentity(extension.resolved, "preflightEvidence.worker.extension.resolved");
+	if ((extension.status === "available") !== (resolvedExtension !== null)) throw new TypeError("preflight extension status contradicts its resolution");
+	const launcher = exactRecord(worker.launcher, ["executable", "args", "resolvedExecutable", "resolvedCwd", "version", "status"], [], "preflightEvidence.worker.launcher");
+	if (launcher.status !== "available" && launcher.status !== "unavailable") throw new TypeError("preflight launcher status is invalid");
+	const resolvedExecutable = nullableIdentity(launcher.resolvedExecutable, "preflightEvidence.worker.launcher.resolvedExecutable");
+	const resolvedCwd = nullableIdentity(launcher.resolvedCwd, "preflightEvidence.worker.launcher.resolvedCwd");
+	const version = nullableIdentity(launcher.version, "preflightEvidence.worker.launcher.version");
+	if ((resolvedExecutable === null) !== (resolvedCwd === null)) throw new TypeError("preflight launcher resolution must keep executable and cwd paired");
+	if (launcher.status === "available" && (resolvedExecutable === null || resolvedCwd === null || version === null)) throw new TypeError("available preflight launcher requires complete resolution evidence");
+	if (launcher.status === "unavailable" && version !== null) throw new TypeError("unavailable preflight launcher cannot report a successful version");
+	const tools = identities(worker.modelCallableTools, "preflightEvidence.worker.modelCallableTools");
+	if (JSON.stringify(tools) !== JSON.stringify(FIXED_WORKER_CAPABILITIES.modelCallableTools)) throw new TypeError("preflight worker tools do not match the fixed capability profile");
+	const candidateNormalizationCommands = parseCommandEvidence(item.candidateNormalizationCommands, "preflightEvidence.candidateNormalizationCommands");
+	const validationCommands = parseCommandEvidence(item.validationCommands, "preflightEvidence.validationCommands");
+	assertConsistentCommandNodes(candidateNormalizationCommands, validationCommands);
+	return {
+		planningCommit: parseComparison(item.planningCommit, "preflightEvidence.planningCommit", parseGitTreeId),
+		repositoryTree: parseComparison(item.repositoryTree, "preflightEvidence.repositoryTree", parseGitTreeId),
+		platform: parseComparison(item.platform, "preflightEvidence.platform", identity),
+		worker: {
+			extension: { requested: identity(extension.requested, "preflightEvidence.worker.extension.requested"), resolved: resolvedExtension, status: extension.status },
+			launcher: { executable: identity(launcher.executable, "preflightEvidence.worker.launcher.executable"), args: strings(launcher.args, "preflightEvidence.worker.launcher.args"), resolvedExecutable, resolvedCwd, version, status: launcher.status },
+			modelCallableTools: tools,
+		},
+		candidateNormalizationCommands,
+		validationCommands,
+	};
+}
+
+function parseComparison(value: unknown, path: string, parse: (value: unknown, path: string) => string): PreflightComparison {
+	const item = exactRecord(value, ["expected", "actual", "status"], [], path);
+	const expected = parse(item.expected, `${path}.expected`);
+	const actual = item.actual === null ? null : parse(item.actual, `${path}.actual`);
+	const status = item.status;
+	if (status !== "matched" && status !== "mismatched" && status !== "unavailable") throw new TypeError(`${path}.status is invalid`);
+	if ((status === "matched") !== (actual === expected) || (status === "unavailable") !== (actual === null)) throw new TypeError(`${path}.status contradicts its values`);
+	return { expected, actual, status };
+}
+
+function parseCommandEvidence(value: unknown, path: string): PreflightCommandEvidence[] {
+	if (!Array.isArray(value)) throw new TypeError(`${path} must be an array`);
+	let previousNode = -1;
+	let previousCommand = -1;
+	const nodeIds = new Map<number, string>();
+	return value.map((entry, index) => {
+		const item = exactRecord(entry, ["packetNodeIndex", "nodeId", "commandIndex", "manifest", "resolution"], [], `${path}[${index}]`);
+		const packetNodeIndex = nonNegativeInteger(item.packetNodeIndex, `${path}[${index}].packetNodeIndex`);
+		const commandIndex = nonNegativeInteger(item.commandIndex, `${path}[${index}].commandIndex`);
+		if (packetNodeIndex < previousNode || packetNodeIndex === previousNode && commandIndex !== previousCommand + 1 || packetNodeIndex > previousNode && commandIndex !== 0) throw new TypeError(`${path} must preserve packet and command order`);
+		previousNode = packetNodeIndex;
+		previousCommand = commandIndex;
+		const manifest = exactRecord(item.manifest, ["executable", "args", "cwd"], [], `${path}[${index}].manifest`);
+		const resolution = exactRecord(item.resolution, ["status", "resolvedExecutable", "resolvedCwd"], [], `${path}[${index}].resolution`);
+		if (resolution.status !== "available" && resolution.status !== "unavailable") throw new TypeError(`${path}[${index}].resolution.status is invalid`);
+		const commandExecutable = identity(manifest.executable, `${path}[${index}].manifest.executable`);
+		const args = strings(manifest.args, `${path}[${index}].manifest.args`);
+		const cwd = manifest.cwd === null ? null : identity(manifest.cwd, `${path}[${index}].manifest.cwd`);
+		const resolvedCommand = nullableIdentity(resolution.resolvedExecutable, `${path}[${index}].resolution.resolvedExecutable`);
+		const resolvedCommandCwd = nullableIdentity(resolution.resolvedCwd, `${path}[${index}].resolution.resolvedCwd`);
+		if ((resolution.status === "available") !== (resolvedCommand !== null && resolvedCommandCwd !== null)) throw new TypeError(`${path}[${index}].resolution status contradicts its values`);
+		if (resolution.status === "unavailable" && (resolvedCommand !== null || resolvedCommandCwd !== null)) throw new TypeError(`${path}[${index}].unavailable resolution must not retain partial command authority`);
+		const nodeId = identity(item.nodeId, `${path}[${index}].nodeId`);
+		const existingNodeId = nodeIds.get(packetNodeIndex);
+		if (existingNodeId !== undefined && existingNodeId !== nodeId) throw new TypeError(`${path} assigns multiple node IDs to packet node ${packetNodeIndex}`);
+		nodeIds.set(packetNodeIndex, nodeId);
+		return { packetNodeIndex, nodeId, commandIndex, manifest: { executable: commandExecutable, args, cwd }, resolution: { status: resolution.status, resolvedExecutable: resolvedCommand, resolvedCwd: resolvedCommandCwd } };
+	});
+}
+
+function assertConsistentCommandNodes(...groups: PreflightCommandEvidence[][]): void {
+	const nodeIds = new Map<number, string>();
+	for (const entry of groups.flat()) {
+		const existingNodeId = nodeIds.get(entry.packetNodeIndex);
+		if (existingNodeId !== undefined && existingNodeId !== entry.nodeId) throw new TypeError(`preflight command evidence contradicts packet node ${entry.packetNodeIndex}`);
+		nodeIds.set(entry.packetNodeIndex, entry.nodeId);
+	}
+}
+
+function assertPacketOrderedCommandNodes(evidence: PreflightEvidence, nodeIds: string[]): void {
+	for (const entry of [...evidence.candidateNormalizationCommands, ...evidence.validationCommands]) {
+		const expectedNodeId = entry.packetNodeIndex < nodeIds.length
+			? nodeIds[entry.packetNodeIndex]
+			: entry.packetNodeIndex === nodeIds.length ? FINAL_VALIDATION_NODE_ID : undefined;
+		if (entry.nodeId !== expectedNodeId) throw new TypeError(`preflight command evidence does not match packet node ${entry.packetNodeIndex}`);
+	}
+}
+
+function nullableIdentity(value: unknown, path: string): string | null {
+	return value === null ? null : identity(value, path);
+}
+
+function strings(value: unknown, path: string): string[] {
+	if (!Array.isArray(value)) throw new TypeError(`${path} must be an array`);
+	return value.map((item, index) => string(item, `${path}[${index}]`));
 }
 
 function identities(value: unknown, path: string): string[] {

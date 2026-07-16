@@ -9,7 +9,7 @@ import { executionPacketBytes } from "../packages/fanout-core/src/execution-pack
 import { executeFanout } from "../packages/fanout-pi/src/fanout-execute.ts";
 import { artifactSegment } from "../packages/fanout-pi/src/fanout-git.ts";
 import { replayExecutionArtifacts } from "../packages/fanout-pi/src/execution-event-store.ts";
-import { createFanoutNodeExecutor } from "../packages/fanout-pi/src/fanout-node-executor.ts";
+import { FanoutNodeExecutor } from "../packages/fanout-pi/src/fanout-node-executor.ts";
 import { publishExecutionPacket } from "../packages/fanout-pi/src/planning-publication.ts";
 import { capturePlanningBase, fullGitVisibleTree } from "../packages/fanout-pi/src/repository-identity.ts";
 
@@ -41,9 +41,14 @@ try {
   const result = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", dryRun: true, runId: "dry-run", maxConcurrency: 99 });
   assert(result.status === "succeeded" && result.snapshot.version === 3 && result.snapshot.mode === "dry-run" && result.snapshot.terminalOutcome.outcome === "dry-run-completed", "hardened dry run did not project explicit state");
   assert(result.snapshot.policy.maxConcurrency === 2, "execution options overrode immutable packet runtime policy");
+  assert(result.snapshot.preflightEvidence.planningCommit.actual === base.headCommit && result.snapshot.preflightEvidence.repositoryTree.actual === base.tree && result.snapshot.preflightEvidence.platform.actual === process.platform, "dry run did not preserve exact repository/platform preflight evidence");
+  assert(result.snapshot.preflightEvidence.worker.launcher.resolvedExecutable && result.snapshot.preflightEvidence.worker.extension.resolved && result.snapshot.preflightEvidence.worker.modelCallableTools.join(",") === "read,grep,find,ls,edit,write", "dry run did not preserve worker capability evidence");
+  assert(result.snapshot.preflightEvidence.validationCommands.some((entry) => entry.nodeId === "x" && entry.manifest.args.join("\0") === command.args.join("\0") && entry.resolution.status === "available"), "dry run did not preserve resolved validation argv evidence");
   const events = readFileSync(result.paths.eventsPath, "utf8").trim().split("\n").map(JSON.parse);
   assert(events.map((event) => event.sequence).join(",") === "1,2,3" && events.every((event) => event.version === 2), "events are not gapless v2 authority");
   assert(!existsSync(join(repo, ".git", "fanout-execution.lock")), "dry run leaked execution lock");
+  const directoryExtension = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: repo, dryRun: true, runId: "directory-extension" });
+  assert(directoryExtension.status === "failed" && directoryExtension.snapshot.preflightEvidence.worker.extension.status === "unavailable" && directoryExtension.snapshot.preflight.issues.some((issue) => issue.detail.includes("extension entry")), "preflight admitted a directory as an executable Pi extension entry");
 
   const lockPath = join(repo, ".git", "fanout-execution.lock");
   writeFileSync(lockPath, `${JSON.stringify({ runId: "other", pid: process.pid })}\n`);
@@ -108,7 +113,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const normalizedPacket = { ...compiled.packet, nodes: [normalizedNode, normalizedFinal] };
   const normalizedRunDir = join(runDir, "executions", "normalized-candidate");
   const normalizedCompletions = [];
-  const normalizedExecutor = createFanoutNodeExecutor({
+  const normalizedExecutor = new FanoutNodeExecutor({
     packet: normalizedPacket,
     packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(normalizedPacket)),
     repoRoot: repo,
@@ -140,6 +145,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const unavailablePaths = publishExecutionPacket(unavailablePacket, artifacts, unavailablePlanDir, join(artifacts, "normalization-preflight-active.json"));
   const unavailableResult = await executeFanout({ cwd: repo, activePointerPath: unavailablePaths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", dryRun: true, piCommand: fakePi, runId: "normalization-preflight" });
   assert(unavailableResult.status === "failed" && unavailableResult.snapshot.preflight.issues.some((issue) => issue.code === "executable-unavailable" && issue.detail.includes("candidate normalization")), "preflight did not expose an unavailable candidate normalizer");
+  assert(unavailableResult.snapshot.preflightEvidence.candidateNormalizationCommands.every((entry) => entry.resolution.status === "unavailable" && entry.resolution.resolvedExecutable === null), "failed normalizer resolution was not preserved as closed preflight evidence");
 
   const unauthorizedNode = structuredClone(compiled.packet.nodes[0]);
   unauthorizedNode.workContract.candidateNormalizationCommands = [{ executable: process.execPath, args: ["-e", "const fs = require('node:fs'); fs.writeFileSync('x.ts', 'export const x = 1;\\n'); fs.writeFileSync('outside.ts', 'outside\\n')"] }];
@@ -148,7 +154,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const unauthorizedPacket = { ...compiled.packet, nodes: [unauthorizedNode, unauthorizedFinal] };
   const unauthorizedRunDir = join(runDir, "executions", "unauthorized-normalization");
   const unauthorizedCompletions = [];
-  const unauthorizedExecutor = createFanoutNodeExecutor({
+  const unauthorizedExecutor = new FanoutNodeExecutor({
     packet: unauthorizedPacket,
     packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(unauthorizedPacket)),
     repoRoot: repo,
@@ -172,7 +178,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const interruptedRunDir = join(runDir, "executions", "interrupted-normalization");
   const interruptedAllocations = [];
   const interruptedCompletions = [];
-  const interruptedExecutor = createFanoutNodeExecutor({
+  const interruptedExecutor = new FanoutNodeExecutor({
     packet: interruptedPacket,
     packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(interruptedPacket)),
     repoRoot: repo,
@@ -199,7 +205,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const diagnosticPacket = { ...compiled.packet, nodes: [diagnosticNode, diagnosticFinal] };
   const diagnosticAllocations = [];
   const diagnosticCompletions = [];
-  const diagnosticExecutor = createFanoutNodeExecutor({
+  const diagnosticExecutor = new FanoutNodeExecutor({
     packet: diagnosticPacket,
     packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(diagnosticPacket)),
     repoRoot: repo,
@@ -226,7 +232,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const boundaryAbortPacket = { ...compiled.packet, nodes: [boundaryAbortNode, boundaryAbortFinal] };
   const boundaryAbortAllocations = [];
   const boundaryAbortCompletions = [];
-  const boundaryAbortExecutor = createFanoutNodeExecutor({
+  const boundaryAbortExecutor = new FanoutNodeExecutor({
     packet: boundaryAbortPacket,
     packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(boundaryAbortPacket)),
     repoRoot: repo,
@@ -251,7 +257,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const rewriteFailureAuditPath = join(rewriteFailureAttemptDir, "candidate-normalization.json");
   const rewriteFailureAllocations = [];
   const rewriteFailureCompletions = [];
-  const rewriteFailureExecutor = createFanoutNodeExecutor({
+  const rewriteFailureExecutor = new FanoutNodeExecutor({
     packet: boundaryAbortPacket,
     packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(boundaryAbortPacket)),
     repoRoot: repo,
@@ -280,7 +286,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const identityRunDir = join(runDir, "executions", "identity-normalization");
   const identityAllocations = [];
   const identityCompletions = [];
-  const identityExecutor = createFanoutNodeExecutor({
+  const identityExecutor = new FanoutNodeExecutor({
     packet: identityPacket,
     packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(identityPacket)),
     repoRoot: repo,
@@ -344,14 +350,14 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   sibling.workContract.validationCommands = [{ executable: process.execPath, args: ["-e", `require("node:fs").writeFileSync(${JSON.stringify(validationStarted)}, "started\\n"); setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(validationFinished)}, "finished\\n"), 5000)`] }];
   const parallelPacket = { ...compiled.packet, nodes: [compiled.packet.nodes[0], sibling, compiled.packet.nodes.at(-1)] };
   let mismatchedPacketIdentityRejected = false;
-  try { createFanoutNodeExecutor({ packet: parallelPacket, packetIdentity, repoRoot: repo, runDir: join(runDir, "executions", "identity-mismatch"), runId: "identity-mismatch", extensionEntry: "packages/fanout-pi/src/index.ts", recorder: { async recordAttemptAllocated() {}, async recordAttemptCompleted() {}, async flush() {} } }); }
+  try { new FanoutNodeExecutor({ packet: parallelPacket, packetIdentity, repoRoot: repo, runDir: join(runDir, "executions", "identity-mismatch"), runId: "identity-mismatch", extensionEntry: "packages/fanout-pi/src/index.ts", recorder: { async recordAttemptAllocated() {}, async recordAttemptCompleted() {}, async flush() {} } }); }
   catch (error) { mismatchedPacketIdentityRejected = /artifact (?:byte length|SHA-256) mismatch/.test(String(error)); }
   assert(mismatchedPacketIdentityRejected, "node executor admitted a packet identity that did not describe its packet bytes");
   const parallelPacketIdentity = artifactIdentity(packetIdentity.path, executionPacketBytes(parallelPacket));
   const abortRunDir = join(runDir, "executions", "abort-validation");
   const abortAllocations = [];
   const abortCompletions = [];
-  const abortExecutor = createFanoutNodeExecutor({
+  const abortExecutor = new FanoutNodeExecutor({
     packet: parallelPacket,
     packetIdentity: parallelPacketIdentity,
     repoRoot: repo,
@@ -390,7 +396,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
 
   const postWorkerAllocations = [];
   const postWorkerCompletions = [];
-  const postWorkerExecutor = createFanoutNodeExecutor({
+  const postWorkerExecutor = new FanoutNodeExecutor({
     packet: compiled.packet,
     packetIdentity,
     repoRoot: repo,
@@ -419,7 +425,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   repairSibling.workContract.validationCommands = [{ executable: process.execPath, args: ["-e", "if (require('node:fs').readFileSync('y.ts','utf8') !== 'export const x = 0;\\n') process.exit(1)"] }];
   const repairPacket = { ...compiled.packet, nodes: [repairPrimary, repairSibling, compiled.packet.nodes.at(-1)] };
   const repairCompletions = [];
-  const repairExecutor = createFanoutNodeExecutor({
+  const repairExecutor = new FanoutNodeExecutor({
     packet: repairPacket,
     packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(repairPacket)),
     repoRoot: repo,
@@ -471,6 +477,8 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const live = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: (_title, message) => { liveConfirmation = message; return true; }, piCommand: fakePi, runId: "live", workerTimeoutMs: 10_000, validationTimeoutMs: 10_000, worktreeSharedPaths: [".preinstalled"] });
   assert(live.status === "succeeded" && existsSync(join(repo, "x.ts")) && readFileSync(join(repo, "x.ts"), "utf8") === "export const x = 1;\n", `public executeFanout live seam did not apply the accepted patch: ${JSON.stringify({ status: live.status, error: live.error, snapshot: live.snapshot })}`);
   assert(live.snapshot.acceptedLedger.length === 1 && live.snapshot.finalValidation.disposition === "passed" && live.snapshot.totals.totalTokens === 12 && live.snapshot.totals.attemptKinds.retry === 1 && live.snapshot.totals.attemptKinds["validation-repair"] === 1, "live projection lost retry success, repair, accepted transition, final validation, or metrics");
+  assert(live.snapshot.preflightEvidence.worker.launcher.resolvedExecutable && live.snapshot.preflightEvidence.worker.extension.resolved, "live projection did not preserve resolved worker evidence");
+  assert(live.snapshot.preflightEvidence.validationCommands.some((entry) => entry.nodeId === "x" && entry.manifest.args.join("\0") === command.args.join("\0") && entry.resolution.status === "available"), "live projection did not preserve resolved validation argv evidence");
   assert(liveConfirmation.includes("Shared worktree paths: .preinstalled"), "live confirmation omitted explicit worktree preparation input");
   const liveEvents = readFileSync(live.paths.eventsPath, "utf8").trim().split("\n").map(JSON.parse);
   assert(liveEvents.length === 13 && liveEvents.every((event, index) => event.sequence === index + 1), "live executeFanout retry/repair seam did not produce a gapless causal lifecycle");

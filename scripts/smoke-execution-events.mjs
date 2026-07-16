@@ -26,6 +26,21 @@ const patch = {
     resultTree: trees.nodeA,
   },
 };
+const preflightEvidence = {
+  planningCommit: { expected: "3".repeat(40), actual: "3".repeat(40), status: "matched" },
+  repositoryTree: { expected: trees.base, actual: trees.base, status: "matched" },
+  platform: { expected: process.platform, actual: process.platform, status: "matched" },
+  worker: {
+    extension: { requested: "packages/fanout-pi/src/index.ts", resolved: "/repo/packages/fanout-pi/src/index.ts", status: "available" },
+    launcher: { executable: process.execPath, args: ["--version"], resolvedExecutable: process.execPath, resolvedCwd: "/repo", version: process.version, status: "available" },
+    modelCallableTools: ["read", "grep", "find", "ls", "edit", "write"],
+  },
+  candidateNormalizationCommands: [
+    commandEvidence(0, "node-a", 0, ["normalize-a"]),
+    commandEvidence(0, "node-a", 1, ["normalize-b"]),
+  ],
+  validationCommands: [commandEvidence(0, "node-a", 0, ["validate"])],
+};
 
 try {
   assert(EXECUTION_EVENT_NAMES.join(",") === "run-started,preflight-completed,confirmation-decided,attempt-allocated,attempt-completed,node-completed,final-validation-started,final-validation-completed,run-finished", "execution-event v2 does not expose exactly the nine approved transitions");
@@ -39,6 +54,7 @@ try {
   ];
   const dry = replayExecutionEvents(dryEvents);
   assert(dry.version === 3, "execution projection did not advance to v3");
+  assert(dry.preflightEvidence.validationCommands[0].manifest.args[0] === "validate", "projection discarded strict preflight evidence");
   assert(dry.mode === "dry-run" && dry.terminalOutcome?.outcome === "dry-run-completed", "A14 lost the explicit dry-run outcome");
   assert(dry.finalValidation.disposition === "not-run" && dry.finalValidation.reason === "dry-run", "A14 inferred final validation from absence");
   assert(dry.phase === "finished" && dry.lastEventSequence === 3, "dry-run projection did not terminate explicitly");
@@ -76,6 +92,28 @@ try {
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, mode: "preview" } }), "unknown run mode was admitted");
   const { fallbackAllowed: _fallbackAllowed, ...incompletePolicy } = dryEvents[0].payload.policy;
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, policy: incompletePolicy } }), "run-started admitted an incomplete immutable runtime policy");
+  const { preflightEvidence: _preflightEvidence, ...missingPreflightEvidence } = dryEvents[0].payload;
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: missingPreflightEvidence }), "run-started admitted missing strict preflight evidence");
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, preflightEvidence: { ...preflightEvidence, worker: { ...preflightEvidence.worker, modelCallableTools: "read" } } } }), "run-started admitted malformed preflight evidence");
+  const { version: _launcherVersion, ...incompleteLauncher } = preflightEvidence.worker.launcher;
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, preflightEvidence: { ...preflightEvidence, worker: { ...preflightEvidence.worker, launcher: incompleteLauncher } } } }), "run-started admitted incomplete preflight evidence");
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, preflightEvidence: { ...preflightEvidence, candidateNormalizationCommands: [...preflightEvidence.candidateNormalizationCommands].reverse() } } }), "run-started admitted reordered command evidence");
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, preflightEvidence: { ...preflightEvidence, platform: { ...preflightEvidence.platform, actual: "contradictory-platform" } } } }), "run-started admitted contradictory preflight evidence");
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, preflightEvidence: { ...preflightEvidence, repositoryTree: { expected: trees.nodeA, actual: trees.nodeA, status: "matched" } } } }), "run-started admitted a repository-tree expectation outside its planning-base authority");
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, preflightEvidence: { ...preflightEvidence, worker: { ...preflightEvidence.worker, launcher: { ...preflightEvidence.worker.launcher, status: "unavailable" } } } } }), "run-started admitted an unavailable launcher with a successful version");
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, preflightEvidence: { ...preflightEvidence, worker: { ...preflightEvidence.worker, launcher: { ...preflightEvidence.worker.launcher, status: "unavailable", resolvedCwd: null, version: null } } } } }), "run-started admitted partial unavailable launcher resolution");
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, preflightEvidence: { ...preflightEvidence, validationCommands: [{ ...preflightEvidence.validationCommands[0], resolution: { status: "unavailable", resolvedExecutable: process.execPath, resolvedCwd: null } }] } } }), "run-started admitted partial unavailable command resolution");
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, preflightEvidence: { ...preflightEvidence, candidateNormalizationCommands: [preflightEvidence.candidateNormalizationCommands[0], { ...preflightEvidence.candidateNormalizationCommands[1], nodeId: "node-b" }] } } }), "run-started admitted multiple node IDs for one packet index");
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, preflightEvidence: { ...preflightEvidence, validationCommands: [{ ...preflightEvidence.validationCommands[0], nodeId: "node-b" }] } } }), "run-started admitted contradictory node IDs across command evidence groups");
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, preflightEvidence: { ...preflightEvidence, validationCommands: [{ ...preflightEvidence.validationCommands[0], packetNodeIndex: 999, nodeId: "not-in-this-run" }] } } }), "run-started admitted command evidence outside packet node order");
+  expectThrow(() => replayExecutionEvents([
+    { ...dryEvents[0], payload: { ...dryEvents[0].payload, preflightEvidence: { ...preflightEvidence, worker: { ...preflightEvidence.worker, extension: { ...preflightEvidence.worker.extension, resolved: null, status: "unavailable" } } } } },
+    dryEvents[1],
+  ]), "passed preflight contradicted unavailable worker evidence");
+  expectThrow(() => replayExecutionEvents([
+    { ...dryEvents[0], payload: { ...dryEvents[0].payload, preflightEvidence: { ...preflightEvidence, repositoryTree: { expected: trees.base, actual: trees.nodeA, status: "mismatched" } } } },
+    dryEvents[1],
+  ]), "passed preflight contradicted repository-tree evidence");
   const duplicateCommands = parseExecutionEvent(event(7, "final-validation-started", { commandIdentities: ["validation:duplicate", "validation:duplicate"], expectedTree: trees.base }));
   assert(duplicateCommands.payload.commandIdentities.length === 2, "final-validation event admission discarded or rejected ordered duplicate commands");
   expectThrow(() => replayExecutionEvents([dryEvents[0], { ...dryEvents[1], sequence: 3 }]), "gapped log was admitted");
@@ -145,7 +183,7 @@ try {
 
   const bridgeDir = join(root, "runtime-recorder-bridge");
   const bridge = new RuntimeEventRecorder(bridgeDir, "run");
-  await bridge.record("run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: true } });
+  await bridge.record("run-started", startedPayload({ mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: true } }));
   await bridge.record("preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] });
   await bridge.record("confirmation-decided", { decision: "accepted" });
   const bridged = acceptedOutcome();
@@ -163,7 +201,7 @@ try {
       atomicTestReplace(path, bytes);
     },
   });
-  await publicationBridge.record("run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: true } });
+  await publicationBridge.record("run-started", startedPayload({ mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: true } }));
   await publicationBridge.record("preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] });
   await publicationBridge.record("confirmation-decided", { decision: "accepted" });
   failAllocationPublication = true;
@@ -196,7 +234,7 @@ try {
 
   const parallelDir = join(root, "parallel");
   const recorder = createExecutionEventRecorder({ runDir: parallelDir, runId: "run", now: clock() });
-  await recorder.record("run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a", "node-b"], policy: { maxConcurrency: 2, failFast: false, fallbackAllowed: true } });
+  await recorder.record("run-started", startedPayload({ mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a", "node-b"], policy: { maxConcurrency: 2, failFast: false, fallbackAllowed: true } }));
   await recorder.record("preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] });
   await recorder.record("confirmation-decided", { decision: "accepted" });
   const a = allocationFor("node-a");
@@ -222,7 +260,7 @@ try {
       }
     },
   });
-  await expectReject(postRename.record("run-started", { mode: "dry-run", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false } }), "post-log-rename failure was not surfaced");
+  await expectReject(postRename.record("run-started", startedPayload({ mode: "dry-run", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false } })), "post-log-rename failure was not surfaced");
   await expectReject(postRename.record("preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }), "recorder continued after ambiguous event publication");
   assert(replayExecutionArtifacts(postRenameDir).lastEventSequence === 1, "A13 did not preserve and replay the complete new log after rename");
 
@@ -239,13 +277,14 @@ try {
       atomicTestReplace(path, bytes);
     },
   });
-  await torn.record("run-started", { mode: "dry-run", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false } });
+  await torn.record("run-started", startedPayload({ mode: "dry-run", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false } }));
   await expectReject(torn.record("preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }), "projection failure did not stop the recorder");
   assert(readFileSync(join(tornDir, "events.jsonl"), "utf8").trim().split("\n").length === 2, "A13 lost the committed authoritative log");
   assert(JSON.parse(readFileSync(join(tornDir, "execution-run.json"), "utf8")).lastEventSequence === 1, "projection failure did not leave the older complete view");
   await expectReject(torn.record("run-finished", { outcome: "dry-run-completed", durationMs: 2, cause: { kind: "event", eventSequence: 2, code: "dry-run" } }), "recorder continued side effects after derived publication failure");
+  writeFileSync(join(tornDir, "summary.md"), "stale report\n");
   const repaired = replayExecutionArtifacts(tornDir);
-  assert(repaired.lastEventSequence === 2 && readFileSync(join(tornDir, "summary.md"), "utf8").includes("No terminal outcome was recorded"), "A13 replay did not regenerate nonterminal views");
+  assert(repaired.lastEventSequence === 2 && !existsSync(join(tornDir, "summary.md")), "A13 replay published or retained a nonterminal summary");
 
   const terminalDir = join(root, "terminal-report");
   let failReport = true;
@@ -261,7 +300,7 @@ try {
       atomicTestReplace(path, bytes);
     },
   });
-  await terminal.record("run-started", { mode: "dry-run", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false } });
+  await terminal.record("run-started", startedPayload({ mode: "dry-run", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false } }));
   await terminal.record("preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] });
   await expectReject(terminal.record("run-finished", { outcome: "dry-run-completed", durationMs: 2, cause: { kind: "event", eventSequence: 2, code: "dry-run" } }), "terminal report failure was not surfaced");
   const repairedTerminal = replayExecutionArtifacts(terminalDir);
@@ -276,7 +315,22 @@ try {
 }
 
 function event(sequence, name, payload) {
+  if (name === "run-started") payload = startedPayload(payload);
   return { schema: "fanout.execution-event", version: 2, runId: "run", sequence, occurredAt: `2026-07-13T00:00:00.${String(sequence).padStart(3, "0")}Z`, event: name, payload };
+}
+
+function startedPayload(payload) {
+  return { ...payload, preflightEvidence };
+}
+
+function commandEvidence(packetNodeIndex, nodeId, commandIndex, args) {
+  return {
+    packetNodeIndex,
+    nodeId,
+    commandIndex,
+    manifest: { executable: process.execPath, args, cwd: null },
+    resolution: { status: "available", resolvedExecutable: process.execPath, resolvedCwd: "/repo" },
+  };
 }
 
 function acceptedOutcome() {

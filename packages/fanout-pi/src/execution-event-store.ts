@@ -103,7 +103,9 @@ export function replayExecutionArtifacts(runDir: string, replace: AtomicReplace 
 	const events = parseEventLog(readFileSync(join(root, "events.jsonl"), "utf8"));
 	const projection = replayExecutionEvents(events);
 	replace(join(root, "execution-run.json"), serializeJson(projection), "projection");
-	replace(join(root, "summary.md"), renderExecutionReport(projection), "report");
+	const reportPath = join(root, "summary.md");
+	if (projection.terminalOutcome) replace(reportPath, renderExecutionReport(projection), "report");
+	else rmSync(reportPath, { force: true });
 	return projection;
 }
 

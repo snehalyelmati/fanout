@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import { supportedThinkingLevels } from "./fanout-runtime-context.ts";
 
 type ModelRole = "tier1" | "tier2" | "tier2Fallback";
 type TierSummary = { provider?: unknown; model?: unknown; thinking?: unknown; source?: unknown; status?: unknown; reason?: unknown };
@@ -400,7 +400,7 @@ function clean(value: Record<string, unknown>): Record<string, unknown> {
 }
 
 function thinkingOptions(model: Record<string, unknown> | undefined): string[] {
-	return model ? getSupportedThinkingLevels(model as any) : ["off"];
+	return supportedThinkingLevels(model);
 }
 
 function modelInfo(model: unknown) {

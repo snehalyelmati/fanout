@@ -10,6 +10,7 @@ import {
 	type ExecutionPhase,
 	type FinalValidationCompletedPayload,
 	type PreflightCompletedPayload,
+	type PreflightEvidence,
 	type RunFinishCause,
 	type RunMode,
 	type RunOutcome,
@@ -79,6 +80,7 @@ export interface ExecutionRunProjection {
 	packet: ArtifactIdentity;
 	planningBaseTree: GitTreeId;
 	policy: RunPolicy;
+	preflightEvidence: PreflightEvidence;
 	startedAt: string;
 	updatedAt: string;
 	finishedAt: string | null;
@@ -110,7 +112,7 @@ export function reduceExecutionEvent(previous: ExecutionRunProjection | undefine
 		const payload = event.payload as unknown as RunStartedPayload;
 		return finalize({
 			schema: EXECUTION_PROJECTION_SCHEMA, version: EXECUTION_PROJECTION_VERSION, runId: event.runId, lastEventSequence: 1,
-			mode: payload.mode, phase: "preflight", terminalOutcome: null, packet: payload.packet, planningBaseTree: payload.planningBaseTree, policy: payload.policy,
+			mode: payload.mode, phase: "preflight", terminalOutcome: null, packet: payload.packet, planningBaseTree: payload.planningBaseTree, policy: payload.policy, preflightEvidence: payload.preflightEvidence,
 			startedAt: event.occurredAt, updatedAt: event.occurredAt, finishedAt: null, preflight: null,
 			confirmation: payload.mode === "live" ? "pending" : "not-required", confirmationEventSequence: null,
 			nodes: payload.nodeIds.map((id) => ({ id, status: "pending", completionSequence: null, attemptIds: [], causalAttemptId: null, causalUpstreamNodeId: null })),
@@ -144,9 +146,23 @@ function applyEvent(state: ExecutionRunProjection, event: ExecutionEvent): void 
 function applyPreflight(state: ExecutionRunProjection, sequence: number, payload: PreflightCompletedPayload): void {
 	if (state.preflight) throw new Error("preflight may complete only once");
 	if (payload.planningBaseTree !== state.planningBaseTree) throw new Error("preflight planning base does not match run authority");
-	if (payload.status === "passed" && payload.repositoryTree !== state.planningBaseTree) throw new Error("passed preflight requires the exact planning-base repository tree");
+	if (payload.status === "passed") {
+		if (payload.repositoryTree !== state.planningBaseTree) throw new Error("passed preflight requires the exact planning-base repository tree");
+		if (state.preflightEvidence.repositoryTree.actual !== payload.repositoryTree) throw new Error("passed preflight repository tree contradicts run-started evidence");
+		if (payload.issues.length || !preflightEvidencePassed(state.preflightEvidence)) throw new Error("passed preflight contradicts its closed evidence");
+	}
 	state.preflight = { ...payload, eventSequence: sequence };
 	state.phase = payload.status === "passed" && state.mode === "live" ? "confirmation" : "preflight";
+}
+
+function preflightEvidencePassed(evidence: PreflightEvidence): boolean {
+	return evidence.planningCommit.status === "matched"
+		&& evidence.repositoryTree.status === "matched"
+		&& evidence.platform.status === "matched"
+		&& evidence.worker.extension.status === "available"
+		&& evidence.worker.launcher.status === "available"
+		&& evidence.candidateNormalizationCommands.every((command) => command.resolution.status === "available")
+		&& evidence.validationCommands.every((command) => command.resolution.status === "available");
 }
 
 function applyConfirmation(state: ExecutionRunProjection, sequence: number, decision: "accepted" | "declined"): void {

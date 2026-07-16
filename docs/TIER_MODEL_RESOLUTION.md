@@ -20,6 +20,8 @@ model.fanout.background === true
 model.fanout.authReady === true
 ```
 
+These fields are a `fanout-pi` registry projection, not part of the standalone Doubleword provider model contract. The adapter derives them for remembered Doubleword models: live `authReady` follows `DOUBLEWORD_API_KEY`, while the development stub is always ready. Catalog-supplied `fanout` fields are discarded at the provider boundary.
+
 Tier 2 fallback inherits the resolved Tier 1 role unless `fanout.execution.tier2Fallback` selects another runnable realtime registry model. Disabling Tier 2 preserves its selected model but routes newly planned eligible workers through this fallback role.
 
 `fanout.execution.maxConcurrency` is read during `/fanout-plan` and captured in packet v6 runtime policy. Changing settings after planning does not mutate an accepted packet's execution policy. Retry, fallback, validation-repair, and integration-repair budgets remain fixed controller policy.

@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { writeJsonl } from "../../fanout-core/src/observability.ts";
+import type { ExecuteFanoutResult } from "./fanout-execute.ts";
 
 export const FANOUT_PLAN_REPORT_ENTRY = "fanout.planning-report";
 export const FANOUT_EXECUTION_REPORT_ENTRY = "fanout.execution-report";
@@ -31,6 +33,22 @@ export function appendFanoutReport(
 	const schema = input.kind === "planning" ? FANOUT_PLAN_REPORT_ENTRY : FANOUT_EXECUTION_REPORT_ENTRY;
 	const data: FanoutReportData = { schema, version: 1, content: readFileSync(input.reportPath, "utf8") };
 	pi.appendEntry(schema, data);
+}
+
+export function displayFanoutPlanReport(pi: ExtensionAPI, enabled: boolean, cwd: string, runId: string, artifactDir: string, artifacts: { planPath: string }): void {
+	try {
+		appendFanoutReport(pi, enabled, { kind: "planning", reportPath: artifacts.planPath });
+	} catch (error) {
+		writeJsonl("fanout_plan_report_display_error", { planRunId: runId, artifactDir, reportPath: artifacts.planPath, error: error instanceof Error ? error.message : String(error) }, cwd);
+	}
+}
+
+export function displayFanoutExecutionReport(pi: ExtensionAPI, enabled: boolean, cwd: string, result: ExecuteFanoutResult): void {
+	try {
+		appendFanoutReport(pi, enabled, { kind: "execution", reportPath: result.paths.summaryPath });
+	} catch (error) {
+		writeJsonl("fanout_execute_report_display_error", { executionRunId: result.runId, reportPath: result.paths.summaryPath, error: error instanceof Error ? error.message : String(error) }, cwd);
+	}
 }
 
 function reportRenderer(schema: FanoutReportData["schema"]) {
