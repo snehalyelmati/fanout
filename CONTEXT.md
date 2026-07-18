@@ -8,6 +8,10 @@ Fanout turns a reviewed repository objective into bounded parallel work while pr
 The user-approved repository outcome that one planning run is trying to achieve.
 _Avoid_: Prompt, request
 
+**Planning Run**:
+One controller-owned planning lifecycle that binds an implementation plan and implementation details to a planning base and may produce an execution packet.
+_Avoid_: Plan, packet
+
 **Implementation Plan**:
 The accepted semantic decomposition and maximum repository scope for an objective. It expresses intent, not executable worker authority.
 _Avoid_: Packet, execution plan, plan result
@@ -147,6 +151,20 @@ _Avoid_: Apply result
 **Accepted Ledger**:
 The ordered chain of accepted-state transitions for a run.
 _Avoid_: Patch list, current files
+
+## Profiler language
+
+**Workflow Lineage**:
+The traceable relationship from one planning run through its execution packet and execution runs to node, attempt, provider, tool, validation, and accepted-state evidence.
+_Avoid_: Run, trace
+
+**Source Reference**:
+A precise pointer from a profiler fact to source evidence, preserving the strongest available artifact identity and location.
+_Avoid_: Filename, inferred provenance
+
+**Evidence Receipt**:
+The provenance for a calculated metric, comparison, diagnostic observation, or counterfactual scenario result, including its evidence class, artifact generation, source references, derivation, and limitations.
+_Avoid_: Confidence score, explanation
 
 ## Audit language
 
