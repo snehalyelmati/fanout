@@ -178,6 +178,18 @@ _Avoid_: Execution plan, run state
 The complete correlated usage, pricing, tool, worker-timing, and compatibility-class-specific provider evidence required before an attempt may be accepted.
 _Avoid_: Best-effort telemetry, partial success metrics
 
+**Artifact Generation**:
+The coordinated set of planning and execution artifact versions admitted and interpreted as one compatibility boundary.
+_Avoid_: Schema version, format version
+
+**Diagnostic Observation**:
+A deterministic evidence-backed statement about recorded or derived run behavior that does not recommend or rank changes.
+_Avoid_: Optimization signal, recommendation
+
+**Counterfactual Scenario**:
+A user-configured deterministic calculation that preserves observed work and outcomes while varying bounded scheduling or provider timing and cost inputs.
+_Avoid_: Prediction, forecast
+
 **Local Trust Boundary**:
 The boundary under which Fanout hardens deterministic repository integration while trusted Pi code and approved local programs retain the user's host permissions.
 _Avoid_: Sandbox, containment
