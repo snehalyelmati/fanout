@@ -1,0 +1,326 @@
+<!doctype html>
+<!-- Three variants of the offline Fanout run-explorer workflow, switchable via ?variant=A|B|C. PROTOTYPE — throw away after the workflow decision. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Fanout Run Explorer — Workflow Prototype</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a0d12;
+      --panel: #111720;
+      --panel-2: #171f2b;
+      --line: #293445;
+      --muted: #8d9aab;
+      --text: #edf2f7;
+      --cyan: #63d8e6;
+      --green: #67d391;
+      --amber: #f6c667;
+      --red: #f07e86;
+      --violet: #ad98ff;
+      --blue: #70a7ff;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); color: var(--text); }
+    button, input, select { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { font-size: 1.15rem; margin-bottom: 4px; }
+    h2 { font-size: 1rem; margin-bottom: 12px; }
+    h3 { font-size: .82rem; margin-bottom: 8px; }
+    p { color: var(--muted); line-height: 1.45; }
+    small, .muted { color: var(--muted); }
+    .app { min-height: 100vh; padding-bottom: 84px; }
+    .topbar { min-height: 62px; padding: 11px 18px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); background: #0d1219; }
+    .topbar__title { display: flex; align-items: center; gap: 12px; }
+    .logo { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid #3d6370; border-radius: 9px; color: var(--cyan); font-weight: 800; background: #102229; }
+    .root { font-family: ui-monospace, monospace; font-size: .74rem; color: var(--muted); }
+    .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .btn { padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); cursor: pointer; }
+    .btn:hover, .btn.active { border-color: var(--cyan); background: #15303a; }
+    .btn--primary { border-color: #356a74; background: #15333b; color: #d9fbff; }
+    .btn--ghost { background: transparent; }
+    .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: .68rem; white-space: nowrap; }
+    .badge.observed { color: var(--green); border-color: #315b43; background: #10251a; }
+    .badge.derived { color: var(--cyan); border-color: #31545d; background: #102329; }
+    .badge.partial { color: var(--amber); border-color: #64532e; background: #2b2312; }
+    .badge.scenario { color: var(--violet); border-color: #514579; background: #221b3a; }
+    .badge.exact { color: var(--blue); border-color: #385a83; background: #14243b; }
+    .status { width: 7px; height: 7px; border-radius: 50%; background: var(--green); display: inline-block; }
+    .panel { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; }
+    .panel__head { min-height: 42px; padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); }
+    .panel__body { padding: 12px; }
+    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .metric { padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: #0e141d; }
+    .metric b { display: block; margin: 5px 0 2px; font-size: 1.08rem; }
+    .metric small { font-size: .68rem; }
+    .delta-up { color: var(--red); }
+    .delta-down { color: var(--green); }
+    .rows { display: grid; gap: 7px; }
+    .row { padding: 9px; display: flex; justify-content: space-between; align-items: center; gap: 8px; border: 1px solid transparent; border-radius: 7px; background: #0d131b; }
+    button.row { width: 100%; text-align: left; cursor: pointer; }
+    button.row:hover, button.row.active { border-color: #3f5e71; background: #14202b; }
+    .row__main { min-width: 0; }
+    .row__main b { display: block; font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row__main small { font-size: .67rem; }
+    .kv { display: grid; grid-template-columns: 110px 1fr; gap: 7px 10px; font-size: .72rem; }
+    .kv dt { color: var(--muted); }
+    .kv dd { margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+    .receipt { border-left: 3px solid var(--cyan); background: #0c171d; }
+    .warning { padding: 9px 10px; border: 1px solid #5d4c29; border-radius: 7px; background: #261f11; color: #f2d697; font-size: .72rem; line-height: 1.4; }
+    .note { padding: 9px 10px; border: 1px solid #32545b; border-radius: 7px; background: #0f2026; color: #bfe8ec; font-size: .72rem; line-height: 1.4; }
+    .timeline { position: relative; display: grid; gap: 8px; }
+    .timeline::before { content: ""; position: absolute; left: 90px; top: 4px; bottom: 4px; width: 1px; background: var(--line); }
+    .event { display: grid; grid-template-columns: 78px 1fr; gap: 24px; font-size: .72rem; }
+    .event time { color: var(--muted); text-align: right; }
+    .event__body { position: relative; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: #0d141c; }
+    .event__body::before { content: ""; position: absolute; left: -18px; top: 13px; width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 0 3px var(--bg); }
+    .bar { height: 8px; border-radius: 999px; background: #202b39; overflow: hidden; }
+    .bar > span { display: block; height: 100%; background: var(--cyan); }
+    .dag { min-height: 240px; display: flex; align-items: center; justify-content: center; gap: 30px; position: relative; overflow: auto; }
+    .dag__col { display: grid; gap: 18px; z-index: 1; }
+    .node { min-width: 145px; padding: 10px; border: 1px solid #3c4d60; border-radius: 9px; background: #121b26; cursor: pointer; }
+    .node:hover, .node.active { border-color: var(--cyan); background: #15303a; }
+    .node b, .node small { display: block; }
+    .node small { margin-top: 3px; }
+    .arrow { color: #536273; font-size: 1.4rem; }
+    table { width: 100%; border-collapse: collapse; font-size: .72rem; }
+    th, td { padding: 9px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+    th:first-child, td:first-child { text-align: left; }
+    th { color: var(--muted); font-weight: 600; }
+    tr[data-run] { cursor: pointer; }
+    tr[data-run]:hover, tr.selected { background: #14202b; }
+    .scenario-grid { display: grid; grid-template-columns: 1fr 44px 1fr; align-items: stretch; gap: 10px; }
+    .scenario-box { padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: #0d141c; }
+    .scenario-arrow { display: grid; place-items: center; color: var(--violet); font-size: 1.5rem; }
+    .control { display: grid; gap: 5px; margin: 10px 0; }
+    .control label { font-size: .7rem; color: var(--muted); }
+    input[type="range"] { width: 100%; accent-color: var(--violet); }
+    .switcher { position: fixed; left: 50%; bottom: 18px; z-index: 50; transform: translateX(-50%); display: flex; align-items: center; gap: 5px; padding: 6px; border: 1px solid #526173; border-radius: 999px; background: #edf2f7; color: #111827; box-shadow: 0 12px 40px #000c; }
+    .switcher button { width: 34px; height: 30px; border: 0; border-radius: 999px; background: #dce4ec; color: #111827; cursor: pointer; }
+    .switcher button:hover { background: #c6d3df; }
+    .switcher strong { min-width: 210px; padding: 0 12px; text-align: center; font-size: .76rem; }
+
+    /* Variant A: guided, left-to-right drilldown */
+    .guided { display: grid; grid-template-columns: 230px minmax(0, 1fr) 300px; min-height: calc(100vh - 62px); }
+    .guided__nav { padding: 14px; border-right: 1px solid var(--line); background: #0c1118; }
+    .guided__main { padding: 14px; display: grid; align-content: start; gap: 12px; }
+    .guided__evidence { padding: 14px; border-left: 1px solid var(--line); background: #0c1118; }
+    .steps { display: grid; gap: 5px; margin: 14px 0; }
+    .step { padding: 9px; border: 1px solid transparent; border-radius: 7px; background: transparent; text-align: left; cursor: pointer; }
+    .step.active { border-color: #3f6570; background: #10262d; color: var(--cyan); }
+    .breadcrumb { color: var(--muted); font-size: .72rem; }
+
+    /* Variant B: comparison matrix first */
+    .matrix { padding: 14px; display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 12px; }
+    .matrix__main { display: grid; align-content: start; gap: 12px; }
+    .matrix__side { display: grid; align-content: start; gap: 12px; }
+    .matrix .run-table { overflow-x: auto; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* Variant C: causal canvas first */
+    .canvas { display: grid; grid-template-rows: auto minmax(360px, 1fr) 230px; min-height: calc(100vh - 62px); }
+    .canvas__modes { padding: 10px 14px; display: flex; gap: 7px; border-bottom: 1px solid var(--line); }
+    .canvas__stage { position: relative; padding: 18px; overflow: hidden; background-image: linear-gradient(#18202a55 1px, transparent 1px), linear-gradient(90deg, #18202a55 1px, transparent 1px); background-size: 24px 24px; }
+    .canvas__stage .dag { min-height: 300px; }
+    .canvas__summary { position: absolute; top: 16px; left: 16px; width: 245px; }
+    .canvas__detail { position: absolute; top: 16px; right: 16px; width: 285px; max-height: calc(100% - 32px); overflow: auto; }
+    .canvas__console { display: grid; grid-template-columns: 1.15fr .85fr; border-top: 1px solid var(--line); background: #0c1118; }
+    .canvas__console > section { padding: 12px 14px; overflow: auto; }
+    .canvas__console > section + section { border-left: 1px solid var(--line); }
+
+    @media (max-width: 1000px) {
+      .guided { grid-template-columns: 190px 1fr; }
+      .guided__evidence { grid-column: 1 / -1; border: 0; border-top: 1px solid var(--line); }
+      .matrix { grid-template-columns: 1fr; }
+      .matrix__side { grid-template-columns: 1fr 1fr; }
+      .canvas__summary { position: static; width: auto; margin-bottom: 12px; }
+    }
+    @media (max-width: 700px) {
+      .topbar { align-items: flex-start; }
+      .topbar .actions { display: none; }
+      .guided { display: block; }
+      .guided__nav { border: 0; border-bottom: 1px solid var(--line); }
+      .steps { grid-template-columns: repeat(5, 1fr); overflow-x: auto; }
+      .step { font-size: .68rem; }
+      .matrix { padding: 8px; }
+      .matrix__side, .split, .scenario-grid, .metric-grid { grid-template-columns: 1fr; }
+      .scenario-arrow { transform: rotate(90deg); }
+      .canvas { display: block; }
+      .canvas__detail { position: static; width: auto; max-height: none; margin-top: 12px; }
+      .canvas__console { grid-template-columns: 1fr; }
+      .canvas__console > section + section { border-left: 0; border-top: 1px solid var(--line); }
+      .switcher strong { min-width: 170px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app" class="app"></div>
+  <nav class="switcher" aria-label="Prototype variants">
+    <button id="previous" aria-label="Previous variant">←</button>
+    <strong id="variant-label"></strong>
+    <button id="next" aria-label="Next variant">→</button>
+  </nav>
+  <script>
+    const variants = {
+      A: "Guided investigation",
+      B: "Comparison matrix",
+      C: "Causal canvas",
+    };
+    const state = { phase: "run", selectedNode: "api-adapter", concurrency: 2, selectedRuns: new Set(["failed", "completed"]) };
+    const runs = [
+      { id: "dry", label: "run-017 · dry run", outcome: "Dry-run completed", duration: "0.8s", attempts: 0, tokens: "—", cost: "—", comparable: false },
+      { id: "failed", label: "run-018 · failed", outcome: "Failed", duration: "4m 20s", attempts: 5, tokens: "373k", cost: "$0.809", comparable: true },
+      { id: "completed", label: "run-019 · completed", outcome: "Completed", duration: "7m 45s", attempts: 6, tokens: "655k", cost: "$1.138", comparable: true },
+    ];
+    const nodes = {
+      "core-types": { title: "core-types", status: "Accepted", attempt: "attempt-01", duration: "1m 08s", cost: "$0.182", fact: "candidate-accepted", event: "sequence 8", source: "events.jsonl:8" },
+      "api-adapter": { title: "api-adapter", status: "Accepted after repair", attempt: "attempt-04", duration: "3m 41s", cost: "$0.391", fact: "validation-failed → repair", event: "sequences 11–16", source: "events.jsonl:11–16" },
+      "docs": { title: "docs", status: "Accepted", attempt: "attempt-03", duration: "1m 27s", cost: "$0.223", fact: "candidate-accepted", event: "sequence 13", source: "events.jsonl:13" },
+      "final-validation": { title: "Final Validation Gate", status: "Passed", attempt: "round-01", duration: "7.0s", cost: "$0", fact: "final-validation-passed", event: "sequence 21", source: "events.jsonl:21" },
+    };
+
+    function badge(type, label = type[0].toUpperCase() + type.slice(1)) { return `<span class="badge ${type}">${label}</span>`; }
+    function topbar(extra = "") {
+      return `<header class="topbar">
+        <div class="topbar__title"><div class="logo">F</div><div><h1>Fanout Run Explorer <span class="badge">PROTOTYPE</span></h1><div class="root">~/.pi/agent/fanout/github.com/snehalyelmati/fanout</div></div></div>
+        <div class="actions">${badge("observed", "Current generation")}<span class="badge"><span class="status"></span> Catalog refreshed 10:42</span>${extra}<button class="btn btn--ghost">Refresh</button></div>
+      </header>`;
+    }
+    function metrics() {
+      return `<div class="metric-grid">
+        <div class="metric"><small>Wall time ${badge("observed")}</small><b>7m 45s</b><small class="delta-up">+3m 25s vs failed*</small></div>
+        <div class="metric"><small>Attempt work ${badge("derived")}</small><b>7m 17s</b><small>overlaps; not a partition</small></div>
+        <div class="metric"><small>Tokens ${badge("observed")}</small><b>655,081</b><small>6 attempts</small></div>
+        <div class="metric"><small>Cost ${badge("observed")}</small><b>$1.138</b><small class="delta-up">+$0.330 vs failed*</small></div>
+      </div>`;
+    }
+    function lineageRows() {
+      return `<div class="rows">
+        <div class="row"><div class="row__main"><b>Planning Run · plan-2026-07-18</b><small>plan v2 · details v4</small></div>${badge("observed")}</div>
+        <div class="row"><div class="row__main"><b>Execution Packet · p-map-normalizers</b><small>packet v6 · 3 nodes · width 2</small></div>${badge("observed")}</div>
+        ${runs.map(run => `<button class="row ${run.id === "completed" ? "active" : ""}" data-open-run="${run.id}"><div class="row__main"><b>${run.label}</b><small>${run.outcome} · ${run.duration}</small></div>${run.comparable ? badge("exact") : badge("partial", "Different mode")}</button>`).join("")}
+      </div>`;
+    }
+    function timeline() {
+      const events = [
+        ["00:00", "Run admitted", "Packet identity and repository preflight passed", "Observed"],
+        ["00:17", "core-types launched", "Attempt 01 · Tier 1 · generic-provider", "Observed"],
+        ["01:25", "core-types accepted", "Accepted-State Transition 1", "Observed"],
+        ["01:26", "api-adapter + docs launched", "2/2 concurrency slots occupied", "Derived"],
+        ["03:38", "api-adapter rejected", "Node Validation recorded a typed program failure", "Observed"],
+        ["03:39", "validation repair launched", "Attempt 04 · evidence from rejected candidate", "Observed"],
+        ["06:54", "api-adapter accepted", "Accepted-State Transition 4", "Observed"],
+        ["07:38", "Final Validation started", "Fresh reconstruction from accepted ledger", "Observed"],
+        ["07:45", "Run completed", "Final Validation passed at event 21", "Observed"],
+      ];
+      return `<div class="timeline">${events.map(([time, title, detail, kind]) => `<div class="event"><time>${time}</time><div class="event__body"><b>${title}</b><br><small>${detail}</small> ${badge(kind.toLowerCase())}</div></div>`).join("")}</div>`;
+    }
+    function nodeRows() {
+      return `<div class="rows">${Object.values(nodes).map(node => `<button class="row ${state.selectedNode === node.title || (state.selectedNode === "final-validation" && node.title.startsWith("Final")) ? "active" : ""}" data-node="${node.title.startsWith("Final") ? "final-validation" : node.title}"><div class="row__main"><b>${node.title}</b><small>${node.status} · ${node.duration}</small></div><span>${node.cost}</span></button>`).join("")}</div>`;
+    }
+    function evidenceReceipt(node = nodes[state.selectedNode]) {
+      return `<div class="panel receipt"><div class="panel__head"><h3>Evidence receipt</h3>${badge("observed")}</div><div class="panel__body"><dl class="kv">
+        <dt>Artifact generation</dt><dd>packet-v6 / event-v2 / projection-v3</dd>
+        <dt>Source</dt><dd>${node.source}</dd>
+        <dt>Location</dt><dd>${node.event}</dd>
+        <dt>Typed fact</dt><dd>${node.fact}</dd>
+        <dt>Identity</dt><dd>sha256:9e3a…7bd2 · 18,244 bytes</dd>
+        <dt>Limit</dt><dd>Provider/tool absolute intervals unavailable</dd>
+      </dl></div></div>`;
+    }
+    function observations() {
+      return `<div class="rows">
+        <button class="row" data-node="api-adapter"><div class="row__main"><b>Rejected work consumed $0.214</b><small>Attempts 02 and 04 · outputs rejected or superseded</small></div>${badge("derived")}</button>
+        <div class="row"><div class="row__main"><b>Ready work waited 19.4s with one slot unused</b><small>Calculated from allocation/completion event intervals</small></div>${badge("derived")}</div>
+        <div class="row"><div class="row__main"><b>Provider sub-lane attribution unavailable</b><small>Canonical response records lack absolute intervals</small></div>${badge("partial")}</div>
+      </div>`;
+    }
+    function comparisonTable(selectable = false) {
+      return `<div class="run-table"><table><thead><tr><th>Execution Run</th><th>Outcome</th><th>Wall time</th><th>Attempts</th><th>Tokens</th><th>Cost</th></tr></thead><tbody>${runs.map(run => `<tr data-run="${run.id}" class="${state.selectedRuns.has(run.id) ? "selected" : ""}"><td>${selectable ? `<input type="checkbox" ${state.selectedRuns.has(run.id) ? "checked" : ""} aria-label="Select ${run.label}"> ` : ""}<b>${run.label}</b><br>${run.comparable ? badge("exact") : badge("partial", "Dry run")}</td><td>${run.outcome}</td><td>${run.duration}</td><td>${run.attempts}</td><td>${run.tokens}</td><td>${run.cost}</td></tr>`).join("")}</tbody></table></div>`;
+    }
+    function scenario() {
+      const baseline = 465;
+      const calculated = Math.round(baseline - (state.concurrency - 2) * 37);
+      return `<div class="scenario-grid">
+        <div class="scenario-box"><div>${badge("observed", "Observed baseline")}</div><h3 style="margin-top:10px">Completed run</h3><div class="metric"><small>Concurrency</small><b>2</b></div><div class="metric"><small>Wall time</small><b>7m 45s</b></div><small>Observed DAG, attempts, outcomes, tokens, and accepted ledger</small></div>
+        <div class="scenario-arrow">→</div>
+        <div class="scenario-box"><div>${badge("scenario")}</div><h3 style="margin-top:10px">Fixed-behavior calculation</h3><div class="control"><label for="concurrency">Concurrency: <b>${state.concurrency}</b></label><input id="concurrency" type="range" min="1" max="4" value="${state.concurrency}"></div><div class="metric"><small>Calculated completion</small><b>${Math.floor(calculated / 60)}m ${calculated % 60}s</b><small>${calculated < baseline ? `${baseline - calculated}s lower arithmetic result` : `${calculated - baseline}s higher arithmetic result`}</small></div><small>Preserves recorded work and outcomes. Not a prediction.</small></div>
+      </div><div class="warning" style="margin-top:10px"><b>Fixed assumptions:</b> identical DAG, attempts, durations, tokens, outcomes, validation, and accepted-ledger constraints. Alternate concurrency may change conflicts in reality.</div>`;
+    }
+    function dag() {
+      return `<div class="dag"><div class="dag__col"><button class="node ${state.selectedNode === "core-types" ? "active" : ""}" data-node="core-types"><b>core-types</b><small>01:08 · accepted</small></button></div><span class="arrow">→</span><div class="dag__col"><button class="node ${state.selectedNode === "api-adapter" ? "active" : ""}" data-node="api-adapter"><b>api-adapter</b><small>03:41 · repair</small></button><button class="node ${state.selectedNode === "docs" ? "active" : ""}" data-node="docs"><b>docs</b><small>01:27 · accepted</small></button></div><span class="arrow">→</span><div class="dag__col"><button class="node ${state.selectedNode === "final-validation" ? "active" : ""}" data-node="final-validation"><b>Final Validation Gate</b><small>00:07 · passed</small></button></div></div>`;
+    }
+
+    function guided() {
+      const phaseContent = {
+        lineage: `<div class="panel"><div class="panel__head"><h2>Workflow lineage</h2>${badge("observed", "Identity valid")}</div><div class="panel__body">${lineageRows()}</div></div>`,
+        compare: `<div class="panel"><div class="panel__head"><h2>Exact packet cohort</h2>${badge("exact")}</div><div class="panel__body">${comparisonTable()}<div class="warning" style="margin-top:10px">* Failed and completed runs have different completed scope. Raw deltas are inspectable but cannot declare a faster or cheaper winner.</div></div></div>`,
+        run: `${metrics()}<div class="panel"><div class="panel__head"><div><h2 style="margin:0">Causal timeline · run-019</h2><small>What happened, in authoritative event order</small></div>${badge("observed", "Completed")}</div><div class="panel__body">${timeline()}</div></div>`,
+        inspect: `<div class="split"><div class="panel"><div class="panel__head"><h2>Nodes and attempts</h2></div><div class="panel__body">${nodeRows()}</div></div><div class="panel"><div class="panel__head"><h2>Diagnostic Observations</h2><span class="badge">No ranking</span></div><div class="panel__body">${observations()}</div></div></div>`,
+        scenario: `<div class="panel"><div class="panel__head"><h2>Scenario Calculator</h2>${badge("scenario", "User-invoked")}</div><div class="panel__body">${scenario()}</div></div>`,
+      };
+      return `${topbar()}<div class="guided"><aside class="guided__nav"><div class="breadcrumb">Catalog / p-map-normalizers / run-019</div><div class="steps">${[["lineage","1 · Lineage"],["compare","2 · Compare"],["run","3 · Run"],["inspect","4 · Inspect"],["scenario","5 · Scenario"]].map(([key,label]) => `<button class="step ${state.phase === key ? "active" : ""}" data-phase="${key}">${label}</button>`).join("")}</div><h3>Selected lineage</h3><p>Planning Run → packet → 3 Execution Runs</p><div class="note">Guided order follows the six required diagnostic questions. You may jump between steps.</div></aside><main class="guided__main">${phaseContent[state.phase]}</main><aside class="guided__evidence"><h2>Provenance stays pinned</h2><p>Selection changes this receipt; the underlying source never does.</p>${evidenceReceipt()}<h3 style="margin-top:16px">Evidence legend</h3><div class="actions">${badge("observed")}${badge("derived")}${badge("partial")}${badge("scenario")}</div></aside></div>`;
+    }
+
+    function matrix() {
+      return `${topbar(`<span class="badge exact">2 runs selected</span>`)}<main class="matrix"><section class="matrix__main"><div class="panel"><div class="panel__head"><div><h2 style="margin:0">Packet cohort · p-map-normalizers</h2><small>Select runs first; detail follows the selection</small></div>${badge("exact", "Exact packet")}</div>${comparisonTable(true)}<div class="panel__body"><div class="warning">The selected failed and completed runs cover different outcomes. Deltas remain descriptive; no winner language.</div></div></div><div class="split"><div class="panel"><div class="panel__head"><h2>Aligned node deltas</h2>${badge("derived")}</div><div class="panel__body"><table><thead><tr><th>Node</th><th>Attempts</th><th>Time Δ</th><th>Cost Δ</th></tr></thead><tbody><tr><td>core-types</td><td>0</td><td class="delta-down">−14s</td><td class="delta-up">+$0.021</td></tr><tr><td>api-adapter</td><td>+1 repair</td><td class="delta-up">+2m 09s</td><td class="delta-up">+$0.168</td></tr><tr><td>docs</td><td>0</td><td class="delta-up">+08s</td><td class="delta-down">−$0.011</td></tr></tbody></table></div></div><div class="panel"><div class="panel__head"><h2>Selected run timeline</h2><button class="btn" data-phase="run">Open full timeline</button></div><div class="panel__body">${timeline().replace(/<div class="event">/g, '<div class="event">').split('</div>').slice(0,16).join('</div>')}</div></div></div><div class="panel"><div class="panel__head"><h2>Scenario beside selected baseline</h2>${badge("scenario")}</div><div class="panel__body">${scenario()}</div></div></section><aside class="matrix__side"><div class="panel"><div class="panel__head"><h2>Lineage filter</h2></div><div class="panel__body">${lineageRows()}</div></div><div class="panel"><div class="panel__head"><h2>Selection evidence</h2>${badge("exact")}</div><div class="panel__body"><dl class="kv"><dt>Alignment</dt><dd>same packet SHA-256 + length</dd><dt>Scope</dt><dd>failed ↔ completed</dd><dt>Generation</dt><dd>event-v2 / projection-v3</dd><dt>Restriction</dt><dd>different completed scope</dd></dl></div></div><div class="panel"><div class="panel__head"><h2>Observations</h2></div><div class="panel__body">${observations()}</div></div></aside></main>`;
+    }
+
+    function canvas() {
+      const node = nodes[state.selectedNode];
+      return `${topbar(`<span class="badge">run-019</span>`)}<main class="canvas"><nav class="canvas__modes"><button class="btn active">Causal graph</button><button class="btn">Timeline</button><button class="btn">Attempts</button><button class="btn">Accepted ledger</button><button class="btn">Compare</button><button class="btn btn--primary" data-phase="scenario">Scenario</button></nav><section class="canvas__stage"><div class="panel canvas__summary"><div class="panel__head"><h2>run-019</h2>${badge("observed", "Completed")}</div><div class="panel__body"><div class="kv"><dt>Packet</dt><dd>p-map-normalizers</dd><dt>Wall time</dt><dd>7m 45s</dd><dt>Cost</dt><dd>$1.138</dd><dt>Critical path</dt><dd>core → adapter → final</dd></div><div class="warning" style="margin-top:10px">Provider/tool sub-lane timing is unavailable.</div></div></div>${dag()}<div class="panel canvas__detail"><div class="panel__head"><h2>${node.title}</h2>${badge("observed")}</div><div class="panel__body"><dl class="kv"><dt>Status</dt><dd>${node.status}</dd><dt>Evidence</dt><dd>${node.attempt}</dd><dt>Envelope</dt><dd>${node.duration}</dd><dt>Cost</dt><dd>${node.cost}</dd><dt>Causal fact</dt><dd>${node.fact}</dd></dl><h3 style="margin-top:16px">Attempt lane</h3><div class="rows"><div class="row"><div class="row__main"><b>Worker</b><small>3m 18s</small></div><div class="bar" style="width:90px"><span style="width:90%"></span></div></div><div class="row"><div class="row__main"><b>Tools</b><small>0.7s observed</small></div>${badge("partial")}</div><div class="row"><div class="row__main"><b>Validation</b><small>22.8s</small></div>${badge("observed")}</div></div></div></div></section><section class="canvas__console"><section><div class="panel__head" style="padding-left:0"><h2>Evidence console</h2><span class="muted">Selection-linked</span></div>${evidenceReceipt(node)}</section><section><div class="panel__head" style="padding-left:0"><h2>Diagnostic Observations</h2><button class="btn" data-phase="scenario">Calculate scenario</button></div>${observations()}</section></section></main>`;
+    }
+
+    function currentVariant() {
+      const key = new URLSearchParams(location.search).get("variant")?.toUpperCase();
+      return variants[key] ? key : "A";
+    }
+    function setVariant(key) {
+      const params = new URLSearchParams(location.search);
+      params.set("variant", key);
+      history.replaceState(null, "", `${location.pathname}?${params}`);
+      render();
+    }
+    function cycle(direction) {
+      const keys = Object.keys(variants);
+      const index = keys.indexOf(currentVariant());
+      setVariant(keys[(index + direction + keys.length) % keys.length]);
+    }
+    function render() {
+      const variant = currentVariant();
+      document.getElementById("variant-label").textContent = `${variant} — ${variants[variant]}`;
+      document.getElementById("app").innerHTML = variant === "A" ? guided() : variant === "B" ? matrix() : canvas();
+      wire();
+    }
+    function wire() {
+      document.querySelectorAll("[data-phase]").forEach(button => button.addEventListener("click", () => {
+        const phase = button.dataset.phase;
+        if (currentVariant() === "A") state.phase = phase;
+        else if (phase === "scenario") setVariant("A"), state.phase = "scenario";
+        else setVariant("A"), state.phase = "run";
+        render();
+      }));
+      document.querySelectorAll("[data-node]").forEach(button => button.addEventListener("click", () => { state.selectedNode = button.dataset.node; render(); }));
+      document.querySelectorAll("tr[data-run]").forEach(row => row.addEventListener("click", event => {
+        if (row.dataset.run === "dry") return;
+        if (state.selectedRuns.has(row.dataset.run)) state.selectedRuns.delete(row.dataset.run); else state.selectedRuns.add(row.dataset.run);
+        render();
+      }));
+      document.getElementById("concurrency")?.addEventListener("input", event => { state.concurrency = Number(event.target.value); render(); });
+    }
+    document.getElementById("previous").addEventListener("click", () => cycle(-1));
+    document.getElementById("next").addEventListener("click", () => cycle(1));
+    window.addEventListener("popstate", render);
+    window.addEventListener("keydown", event => {
+      if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+      if (event.target.matches("input, textarea, [contenteditable]")) return;
+      cycle(event.key === "ArrowLeft" ? -1 : 1);
+    });
+    render();
+  </script>
+</body>
+</html>
