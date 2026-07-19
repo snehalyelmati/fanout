@@ -1,10 +1,12 @@
 import { closeSync, fstatSync, readSync } from "node:fs";
 import { ACTIVE_PACKET_SCHEMA, ACTIVE_PACKET_VERSION, validateActivePacketPointer } from "../../fanout-core/src/active-packet.ts";
-import { artifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
-import { IMPLEMENTATION_DETAILS_SCHEMA, IMPLEMENTATION_DETAILS_VERSION, IMPLEMENTATION_PLAN_SCHEMA, IMPLEMENTATION_PLAN_VERSION, validateImplementationDetailsArtifact, validateImplementationPlan } from "../../fanout-core/src/fanout-compiler.ts";
-import { EXECUTION_EVENT_SCHEMA, EXECUTION_EVENT_VERSION, parseExecutionEvent } from "../../fanout-core/src/execution-event.ts";
-import { EXECUTION_PACKET_SCHEMA, EXECUTION_PACKET_VERSION, validateExecutionPacket } from "../../fanout-core/src/execution-packet.ts";
-import { EXECUTION_PROJECTION_SCHEMA, EXECUTION_PROJECTION_VERSION } from "../../fanout-core/src/execution-projection.ts";
+import { artifactIdentity, type ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
+import { inspectExecutionEventLogEnvelope, parseExecutionEventLog } from "../../fanout-core/src/execution-event-log.ts";
+import { EXECUTION_EVENT_SCHEMA, EXECUTION_EVENT_VERSION, type ExecutionEvent } from "../../fanout-core/src/execution-event.ts";
+import { EXECUTION_PACKET_SCHEMA, EXECUTION_PACKET_VERSION, deriveExecutionGraph, validateExecutionPacket, type FanoutExecutionPacket } from "../../fanout-core/src/execution-packet.ts";
+import { EXECUTION_PROJECTION_SCHEMA, EXECUTION_PROJECTION_VERSION, replayExecutionEvents, type ExecutionRunProjection } from "../../fanout-core/src/execution-projection.ts";
+import { IMPLEMENTATION_DETAILS_SCHEMA, IMPLEMENTATION_DETAILS_VERSION, IMPLEMENTATION_PLAN_SCHEMA, IMPLEMENTATION_PLAN_VERSION, validateImplementationDetailsArtifact, validateImplementationPlan, type ImplementationDetails, type ImplementationPlan } from "../../fanout-core/src/fanout-compiler.ts";
+import type { WorkContractGraph } from "../../fanout-core/src/work-contract-graph.ts";
 import {
 	assertRoot,
 	canonicalRoot,
@@ -29,6 +31,10 @@ export interface CatalogPlanningRun {
 	readonly reason: string;
 	readonly createdAt: string | null;
 	readonly objective: string | null;
+	readonly plan: ImplementationPlan | null;
+	readonly details: ImplementationDetails | null;
+	readonly packet: FanoutExecutionPacket | null;
+	readonly graph: WorkContractGraph | null;
 	readonly sources: readonly SourceReference[];
 }
 
@@ -37,9 +43,22 @@ export interface CatalogExecutionRun {
 	readonly selectionId: string;
 	readonly planningRunId: string;
 	readonly admission: CatalogAdmission;
+	readonly label: string;
 	readonly reason: string;
 	readonly createdAt: string | null;
+	readonly updatedAt: string | null;
+	readonly projection: ExecutionRunProjection | null;
 	readonly sources: readonly SourceReference[];
+}
+
+export interface CatalogWorkflowLineage {
+	readonly id: string;
+	readonly admission: CatalogAdmission;
+	readonly reason: string;
+	readonly planningRun: CatalogPlanningRun | null;
+	readonly packet: FanoutExecutionPacket | null;
+	readonly graph: WorkContractGraph | null;
+	readonly executionRuns: readonly CatalogExecutionRun[];
 }
 
 export interface CatalogSupportingEvidence {
@@ -54,6 +73,7 @@ export interface CatalogSnapshot {
 	readonly refreshedAt: string;
 	readonly planningRuns: readonly CatalogPlanningRun[];
 	readonly executionRuns: readonly CatalogExecutionRun[];
+	readonly lineages: readonly CatalogWorkflowLineage[];
 	readonly supportingEvidence: readonly CatalogSupportingEvidence[];
 	readonly activePointer: { readonly admission: CatalogAdmission; readonly reason: string; readonly source: SourceReference | null } | null;
 	readonly selectedExecutionRunId: string | null;
@@ -66,6 +86,7 @@ export interface EvidencePage {
 }
 
 interface SnapshotState { snapshot: CatalogSnapshot; references: ReadonlyMap<string, StoredReference> }
+interface PacketContext { packet: FanoutExecutionPacket; identity: ArtifactIdentity }
 
 const PLAN_FILES = new Set(["implementation-plan.json", "implementation-details.json", "execution-packet.json", "executions"]);
 const MAX_EVIDENCE_ROWS = 500;
@@ -160,7 +181,13 @@ function buildSnapshot(root: string, rootIdentity: RootIdentity, generation: num
 		executionRuns.push(...inspected.executions);
 	}
 
-	executionRuns.sort((a, b) => (Date.parse(b.createdAt ?? "") || 0) - (Date.parse(a.createdAt ?? "") || 0) || b.id.localeCompare(a.id));
+	executionRuns.sort((a, b) => (Date.parse(b.updatedAt ?? b.createdAt ?? "") || 0) - (Date.parse(a.updatedAt ?? a.createdAt ?? "") || 0) || b.id.localeCompare(a.id));
+	const lineages = [...new Set([...planningRuns.map(({ id }) => id), ...executionRuns.map(({ planningRunId }) => planningRunId)])].sort().map((id) => {
+		const planningRun = planningRuns.find((run) => run.id === id) ?? null;
+		const runs = executionRuns.filter((run) => run.planningRunId === id);
+		const admission = runs.some((run) => run.admission === "Current") ? "Current" : planningRun?.admission ?? runs[0]?.admission ?? "Unverifiable";
+		return freeze({ id, admission, reason: admission === "Current" ? "authoritative current Workflow Lineage" : planningRun?.reason ?? runs[0]?.reason ?? "Workflow Lineage is unverifiable", planningRun, packet: planningRun?.packet ?? null, graph: planningRun?.graph ?? null, executionRuns: runs });
+	});
 	const selectedExecutionRunId = previousSelection && executionRuns.some(({ selectionId }) => selectionId === previousSelection)
 		? previousSelection
 		: executionRuns[0]?.selectionId ?? null;
@@ -169,6 +196,7 @@ function buildSnapshot(root: string, rootIdentity: RootIdentity, generation: num
 		refreshedAt: new Date().toISOString(),
 		planningRuns: planningRuns.sort((a, b) => a.id.localeCompare(b.id)),
 		executionRuns,
+		lineages,
 		supportingEvidence: supportingEvidence.sort((a, b) => a.id.localeCompare(b.id)),
 		activePointer,
 		selectedExecutionRunId,
@@ -183,7 +211,12 @@ function inspectPlanningRun(issuer: ReferenceIssuer, id: string, names: string[]
 	let createdAt: string | null = null;
 	let objective: string | null = null;
 	let admittedPlan: ReturnType<typeof validateImplementationPlan>["plan"];
+	let admittedDetails: ImplementationDetails | undefined;
+	let admittedPacket: FanoutExecutionPacket | undefined;
+	let graph: WorkContractGraph | undefined;
 	let planBytes: Buffer | undefined;
+	let detailsBytes: Buffer | undefined;
+	let packetContext: PacketContext | undefined;
 
 	if (names.includes("implementation-plan.json")) {
 		try {
@@ -208,6 +241,7 @@ function inspectPlanningRun(issuer: ReferenceIssuer, id: string, names: string[]
 		try {
 			const read = issuer.read(`${id}/implementation-details.json`, "planning", true);
 			sources.push(read.reference);
+			detailsBytes = read.bytes;
 			const value = parseJson(read.bytes);
 			if (schemaGeneration(value, IMPLEMENTATION_DETAILS_SCHEMA, IMPLEMENTATION_DETAILS_VERSION) === "legacy") {
 				if (admission !== "Invalid") { admission = "Legacy"; reason = "recognized older planning artifact generation"; }
@@ -215,7 +249,9 @@ function inspectPlanningRun(issuer: ReferenceIssuer, id: string, names: string[]
 			else if (admittedPlan && planBytes) {
 				const result = validateImplementationDetailsArtifact(value, { plan: admittedPlan, planIdentity: artifactIdentity("implementation-plan.json", planBytes) });
 				if (!result.details) { admission = "Invalid"; reason = result.errors.join("; "); }
+				else admittedDetails = result.details;
 			}
+			else if (admission !== "Invalid" && admission !== "Legacy") { admission = "Unverifiable"; reason = "Implementation Details cannot be linked to an admitted Implementation Plan"; }
 		} catch (error) { admission = "Invalid"; reason = message(error); }
 	}
 
@@ -230,21 +266,28 @@ function inspectPlanningRun(issuer: ReferenceIssuer, id: string, names: string[]
 			else {
 				const result = validateExecutionPacket(value);
 				if (!result.packet) { admission = "Invalid"; reason = result.errors.map(({ message }) => message).join("; "); }
-				else if (admission === "Planning-only") { admission = "Current"; reason = "current Planning Run and Execution Packet"; }
+				else if (!admittedPlan || !admittedDetails || !planBytes || !detailsBytes) { if (admission !== "Invalid") { admission = "Unverifiable"; reason = "Execution Packet cannot be linked to admitted planning source artifacts"; } }
+				else if (!sameArtifact(result.packet.sourceArtifacts.plan, artifactIdentity("implementation-plan.json", planBytes)) || !sameArtifact(result.packet.sourceArtifacts.details, artifactIdentity("implementation-details.json", detailsBytes))) { admission = "Invalid"; reason = "Execution Packet source artifact identity does not match admitted planning bytes"; }
+				else {
+					admittedPacket = result.packet;
+					graph = deriveExecutionGraph(result.packet);
+					packetContext = { packet: result.packet, identity: artifactIdentity(`${id}/execution-packet.json`, read.bytes) };
+					if (admission === "Planning-only") { admission = "Current"; reason = "current Planning Run and Execution Packet"; }
+				}
 			}
 		} catch (error) { admission = "Invalid"; reason = message(error); }
 	}
 
-	const executions = names.includes("executions") ? inspectExecutions(issuer, id) : [];
+	const executions = names.includes("executions") ? inspectExecutions(issuer, id, packetContext) : [];
 	return {
 		planning: names.includes("implementation-plan.json") || names.includes("implementation-details.json") || names.includes("execution-packet.json")
-			? freeze({ id, admission, reason, createdAt, objective, sources })
+			? freeze({ id, admission, reason, createdAt, objective, plan: admittedPlan ?? null, details: admittedDetails ?? null, packet: admittedPacket ?? null, graph: graph ?? null, sources })
 			: null,
 		executions,
 	};
 }
 
-function inspectExecutions(issuer: ReferenceIssuer, planningRunId: string): CatalogExecutionRun[] {
+function inspectExecutions(issuer: ReferenceIssuer, planningRunId: string, packet: PacketContext | undefined): CatalogExecutionRun[] {
 	const base = `${planningRunId}/executions`;
 	try {
 		return issuer.readdir(base).sort().flatMap((id) => {
@@ -253,7 +296,7 @@ function inspectExecutions(issuer: ReferenceIssuer, planningRunId: string): Cata
 				if (issuer.kind(relativeDir) !== "directory") return [];
 				const names = issuer.readdir(relativeDir);
 				if (!names.includes("events.jsonl") && !names.includes("execution-run.json")) return [];
-				return [inspectExecution(issuer, planningRunId, id, names)];
+				return [inspectExecution(issuer, planningRunId, id, names, packet)];
 			} catch (error) { return [invalidExecution(id, planningRunId, message(error))]; }
 		});
 	} catch (error) {
@@ -261,35 +304,52 @@ function inspectExecutions(issuer: ReferenceIssuer, planningRunId: string): Cata
 	}
 }
 
-function inspectExecution(issuer: ReferenceIssuer, planningRunId: string, id: string, names: string[]): CatalogExecutionRun {
+function inspectExecution(issuer: ReferenceIssuer, planningRunId: string, id: string, names: string[], packet: PacketContext | undefined): CatalogExecutionRun {
 	const relativeDir = `${planningRunId}/executions/${id}`;
 	const sources: SourceReference[] = [];
 	try {
 		if (names.includes("events.jsonl")) {
 			const relativePath = `${relativeDir}/events.jsonl`;
-			const read = issuer.readFirstLine(relativePath, "execution");
-			sources.push(read.reference);
-			const first = parseJson(read.bytes);
+			const header = issuer.readFirstLine(relativePath, "execution");
+			const first = parseJson(header.bytes);
 			const createdAt = stringField(first, "occurredAt");
 			const selectionId = `${relativeDir}`;
+			sources.push(header.reference);
 			if (!isRecord(first) || first.schema !== EXECUTION_EVENT_SCHEMA || !Number.isSafeInteger(first.version)) return invalidExecution(id, planningRunId, "Event Log begins with an unrecognized event", sources, createdAt);
-			if ((first.version as number) < EXECUTION_EVENT_VERSION) return freeze({ id, selectionId, planningRunId, admission: "Legacy", reason: "recognized older Execution Event generation", createdAt, sources });
-			if (first.version === EXECUTION_EVENT_VERSION) {
-				try { parseExecutionEvent(first); }
-				catch (error) { return invalidExecution(id, planningRunId, message(error), sources, createdAt); }
-				return freeze({ id, selectionId, planningRunId, admission: "Unverifiable", reason: "current Event Log replay is integrated by issue #51", createdAt, sources });
+			if (first.version !== EXECUTION_EVENT_VERSION) {
+				try {
+					const read = issuer.read(relativePath, "execution", true);
+					sources.splice(0, 1, read.reference);
+					const metadata = inspectExecutionEventLogEnvelope(read.bytes.toString("utf8"));
+					if (metadata.runId !== id) throw new Error("Execution Event Log run identity does not match its execution directory");
+					const legacy = (first.version as number) < EXECUTION_EVENT_VERSION;
+					return classifiedExecution(id, planningRunId, legacy ? "Legacy" : "Unverifiable", legacy ? "recognized older Execution Event generation" : "future Execution Event generation is unsupported", metadata.createdAt, metadata.updatedAt, sources);
+				} catch (error) { return invalidExecution(id, planningRunId, message(error), sources, createdAt); }
 			}
-			return freeze({ id, selectionId, planningRunId, admission: "Unverifiable", reason: "future Execution Event generation is unsupported", createdAt, sources });
+			try {
+				const read = issuer.read(relativePath, "execution", true);
+				sources.splice(0, 1, read.reference);
+				const events = parseExecutionEventLog(read.bytes.toString("utf8"));
+				const projection = replayExecutionEvents(events);
+				const last = events.at(-1)!;
+				if (projection.runId !== id) return invalidExecution(id, planningRunId, "Event Log run identity does not match its execution directory", sources, createdAt, last.occurredAt);
+				if (!packet) return classifiedExecution(id, planningRunId, "Unverifiable", "current Event Log cannot be linked to an admitted Execution Packet", createdAt, last.occurredAt, sources);
+				if (!sameArtifact(projection.packet, packet.identity) || projection.planningBaseTree !== packet.packet.planningBase.tree || !sameNodeIds(projection.nodes.map(({ id }) => id), packet.packet.nodes.filter(({ kind }) => kind !== "final-validation").map(({ id }) => id)) || !samePolicy(projection.policy, packet.packet.runtimePolicy)) {
+					return classifiedExecution(id, planningRunId, "Unverifiable", "Event Log authority does not match its linked Execution Packet", createdAt, last.occurredAt, sources);
+				}
+				return freeze({ id, selectionId, planningRunId, admission: "Current", label: projection.terminalOutcome?.outcome ?? lastAdmissionLabel(last), reason: "authoritative Event Log replayed through fanout-core", createdAt: projection.startedAt, updatedAt: projection.updatedAt, projection, sources });
+			} catch (error) { return invalidExecution(id, planningRunId, message(error), sources, createdAt); }
 		}
 
 		const read = issuer.read(`${relativeDir}/execution-run.json`, "execution", true);
 		sources.push(read.reference);
 		const value = parseJson(read.bytes);
-		const createdAt = stringField(value, "startedAt") ?? stringField(value, "updatedAt") ?? stringField(value, "finishedAt");
+		const createdAt = stringField(value, "startedAt");
+		const updatedAt = stringField(value, "updatedAt") ?? stringField(value, "finishedAt") ?? createdAt;
 		const selectionId = `${relativeDir}`;
 		if (!isRecord(value) || value.schema !== EXECUTION_PROJECTION_SCHEMA || !Number.isSafeInteger(value.version)) return invalidExecution(id, planningRunId, "projection has an unrecognized schema or version", sources, createdAt);
-		if ((value.version as number) < EXECUTION_PROJECTION_VERSION) return freeze({ id, selectionId, planningRunId, admission: "Legacy", reason: "recognized older Execution Projection generation", createdAt, sources });
-		return freeze({ id, selectionId, planningRunId, admission: "Unverifiable", reason: "projection-only execution has no authoritative Event Log", createdAt, sources });
+		if ((value.version as number) < EXECUTION_PROJECTION_VERSION) return classifiedExecution(id, planningRunId, "Legacy", "recognized older Execution Projection generation", createdAt, updatedAt, sources);
+		return classifiedExecution(id, planningRunId, "Unverifiable", "projection-only execution has no authoritative Event Log", createdAt, updatedAt, sources);
 	} catch (error) {
 		return invalidExecution(id, planningRunId, message(error), sources);
 	}
@@ -325,8 +385,13 @@ function schemaGeneration(value: unknown, schema: string, currentVersion: number
 function stringField(value: unknown, field: string): string | null { return isRecord(value) && typeof value[field] === "string" && Number.isFinite(Date.parse(value[field] as string)) ? value[field] as string : null; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
-function invalidPlanning(id: string, reason: string): CatalogPlanningRun { return freeze({ id, admission: "Invalid", reason, createdAt: null, objective: null, sources: [] }); }
-function invalidExecution(id: string, planningRunId: string, reason: string, sources: SourceReference[] = [], createdAt: string | null = null): CatalogExecutionRun { return freeze({ id, selectionId: `${planningRunId}/executions/${id}`, planningRunId, admission: "Invalid", reason, createdAt, sources }); }
+function invalidPlanning(id: string, reason: string): CatalogPlanningRun { return freeze({ id, admission: "Invalid", reason, createdAt: null, objective: null, plan: null, details: null, packet: null, graph: null, sources: [] }); }
+function invalidExecution(id: string, planningRunId: string, reason: string, sources: SourceReference[] = [], createdAt: string | null = null, updatedAt = createdAt): CatalogExecutionRun { return classifiedExecution(id, planningRunId, "Invalid", reason, createdAt, updatedAt, sources); }
+function classifiedExecution(id: string, planningRunId: string, admission: "Legacy" | "Invalid" | "Unverifiable", reason: string, createdAt: string | null, updatedAt: string | null, sources: SourceReference[]): CatalogExecutionRun { return freeze({ id, selectionId: `${planningRunId}/executions/${id}`, planningRunId, admission, label: admission, reason, createdAt, updatedAt, projection: null, sources }); }
+function sameArtifact(left: ArtifactIdentity, right: ArtifactIdentity): boolean { return left.path === right.path && left.sha256 === right.sha256 && left.byteLength === right.byteLength; }
+function sameNodeIds(left: readonly string[], right: readonly string[]): boolean { return left.length === right.length && left.every((value, index) => value === right[index]); }
+function samePolicy(left: ExecutionRunProjection["policy"], right: FanoutExecutionPacket["runtimePolicy"]): boolean { return left.maxConcurrency === right.maxConcurrency && left.failFast === right.failFast && left.fallbackAllowed === right.fallbackAllowed; }
+function lastAdmissionLabel(event: ExecutionEvent): string { return `Last admitted: ${event.event} at ${event.occurredAt}`; }
 function changedPage(): EvidencePage { return freeze({ status: "Changed since refresh", rows: [], nextOffset: null }); }
 function readRows(fd: number, offset: number, limit: number): { rows: string[]; more: boolean } {
 	const rows: string[] = [];
