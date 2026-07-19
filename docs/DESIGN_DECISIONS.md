@@ -1,5 +1,19 @@
 # Design Decisions
 
+## 2026-07-19
+
+### Cut profiling evidence forward without compatibility
+
+Decision: The next coordinated executable generation keeps implementation plan v2, implementation details v4, execution packet v6, active pointer v2, embedded work contract v2, and final-validation evidence v1, while cutting Attempt outcomes to v3, execution events to v3, and execution projections to v4. Correlated metrics must record exact Worker Turn request/first-output/finish intervals, Provider Response request/first-token/finish intervals, Tool Invocation names and intervals, and cache-read/cache-write usage. The cutover is atomic and fail-closed; event-v2/projection-v3 and earlier artifacts become legacy descriptive evidence without replay, migration, or compatibility adapters.
+
+Reason: Fixed-envelope Attempt totals cannot distinguish provider queueing, generation, tools, or inter-call gaps, so they cannot calibrate stateful cold/warm provider scenarios. Exact correlated intervals make uncovered time visible without creating another execution authority. This supersedes the earlier no-producer-change profiling baseline and the prior generation only when the coordinated cutover is implemented. See [Define counterfactual scheduling simulations](https://github.com/snehalyelmati/fanout/issues/41).
+
+### Keep counterfactuals fixed-behavior and post-confirmation
+
+Decision: A Counterfactual Scenario is an immutable read-only overlay that reschedules only recorded post-confirmation `/fanout-execute` work. It may vary Fanout concurrency and one fixed or cold/warm Provider Profile per recorded tier while preserving the packet DAG, Attempt and repair chains, Worker Turns, tools, tokens, outcomes, validation, non-provider intervals, and Accepted Ledger order. It reports one scenario execution time, cost, packet path, and Scenario Completion Chain against the observed baseline; incomplete runs cover only their recorded prefix. It never reroutes calls, predicts model behavior or quality, or declares a winner.
+
+Reason: Holding work and outcomes fixed makes the result deterministic arithmetic rather than an unsupported provider or scheduler forecast. One completion boundary matches `/fanout-execute`; a separate active-completion metric would invent a user-visible boundary before required work and Final Validation finish.
+
 ## 2026-07-16
 
 ### Keep Fanout capability metadata in the Fanout adapter

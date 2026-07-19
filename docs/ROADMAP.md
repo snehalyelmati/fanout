@@ -358,6 +358,19 @@ After stubs, traces, and RPE routing policies:
 - Compare wall-clock time, TTFT, total time, tool count, token usage, and cost.
 - Keep live tests opt-in and API-key gated.
 
+## Track 9: Offline Fanout run profiler
+
+Status: the decision map [Design an offline Fanout run profiler](https://github.com/snehalyelmati/fanout/issues/35) is in progress. The read model, explorer workflow, comparison/observation rules, and fixed-behavior scenario contract are resolved; local application architecture, export, and validation/spec handoff remain open.
+
+Order:
+
+1. Finish the remaining design tickets and produce the implementation specification.
+2. Cut producer and consumer contracts atomically from Attempt outcome v2/event v2/projection v3 to v3/v3/v4, adding exact Worker Turn, Provider Response, Tool Invocation, and cache evidence.
+3. Re-run the complete offline contract/replay matrix for the new generation; do not add compatibility replay or migrate older runs.
+4. Implement the smallest read-only local profiler over the new authoritative event generation.
+
+The currently implemented Attempt outcome v2/event v2/projection v3 runtime remains authoritative until that coordinated cutover. Existing artifacts become legacy descriptive evidence afterward.
+
 ## Deferred ideas
 
 Only build these if the simpler system fails benchmarks:

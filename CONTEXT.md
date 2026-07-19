@@ -166,6 +166,14 @@ _Avoid_: Filename, inferred provenance
 The provenance for a calculated metric, comparison, diagnostic observation, or counterfactual scenario result, including its evidence class, artifact generation, source references, derivation, and limitations.
 _Avoid_: Confidence score, explanation
 
+**Provider Profile**:
+A user-configured deterministic timing and cost model applied to all recorded provider calls in one tier of a Counterfactual Scenario.
+_Avoid_: Provider prediction, model profile
+
+**Scenario Completion Chain**:
+The dependency and resource chain that determines a Counterfactual Scenario's calculated execution boundary.
+_Avoid_: Observed critical path, predicted path
+
 ## Audit language
 
 **Stage Fact**:
@@ -212,4 +220,4 @@ _Avoid_: Prediction, forecast
 The boundary under which Fanout hardens deterministic repository integration while trusted Pi code and approved local programs retain the user's host permissions.
 _Avoid_: Sandbox, containment
 
-Sources: [Wayfinder map #8](https://github.com/snehalyelmati/fanout/issues/8), [trust boundary #9](https://github.com/snehalyelmati/fanout/issues/9), [repository authority #11](https://github.com/snehalyelmati/fanout/issues/11), [identity #12](https://github.com/snehalyelmati/fanout/issues/12), [attempt outcomes #14](https://github.com/snehalyelmati/fanout/issues/14), [run events #15](https://github.com/snehalyelmati/fanout/issues/15), [work contract #17](https://github.com/snehalyelmati/fanout/issues/17), [final validation #18](https://github.com/snehalyelmati/fanout/issues/18), [implementation spec #21](https://github.com/snehalyelmati/fanout/issues/21), [worktree preparation #30](https://github.com/snehalyelmati/fanout/issues/30), and [candidate normalization #32](https://github.com/snehalyelmati/fanout/issues/32).
+Sources: [Wayfinder map #8](https://github.com/snehalyelmati/fanout/issues/8), [trust boundary #9](https://github.com/snehalyelmati/fanout/issues/9), [repository authority #11](https://github.com/snehalyelmati/fanout/issues/11), [identity #12](https://github.com/snehalyelmati/fanout/issues/12), [attempt outcomes #14](https://github.com/snehalyelmati/fanout/issues/14), [run events #15](https://github.com/snehalyelmati/fanout/issues/15), [work contract #17](https://github.com/snehalyelmati/fanout/issues/17), [final validation #18](https://github.com/snehalyelmati/fanout/issues/18), [implementation spec #21](https://github.com/snehalyelmati/fanout/issues/21), [worktree preparation #30](https://github.com/snehalyelmati/fanout/issues/30), [candidate normalization #32](https://github.com/snehalyelmati/fanout/issues/32), and [counterfactual scheduling simulations #41](https://github.com/snehalyelmati/fanout/issues/41).
