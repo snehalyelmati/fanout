@@ -1,4 +1,4 @@
-import { deriveAttemptMetricTotals } from "./attempt-metrics.ts";
+import { deriveAttemptMetricTotals, type ToolMetricEvidence, type TurnMetricEvidence } from "./attempt-metrics.ts";
 import type { AcceptedStateTransition, ArtifactIdentity, GitTreeId } from "./artifact-identity.ts";
 import { deepFreeze } from "./contract-value.ts";
 import type { AttemptAllocation, AttemptBudgetCounts, AttemptKind, AttemptOutcome } from "./execution-attempt.ts";
@@ -95,6 +95,50 @@ export interface ExecutionRunProjection {
 	acceptedLedger: AcceptedLedgerEntry[];
 	finalValidation: FinalValidationProjection;
 	totals: ExecutionTotals;
+}
+
+export interface ExecutionEvidenceContext {
+	node: NodeProjection;
+	attempt: AttemptProjection | null;
+	turn: TurnMetricEvidence | null;
+	tool: ToolMetricEvidence | null;
+}
+
+export function resolveExecutionEvidence(projection: ExecutionRunProjection, identity: { nodeId?: string; attemptId?: string; turnId?: string; toolCallId?: string }): ExecutionEvidenceContext {
+	const attempts = projection.attempts.filter(({ allocation }) => !identity.attemptId || allocation.attemptId === identity.attemptId);
+	const matches = attempts.flatMap((attempt) => {
+		if (!attempt.outcome && (identity.turnId || identity.toolCallId)) return [];
+		const turns = attempt.outcome?.metrics.turns.filter(({ turnId }) => !identity.turnId || turnId === identity.turnId) ?? [];
+		const tools = attempt.outcome?.metrics.tools.filter(({ turnId, toolCallId }) => (!identity.turnId || turnId === identity.turnId) && (!identity.toolCallId || toolCallId === identity.toolCallId)) ?? [];
+		if (identity.toolCallId) return tools.map((tool) => ({ attempt, turn: turns.find(({ turnId }) => turnId === tool.turnId) ?? null, tool }));
+		if (identity.turnId) return turns.map((turn) => ({ attempt, turn, tool: null }));
+		return [{ attempt, turn: null, tool: null }];
+	});
+	if (identity.attemptId || identity.turnId || identity.toolCallId) {
+		if (matches.length !== 1) throw new TypeError("execution evidence identity is stale or ambiguous");
+		const match = matches[0]!;
+		const node = executionEvidenceNode(projection, match.attempt.allocation.nodeId);
+		if (!node || identity.nodeId && identity.nodeId !== node.id) throw new TypeError("execution evidence identity has a contradictory Node");
+		return { node, ...match };
+	}
+	if (!identity.nodeId) throw new TypeError("execution evidence identity is empty");
+	const node = executionEvidenceNode(projection, identity.nodeId);
+	if (!node) throw new TypeError("execution evidence Node is stale");
+	return { node, attempt: null, turn: null, tool: null };
+}
+
+function executionEvidenceNode(projection: ExecutionRunProjection, nodeId: string): NodeProjection | undefined {
+	const node = projection.nodes.find(({ id }) => id === nodeId);
+	if (node || nodeId !== FINAL_VALIDATION_NODE_ID) return node;
+	const finalValidation = projection.finalValidation;
+	return {
+		id: FINAL_VALIDATION_NODE_ID,
+		status: finalValidation.disposition === "passed" ? "succeeded" : finalValidation.disposition === "failed" ? "failed" : finalValidation.disposition === "not-run" ? "skipped" : "pending",
+		completionSequence: finalValidation.disposition === "passed" || finalValidation.disposition === "failed" ? finalValidation.completionSequence : null,
+		attemptIds: projection.attempts.filter(({ allocation }) => allocation.nodeId === FINAL_VALIDATION_NODE_ID).map(({ allocation }) => allocation.attemptId),
+		causalAttemptId: null,
+		causalUpstreamNodeId: null,
+	};
 }
 
 const BUDGET_LIMITS: AttemptBudgetCounts = { original: 1, retry: 1, fallback: 1, validationRepair: 2, integrationRepair: 2 };

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fanout run profiler</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <header><h1>Fanout run profiler</h1><p id="objective">Read-only local evidence</p><button type="button" id="refresh">Refresh</button></header>
+  <nav id="breadcrumbs" aria-label="Evidence scope"></nav>
+  <main>
+    <aside><section><h2>Packet DAG</h2><svg id="dag" role="img" aria-label="Vertical Execution Packet DAG"></svg></section><section><h2>Recent Runs</h2><div id="runs"></div></section></aside>
+    <section class="trace"><h2>Trace Evidence</h2><div id="metrics"></div><h3>Waterfall</h3><div id="waterfall" role="tree" aria-label="Execution timing hierarchy"></div><h3>Events</h3><div id="events"></div><h3>Timing ledger</h3><label>Sort <select id="sort"><option value="chronological">Chronological</option><option value="duration">Duration</option></select></label><div class="table-scroll"><table><thead><tr><th>Start</th><th>End</th><th>Duration</th><th>Source</th><th>Operation</th><th>Outcome</th></tr></thead><tbody id="ledger"></tbody></table></div></section>
+    <aside class="inspector"><h2>Inspector</h2><div id="details"></div><h2>Evidence Receipt</h2><div id="receipt"></div><h2>Routing</h2><div id="routing"></div></aside>
+  </main>
+  <footer><output id="status" aria-live="polite"></output></footer>
+  <script type="module" src="/assets/app.js"></script>
+</body>
+</html>
