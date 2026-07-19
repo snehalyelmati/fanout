@@ -8,6 +8,7 @@ import {
 	type ExecutionEvent,
 	type ExecutionEventName,
 } from "../../fanout-core/src/execution-event.ts";
+import { parseExecutionEventLog } from "../../fanout-core/src/execution-event-log.ts";
 import { reduceExecutionEvent, replayExecutionEvents, type ExecutionRunProjection } from "../../fanout-core/src/execution-projection.ts";
 import { renderExecutionReport } from "../../fanout-core/src/execution-report.ts";
 
@@ -100,26 +101,13 @@ export function createExecutionEventRecorder(options: ExecutionEventRecorderOpti
 
 export function replayExecutionArtifacts(runDir: string, replace: AtomicReplace = replaceAtomically): ExecutionRunProjection {
 	const root = resolve(runDir);
-	const events = parseEventLog(readFileSync(join(root, "events.jsonl"), "utf8"));
+	const events = parseExecutionEventLog(readFileSync(join(root, "events.jsonl"), "utf8"));
 	const projection = replayExecutionEvents(events);
 	replace(join(root, "execution-run.json"), serializeJson(projection), "projection");
 	const reportPath = join(root, "summary.md");
 	if (projection.terminalOutcome) replace(reportPath, renderExecutionReport(projection), "report");
 	else rmSync(reportPath, { force: true });
 	return projection;
-}
-
-export function parseEventLog(bytes: string): ExecutionEvent[] {
-	if (!bytes || !bytes.endsWith("\n")) throw new TypeError("events.jsonl must be non-empty and newline framed");
-	const lines = bytes.slice(0, -1).split("\n");
-	return lines.map((line, index) => {
-		if (!line) throw new TypeError(`events.jsonl line ${index + 1} is empty`);
-		try {
-			return parseExecutionEvent(JSON.parse(line));
-		} catch (error) {
-			throw new TypeError(`invalid events.jsonl line ${index + 1}: ${error instanceof Error ? error.message : String(error)}`);
-		}
-	});
 }
 
 function replaceAtomically(path: string, bytes: string): void {

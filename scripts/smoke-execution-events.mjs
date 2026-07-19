@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { correlateAttemptMetrics } from "../packages/fanout-core/src/attempt-metrics.ts";
 import { allocateAttempt, completeAttempt, createNodeAttemptState } from "../packages/fanout-core/src/execution-attempt.ts";
 import { EXECUTION_EVENT_NAMES, parseExecutionEvent, reduceExecutionEvent, replayExecutionEvents } from "../packages/fanout-core/src/execution-event.ts";
+import { ExecutionEventLogAdmissionError, parseExecutionEventLog } from "../packages/fanout-core/src/execution-event-log.ts";
 import { renderExecutionReport } from "../packages/fanout-core/src/execution-report.ts";
 import { createExecutionEventRecorder, replayExecutionArtifacts } from "../packages/fanout-pi/src/execution-event-store.ts";
 import { RuntimeEventRecorder } from "../packages/fanout-pi/src/runtime-event-recorder.ts";
@@ -56,6 +57,16 @@ try {
     event(2, "preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }),
     event(3, "run-finished", { outcome: "dry-run-completed", durationMs: 2, cause: { kind: "event", eventSequence: 2, code: "dry-run" } }),
   ];
+  const dryJsonl = `${dryEvents.map(JSON.stringify).join("\n")}\n`;
+  assert(JSON.stringify(parseExecutionEventLog(dryJsonl)) === JSON.stringify(dryEvents), "core Event Log admission did not return the runtime replay sequence");
+  expectAdmissionError("", "empty-log", undefined);
+  expectAdmissionError(dryJsonl.trimEnd(), "incomplete-frame", undefined);
+  expectAdmissionError(`${JSON.stringify(dryEvents[0])}\n \t\n${JSON.stringify(dryEvents[1])}\n`, "blank-row", 2);
+  expectAdmissionError("{\n", "malformed-json", 1);
+  expectAdmissionError(`${JSON.stringify({ ...dryEvents[0], surprise: true })}\n`, "invalid-event", 1);
+  expectAdmissionError(`${JSON.stringify(dryEvents[0])}\n${JSON.stringify({ ...dryEvents[1], version: 1 })}\n`, "invalid-event", 2);
+  expectAdmissionError("[]\n", "invalid-event", 1);
+  expectAdmissionError(`${JSON.stringify(dryEvents[0])}\n${JSON.stringify({ ...dryEvents[1], sequence: 3 })}\n`, "invalid-log", 2);
   const dry = replayExecutionEvents(dryEvents);
   assert(dry.version === 3, "execution projection did not advance to v3");
   assert(dry.preflightEvidence.validationCommands[0].manifest.args[0] === "validate", "projection discarded strict preflight evidence");
@@ -445,6 +456,17 @@ function expectThrow(fn, message) {
     return;
   }
   throw new Error(message);
+}
+
+function expectAdmissionError(bytes, code, line) {
+  try {
+    parseExecutionEventLog(bytes);
+  } catch (error) {
+    assert(error instanceof ExecutionEventLogAdmissionError, `${code} did not return a typed Event Log admission error`);
+    assert(error.code === code && error.line === line, `${code} returned the wrong typed admission details`);
+    return;
+  }
+  throw new Error(`${code} Event Log was admitted`);
 }
 
 async function expectReject(promise, message) {
