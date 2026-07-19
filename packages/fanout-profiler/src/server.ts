@@ -1,4 +1,5 @@
 import { ProfilerCatalog } from "./catalog";
+import { queryComparison, type ComparisonRequest } from "./comparison";
 import { queryWorkspace, type SelectionKind, type WorkspaceRequest } from "./workspace";
 
 const LOOPBACK = "127.0.0.1";
@@ -67,6 +68,14 @@ function workspaceRequest(url: URL): WorkspaceRequest {
 	};
 }
 
+function comparisonRequest(value: unknown): ComparisonRequest {
+	if (!value || typeof value !== "object" || Array.isArray(value)) throw new RequestError(400, "comparison body must be an object");
+	const body = value as Record<string, unknown>;
+	if (Object.keys(body).some((key) => key !== "runAId" && key !== "runBId")) throw new RequestError(400, "comparison accepts only runAId and runBId");
+	if (typeof body.runAId !== "string" || !body.runAId || body.runBId !== undefined && (typeof body.runBId !== "string" || !body.runBId)) throw new RequestError(400, "comparison requires runAId and an optional runBId");
+	return { runAId: body.runAId, ...(typeof body.runBId === "string" ? { runBId: body.runBId } : {}) };
+}
+
 export function startProfilerServer(artifactRoot: string, port: number): Bun.Server<undefined> {
 	const catalog = new ProfilerCatalog(artifactRoot);
 	return Bun.serve({
@@ -108,6 +117,7 @@ export function startProfilerServer(artifactRoot: string, port: number): Bun.Ser
 					exactQuery(url, []);
 					const body = await readBody(request);
 					if (containsFilesystemSelector(body)) throw new RequestError(400, "filesystem-selectors-not-accepted");
+					if (url.pathname === "/api/comparison") return json(200, queryComparison(catalog.snapshot(), comparisonRequest(body)));
 					if (url.pathname !== "/api/refresh") return json(501, { error: "not-implemented" });
 					if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length) throw new RequestError(400, "refresh accepts only an empty object");
 					const snapshot = await catalog.refresh();

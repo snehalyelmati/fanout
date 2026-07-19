@@ -1,6 +1,7 @@
 import { resolveExecutionEvidence, type ExecutionRunProjection } from "../../fanout-core/src/execution-projection";
+import { deepFreeze } from "../../fanout-core/src/contract-value";
 import { FINAL_VALIDATION_NODE_ID } from "../../fanout-core/src/work-contract-graph";
-import type { CatalogExecutionRun, CatalogSnapshot, SourceReference } from "./catalog";
+import type { CatalogAdmission, CatalogExecutionRun, CatalogSnapshot, SourceReference } from "./catalog";
 
 export type SelectionKind = "run" | "node" | "attempt" | "turn" | "tool" | "event" | "stage";
 export interface WorkspaceSelection { kind: SelectionKind; id: string; nodeId?: string; attemptId?: string; turnId?: string }
@@ -33,17 +34,23 @@ export interface TimingRow {
 	selection: WorkspaceSelection;
 }
 
-const GENERATION = "Event v3 / Projection v4";
+export const CURRENT_EXECUTION_GENERATION = "Event v3 / Projection v4";
+
+export function executionArtifactGeneration(admissions: readonly CatalogAdmission[]): string {
+	return admissions.some((admission) => admission === "Legacy") ? "Legacy execution generation" : admissions.some((admission) => admission !== "Current") ? "Unverifiable execution generation" : CURRENT_EXECUTION_GENERATION;
+}
+
+export function createEvidenceReceipt(evidenceClass: EvidenceClass, derivation: string, sourceReferences: readonly SourceReference[], missingInputs: readonly string[] = [], assumptions: readonly string[] = [], limitations: readonly string[] = [], artifactGeneration = CURRENT_EXECUTION_GENERATION): EvidenceReceipt {
+	return { evidenceClass, artifactGeneration, sourceReferences, derivation, missingInputs, assumptions, limitations };
+}
 
 export function queryWorkspace(snapshot: CatalogSnapshot, request: WorkspaceRequest): Readonly<Record<string, any>> {
 	const run = selectRun(snapshot, request.runId);
 	const lineage = snapshot.lineages.find(({ id }) => id === run.planningRunId);
 	const projection = run.projection;
 	const selection = resolveSelection(run, request.selection ?? { kind: "run", id: run.selectionId });
-	const artifactGeneration = run.admission === "Current" ? GENERATION : run.admission === "Legacy" ? "Legacy execution generation" : "Unverifiable execution generation";
-	const receipt = (evidenceClass: EvidenceClass, derivation: string, missingInputs: string[] = [], limitations: string[] = [], sourceReferences: readonly SourceReference[] = run.sources): EvidenceReceipt => ({
-		evidenceClass, artifactGeneration, sourceReferences, derivation, missingInputs, assumptions: [], limitations,
-	});
+	const artifactGeneration = executionArtifactGeneration([run.admission]);
+	const receipt = (evidenceClass: EvidenceClass, derivation: string, missingInputs: string[] = [], limitations: string[] = [], sourceReferences: readonly SourceReference[] = run.sources): EvidenceReceipt => createEvidenceReceipt(evidenceClass, derivation, sourceReferences, missingInputs, [], limitations, artifactGeneration);
 	const rows = projection ? timingRows(projection, run) : [];
 	const scopedRows = rows.filter((row) => rowInScope(row, selection));
 	const ledger = [...scopedRows].sort(request.sort === "duration"
@@ -264,10 +271,3 @@ function metricViews(projection: ExecutionRunProjection, scopedRows: TimingRow[]
 }
 
 function show(value: number | undefined): string { return value === undefined ? "unknown" : String(value); }
-function deepFreeze<T>(value: T): T {
-	if (value && typeof value === "object" && !Object.isFrozen(value)) {
-		for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
-		Object.freeze(value);
-	}
-	return value;
-}
