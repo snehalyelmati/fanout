@@ -47,7 +47,8 @@ test("local profiler exposes only the bounded same-origin HTTP shell", async () 
 	expect(page.status).toBe(200);
 	expect(page.headers.get("content-security-policy")).toContain("default-src 'self'");
 	expect(page.headers.has("access-control-allow-origin")).toBe(false);
-	expect(await page.text()).toMatch(/<header[\s>].*Packet DAG.*Recent Runs.*Trace Evidence.*Inspector.*<footer[\s>]/s);
+	expect(await page.text()).toMatch(/<header[\s>].*Packet DAG.*Recent Runs.*Trace Evidence.*Same-packet comparison.*Inspector.*<footer[\s>]/s);
+	expect(await (await fetch(`${url}/assets/app.js`)).text()).toContain("omittedMetrics");
 
 	const catalog = await fetch(`${url}/api/catalog`);
 	expect(catalog.status).toBe(200);
@@ -59,9 +60,11 @@ test("local profiler exposes only the bounded same-origin HTTP shell", async () 
 	expect(refreshed.status).toBe(200);
 	expect((await refreshed.json() as any).generation).toBe(2);
 
-	for (const path of ["comparison", "scenario"]) {
-		expect((await fetch(`${url}/api/${path}`, { method: "POST", headers: { "content-type": "application/json", origin: url }, body: "{}" })).status).toBe(501);
-	}
+	const comparison = await fetch(`${url}/api/comparison`, { method: "POST", headers: { "content-type": "application/json", origin: url }, body: JSON.stringify({ runAId: "packet/executions/run-projection" }) });
+	expect(comparison.status).toBe(200);
+	expect(await comparison.json()).toMatchObject({ pair: null, cohorts: [] });
+	expect((await fetch(`${url}/api/comparison`, { method: "POST", headers: { "content-type": "application/json", origin: url }, body: JSON.stringify({ runAId: "missing" }) })).status).toBe(400);
+	expect((await fetch(`${url}/api/scenario`, { method: "POST", headers: { "content-type": "application/json", origin: url }, body: "{}" })).status).toBe(501);
 
 	expect((await fetch(`${url}/api/evidence?path=/etc/passwd`)).status).toBe(400);
 	expect((await fetch(`${url}/api/refresh`, { method: "POST", headers: { "content-type": "application/json", origin: url }, body: JSON.stringify({ path: "/etc/passwd" }) })).status).toBe(400);
