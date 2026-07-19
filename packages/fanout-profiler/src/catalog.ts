@@ -48,6 +48,7 @@ export interface CatalogExecutionRun {
 	readonly createdAt: string | null;
 	readonly updatedAt: string | null;
 	readonly projection: ExecutionRunProjection | null;
+	readonly events: readonly ExecutionEvent[];
 	readonly sources: readonly SourceReference[];
 }
 
@@ -337,7 +338,7 @@ function inspectExecution(issuer: ReferenceIssuer, planningRunId: string, id: st
 				if (!sameArtifact(projection.packet, packet.identity) || projection.planningBaseTree !== packet.packet.planningBase.tree || !sameNodeIds(projection.nodes.map(({ id }) => id), packet.packet.nodes.filter(({ kind }) => kind !== "final-validation").map(({ id }) => id)) || !samePolicy(projection.policy, packet.packet.runtimePolicy)) {
 					return classifiedExecution(id, planningRunId, "Unverifiable", "Event Log authority does not match its linked Execution Packet", createdAt, last.occurredAt, sources);
 				}
-				return freeze({ id, selectionId, planningRunId, admission: "Current", label: projection.terminalOutcome?.outcome ?? lastAdmissionLabel(last), reason: "authoritative Event Log replayed through fanout-core", createdAt: projection.startedAt, updatedAt: projection.updatedAt, projection, sources });
+				return freeze({ id, selectionId, planningRunId, admission: "Current", label: projection.terminalOutcome?.outcome ?? lastAdmissionLabel(last), reason: "authoritative Event Log replayed through fanout-core", createdAt: projection.startedAt, updatedAt: projection.updatedAt, projection, events, sources });
 			} catch (error) { return invalidExecution(id, planningRunId, message(error), sources, createdAt); }
 		}
 
@@ -387,7 +388,7 @@ function isRecord(value: unknown): value is Record<string, unknown> { return typ
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function invalidPlanning(id: string, reason: string): CatalogPlanningRun { return freeze({ id, admission: "Invalid", reason, createdAt: null, objective: null, plan: null, details: null, packet: null, graph: null, sources: [] }); }
 function invalidExecution(id: string, planningRunId: string, reason: string, sources: SourceReference[] = [], createdAt: string | null = null, updatedAt = createdAt): CatalogExecutionRun { return classifiedExecution(id, planningRunId, "Invalid", reason, createdAt, updatedAt, sources); }
-function classifiedExecution(id: string, planningRunId: string, admission: "Legacy" | "Invalid" | "Unverifiable", reason: string, createdAt: string | null, updatedAt: string | null, sources: SourceReference[]): CatalogExecutionRun { return freeze({ id, selectionId: `${planningRunId}/executions/${id}`, planningRunId, admission, label: admission, reason, createdAt, updatedAt, projection: null, sources }); }
+function classifiedExecution(id: string, planningRunId: string, admission: "Legacy" | "Invalid" | "Unverifiable", reason: string, createdAt: string | null, updatedAt: string | null, sources: SourceReference[]): CatalogExecutionRun { return freeze({ id, selectionId: `${planningRunId}/executions/${id}`, planningRunId, admission, label: admission, reason, createdAt, updatedAt, projection: null, events: [], sources }); }
 function sameArtifact(left: ArtifactIdentity, right: ArtifactIdentity): boolean { return left.path === right.path && left.sha256 === right.sha256 && left.byteLength === right.byteLength; }
 function sameNodeIds(left: readonly string[], right: readonly string[]): boolean { return left.length === right.length && left.every((value, index) => value === right[index]); }
 function samePolicy(left: ExecutionRunProjection["policy"], right: FanoutExecutionPacket["runtimePolicy"]): boolean { return left.maxConcurrency === right.maxConcurrency && left.failFast === right.failFast && left.fallbackAllowed === right.fallbackAllowed; }

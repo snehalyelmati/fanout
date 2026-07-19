@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
@@ -10,6 +10,8 @@ let process: ReturnType<typeof Bun.spawn>;
 let url: string;
 
 beforeAll(async () => {
+	mkdirSync(join(artifactRoot, "packet", "executions", "run-projection"), { recursive: true });
+	writeFileSync(join(artifactRoot, "packet", "executions", "run-projection", "execution-run.json"), `${JSON.stringify({ schema: "fanout.execution-run", version: 4, runId: "run-projection", startedAt: "2026-07-20T00:00:00.000Z" })}\n`);
 	const port = await new Promise<number>((resolve, reject) => {
 		const listener = createServer().once("error", reject).listen(0, "127.0.0.1", () => {
 			const address = listener.address();
@@ -45,12 +47,19 @@ test("local profiler exposes only the bounded same-origin HTTP shell", async () 
 	expect(page.status).toBe(200);
 	expect(page.headers.get("content-security-policy")).toContain("default-src 'self'");
 	expect(page.headers.has("access-control-allow-origin")).toBe(false);
-	expect(await page.text()).toMatch(/<header[\s>].*<main[\s>].*<footer[\s>]/s);
+	expect(await page.text()).toMatch(/<header[\s>].*Packet DAG.*Recent Runs.*Trace Evidence.*Inspector.*<footer[\s>]/s);
 
-	for (const path of ["catalog", "workspace", "evidence"]) {
-		expect((await fetch(`${url}/api/${path}`)).status).toBe(501);
-	}
-	for (const path of ["comparison", "scenario", "refresh"]) {
+	const catalog = await fetch(`${url}/api/catalog`);
+	expect(catalog.status).toBe(200);
+	expect((await catalog.json() as any).recentRuns[0]).toMatchObject({ runId: "run-projection", admission: "Unverifiable" });
+	const workspace = await fetch(`${url}/api/workspace`);
+	expect(workspace.status).toBe(200);
+	expect((await workspace.json() as any).inspector).toMatchObject({ kind: "Execution Run" });
+	const refreshed = await fetch(`${url}/api/refresh`, { method: "POST", headers: { "content-type": "application/json", origin: url }, body: "{}" });
+	expect(refreshed.status).toBe(200);
+	expect((await refreshed.json() as any).generation).toBe(2);
+
+	for (const path of ["comparison", "scenario"]) {
 		expect((await fetch(`${url}/api/${path}`, { method: "POST", headers: { "content-type": "application/json", origin: url }, body: "{}" })).status).toBe(501);
 	}
 
