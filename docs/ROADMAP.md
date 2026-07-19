@@ -40,7 +40,7 @@ Fanout should preserve developer velocity by using slower tiers only where laten
 
 ### End-to-end hardening
 
-Status: The hardening generation is being cut forward after the live canary supplied new deterministic-glue evidence: plan v2, details v4, packet v6, pointer v2, embedded work contract v2, attempt outcome v2, final evidence v1, event v2, projection v3, and presentation entry v1. The new typed seam is one packet-declared candidate-normalization command list, executed and audited before patch capture/ownership/validation without changing repair budgets or adding runtime-specific inference. Planning remains controller-owned; execution remains exact and fail-closed. Issue #32 owns this coordinated revision and its renewed live release gate.
+Status: The current closed generation is plan v2, details v4, packet v6, pointer v2, embedded work contract v2, Attempt Outcome v3, final evidence v1, Event v3, Projection v4, and presentation entry v1. Attempt v3 records exact correlated Turn/Response/Tool intervals plus cache usage; old and mixed execution evidence fails current replay. Planning remains controller-owned; execution remains exact and fail-closed. The live release gate remains separate from this offline cutover.
 
 Live `/fanout-execute` remains blocked from release until the explicitly authorized macOS p-map canary, fresh review, and repository-owner approval pass for the same immutable commit. Offline readiness does not satisfy those external gates.
 
@@ -129,7 +129,7 @@ Implemented order:
    - Show the objective, work-unit count, concurrency, apply behavior, and audit path before asking the user to confirm launch.
 2. **Execution run recorder**
    - Derive `<packet-artifact-dir>` from the loaded packet path and create `<packet-artifact-dir>/executions/<execution-run-id>/` before mutation.
-   - Write authoritative event v2 `events.jsonl`, derived projection v3 `execution-run.json`, and terminal deterministic `summary.md` with typed outcome totals, final-validation disposition, aggregate accepted patch statistics, and accepted-ledger attempt/tree transitions.
+   - Write authoritative event v3 `events.jsonl`, derived projection v4 `execution-run.json`, and terminal deterministic `summary.md` with typed outcome totals, exact execution intervals and cache usage, final-validation disposition, aggregate accepted patch statistics, and accepted-ledger attempt/tree transitions.
 3. **DAG scheduler**
    - Execute ready nodes in dependency order with deterministic packet-order tie breaking.
    - Keep scheduling separate from worktrees, workers, patch capture, validation, and repair.
@@ -365,11 +365,11 @@ Status: the decision map [Design an offline Fanout run profiler](https://github.
 Order:
 
 1. Finish the remaining design tickets and produce the implementation specification.
-2. Cut producer and consumer contracts atomically from Attempt outcome v2/event v2/projection v3 to v3/v3/v4, adding exact Worker Turn, Provider Response, Tool Invocation, and cache evidence.
-3. Re-run the complete offline contract/replay matrix for the new generation; do not add compatibility replay or migrate older runs.
+2. Completed: producer and consumer contracts cut atomically from Attempt outcome v2/event v2/projection v3 to v3/v3/v4, adding exact Worker Turn, Provider Response, Tool Invocation, and cache evidence.
+3. Completed: the complete offline contract/replay matrix passes for the new generation; no compatibility replay or migration was added.
 4. Implement the smallest read-only local profiler over the new authoritative event generation.
 
-The currently implemented Attempt outcome v2/event v2/projection v3 runtime remains authoritative until that coordinated cutover. Existing artifacts become legacy descriptive evidence afterward.
+Attempt Outcome v3/Event v3/Projection v4 is the only current replayable execution generation. Event v2/Projection v3 and earlier artifacts are legacy descriptive evidence only.
 
 ## Deferred ideas
 

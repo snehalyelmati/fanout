@@ -21,13 +21,13 @@ Fanout has one planning-to-execution path. The architecture separates semantic m
 | Execution packet | `fanout.execution-packet` | 6 |
 | Active packet pointer | `fanout.active-packet` | 2 |
 | Work contract | `fanout.work-contract` | 2 |
-| Attempt outcome | `fanout.attempt-outcome` | 2 |
+| Attempt outcome | `fanout.attempt-outcome` | 3 |
 | Final-validation evidence | `fanout.final-validation-evidence` | 1 |
-| Run event | `fanout.execution-event` | 2 |
-| Execution projection | `fanout.execution-run` | 3 |
+| Run event | `fanout.execution-event` | 3 |
+| Execution projection | `fanout.execution-run` | 4 |
 | Planning/execution presentation data | `fanout.planning-report` / `fanout.execution-report` | 1 |
 
-These versions form one closed executable generation. Older issue resolutions that name details v3, packet v5, work-contract v1, attempt/event v1, or projection v2 are explicitly superseded by [issue #32](https://github.com/snehalyelmati/fanout/issues/32); legacy and mixed artifacts require replanning.
+These versions form one closed executable generation. Event v2/projection v3 and earlier execution evidence is legacy descriptive data only: it is not migrated, replayed as current, or mixed with this generation.
 
 ## Authority flow
 
@@ -63,7 +63,7 @@ Execution reads and verifies the active pointer and packet bytes once before rep
 
 Each allocated attempt runs Pi in a fresh detached reconstruction with six model-callable file tools. Acceptance requires complete correlated usage, pricing, turn, tool, and local worker-timing evidence. Generic providers use worker-first-output timing and must not claim provider response or poll records; instrumented Doubleword attempts additionally require correlated response TTFT and polling evidence. Failed attempts preserve the partial evidence actually observed. After a successful edit, the controller normalizes the candidate, captures its binary patch, enforces typed ownership and forbidden writes, runs declared validation, reverifies the candidate, and applies verified bytes through Git stdin under exact tree checks.
 
-Accepted attempts append one transition to the event-reduced ledger and mutate active incrementally. If later work or final validation fails, Fanout does not automatically roll back earlier accepted transitions. A rejected validation candidate may seed only the next disposable validation-repair attempt; the resulting change is recaptured against the current accepted tree and passes the normal gates. Final validation reconstructs the complete ledger in another worktree; only typed program failures may launch bounded final repairs, and a repair must pass another fresh reconstruction before active apply.
+Accepted attempts require Attempt Outcome v3 evidence with exact Worker Turn request/first-output/finish intervals, Provider Response request/first-token/finish intervals when instrumented, named Tool Invocation intervals, and cache-read/cache-write usage. Admission enforces canonical ordering and durations, unique correlated identities, parent containment, and containment within the Attempt envelope. Accepted attempts append one transition to the event-reduced ledger and mutate active incrementally. If later work or final validation fails, Fanout does not automatically roll back earlier accepted transitions. A rejected validation candidate may seed only the next disposable validation-repair attempt; the resulting change is recaptured against the current accepted tree and passes the normal gates. Final validation reconstructs the complete ledger in another worktree; only typed program failures may launch bounded final repairs, and a repair must pass another fresh reconstruction before active apply.
 
 Relevant code: [`fanout-execute.ts`](../packages/fanout-pi/src/fanout-execute.ts), [`fanout-node-executor.ts`](../packages/fanout-pi/src/fanout-node-executor.ts), [`worker-attempt-execution.ts`](../packages/fanout-pi/src/worker-attempt-execution.ts), [`candidate-normalization.ts`](../packages/fanout-pi/src/candidate-normalization.ts), [`repository-identity.ts`](../packages/fanout-pi/src/repository-identity.ts), and [`final-validation.ts`](../packages/fanout-pi/src/final-validation.ts).
 
@@ -79,7 +79,7 @@ Relevant code: [`worktree-preparation.ts`](../packages/fanout-pi/src/worktree-pr
 
 Attempt allocation and final-validation start events are recorded before their dependent execution. Accepted apply is the deliberate exception: Git mutates active first, then Fanout records the completed outcome and accepted transition. If that post-mutation bookkeeping fails, the run fails hard, retains its lock, and requires manual reconciliation rather than claiming the event log already represents active state.
 
-The pure core reducer produces projection v3 from the otherwise gapless event log; `execution-run.json` and terminal `summary.md` are replaceable derived views. Audit replay can regenerate those views but has no execution or Git authority; replaying a nonterminal log removes any stale summary. Planning and execution reports are displayed through Pi custom entries that do not enter later model context.
+The pure core reducer produces projection v4 from the otherwise gapless event-v3 log; `execution-run.json` and terminal `summary.md` are replaceable derived views. Audit replay can regenerate those views but has no execution or Git authority; replaying a nonterminal log removes any stale summary. Planning and execution reports are displayed through Pi custom entries that do not enter later model context.
 
 Relevant code: [`execution-event.ts`](../packages/fanout-core/src/execution-event.ts), [`execution-projection.ts`](../packages/fanout-core/src/execution-projection.ts), [`execution-event-store.ts`](../packages/fanout-pi/src/execution-event-store.ts), and [`report-presentation.ts`](../packages/fanout-pi/src/report-presentation.ts).
 

@@ -38,16 +38,20 @@ try {
   }
   const partialStdout = join(root, "partial-stdout.jsonl");
   const partialObservability = join(root, "partial-observability.jsonl");
-  writeFileSync(partialStdout, `${JSON.stringify({ type: "message_end", message: { role: "assistant", provider: "fake", model: "worker", usage: { input: 4, output: 2, totalTokens: 6, cost: { total: 0.01 } } } })}\n`);
+  writeFileSync(partialStdout, `${JSON.stringify({ type: "message_end", message: { role: "assistant", provider: "fake", model: "worker", usage: { input: 4, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 6, cost: { total: 0.01 } } } })}\n`);
   writeFileSync(partialObservability, `${JSON.stringify({ event: "turn_end", turnIndex: 0 })}\n`);
   const partial = correlatedWorkerMetrics("partial:000001", { provider: "fake", model: "worker", tier: "tier1", workerDurationMs: 8 }, partialStdout, partialObservability, undefined);
   assert(!partial.complete && deriveAttemptMetricTotals(partial).costUsd === 0.01 && deriveAttemptMetricTotals(partial).totalTokens === 6, "failed runtime attempt discarded observed partial usage/cost");
   const cachedStdout = join(root, "cached-stdout.jsonl");
   const cachedObservability = join(root, "cached-observability.jsonl");
-  writeFileSync(cachedStdout, `${JSON.stringify({ type: "message_end", message: { role: "assistant", provider: "fake", model: "worker", usage: { input: 4, output: 2, cacheRead: 10, cacheWrite: 1, totalTokens: 17, cost: { total: 0.01 } }, content: [] } })}\n`);
-  writeFileSync(cachedObservability, `${JSON.stringify({ event: "turn_end", turnIndex: 0 })}\n`);
+  writeFileSync(cachedStdout, `${JSON.stringify({ type: "message_end", message: { role: "assistant", provider: "fake", model: "worker", usage: { input: 4, output: 2, cacheRead: 10, cacheWrite: 1, totalTokens: 6, cost: { total: 0.01 } }, content: [] } })}\n`);
+  writeFileSync(cachedObservability, [
+    { ts: "2026-07-13T00:00:00.000Z", event: "turn_start", turnIndex: 0 },
+    { ts: "2026-07-13T00:00:00.001Z", event: "assistant_ttft", turnIndex: 0 },
+    { ts: "2026-07-13T00:00:00.008Z", event: "turn_end", turnIndex: 0 },
+  ].map(JSON.stringify).join("\n") + "\n");
   const cached = correlatedWorkerMetrics("cached:000001", { provider: "fake", model: "worker", tier: "tier1", workerDurationMs: 8 }, cachedStdout, cachedObservability, 1);
-  assert(cached.complete && deriveAttemptMetricTotals(cached).inputTokens === 4 && deriveAttemptMetricTotals(cached).totalTokens === 17, "Pi cached tokens were rejected or omitted from generic attempt metrics");
+  assert(cached.complete && deriveAttemptMetricTotals(cached).inputTokens === 4 && deriveAttemptMetricTotals(cached).cacheReadTokens === 10 && deriveAttemptMetricTotals(cached).cacheWriteTokens === 1 && deriveAttemptMetricTotals(cached).totalTokens === 6, "Pi cached tokens or exact Turn interval were rejected or omitted");
   testDiscoveredExtensionWithFixedProfile(root);
   console.log("worker pipeline smoke passed (A7, A19, A20)");
 } finally {

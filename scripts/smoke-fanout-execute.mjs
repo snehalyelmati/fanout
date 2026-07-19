@@ -39,13 +39,13 @@ try {
   catch (error) { traversalRejected = /canonical path segment/.test(String(error)); }
   assert(traversalRejected && !existsSync(join(artifacts, "escape")) && !existsSync(join(repo, ".git", "fanout-execution.lock")), "path-traversing run identity escaped execution storage or acquired the repository lock");
   const result = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", dryRun: true, runId: "dry-run", maxConcurrency: 99 });
-  assert(result.status === "succeeded" && result.snapshot.version === 3 && result.snapshot.mode === "dry-run" && result.snapshot.terminalOutcome.outcome === "dry-run-completed", "hardened dry run did not project explicit state");
+  assert(result.status === "succeeded" && result.snapshot.version === 4 && result.snapshot.mode === "dry-run" && result.snapshot.terminalOutcome.outcome === "dry-run-completed", "hardened dry run did not project explicit state");
   assert(result.snapshot.policy.maxConcurrency === 2, "execution options overrode immutable packet runtime policy");
   assert(result.snapshot.preflightEvidence.planningCommit.actual === base.headCommit && result.snapshot.preflightEvidence.repositoryTree.actual === base.tree && result.snapshot.preflightEvidence.platform.actual === process.platform, "dry run did not preserve exact repository/platform preflight evidence");
   assert(result.snapshot.preflightEvidence.worker.launcher.resolvedExecutable && result.snapshot.preflightEvidence.worker.extension.resolved && result.snapshot.preflightEvidence.worker.modelCallableTools.join(",") === "read,grep,find,ls,edit,write", "dry run did not preserve worker capability evidence");
   assert(result.snapshot.preflightEvidence.validationCommands.some((entry) => entry.nodeId === "x" && entry.manifest.args.join("\0") === command.args.join("\0") && entry.resolution.status === "available"), "dry run did not preserve resolved validation argv evidence");
   const events = readFileSync(result.paths.eventsPath, "utf8").trim().split("\n").map(JSON.parse);
-  assert(events.map((event) => event.sequence).join(",") === "1,2,3" && events.every((event) => event.version === 2), "events are not gapless v2 authority");
+  assert(events.map((event) => event.sequence).join(",") === "1,2,3" && events.every((event) => event.version === 3), "events are not gapless v3 authority");
   assert(!existsSync(join(repo, ".git", "fanout-execution.lock")), "dry run leaked execution lock");
   const directoryExtension = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: repo, dryRun: true, runId: "directory-extension" });
   assert(directoryExtension.status === "failed" && directoryExtension.snapshot.preflightEvidence.worker.extension.status === "unavailable" && directoryExtension.snapshot.preflight.issues.some((issue) => issue.detail.includes("extension entry")), "preflight admitted a directory as an executable Pi extension entry");
@@ -80,7 +80,7 @@ if (process.argv.includes("--version")) { console.log("fake-pi 1.0.0"); process.
 const args = process.argv.slice(2);
 const [provider, ...modelParts] = args[args.indexOf("--model") + 1].split("/");
 const model = modelParts.join("/");
-const usage = { input: 4, output: 2, totalTokens: 6, cost: { total: 0.001 } };
+const usage = { input: 4, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 6, cost: { total: 0.001 } };
 if (process.env.FANOUT_RUN_ID === "live" && readFileSync(".preinstalled/ready", "utf8") !== "ready\\n") process.exit(9);
 if (process.env.FANOUT_RUN_ID === "provider-abort") {
   appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_error", runId: process.env.DOUBLEWORD_RUN_ID, provider, model, turnIndex: 0, responseId: "response-1", failureCode: "abort" }) + "\\n");
@@ -91,11 +91,14 @@ if (!['post-worker-abort', 'repair-overlay', 'normalized-candidate', 'unauthoriz
   process.exit(1);
 }
 writeFileSync(process.env.FANOUT_NODE_ID === "y" ? "y.ts" : "x.ts", process.env.FANOUT_WORKER_DIR.endsWith("validation-repair") ? "export const x = 1;\\n" : "export const x = 0;\\n");
+const observedAt = new Date().toISOString();
 appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, [
-  { event: "turn_start", turnIndex: 0 },
-  { event: "provider_ttft", provider, model, turnIndex: 0, responseId: "response-1", ttftMs: 1 },
-  { event: "provider_end", provider, model, turnIndex: 0, responseId: "response-1", tier: "realtime", usage, usageSource: "provider", pricingSource: "doubleword-model-metadata", pollCount: 0 },
-  { event: "turn_end", turnIndex: 0 },
+  { ts: observedAt, event: "turn_start", turnIndex: 0 },
+  { ts: observedAt, event: "provider_start", provider, model, turnIndex: 0 },
+  { ts: observedAt, event: "provider_ttft", provider, model, turnIndex: 0, responseId: "response-1", ttftMs: 0 },
+  { ts: observedAt, event: "assistant_ttft", turnIndex: 0 },
+  { ts: observedAt, event: "provider_end", provider, model, turnIndex: 0, responseId: "response-1", tier: "realtime", usage, usageSource: "provider", pricingSource: "doubleword-model-metadata", pollCount: 0 },
+  { ts: observedAt, event: "turn_end", turnIndex: 0 },
 ].map(JSON.stringify).join("\\n") + "\\n");
 console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "done" } }));
 console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", provider, model, usage } }));
@@ -497,7 +500,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   let rejected = false; try { await executeFanout({ cwd: repo, activePointerPath: legacyPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", dryRun: true, runId: "legacy" }); } catch (error) { rejected = /rerun \/fanout-plan/.test(String(error)); }
   assert(rejected, "A18 legacy pointer did not get replan guidance");
   assert(readFileSync(legacyPath, "utf8") === legacy && git(repo, ["status", "--porcelain=v1"]) === before && !existsSync(join(repo, ".git", "fanout-execution.lock")), "A18 rejection mutated history, repository, or lock");
-  console.log("fanout execute cutover smoke passed (live public seam/event v2/projection v3/A18)");
+  console.log("fanout execute cutover smoke passed (live public seam/event v3/projection v4/A18)");
 } finally { rmSync(root, { recursive: true, force: true }); }
 
 function git(cwd, args) { return execFileSync("git", ["-c", "core.fsmonitor=false", ...args], { cwd, encoding: "utf8" }).trim(); }

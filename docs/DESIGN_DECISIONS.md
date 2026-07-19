@@ -16,7 +16,7 @@ Reason: The profiler is now a concrete product boundary rather than speculative 
 
 ### Cut profiling evidence forward without compatibility
 
-Decision: The next coordinated executable generation keeps implementation plan v2, implementation details v4, execution packet v6, active pointer v2, embedded work contract v2, and final-validation evidence v1, while cutting Attempt outcomes to v3, execution events to v3, and execution projections to v4. Correlated metrics must record exact Worker Turn request/first-output/finish intervals, Provider Response request/first-token/finish intervals, Tool Invocation names and intervals, and cache-read/cache-write usage. The cutover is atomic and fail-closed; event-v2/projection-v3 and earlier artifacts become legacy descriptive evidence without replay, migration, or compatibility adapters.
+Decision: The current coordinated executable generation keeps implementation plan v2, implementation details v4, execution packet v6, active pointer v2, embedded work contract v2, and final-validation evidence v1, while cutting Attempt outcomes to v3, execution events to v3, and execution projections to v4. Correlated metrics record exact Worker Turn request/first-output/finish intervals, Provider Response request/first-token/finish intervals, Tool Invocation names and intervals, and cache-read/cache-write usage. The cutover is atomic and fail-closed; event-v2/projection-v3 and earlier artifacts are legacy descriptive evidence without replay, migration, or compatibility adapters.
 
 Reason: Fixed-envelope Attempt totals cannot distinguish provider queueing, generation, tools, or inter-call gaps, so they cannot calibrate stateful cold/warm provider scenarios. Exact correlated intervals make uncovered time visible without creating another execution authority. This supersedes the earlier no-producer-change profiling baseline and the prior generation only when the coordinated cutover is implemented. See [Define counterfactual scheduling simulations](https://github.com/snehalyelmati/fanout/issues/41).
 
@@ -43,6 +43,8 @@ Reason: A start record without the exact launch and command facts cannot prove w
 ## 2026-07-14
 
 ### Cut every producer and consumer to one hardened generation
+
+Superseded for execution evidence by the 2026-07-19 v3/v3/v4 cutover; the planning, packet, pointer, work-contract, final-validation, and presentation generations below remain current.
 
 Decision: The only executable planning/runtime generation is implementation plan v2, implementation details v4, execution packet v6, active pointer v2, embedded work contract v2, attempt outcome v2, final-validation evidence v1, execution event v2, execution projection v3, and disposable `fanout.planning-report`/`fanout.execution-report` presentation data v1. Models submit planning bodies; controllers bind envelopes, exact source bytes, planning commit/tree/platform, IDs, and timestamps. Packet nodes embed canonical contracts and derive their graph/views; the sole final-validation node uses the reserved exact ID `final-validation`, which ordinary nodes cannot claim. Concrete node tier assignments are derived from the closed node kind and packet tier plan, and admission re-derives them to reject downgraded, unavailable, or substituted routing tuples. Pointer/packet admission rejects legacy, future, mixed, substituted, and unknown-field artifacts before lock creation or mutation. There is no compatibility adapter or migration path; obsolete authority requires replanning.
 

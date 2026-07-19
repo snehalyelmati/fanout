@@ -1,4 +1,4 @@
-import { deepFreeze } from "./contract-value.ts";
+import { canonicalTimestamp, deepFreeze } from "./contract-value.ts";
 
 export type MetricCompatibility = "generic" | "instrumented";
 
@@ -9,8 +9,14 @@ export interface TurnMetricEvidence {
 	provider: string;
 	model: string;
 	tier: "tier1" | "tier2";
+	requestedAt?: string;
+	firstOutputAt?: string;
+	finishedAt?: string;
+	durationMs?: number;
 	inputTokens: number;
 	outputTokens: number;
+	cacheReadTokens: number;
+	cacheWriteTokens: number;
 	totalTokens: number;
 	costUsd: number;
 	pricingSource: string;
@@ -25,10 +31,15 @@ export interface ResponseMetricEvidence {
 	provider: string;
 	model: string;
 	terminal: "completed";
-	ttftMs: number;
+	requestedAt?: string;
+	firstTokenAt?: string;
+	finishedAt?: string;
+	durationMs?: number;
 	pollIds: string[];
 	inputTokens: number;
 	outputTokens: number;
+	cacheReadTokens: number;
+	cacheWriteTokens: number;
 	totalTokens: number;
 	costUsd: number;
 	pricingSource: string;
@@ -47,8 +58,11 @@ export interface ToolMetricEvidence {
 	attemptId: string;
 	turnId: string;
 	toolCallId: string;
+	name: string;
 	terminal: "completed";
-	durationMs: number;
+	startedAt?: string;
+	finishedAt?: string;
+	durationMs?: number;
 }
 
 export interface AttemptMetricEvidence {
@@ -65,6 +79,8 @@ export interface AttemptMetricEvidence {
 export interface AttemptMetricTotals {
 	inputTokens: number;
 	outputTokens: number;
+	cacheReadTokens: number;
+	cacheWriteTokens: number;
 	totalTokens: number;
 	costUsd: number;
 	pollCount: number;
@@ -101,10 +117,10 @@ export interface CorrelateAttemptMetricsResult {
 }
 
 const EVIDENCE_FIELDS = new Set(["attemptId", "compatibility", "turns", "responses", "polls", "tools", "workerFirstOutputMs", "workerDurationMs"]);
-const TURN_FIELDS = new Set(["attemptId", "turnId", "terminal", "provider", "model", "tier", "inputTokens", "outputTokens", "totalTokens", "costUsd", "pricingSource", "responseIds", "toolCallIds"]);
-const RESPONSE_FIELDS = new Set(["attemptId", "turnId", "responseId", "provider", "model", "terminal", "ttftMs", "pollIds", "inputTokens", "outputTokens", "totalTokens", "costUsd", "pricingSource"]);
+const TURN_FIELDS = new Set(["attemptId", "turnId", "terminal", "provider", "model", "tier", "requestedAt", "firstOutputAt", "finishedAt", "durationMs", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "costUsd", "pricingSource", "responseIds", "toolCallIds"]);
+const RESPONSE_FIELDS = new Set(["attemptId", "turnId", "responseId", "provider", "model", "terminal", "requestedAt", "firstTokenAt", "finishedAt", "durationMs", "pollIds", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "costUsd", "pricingSource"]);
 const POLL_FIELDS = new Set(["attemptId", "turnId", "responseId", "pollId", "status", "durationMs"]);
-const TOOL_FIELDS = new Set(["attemptId", "turnId", "toolCallId", "terminal", "durationMs"]);
+const TOOL_FIELDS = new Set(["attemptId", "turnId", "toolCallId", "name", "terminal", "startedAt", "finishedAt", "durationMs"]);
 const correlatedMetrics = new WeakSet<object>();
 
 export function correlateAttemptMetrics(value: unknown): CorrelateAttemptMetricsResult {
@@ -130,9 +146,12 @@ export function correlateAttemptMetrics(value: unknown): CorrelateAttemptMetrics
 	const tools = parsedTools.filter((tool) => tool.attemptId === attemptId);
 
 	const turnIds = uniqueIdentities(turns, (turn) => turn.turnId, "metrics.turns", errors);
-	const responseIds = uniqueIdentities(responses, (response) => scoped(response.turnId, response.responseId), "metrics.responses", errors);
-	const pollIds = uniqueIdentities(polls, (poll) => scoped(responseScope(poll.turnId, poll.responseId), poll.pollId), "metrics.polls", errors);
-	const toolIds = uniqueIdentities(tools, (tool) => scoped(tool.turnId, tool.toolCallId), "metrics.tools", errors);
+	const responseIds = uniqueIdentities(responses, (response) => response.responseId, "metrics.responses", errors);
+	const pollIds = uniqueIdentities(polls, (poll) => poll.pollId, "metrics.polls", errors);
+	const toolIds = uniqueIdentities(tools, (tool) => tool.toolCallId, "metrics.tools", errors);
+	const responseOwners = claimOwners(turns, (turn) => turn.responseIds, (turn) => turn.turnId, "metrics.turns", "responseIds", errors);
+	const toolOwners = claimOwners(turns, (turn) => turn.toolCallIds, (turn) => turn.turnId, "metrics.turns", "toolCallIds", errors);
+	const pollOwners = claimOwners(responses, (response) => response.pollIds, (response) => response.responseId, "metrics.responses", "pollIds", errors);
 	if (!turns.length) add(errors, "missing-identity", "metrics.turns", "attempt metrics require at least one terminal turn");
 	for (const [index, turn] of turns.entries()) {
 		uniqueClaims(turn.responseIds, `metrics.turns[${index}].responseIds`, errors);
@@ -143,32 +162,39 @@ export function correlateAttemptMetrics(value: unknown): CorrelateAttemptMetrics
 	for (const [index, response] of responses.entries()) {
 		uniqueClaims(response.pollIds, `metrics.responses[${index}].pollIds`, errors);
 		const turn = turns.find((candidate) => candidate.turnId === response.turnId);
-		if (!turn || !turn.responseIds.includes(response.responseId)) add(errors, "correlation-mismatch", `metrics.responses[${index}]`, "response is not claimed by its parent turn");
-		for (const pollId of response.pollIds) if (!pollIds.has(scoped(responseScope(response.turnId, response.responseId), pollId))) add(errors, "missing-poll", `metrics.responses[${index}].pollIds`, `missing poll ${pollId}`);
+		if (!turn || responseOwners.get(response.responseId) !== response.turnId) add(errors, "correlation-mismatch", `metrics.responses[${index}]`, "response is not claimed only by its parent turn");
+		else if (!contains(turn.requestedAt, turn.finishedAt, response.requestedAt, response.finishedAt)) add(errors, "correlation-mismatch", `metrics.responses[${index}]`, "response interval is not contained by its parent turn");
+		for (const pollId of response.pollIds) if (!pollIds.has(pollId)) add(errors, "missing-poll", `metrics.responses[${index}].pollIds`, `missing poll ${pollId}`);
 	}
 	for (const [index, poll] of polls.entries()) {
 		const response = responses.find((candidate) => candidate.turnId === poll.turnId && candidate.responseId === poll.responseId);
-		if (!response || !response.pollIds.includes(poll.pollId)) add(errors, "correlation-mismatch", `metrics.polls[${index}]`, "poll is not claimed by its parent response");
+		if (!response || pollOwners.get(poll.pollId) !== poll.responseId) add(errors, "correlation-mismatch", `metrics.polls[${index}]`, "poll is not claimed only by its parent response");
 	}
 	for (const [index, tool] of tools.entries()) {
 		const turn = turns.find((candidate) => candidate.turnId === tool.turnId);
-		if (!turn || !turn.toolCallIds.includes(tool.toolCallId)) add(errors, "correlation-mismatch", `metrics.tools[${index}]`, "tool result is not claimed by its parent turn");
+		if (!turn || toolOwners.get(tool.toolCallId) !== tool.turnId) add(errors, "correlation-mismatch", `metrics.tools[${index}]`, "tool result is not claimed only by its parent turn");
+		else if (!contains(turn.requestedAt, turn.finishedAt, tool.startedAt, tool.finishedAt)) add(errors, "correlation-mismatch", `metrics.tools[${index}]`, "tool interval is not contained by its parent turn");
 	}
 	for (const [index, turn] of turns.entries()) {
-		for (const responseId of turn.responseIds) if (!responseIds.has(scoped(turn.turnId, responseId))) add(errors, "missing-identity", `metrics.turns[${index}].responseIds`, `missing response ${responseId}`);
-		for (const toolCallId of turn.toolCallIds) if (!toolIds.has(scoped(turn.turnId, toolCallId))) add(errors, "missing-tool", `metrics.turns[${index}].toolCallIds`, `missing tool result ${toolCallId}`);
+		for (const responseId of turn.responseIds) if (!responseIds.has(responseId)) add(errors, "missing-identity", `metrics.turns[${index}].responseIds`, `missing response ${responseId}`);
+		for (const toolCallId of turn.toolCallIds) if (!toolIds.has(toolCallId)) add(errors, "missing-tool", `metrics.turns[${index}].toolCallIds`, `missing tool result ${toolCallId}`);
 		if (compatibility === "instrumented") compareInstrumentedTurn(turn, responses.filter((response) => response.turnId === turn.turnId), index, errors);
 	}
 	if (compatibility === "generic" && (responses.length || polls.length)) add(errors, "provider-evidence-mismatch", "metrics.responses", "generic metrics cannot include instrumented provider responses or polls");
 	if (workerFirstOutputMs === undefined) add(errors, "missing-timing", "metrics.workerFirstOutputMs", "worker first-output timing is required");
 	if (workerDurationMs === undefined) add(errors, "missing-timing", "metrics.workerDurationMs", "worker duration is required");
 
-	const partialTurns = firstBy(turns, (turn) => turn.turnId);
-	const partialResponses = firstBy(responses, (response) => scoped(response.turnId, response.responseId))
-		.filter((response) => partialTurns.some((turn) => turn.turnId === response.turnId && turn.responseIds.includes(response.responseId)));
-	const partialPolls = firstBy(polls, (poll) => scoped(responseScope(poll.turnId, poll.responseId), poll.pollId))
+	const partialTurns = firstBy(turns, (turn) => turn.turnId).map((turn) => ({
+		...turn,
+		responseIds: turn.responseIds.filter((responseId) => responseOwners.get(responseId) === turn.turnId),
+		toolCallIds: turn.toolCallIds.filter((toolCallId) => toolOwners.get(toolCallId) === turn.turnId),
+	}));
+	const partialResponses = firstBy(responses, (response) => response.responseId)
+		.filter((response) => partialTurns.some((turn) => turn.turnId === response.turnId && turn.responseIds.includes(response.responseId)))
+		.map((response) => ({ ...response, pollIds: response.pollIds.filter((pollId) => pollOwners.get(pollId) === response.responseId) }));
+	const partialPolls = firstBy(polls, (poll) => poll.pollId)
 		.filter((poll) => partialResponses.some((response) => response.turnId === poll.turnId && response.responseId === poll.responseId && response.pollIds.includes(poll.pollId)));
-	const partialTools = firstBy(tools, (tool) => scoped(tool.turnId, tool.toolCallId))
+	const partialTools = firstBy(tools, (tool) => tool.toolCallId)
 		.filter((tool) => partialTurns.some((turn) => turn.turnId === tool.turnId && turn.toolCallIds.includes(tool.toolCallId)));
 	const partialMetrics: CorrelatedAttemptMetrics = {
 		attemptId,
@@ -195,7 +221,16 @@ export function deriveAttemptMetricTotals(metrics: CorrelatedAttemptMetrics): At
 }
 
 export function deriveSummedResponseTtftMs(metrics: CorrelatedAttemptMetrics): number {
-	return sum(metrics.responses, "ttftMs");
+	return metrics.responses.reduce((total, response) => total + intervalMs(response.requestedAt, response.firstTokenAt), 0);
+}
+
+export function validateAttemptMetricEnvelope(metrics: CorrelatedAttemptMetrics, startedAt: string, finishedAt: string): void {
+	for (const [kind, records] of [["turn", metrics.turns], ["response", metrics.responses], ["tool", metrics.tools]] as const) {
+		for (const record of records) {
+			const start = kind === "tool" ? record.startedAt : record.requestedAt;
+			if (start !== undefined && record.finishedAt !== undefined && !contains(startedAt, finishedAt, start, record.finishedAt)) throw new TypeError(`${kind} interval must be contained within its Attempt envelope`);
+		}
+	}
 }
 
 function parseTurn(value: unknown, index: number, errors: MetricIssue[]): TurnMetricEvidence[] {
@@ -210,16 +245,20 @@ function parseTurn(value: unknown, index: number, errors: MetricIssue[]): TurnMe
 		provider: identity(record.provider, `${path}.provider`, errors),
 		model: identity(record.model, `${path}.model`, errors),
 		tier: record.tier === "tier1" || record.tier === "tier2" ? record.tier : (add(errors, "malformed-input", `${path}.tier`, "tier must be tier1 or tier2"), "tier1"),
+		...intervalFields(record, path, "requestedAt", "firstOutputAt", "finishedAt", errors),
 		inputTokens: parseNonNegativeNumber(record.inputTokens, `${path}.inputTokens`, errors, true),
 		outputTokens: parseNonNegativeNumber(record.outputTokens, `${path}.outputTokens`, errors, true),
+		cacheReadTokens: parseNonNegativeNumber(record.cacheReadTokens, `${path}.cacheReadTokens`, errors, true),
+		cacheWriteTokens: parseNonNegativeNumber(record.cacheWriteTokens, `${path}.cacheWriteTokens`, errors, true),
 		totalTokens: parseNonNegativeNumber(record.totalTokens, `${path}.totalTokens`, errors, true),
 		costUsd: parseNonNegativeNumber(record.costUsd, `${path}.costUsd`, errors),
 		pricingSource: identity(record.pricingSource, `${path}.pricingSource`, errors),
 		responseIds: identities(record.responseIds, `${path}.responseIds`, errors),
 		toolCallIds: identities(record.toolCallIds, `${path}.toolCallIds`, errors),
 	};
-	if (result.totalTokens < result.inputTokens + result.outputTokens) add(errors, "usage-mismatch", `${path}.totalTokens`, "totalTokens must be at least inputTokens + outputTokens");
-	return errors.length === before ? [result] : [];
+	if (result.totalTokens < result.inputTokens + result.outputTokens) add(errors, "usage-mismatch", `${path}.totalTokens`, "totalTokens must include input and output tokens");
+	const intervalStatus = checkInterval(result.requestedAt, result.firstOutputAt, result.finishedAt, result.durationMs, path, errors, true);
+	return intervalStatus !== "invalid" && recordUsable(errors, before, path) ? [result] : [];
 }
 
 function parseResponse(value: unknown, index: number, errors: MetricIssue[]): ResponseMetricEvidence[] {
@@ -234,16 +273,19 @@ function parseResponse(value: unknown, index: number, errors: MetricIssue[]): Re
 		provider: identity(record.provider, `${path}.provider`, errors),
 		model: identity(record.model, `${path}.model`, errors),
 		terminal: record.terminal === "completed" ? "completed" : (add(errors, "malformed-input", `${path}.terminal`, "response terminal must be completed"), "completed"),
-		ttftMs: evidenceNumber(record.ttftMs, `${path}.ttftMs`, errors, "missing-timing"),
+		...intervalFields(record, path, "requestedAt", "firstTokenAt", "finishedAt", errors),
 		pollIds: identities(record.pollIds, `${path}.pollIds`, errors),
 		inputTokens: parseNonNegativeNumber(record.inputTokens, `${path}.inputTokens`, errors, true),
 		outputTokens: parseNonNegativeNumber(record.outputTokens, `${path}.outputTokens`, errors, true),
+		cacheReadTokens: parseNonNegativeNumber(record.cacheReadTokens, `${path}.cacheReadTokens`, errors, true),
+		cacheWriteTokens: parseNonNegativeNumber(record.cacheWriteTokens, `${path}.cacheWriteTokens`, errors, true),
 		totalTokens: parseNonNegativeNumber(record.totalTokens, `${path}.totalTokens`, errors, true),
 		costUsd: parseNonNegativeNumber(record.costUsd, `${path}.costUsd`, errors),
 		pricingSource: identity(record.pricingSource, `${path}.pricingSource`, errors),
 	};
-	if (result.totalTokens < result.inputTokens + result.outputTokens) add(errors, "usage-mismatch", `${path}.totalTokens`, "totalTokens must be at least inputTokens + outputTokens");
-	return errors.length === before ? [result] : [];
+	if (result.totalTokens < result.inputTokens + result.outputTokens) add(errors, "usage-mismatch", `${path}.totalTokens`, "totalTokens must include input and output tokens");
+	const intervalStatus = checkInterval(result.requestedAt, result.firstTokenAt, result.finishedAt, result.durationMs, path, errors, true);
+	return intervalStatus !== "invalid" && recordUsable(errors, before, path) ? [result] : [];
 }
 
 function parsePoll(value: unknown, index: number, errors: MetricIssue[]): PollMetricEvidence[] {
@@ -271,15 +313,17 @@ function parseTool(value: unknown, index: number, errors: MetricIssue[]): ToolMe
 		attemptId: identity(record.attemptId, `${path}.attemptId`, errors),
 		turnId: identity(record.turnId, `${path}.turnId`, errors),
 		toolCallId: identity(record.toolCallId, `${path}.toolCallId`, errors),
+		name: identity(record.name, `${path}.name`, errors),
 		terminal: record.terminal === "completed" ? "completed" : (add(errors, "malformed-input", `${path}.terminal`, "tool terminal must be completed"), "completed"),
-		durationMs: evidenceNumber(record.durationMs, `${path}.durationMs`, errors, "missing-tool"),
+		...intervalFields(record, path, "startedAt", undefined, "finishedAt", errors),
 	};
-	return errors.length === before ? [result] : [];
+	const intervalStatus = checkInterval(result.startedAt, undefined, result.finishedAt, result.durationMs, path, errors);
+	return intervalStatus !== "invalid" && recordUsable(errors, before, path) ? [result] : [];
 }
 
 function compareInstrumentedTurn(turn: TurnMetricEvidence, responses: ResponseMetricEvidence[], index: number, errors: MetricIssue[]): void {
 	const path = `metrics.turns[${index}]`;
-	for (const field of ["inputTokens", "outputTokens", "totalTokens", "costUsd"] as const) {
+	for (const field of ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "costUsd"] as const) {
 		const observed = responses.reduce((sum, response) => sum + response[field], 0);
 		if (turn[field] !== observed) add(errors, "usage-mismatch", `${path}.${field}`, `${field} does not equal correlated provider response evidence`);
 	}
@@ -291,6 +335,8 @@ function totals(turns: TurnMetricEvidence[], polls: PollMetricEvidence[], tools:
 	return {
 		inputTokens: sum(turns, "inputTokens"),
 		outputTokens: sum(turns, "outputTokens"),
+		cacheReadTokens: sum(turns, "cacheReadTokens"),
+		cacheWriteTokens: sum(turns, "cacheWriteTokens"),
 		totalTokens: sum(turns, "totalTokens"),
 		costUsd: sum(turns, "costUsd"),
 		pollCount: polls.length,
@@ -338,6 +384,46 @@ function evidenceNumber(value: unknown, path: string, errors: MetricIssue[], mis
 	return parseNonNegativeNumber(value, path, errors, integer);
 }
 
+function intervalFields(record: Record<string, unknown>, path: string, startField: string, firstField: string | undefined, finishField: string, errors: MetricIssue[]): Record<string, string | number> {
+	const start = metricTimestamp(record[startField], `${path}.${startField}`, errors);
+	const first = firstField ? metricTimestamp(record[firstField], `${path}.${firstField}`, errors) : undefined;
+	const finish = metricTimestamp(record[finishField], `${path}.${finishField}`, errors);
+	const duration = evidenceNumber(record.durationMs, `${path}.durationMs`, errors, "missing-timing");
+	return { ...(start ? { [startField]: start } : {}), ...(firstField && first ? { [firstField]: first } : {}), ...(finish ? { [finishField]: finish } : {}), ...(record.durationMs === undefined ? {} : { durationMs: duration }) };
+}
+
+function metricTimestamp(value: unknown, path: string, errors: MetricIssue[]): string | undefined {
+	try { return canonicalTimestamp(value, path); } catch { add(errors, "missing-timing", path, `${path} must be a canonical timestamp`); return undefined; }
+}
+
+function checkInterval(start: string | undefined, first: string | undefined, finish: string | undefined, duration: number | undefined, path: string, errors: MetricIssue[], requireFirst = false): "complete" | "missing" | "invalid" {
+	if (start === undefined || finish === undefined || duration === undefined || requireFirst && first === undefined) {
+		add(errors, "missing-timing", path, `${path} requires complete interval timing`);
+		return "missing";
+	}
+	if (first !== undefined && Date.parse(first) < Date.parse(start) || first !== undefined && Date.parse(first) > Date.parse(finish) || Date.parse(finish) < Date.parse(start)) {
+		add(errors, "missing-timing", path, `${path} timestamps must be ordered`);
+		return "invalid";
+	}
+	if (intervalMs(start, finish) !== duration) {
+		add(errors, "missing-timing", `${path}.durationMs`, "durationMs must equal its timestamp interval");
+		return "invalid";
+	}
+	return "complete";
+}
+
+function recordUsable(errors: MetricIssue[], before: number, path: string): boolean {
+	return errors.slice(before).every((error) => error.code === "missing-timing" || error.code === "missing-identity" && error.path === `${path}.name`);
+}
+
+function intervalMs(start: string | undefined, finish: string | undefined): number {
+	return start === undefined || finish === undefined ? 0 : Date.parse(finish) - Date.parse(start);
+}
+
+function contains(parentStart: string | undefined, parentFinish: string | undefined, childStart: string | undefined, childFinish: string | undefined): boolean {
+	return parentStart !== undefined && parentFinish !== undefined && childStart !== undefined && childFinish !== undefined && Date.parse(parentStart) <= Date.parse(childStart) && Date.parse(childFinish) <= Date.parse(parentFinish);
+}
+
 function uniqueIdentities<T>(values: T[], get: (value: T) => string, path: string, errors: MetricIssue[]): Set<string> {
 	const result = new Set<string>();
 	for (const [index, value] of values.entries()) {
@@ -352,16 +438,25 @@ function uniqueClaims(values: string[], path: string, errors: MetricIssue[]): vo
 	if (new Set(values).size !== values.length) add(errors, "duplicate-identity", path, "claimed identities must be unique");
 }
 
+function claimOwners<T>(parents: T[], claims: (parent: T) => string[], owner: (parent: T) => string, path: string, field: string, errors: MetricIssue[]): Map<string, string> {
+	const result = new Map<string, string>();
+	const ambiguous = new Set<string>();
+	for (const [index, parent] of parents.entries()) {
+		for (const identity of claims(parent)) {
+			if (ambiguous.has(identity)) continue;
+			if (result.has(identity)) {
+				add(errors, "duplicate-identity", `${path}[${index}].${field}`, `${identity} is claimed more than once`);
+				result.delete(identity);
+				ambiguous.add(identity);
+			}
+			else result.set(identity, owner(parent));
+		}
+	}
+	return result;
+}
+
 function checkAttempt(actual: string, expected: string, path: string, errors: MetricIssue[]): void {
 	if (actual !== expected) add(errors, "correlation-mismatch", path, `record belongs to attempt ${actual || "<missing>"}, expected ${expected || "<missing>"}`);
-}
-
-function scoped(parentId: string, childId: string): string {
-	return `${parentId}\u0000${childId}`;
-}
-
-function responseScope(turnId: string, responseId: string): string {
-	return scoped(turnId, responseId);
 }
 
 function firstBy<T>(values: T[], key: (value: T) => string): T[] {

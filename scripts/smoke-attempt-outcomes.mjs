@@ -150,6 +150,11 @@ assert(exhaustedOutcome.action === "fail" && exhaustedOutcome.recovery?.kind ===
 // A11: identity correlation, not event order or provider/model equality, admits metrics.
 const generic = correlateAttemptMetrics(genericEvidence(original.allocation.attemptId));
 assert(generic.ok && generic.metrics?.complete && deriveAttemptMetricTotals(generic.metrics).totalTokens === 18 && deriveAttemptMetricTotals(generic.metrics).toolDurationMs === 3, `generic correlation failed: ${JSON.stringify(generic.errors)}`);
+const cachedEvidence = genericEvidence(original.allocation.attemptId);
+cachedEvidence.turns[0].cacheReadTokens = 2;
+cachedEvidence.turns[0].cacheWriteTokens = 1;
+const cached = correlateAttemptMetrics(cachedEvidence);
+assert(cached.ok && deriveAttemptMetricTotals(cached.metrics).cacheReadTokens === 2 && deriveAttemptMetricTotals(cached.metrics).cacheWriteTokens === 1 && deriveAttemptMetricTotals(cached.metrics).totalTokens === 18, "overlapping cache usage did not survive strict correlation");
 const forged = originalLaunch("forged", assignment);
 const forgedMetrics = observedMetrics(forged.allocation, true);
 expectThrow(() => completeAttempt({ ...forged.allocation, attemptId: "forged-id", budgetTransition: { name: "original", before: -1, after: 0, limit: 1 } }, { startedAt: "2026-07-13T00:00:00.000Z", finishedAt: "2026-07-13T00:00:01.000Z", terminalFact: { stage: "apply", code: "applied" }, state: forged.state, fallbackAllowed: true, metrics: forgedMetrics }), "forged allocation completed");
@@ -162,6 +167,12 @@ expectMetricCode(noTurns, "missing-identity");
 const instrumentedEvidence = providerEvidence(original.allocation.attemptId);
 const instrumented = correlateAttemptMetrics(instrumentedEvidence);
 assert(instrumented.ok && deriveSummedResponseTtftMs(instrumented.metrics) === 5 && deriveAttemptMetricTotals(instrumented.metrics).pollCount === 3 && !("totals" in instrumented.metrics), `instrumented correlation failed: ${JSON.stringify(instrumented.errors)}`);
+const cachedProviderEvidence = structuredClone(instrumentedEvidence);
+cachedProviderEvidence.turns[0].cacheReadTokens = 10;
+cachedProviderEvidence.turns[0].cacheWriteTokens = 1;
+cachedProviderEvidence.responses[0].cacheReadTokens = 10;
+cachedProviderEvidence.responses[0].cacheWriteTokens = 1;
+assert(correlateAttemptMetrics(cachedProviderEvidence).ok, "overlapping provider cache usage was rejected");
 const reordered = structuredClone(instrumentedEvidence);
 reordered.responses.reverse();
 reordered.tools.reverse();
@@ -174,9 +185,24 @@ assert(correlateAttemptMetrics(wrongAttempt).partialMetrics.responses.every((res
 const duplicateResponse = structuredClone(instrumentedEvidence);
 duplicateResponse.responses.push(structuredClone(duplicateResponse.responses[0]));
 expectMetricCode(duplicateResponse, "duplicate-identity");
+const reusedResponseIdentity = structuredClone(instrumentedEvidence);
+reusedResponseIdentity.responses[1].responseId = reusedResponseIdentity.responses[0].responseId;
+reusedResponseIdentity.turns[1].responseIds[0] = reusedResponseIdentity.responses[0].responseId;
+expectMetricCode(reusedResponseIdentity, "duplicate-identity");
+const multiplyClaimedResponse = structuredClone(instrumentedEvidence);
+multiplyClaimedResponse.turns[1].responseIds.push("response-1");
+expectMetricCode(multiplyClaimedResponse, "duplicate-identity");
 const reversedParent = structuredClone(instrumentedEvidence);
 reversedParent.responses[0].turnId = "turn-2";
 expectMetricCode(reversedParent, "correlation-mismatch");
+const reversedInterval = structuredClone(instrumentedEvidence);
+reversedInterval.responses[0].firstTokenAt = "2026-07-13T00:00:00.010Z";
+reversedInterval.responses[0].requestedAt = "2026-07-13T00:00:00.011Z";
+expectMetricCode(reversedInterval, "missing-timing");
+const wrongDuration = structuredClone(instrumentedEvidence);
+wrongDuration.turns[0].durationMs++;
+expectMetricCode(wrongDuration, "missing-timing");
+assert(!correlateAttemptMetrics(wrongDuration).partialMetrics.turns.some((turnEvidence) => turnEvidence.turnId === "turn-1"), "contradictory interval remained in partial evidence");
 const mismatchedResponse = structuredClone(instrumentedEvidence);
 mismatchedResponse.responses[0].responseId = "unknown-response";
 expectMetricCode(mismatchedResponse, "correlation-mismatch");
@@ -189,6 +215,9 @@ expectMetricCode(unknownTool, "correlation-mismatch");
 const duplicateTool = structuredClone(instrumentedEvidence);
 duplicateTool.tools.push(structuredClone(duplicateTool.tools[0]));
 expectMetricCode(duplicateTool, "duplicate-identity");
+const multiplyClaimedTool = structuredClone(instrumentedEvidence);
+multiplyClaimedTool.turns[1].toolCallIds.push("tool-1");
+expectMetricCode(multiplyClaimedTool, "duplicate-identity");
 const missingTool = structuredClone(instrumentedEvidence);
 missingTool.tools.pop();
 expectMetricCode(missingTool, "missing-tool");
@@ -205,6 +234,9 @@ assert(!correlateAttemptMetrics(missingPoll).partialMetrics.polls.some((poll) =>
 const duplicatePoll = structuredClone(instrumentedEvidence);
 duplicatePoll.polls.push(structuredClone(duplicatePoll.polls[0]));
 expectMetricCode(duplicatePoll, "duplicate-identity");
+const multiplyClaimedPoll = structuredClone(instrumentedEvidence);
+multiplyClaimedPoll.responses[1].pollIds.push("poll-1");
+expectMetricCode(multiplyClaimedPoll, "duplicate-identity");
 const crossAttemptPoll = structuredClone(instrumentedEvidence);
 crossAttemptPoll.polls[0].attemptId = "other:000001";
 expectMetricCode(crossAttemptPoll, "correlation-mismatch");
@@ -228,8 +260,16 @@ const accepted = completeAttempt(forged.allocation, {
   diagnostic: "human-only text: 429 network crash",
 });
 assert(accepted.action === "accept" && accepted.durationMs === 1000 && accepted.budgetTransition.name === "original", "terminal outcome lost actual action or budget transition");
-assert(accepted.version === 2, "attempt outcome did not advance to v2");
-expectThrow(() => parseAttemptOutcome({ ...accepted, version: 1 }), "legacy attempt outcome v1 was admitted");
+assert(accepted.version === 3, "attempt outcome did not advance to v3");
+expectThrow(() => parseAttemptOutcome({ ...accepted, version: 2 }), "legacy attempt outcome v2 was admitted");
+expectThrow(() => parseAttemptOutcome({ ...accepted, version: 4 }), "future attempt outcome v4 was admitted");
+const mixedAttemptMetrics = structuredClone(accepted);
+delete mixedAttemptMetrics.metrics.turns[0].requestedAt;
+expectThrow(() => parseAttemptOutcome(mixedAttemptMetrics), "mixed-generation Attempt metrics were admitted");
+const escapedEnvelope = structuredClone(accepted);
+escapedEnvelope.metrics.turns[0].requestedAt = "2026-07-12T23:59:59.999Z";
+escapedEnvelope.metrics.turns[0].durationMs = Date.parse(escapedEnvelope.metrics.turns[0].finishedAt) - Date.parse(escapedEnvelope.metrics.turns[0].requestedAt);
+expectThrow(() => parseAttemptOutcome(escapedEnvelope), "metric interval outside the Attempt envelope was admitted");
 let outcomes = appendTerminalOutcome([], accepted);
 assert(outcomes.length === 1, "terminal outcome was not recorded");
 expectThrow(() => appendTerminalOutcome(outcomes, accepted), "duplicate terminal outcome was admitted");
@@ -297,6 +337,36 @@ const failed = finishAttempt(failedCase.allocation, failedCase.state, processTim
 assert(failed.action === "retry" && deriveAttemptMetricTotals(failed.metrics).costUsd === 0.18, "partial failed-attempt outcome lost routing or cost");
 const replayedFailed = parseAttemptOutcome(JSON.parse(JSON.stringify(failed)));
 assert(!replayedFailed.metrics.complete && deriveAttemptMetricTotals(replayedFailed.metrics).costUsd === 0.18, "serialized partial failed-attempt metrics did not round-trip conservatively");
+const contradictoryTimingCase = originalLaunch("contradictory-timing", assignment);
+const contradictoryTimingEvidence = genericEvidence(contradictoryTimingCase.allocation.attemptId);
+for (const turnEvidence of contradictoryTimingEvidence.turns) {
+  turnEvidence.tier = contradictoryTimingCase.allocation.assignment.tier;
+  turnEvidence.provider = contradictoryTimingCase.allocation.assignment.provider;
+  turnEvidence.model = contradictoryTimingCase.allocation.assignment.model;
+}
+contradictoryTimingEvidence.turns[0].durationMs++;
+const contradictoryTimingMetrics = correlateAttemptMetrics(contradictoryTimingEvidence);
+const contradictoryTimingOutcome = completeAttempt(contradictoryTimingCase.allocation, { startedAt: accepted.startedAt, finishedAt: accepted.finishedAt, terminalFact: { stage: "metrics", code: "missing-timing" }, state: contradictoryTimingCase.state, fallbackAllowed: true, metrics: contradictoryTimingMetrics.partialMetrics });
+const replayedContradictoryTiming = parseAttemptOutcome(JSON.parse(JSON.stringify(contradictoryTimingOutcome)));
+assert(!replayedContradictoryTiming.metrics.turns.some((turnEvidence) => turnEvidence.turnId === "turn-1"), "failed Attempt replay admitted contradictory interval evidence");
+const ambiguousClaimCase = originalLaunch("ambiguous-claim", assignment);
+const ambiguousClaimEvidence = genericEvidence(ambiguousClaimCase.allocation.attemptId);
+for (const turnEvidence of ambiguousClaimEvidence.turns) {
+  turnEvidence.tier = ambiguousClaimCase.allocation.assignment.tier;
+  turnEvidence.provider = ambiguousClaimCase.allocation.assignment.provider;
+  turnEvidence.model = ambiguousClaimCase.allocation.assignment.model;
+}
+ambiguousClaimEvidence.turns[1].toolCallIds.push("tool-1");
+const ambiguousClaimMetrics = correlateAttemptMetrics(ambiguousClaimEvidence);
+assert(!ambiguousClaimMetrics.partialMetrics.turns.some((turnEvidence) => turnEvidence.toolCallIds.includes("tool-1")) && !ambiguousClaimMetrics.partialMetrics.tools.some((tool) => tool.toolCallId === "tool-1"), "ambiguous child authority survived partial correlation");
+const ambiguousClaimOutcome = completeAttempt(ambiguousClaimCase.allocation, { startedAt: accepted.startedAt, finishedAt: accepted.finishedAt, terminalFact: { stage: "metrics", code: "duplicate-identity" }, state: ambiguousClaimCase.state, fallbackAllowed: true, metrics: ambiguousClaimMetrics.partialMetrics });
+const replayedAmbiguousClaim = parseAttemptOutcome(JSON.parse(JSON.stringify(ambiguousClaimOutcome)));
+assert(!replayedAmbiguousClaim.metrics.turns.some((turnEvidence) => turnEvidence.toolCallIds.includes("tool-1")) && !replayedAmbiguousClaim.metrics.tools.some((tool) => tool.toolCallId === "tool-1"), "failed Attempt replay admitted ambiguous parent/child authority");
+const forgedAmbiguousReplay = structuredClone(ambiguousClaimOutcome);
+forgedAmbiguousReplay.metrics.turns[0].toolCallIds.push("tool-1");
+forgedAmbiguousReplay.metrics.turns[1].toolCallIds.push("tool-1");
+forgedAmbiguousReplay.metrics.tools.push(ambiguousClaimEvidence.tools[0]);
+expectThrow(() => parseAttemptOutcome(forgedAmbiguousReplay), "ambiguous failed-Attempt evidence was admitted on replay");
 const filteredPartialCase = originalLaunch("filtered-partial", assignment);
 const filteredEvidence = genericEvidence(filteredPartialCase.allocation.attemptId);
 for (const turnEvidence of filteredEvidence.turns) {
@@ -361,7 +431,7 @@ function genericEvidence(attemptId) {
     ],
     responses: [],
     polls: [],
-    tools: [{ attemptId, turnId: "turn-1", toolCallId: "tool-1", terminal: "completed", durationMs: 3 }],
+    tools: [{ attemptId, turnId: "turn-1", toolCallId: "tool-1", name: "read", terminal: "completed", ...interval(20, undefined, 23, "startedAt", undefined, "finishedAt") }],
     workerFirstOutputMs: 2,
     workerDurationMs: 20,
   };
@@ -386,8 +456,8 @@ function providerEvidence(attemptId) {
       poll(attemptId, "turn-2", "response-2b", "poll-3", 2),
     ],
     tools: [
-      { attemptId, turnId: "turn-1", toolCallId: "tool-1", terminal: "completed", durationMs: 3 },
-      { attemptId, turnId: "turn-2", toolCallId: "tool-2", terminal: "completed", durationMs: 4 },
+      { attemptId, turnId: "turn-1", toolCallId: "tool-1", name: "read", terminal: "completed", ...interval(20, undefined, 23, "startedAt", undefined, "finishedAt") },
+      { attemptId, turnId: "turn-2", toolCallId: "tool-2", name: "write", terminal: "completed", ...interval(50, undefined, 54, "startedAt", undefined, "finishedAt") },
     ],
     workerFirstOutputMs: 2,
     workerDurationMs: 20,
@@ -395,11 +465,18 @@ function providerEvidence(attemptId) {
 }
 
 function turn(attemptId, turnId, inputTokens, outputTokens, costUsd, responseIds, toolCallIds) {
-  return { attemptId, turnId, terminal: "completed", provider: "generic", model: "worker", tier: "tier2", inputTokens, outputTokens, totalTokens: inputTokens + outputTokens, costUsd, pricingSource: "catalog-v1", responseIds, toolCallIds };
+  const [start, first, finish] = turnId === "turn-1" ? [10, 12, 30] : [40, 42, 70];
+  return { attemptId, turnId, terminal: "completed", provider: "generic", model: "worker", tier: "tier2", ...interval(start, first, finish, "requestedAt", "firstOutputAt", "finishedAt"), inputTokens, outputTokens, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: inputTokens + outputTokens, costUsd, pricingSource: "catalog-v1", responseIds, toolCallIds };
 }
 
 function response(attemptId, turnId, responseId, inputTokens, outputTokens, costUsd, ttftMs, pollIds) {
-  return { attemptId, turnId, responseId, provider: "generic", model: "worker", terminal: "completed", ttftMs, pollIds, inputTokens, outputTokens, totalTokens: inputTokens + outputTokens, costUsd, pricingSource: "catalog-v1" };
+  const [start, finish] = responseId === "response-1" ? [11, 20] : responseId === "response-2a" ? [41, 50] : [51, 65];
+  return { attemptId, turnId, responseId, provider: "generic", model: "worker", terminal: "completed", ...interval(start, start + ttftMs, finish, "requestedAt", "firstTokenAt", "finishedAt"), pollIds, inputTokens, outputTokens, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: inputTokens + outputTokens, costUsd, pricingSource: "catalog-v1" };
+}
+
+function interval(start, first, finish, startField, firstField, finishField) {
+  const timestamp = value => `2026-07-13T00:00:00.${String(value).padStart(3, "0")}Z`;
+  return { [startField]: timestamp(start), ...(firstField ? { [firstField]: timestamp(first) } : {}), [finishField]: timestamp(finish), durationMs: finish - start };
 }
 
 function poll(attemptId, turnId, responseId, pollId, durationMs) {

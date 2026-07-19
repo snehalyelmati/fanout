@@ -20,7 +20,7 @@ import {
 import { FINAL_VALIDATION_NODE_ID } from "./work-contract-graph.ts";
 
 export const EXECUTION_PROJECTION_SCHEMA = "fanout.execution-run";
-export const EXECUTION_PROJECTION_VERSION = 3;
+export const EXECUTION_PROJECTION_VERSION = 4;
 
 export interface AttemptProjection {
 	allocationSequence: number;
@@ -50,6 +50,8 @@ export interface ExecutionTotals {
 	actions: Record<AttemptOutcome["action"], number>;
 	inputTokens: number;
 	outputTokens: number;
+	cacheReadTokens: number;
+	cacheWriteTokens: number;
 	totalTokens: number;
 	estimatedCostUsd: number;
 	workerDurationMs: number;
@@ -312,6 +314,8 @@ function deriveTotals(state: ExecutionRunProjection): ExecutionTotals {
 		const metrics = deriveAttemptMetricTotals(attempt.outcome.metrics);
 		totals.inputTokens += metrics.inputTokens;
 		totals.outputTokens += metrics.outputTokens;
+		totals.cacheReadTokens += metrics.cacheReadTokens;
+		totals.cacheWriteTokens += metrics.cacheWriteTokens;
 		totals.totalTokens += metrics.totalTokens;
 		totals.estimatedCostUsd += metrics.costUsd;
 		totals.workerDurationMs += attempt.outcome.metrics.workerDurationMs ?? 0;
@@ -333,7 +337,7 @@ function emptyTotals(): ExecutionTotals {
 	return {
 		attempts: 0, attemptKinds: { original: 0, retry: 0, fallback: 0, "validation-repair": 0, "integration-repair": 0 },
 		actions: { accept: 0, retry: 0, fallback: 0, "validation-repair": 0, "integration-repair": 0, fail: 0, abort: 0 },
-		inputTokens: 0, outputTokens: 0, totalTokens: 0, estimatedCostUsd: 0, workerDurationMs: 0, toolDurationMs: 0, pollDurationMs: 0, pollCount: 0,
+		inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, estimatedCostUsd: 0, workerDurationMs: 0, toolDurationMs: 0, pollDurationMs: 0, pollCount: 0,
 		filesChanged: 0, insertions: 0, deletions: 0, finalValidationDurationMs: 0, runDurationMs: 0,
 	};
 }

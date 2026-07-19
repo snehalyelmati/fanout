@@ -70,6 +70,8 @@ ${JSON.stringify(recoveryContext, null, 2)}
 interface AssistantUsage {
 	input?: number;
 	output?: number;
+	cacheRead?: number;
+	cacheWrite?: number;
 	totalTokens?: number;
 	costTotal?: number;
 }
@@ -85,10 +87,14 @@ export function importWorkerMetrics(options: WorkerMetricImportOptions): WorkerM
 	let model: string | undefined;
 	let inputTokens = 0;
 	let outputTokens = 0;
+	let cacheReadTokens = 0;
+	let cacheWriteTokens = 0;
 	let totalTokens = 0;
 	let estimatedCostUsd = 0;
 	let inputComplete = assistantMessages.length > 0;
 	let outputComplete = assistantMessages.length > 0;
+	let cacheReadComplete = assistantMessages.length > 0;
+	let cacheWriteComplete = assistantMessages.length > 0;
 	let totalComplete = assistantMessages.length > 0;
 	let costComplete = assistantMessages.length > 0;
 	const assistantUsage: AssistantUsage[] = [];
@@ -110,13 +116,19 @@ export function importWorkerMetrics(options: WorkerMetricImportOptions): WorkerM
 
 		const input = metricNumber(usage?.input, `${prefix} usage.input`, true, errors);
 		const output = metricNumber(usage?.output, `${prefix} usage.output`, true, errors);
+		const cacheRead = metricNumber(usage?.cacheRead, `${prefix} usage.cacheRead`, true, errors);
+		const cacheWrite = metricNumber(usage?.cacheWrite, `${prefix} usage.cacheWrite`, true, errors);
 		const total = metricNumber(usage?.totalTokens, `${prefix} usage.totalTokens`, true, errors);
 		const costTotal = metricNumber(cost?.total, `${prefix} usage.cost.total`, false, errors);
-		assistantUsage.push({ input, output, totalTokens: total, costTotal });
+		assistantUsage.push({ input, output, cacheRead, cacheWrite, totalTokens: total, costTotal });
 		if (input !== undefined) inputTokens += input;
 		else inputComplete = false;
 		if (output !== undefined) outputTokens += output;
 		else outputComplete = false;
+		if (cacheRead !== undefined) cacheReadTokens += cacheRead;
+		else cacheReadComplete = false;
+		if (cacheWrite !== undefined) cacheWriteTokens += cacheWrite;
+		else cacheWriteComplete = false;
 		if (total !== undefined) totalTokens += total;
 		else totalComplete = false;
 		if (costTotal !== undefined) estimatedCostUsd += costTotal;
@@ -175,6 +187,8 @@ export function importWorkerMetrics(options: WorkerMetricImportOptions): WorkerM
 		...(model ? { model } : {}),
 		...(provenance.usageVerified && inputComplete ? { inputTokens } : {}),
 		...(provenance.usageVerified && outputComplete ? { outputTokens } : {}),
+		...(provenance.usageVerified && cacheReadComplete ? { cacheReadTokens } : {}),
+		...(provenance.usageVerified && cacheWriteComplete ? { cacheWriteTokens } : {}),
 		...(provenance.usageVerified && totalComplete ? { totalTokens } : {}),
 		...(provenance.usageVerified && pricingSource && costComplete ? { estimatedCostUsd } : {}),
 		...(pricingSource ? { pricingSource } : {}),
@@ -190,6 +204,8 @@ export function importWorkerMetrics(options: WorkerMetricImportOptions): WorkerM
 		tier: options.tier,
 		inputTokens,
 		outputTokens,
+		cacheReadTokens,
+		cacheWriteTokens,
 		totalTokens,
 		estimatedCostUsd,
 		pricingSource,
@@ -247,11 +263,13 @@ function providerUsageMatches(event: Record<string, unknown>, expected: Assistan
 	const actual: AssistantUsage = {
 		input: metricNumber(event.usage.input, `provider_end ${index + 1} usage.input`, true, errors),
 		output: metricNumber(event.usage.output, `provider_end ${index + 1} usage.output`, true, errors),
+		cacheRead: metricNumber(event.usage.cacheRead, `provider_end ${index + 1} usage.cacheRead`, true, errors),
+		cacheWrite: metricNumber(event.usage.cacheWrite, `provider_end ${index + 1} usage.cacheWrite`, true, errors),
 		totalTokens: metricNumber(event.usage.totalTokens, `provider_end ${index + 1} usage.totalTokens`, true, errors),
 		costTotal: metricNumber(cost?.total, `provider_end ${index + 1} usage.cost.total`, false, errors),
 	};
 	let matches = true;
-	for (const field of ["input", "output", "totalTokens", "costTotal"] as const) {
+	for (const field of ["input", "output", "cacheRead", "cacheWrite", "totalTokens", "costTotal"] as const) {
 		if (expected[field] === undefined || actual[field] === undefined) {
 			matches = false;
 		} else if (expected[field] !== actual[field]) {

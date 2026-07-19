@@ -145,9 +145,12 @@ export function correlatedWorkerMetrics(attemptId: string, metrics: Pick<WorkerM
 	const turnEnds = observability.filter((record) => record.event === "turn_end" && Number.isSafeInteger(record.turnIndex));
 	const instrumented = metrics.provider === "doubleword" || metrics.provider === "doubleword-stub";
 	const turns = messages.map((record, index) => {
-		const turnIndex = turnEnds[index]?.turnIndex;
+		const turnEnd = turnEnds[index];
+		const turnIndex = turnEnd?.turnIndex;
 		const turnId = `${attemptId}/turn-${String(turnIndex ?? `missing-${index + 1}`)}`;
 		const usage = record.message?.usage ?? {};
+		const turnStart = observability.find((event) => event.event === "turn_start" && event.turnIndex === turnIndex);
+		const firstOutput = observability.find((event) => event.event === "assistant_ttft" && event.turnIndex === turnIndex);
 		const providerEnds = instrumented ? observability.filter((event) => event.event === "provider_end" && event.provider === metrics.provider && event.model === metrics.model && event.turnIndex === turnIndex) : [];
 		const toolCallIds = Array.isArray(record.message?.content)
 			? record.message.content.flatMap((item: Record<string, unknown>) => item?.type === "toolCall" && typeof item.id === "string" ? [item.id] : [])
@@ -159,8 +162,11 @@ export function correlatedWorkerMetrics(attemptId: string, metrics: Pick<WorkerM
 			provider: record.message?.provider,
 			model: record.message?.model,
 			tier: metrics.tier,
+			...timedInterval(turnStart?.ts, firstOutput?.ts, turnEnd?.ts, "requestedAt", "firstOutputAt", "finishedAt"),
 			inputTokens: usage.input,
 			outputTokens: usage.output,
+			cacheReadTokens: usage.cacheRead,
+			cacheWriteTokens: usage.cacheWrite,
 			totalTokens: usage.totalTokens,
 			costUsd: usage.cost?.total,
 			pricingSource: instrumented ? providerEnds[0]?.pricingSource : "pi-json-usage",
@@ -172,6 +178,7 @@ export function correlatedWorkerMetrics(attemptId: string, metrics: Pick<WorkerM
 		if (event.event !== "provider_end" || event.provider !== metrics.provider || event.model !== metrics.model || !Number.isSafeInteger(event.turnIndex) || typeof event.responseId !== "string" || !event.responseId) return [];
 		const turnId = `${attemptId}/turn-${event.turnIndex}`;
 		const ttft = observability.find((candidate) => candidate.event === "provider_ttft" && candidate.provider === event.provider && candidate.model === event.model && candidate.turnIndex === event.turnIndex && candidate.responseId === event.responseId);
+		const start = observability.find((candidate) => candidate.event === "provider_start" && candidate.provider === event.provider && candidate.model === event.model && candidate.turnIndex === event.turnIndex);
 		const polls = observability.filter((candidate) => candidate.event === "async_poll" && candidate.provider === event.provider && candidate.model === event.model && candidate.turnIndex === event.turnIndex && candidate.responseId === event.responseId && Number.isSafeInteger(candidate.pollIndex));
 		return [{
 			attemptId,
@@ -180,10 +187,12 @@ export function correlatedWorkerMetrics(attemptId: string, metrics: Pick<WorkerM
 			provider: event.provider,
 			model: event.model,
 			terminal: "completed",
-			ttftMs: ttft?.ttftMs,
+			...timedInterval(start?.ts, ttft?.ts, event.ts, "requestedAt", "firstTokenAt", "finishedAt"),
 			pollIds: polls.map((poll) => `${event.responseId}/poll-${poll.pollIndex}`),
 			inputTokens: event.usage?.input,
 			outputTokens: event.usage?.output,
+			cacheReadTokens: event.usage?.cacheRead,
+			cacheWriteTokens: event.usage?.cacheWrite,
 			totalTokens: event.usage?.totalTokens,
 			costUsd: event.usage?.cost?.total,
 			pricingSource: event.pricingSource,
@@ -195,7 +204,8 @@ export function correlatedWorkerMetrics(attemptId: string, metrics: Pick<WorkerM
 	}) : [];
 	const tools = observability.flatMap((event) => {
 		if (event.event !== "tool_end" || !Number.isSafeInteger(event.turnIndex) || typeof event.toolCallId !== "string" || !event.toolCallId) return [];
-		return [{ attemptId, turnId: `${attemptId}/turn-${event.turnIndex}`, toolCallId: event.toolCallId, terminal: "completed", durationMs: event.durationMs }];
+		const start = observability.find((candidate) => candidate.event === "tool_start" && candidate.turnIndex === event.turnIndex && candidate.toolCallId === event.toolCallId);
+		return [{ attemptId, turnId: `${attemptId}/turn-${event.turnIndex}`, toolCallId: event.toolCallId, name: event.toolName ?? start?.toolName, terminal: "completed", ...timedInterval(start?.ts, undefined, event.ts, "startedAt", undefined, "finishedAt") }];
 	});
 	const evidence = {
 		attemptId,
@@ -209,6 +219,17 @@ export function correlatedWorkerMetrics(attemptId: string, metrics: Pick<WorkerM
 	};
 	const correlated = correlateAttemptMetrics(evidence);
 	return correlated.metrics ?? correlated.partialMetrics;
+}
+
+function timedInterval(start: unknown, first: unknown, finish: unknown, startField: string, firstField: string | undefined, finishField: string): Record<string, string | number> {
+	if (typeof start !== "string" || typeof finish !== "string" || !Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(finish))) return {};
+	const durationMs = Date.parse(finish) - Date.parse(start);
+	return {
+		[startField]: new Date(start).toISOString(),
+		...(firstField && typeof first === "string" && Number.isFinite(Date.parse(first)) ? { [firstField]: new Date(first).toISOString() } : {}),
+		[finishField]: new Date(finish).toISOString(),
+		durationMs,
+	};
 }
 
 function readJsonLines(path: string): Record<string, any>[] {

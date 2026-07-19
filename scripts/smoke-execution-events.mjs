@@ -48,10 +48,10 @@ const preflightEvidence = {
 };
 
 try {
-  assert(EXECUTION_EVENT_NAMES.join(",") === "run-started,preflight-completed,confirmation-decided,attempt-allocated,attempt-completed,node-completed,final-validation-started,final-validation-completed,run-finished", "execution-event v2 does not expose exactly the nine approved transitions");
+  assert(EXECUTION_EVENT_NAMES.join(",") === "run-started,preflight-completed,confirmation-decided,attempt-allocated,attempt-completed,node-completed,final-validation-started,final-validation-completed,run-finished", "execution-event v3 does not expose exactly the nine approved transitions");
   const legacyTimestamp = allocationFor("legacy-time");
   const legacyMetrics = correlateAttemptMetrics(metricEvidence(legacyTimestamp.allocation.attemptId));
-  assert(completeAttempt(legacyTimestamp.allocation, { state: legacyTimestamp.state, startedAt: "2026-07-13T00:00:00Z", finishedAt: "2026-07-13T00:00:01Z", terminalFact: { stage: "apply", code: "applied" }, fallbackAllowed: false, metrics: legacyMetrics.metrics }).durationMs === 1000, "serialized-event hardening changed the existing completeAttempt timestamp contract");
+  expectThrow(() => completeAttempt(legacyTimestamp.allocation, { state: legacyTimestamp.state, startedAt: "2026-07-13T00:00:00Z", finishedAt: "2026-07-13T00:00:01Z", terminalFact: { stage: "apply", code: "applied" }, fallbackAllowed: false, metrics: legacyMetrics.metrics }), "Attempt v3 producer admitted noncanonical envelope timestamps");
   const dryEvents = [
     event(1, "run-started", { mode: "dry-run", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 2, failFast: false, fallbackAllowed: false } }),
     event(2, "preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }),
@@ -64,11 +64,11 @@ try {
   expectAdmissionError(`${JSON.stringify(dryEvents[0])}\n \t\n${JSON.stringify(dryEvents[1])}\n`, "blank-row", 2);
   expectAdmissionError("{\n", "malformed-json", 1);
   expectAdmissionError(`${JSON.stringify({ ...dryEvents[0], surprise: true })}\n`, "invalid-event", 1);
-  expectAdmissionError(`${JSON.stringify(dryEvents[0])}\n${JSON.stringify({ ...dryEvents[1], version: 1 })}\n`, "invalid-event", 2);
+  expectAdmissionError(`${JSON.stringify(dryEvents[0])}\n${JSON.stringify({ ...dryEvents[1], version: 2 })}\n`, "invalid-event", 2);
   expectAdmissionError("[]\n", "invalid-event", 1);
   expectAdmissionError(`${JSON.stringify(dryEvents[0])}\n${JSON.stringify({ ...dryEvents[1], sequence: 3 })}\n`, "invalid-log", 2);
   const dry = replayExecutionEvents(dryEvents);
-  assert(dry.version === 3, "execution projection did not advance to v3");
+  assert(dry.version === 4, "execution projection did not advance to v4");
   assert(dry.preflightEvidence.validationCommands[0].manifest.args[0] === "validate", "projection discarded strict preflight evidence");
   assert(dry.mode === "dry-run" && dry.terminalOutcome?.outcome === "dry-run-completed", "A14 lost the explicit dry-run outcome");
   assert(dry.finalValidation.disposition === "not-run" && dry.finalValidation.reason === "dry-run", "A14 inferred final validation from absence");
@@ -103,7 +103,8 @@ try {
   ]), "controller cause contradicted the current phase");
 
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], surprise: true }), "unknown event field was admitted");
-  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], version: 1 }), "legacy execution event v1 was admitted");
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], version: 2 }), "legacy execution event v2 was admitted");
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], version: 4 }), "future execution event v4 was admitted");
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, mode: "preview" } }), "unknown run mode was admitted");
   const { fallbackAllowed: _fallbackAllowed, ...incompletePolicy } = dryEvents[0].payload.policy;
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, policy: incompletePolicy } }), "run-started admitted an incomplete immutable runtime policy");
@@ -153,6 +154,7 @@ try {
   expectThrow(() => reduceExecutionEvent(dry, dryEvents[2]), "event after terminal outcome was admitted");
 
   const { allocation, outcome } = acceptedOutcome();
+  expectThrow(() => parseExecutionEvent(event(5, "attempt-completed", { outcome: { ...outcome, version: 2 }, acceptedTransition: patch })), "event v3 admitted an Attempt Outcome v2 payload");
   const liveEvents = [
     event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: true, fallbackAllowed: false } }),
     event(2, "preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }),
@@ -196,8 +198,8 @@ try {
   const finalRepairMetrics = correlateAttemptMetrics(metricEvidence(finalRepairLaunch.allocation.attemptId));
   const finalRepairOutcome = completeAttempt(finalRepairLaunch.allocation, {
     state: finalRepairLaunch.state,
-    startedAt: "2026-07-13T00:00:00.008Z",
-    finishedAt: "2026-07-13T00:00:00.009Z",
+    startedAt: "2026-07-13T00:00:00.000Z",
+    finishedAt: "2026-07-13T00:00:00.001Z",
     terminalFact: { stage: "apply", code: "applied" },
     fallbackAllowed: true,
     metrics: finalRepairMetrics.metrics,
@@ -347,7 +349,7 @@ try {
 
 function event(sequence, name, payload) {
   if (name === "run-started") payload = startedPayload(payload);
-  return { schema: "fanout.execution-event", version: 2, runId: "run", sequence, occurredAt: `2026-07-13T00:00:00.${String(sequence).padStart(3, "0")}Z`, event: name, payload };
+  return { schema: "fanout.execution-event", version: 3, runId: "run", sequence, occurredAt: `2026-07-13T00:00:00.${String(sequence).padStart(3, "0")}Z`, event: name, payload };
 }
 
 function startedPayload(payload) {
@@ -427,7 +429,7 @@ function metricEvidence(attemptId) {
   return {
     attemptId,
     compatibility: "generic",
-    turns: [{ attemptId, turnId: "turn-1", terminal: "completed", provider: "test", model: "worker", tier: "tier1", inputTokens: 1, outputTokens: 2, totalTokens: 3, costUsd: 0.01, pricingSource: "test", responseIds: [], toolCallIds: [] }],
+    turns: [{ attemptId, turnId: "turn-1", terminal: "completed", provider: "test", model: "worker", tier: "tier1", requestedAt: "2026-07-13T00:00:00.000Z", firstOutputAt: "2026-07-13T00:00:00.000Z", finishedAt: "2026-07-13T00:00:00.001Z", durationMs: 1, inputTokens: 1, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 3, costUsd: 0.01, pricingSource: "test", responseIds: [], toolCallIds: [] }],
     responses: [],
     polls: [],
     tools: [],

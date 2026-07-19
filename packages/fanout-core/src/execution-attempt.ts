@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { parseArtifactIdentity, type ArtifactIdentity } from "./artifact-identity.ts";
-import { correlateAttemptMetrics, isCorrelatedAttemptMetrics, type CorrelatedAttemptMetrics } from "./attempt-metrics.ts";
+import { correlateAttemptMetrics, isCorrelatedAttemptMetrics, validateAttemptMetricEnvelope, type CorrelatedAttemptMetrics } from "./attempt-metrics.ts";
 import {
 	canonicalTimestamp,
 	contractIdentity as requiredIdentity,
@@ -15,7 +15,7 @@ import {
 import { parseAttemptRecoveryContext, type AttemptRecoveryContext } from "./recovery-evidence.ts";
 
 export const ATTEMPT_OUTCOME_SCHEMA = "fanout.attempt-outcome";
-export const ATTEMPT_OUTCOME_VERSION = 2;
+export const ATTEMPT_OUTCOME_VERSION = 3;
 
 export type AttemptKind = "original" | "retry" | "fallback" | "validation-repair" | "integration-repair";
 export type ControllerAction = "accept" | "retry" | "fallback" | "validation-repair" | "integration-repair" | "fail" | "abort";
@@ -209,13 +209,14 @@ export function prepareAttemptCompletion(allocation: AttemptAllocation, input: C
 	validateNodeState(input.state);
 	if (input.state.allocations.at(-1) !== allocation) throw new Error("attempt must complete against its current node allocation state");
 	const terminalFact = parseStageFact(input.terminalFact);
-	const startedAt = timestamp(input.startedAt, "startedAt");
-	const finishedAt = timestamp(input.finishedAt, "finishedAt");
+	const startedAt = canonicalTimestamp(input.startedAt, "startedAt");
+	const finishedAt = canonicalTimestamp(input.finishedAt, "finishedAt");
 	const durationMs = Date.parse(finishedAt) - Date.parse(startedAt);
 	if (durationMs < 0) throw new Error("finishedAt cannot precede startedAt");
 	const action = routeAttempt(terminalFact, { kind: allocation.kind, assignment: allocation.assignment, fallbackAllowed: input.fallbackAllowed, remaining: remainingAttemptBudgets(input.state) });
 	if (input.metrics.attemptId !== allocation.attemptId) throw new Error(`metrics attempt ${input.metrics.attemptId} does not match allocation ${allocation.attemptId}`);
 	if (!isCorrelatedAttemptMetrics(input.metrics)) throw new Error("attempt metrics were not produced by the correlation gate");
+	validateAttemptMetricEnvelope(input.metrics, startedAt, finishedAt);
 	if (input.metrics.turns.some((turn) => turn.provider !== allocation.assignment.provider || turn.model !== allocation.assignment.model || turn.tier !== allocation.assignment.tier)) throw new Error("metric turn assignment does not match attempt allocation");
 	if (action === "accept" && !input.metrics.complete) throw new Error("accepted attempt requires complete correlated metrics");
 	const recovery = input.recovery ? parseAttemptRecoveryContext(input.recovery) : undefined;
@@ -330,6 +331,7 @@ export function parseAttemptOutcome(value: unknown): AttemptOutcome {
 	delete parsedWithoutComplete.complete;
 	if (!parsedMetrics || typeof serializedMetrics.complete !== "boolean" || serializedMetrics.complete && !correlated.ok || !isDeepStrictEqual(serializedWithoutComplete, parsedWithoutComplete)) throw new TypeError("attempt metrics are not a canonical correlated record");
 	const metrics: CorrelatedAttemptMetrics = serializedMetrics.complete ? parsedMetrics : deepFreeze({ ...parsedMetrics, complete: false });
+	validateAttemptMetricEnvelope(metrics, startedAt, finishedAt);
 	const action = item.action as ControllerAction;
 	if (!["accept", "retry", "fallback", "validation-repair", "integration-repair", "fail", "abort"].includes(String(action))) throw new TypeError("attempt action is invalid");
 	const evidenceRefs = identityArray(item.evidenceRefs, "evidenceRefs");
@@ -487,11 +489,6 @@ function validateAllocationSequence(state: NodeAttemptState, input: { kind: Atte
 
 function sameAssignment(left: AttemptAssignment, right: AttemptAssignment): boolean {
 	return left.tier === right.tier && left.provider === right.provider && left.model === right.model;
-}
-
-function timestamp(value: string, path: string): string {
-	if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) throw new TypeError(`${path} must be an ISO timestamp`);
-	return value;
 }
 
 function identityArray(value: unknown, path: string): string[] {
