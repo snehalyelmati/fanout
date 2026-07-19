@@ -12,6 +12,7 @@
     "./execution-packet": "./src/execution-packet.ts",
     "./execution-attempt": "./src/execution-attempt.ts",
     "./execution-event": "./src/execution-event.ts",
+    "./execution-event-log": "./src/execution-event-log.ts",
     "./execution-projection": "./src/execution-projection.ts",
     "./execution-report": "./src/execution-report.ts",
     "./execution-run": "./src/execution-run.ts",
