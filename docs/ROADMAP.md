@@ -360,7 +360,7 @@ After stubs, traces, and RPE routing policies:
 
 ## Track 9: Offline Fanout run profiler
 
-Status: the decision map [Design an offline Fanout run profiler](https://github.com/snehalyelmati/fanout/issues/35) is in progress. The read model, explorer workflow, comparison/observation rules, and fixed-behavior scenario contract are resolved; local application architecture, export, and validation/spec handoff remain open.
+Status: the decision map [Design an offline Fanout run profiler](https://github.com/snehalyelmati/fanout/issues/35) is in progress. The read model, explorer workflow, comparison/observation rules, fixed-behavior scenario contract, and local application architecture are resolved; export and validation/spec handoff remain open. The approved application boundary is one private Bun-powered `fanout-profiler` workspace package depending only on `fanout-core`, with an explicit artifact root, immutable manual-refresh catalog, lazy large-evidence streaming, and a vanilla local web workspace.
 
 Order:
 

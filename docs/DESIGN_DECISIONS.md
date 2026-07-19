@@ -2,6 +2,12 @@
 
 ## 2026-07-19
 
+### Add one private Bun profiler package
+
+Decision: Add a private, repo-local `fanout-profiler` workspace package that depends only on `fanout-core`. It runs as one `Bun.serve` process bound to an explicit artifact root and `127.0.0.1`, builds atomically refreshed immutable in-memory catalogs, lazily streams large supporting evidence, and serves a vanilla HTML/CSS/ES-module workspace through a fixed bounded HTTP interface. Core retains artifact parsing, graph derivation, metric correlation, and authoritative event replay; the profiler owns read-only lineage relationships, receipts, comparisons, observations, and scenarios. This supersedes the three-package limit only for this concrete application; it does not add a generic CLI framework, publication path, database, frontend framework, or Pi/Doubleword coupling.
+
+Reason: The profiler is now a concrete product boundary rather than speculative adapter infrastructure. A dedicated package keeps filesystem, HTTP, and presentation concerns out of `fanout-core` and avoids false `fanout-pi` coupling while preserving the existing provider/core/Pi dependency directions. Bun and native browser facilities provide the smallest offline implementation without new production dependencies. See [Choose the minimal local web-app architecture](https://github.com/snehalyelmati/fanout/issues/42).
+
 ### Cut profiling evidence forward without compatibility
 
 Decision: The next coordinated executable generation keeps implementation plan v2, implementation details v4, execution packet v6, active pointer v2, embedded work contract v2, and final-validation evidence v1, while cutting Attempt outcomes to v3, execution events to v3, and execution projections to v4. Correlated metrics must record exact Worker Turn request/first-output/finish intervals, Provider Response request/first-token/finish intervals, Tool Invocation names and intervals, and cache-read/cache-write usage. The cutover is atomic and fail-closed; event-v2/projection-v3 and earlier artifacts become legacy descriptive evidence without replay, migration, or compatibility adapters.
