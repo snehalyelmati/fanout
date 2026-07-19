@@ -2,6 +2,12 @@
 
 ## 2026-07-19
 
+### Omit profiler exports from v1
+
+Decision: V1 has no profiler export endpoint, browser download action, export schema, persisted report, or Counterfactual Scenario serialization. The read-only UI presents profiler-derived views, while Source References and evidence inspection lead back to authoritative Fanout artifacts. Any later export requires a concrete sharing, archival, or machine-consumption need and must remain a user-invoked derived view that Fanout never admits as execution authority.
+
+Reason: Without a concrete consumer, Markdown or JSON exports would duplicate the UI, create a de facto profiler contract, and risk being mistaken for durable artifacts. See [Define the profiler export contract](https://github.com/snehalyelmati/fanout/issues/45).
+
 ### Add one private Bun profiler package
 
 Decision: Add a private, repo-local `fanout-profiler` workspace package that depends only on `fanout-core`. It runs as one `Bun.serve` process bound to an explicit artifact root and `127.0.0.1`, builds atomically refreshed immutable in-memory catalogs, lazily streams large supporting evidence, and serves a vanilla HTML/CSS/ES-module workspace through a fixed bounded HTTP interface. Core retains artifact parsing, graph derivation, metric correlation, and authoritative event replay; the profiler owns read-only lineage relationships, receipts, comparisons, observations, and scenarios. This supersedes the three-package limit only for this concrete application; it does not add a generic CLI framework, publication path, database, frontend framework, or Pi/Doubleword coupling.
