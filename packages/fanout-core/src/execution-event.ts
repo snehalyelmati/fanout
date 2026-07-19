@@ -14,7 +14,7 @@ import { FIXED_WORKER_CAPABILITIES } from "./work-contract.ts";
 import { FINAL_VALIDATION_NODE_ID } from "./work-contract-graph.ts";
 
 export const EXECUTION_EVENT_SCHEMA = "fanout.execution-event";
-export const EXECUTION_EVENT_VERSION = 2;
+export const EXECUTION_EVENT_VERSION = 3;
 export const EXECUTION_EVENT_NAMES = ["run-started", "preflight-completed", "confirmation-decided", "attempt-allocated", "attempt-completed", "node-completed", "final-validation-started", "final-validation-completed", "run-finished"] as const;
 
 export type ExecutionEventName = (typeof EXECUTION_EVENT_NAMES)[number];

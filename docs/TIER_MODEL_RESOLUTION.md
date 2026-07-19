@@ -58,7 +58,7 @@ Packet-global runtime policy fixes `maxConcurrency`, `failFast`, and whether typ
 2. A typed transient Tier 2 failure may consume one clean retry.
 3. Exhausted retryable Tier 2 work may consume one realtime attempt with the packet's concrete fallback role when permitted.
 4. Typed validation and integration repair use Tier 1 and their fixed two-launch pools.
-5. Record every allocation and terminal outcome in event v2; diagnostic text never changes routing.
+5. Record every allocation and terminal Attempt Outcome v3 in event v3; diagnostic text never changes routing.
 
 Generic-provider acceptance requires complete correlated Pi usage. Instrumented Doubleword attempts additionally require matching provider response/poll/usage/pricing evidence. Provider availability is not a reason to mutate packet routing for other nodes.
 

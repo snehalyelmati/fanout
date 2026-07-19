@@ -22,7 +22,7 @@ export function renderExecutionReport(projection: ExecutionRunProjection): strin
 		"## Totals",
 		"",
 		`- Attempts: ${projection.totals.attempts}`,
-		`- Tokens: ${projection.totals.totalTokens} (${projection.totals.inputTokens} in / ${projection.totals.outputTokens} out)`,
+		`- Tokens: ${projection.totals.totalTokens} (${projection.totals.inputTokens} in / ${projection.totals.outputTokens} out / ${projection.totals.cacheReadTokens} cache read / ${projection.totals.cacheWriteTokens} cache write)`,
 		`- Estimated cost: $${projection.totals.estimatedCostUsd.toFixed(6)}`,
 		`- Worker/tool/poll time: ${number(projection.totals.workerDurationMs)} / ${number(projection.totals.toolDurationMs)} / ${number(projection.totals.pollDurationMs)} ms`,
 		`- Accepted patch: ${projection.totals.filesChanged} files, +${projection.totals.insertions}/-${projection.totals.deletions}`,
