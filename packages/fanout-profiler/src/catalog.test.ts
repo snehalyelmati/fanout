@@ -2,6 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { artifactIdentity } from "../../fanout-core/src/artifact-identity";
+import { compileExecutionPacket } from "../../fanout-core/src/fanout-compiler";
 import { ProfilerCatalog } from "./catalog";
 
 const roots: string[] = [];
@@ -49,6 +51,57 @@ function event(runId: string, occurredAt: string, version = 3): Record<string, u
 	return { schema: "fanout.execution-event", version, runId, sequence: 1, occurredAt, event: "run-started", payload: {} };
 }
 
+function currentLineage(artifactRoot: string, id = "packet"): { packetIdentity: ReturnType<typeof artifactIdentity>; started: (runId: string, occurredAt: string) => Record<string, unknown> } {
+	mkdirSync(join(artifactRoot, id), { recursive: true });
+	const planValue = plan(id);
+	const planBytes = Buffer.from(`${JSON.stringify(planValue)}\n`);
+	writeFileSync(join(artifactRoot, id, "implementation-plan.json"), planBytes);
+	const planIdentity = artifactIdentity("implementation-plan.json", planBytes);
+	const command = { executable: "node", args: ["--version"] };
+	const details = {
+		schema: "fanout.implementation-details", version: 4, detailsId: id, createdAt: "2026-07-19T00:01:00.000Z", plan: planIdentity,
+		candidateNormalizationCommands: [],
+		items: [{ id: "work", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "src/work.ts" }, sourcePlanIds: ["work"] }, contentIntent: "work" }], readDependencies: [], forbiddenWrites: [], validationCommands: [command], advisoryNotes: [] }],
+		finalValidationCommands: [command],
+	};
+	const detailsBytes = Buffer.from(`${JSON.stringify(details)}\n`);
+	writeFileSync(join(artifactRoot, id, "implementation-details.json"), detailsBytes);
+	const summary = { provider: "test", model: "model", thinking: "off", source: "fixture", status: "available" as const, reason: "fixture" };
+	const compiled = compileExecutionPacket({
+		implementationPlan: planValue, implementationDetails: details,
+		planIdentity, detailsIdentity: artifactIdentity("implementation-details.json", detailsBytes),
+		tierPlan: { tier1: summary, tier2: { ...summary, status: "unavailable" as const, fallback: "tier1" as const }, tier2Fallback: summary },
+		runtimePolicy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false }, createdAt: "2026-07-19T00:02:00.000Z",
+	});
+	if (!compiled.packet) throw new Error(compiled.errors.join("; "));
+	const packetBytes = Buffer.from(`${JSON.stringify(compiled.packet)}\n`);
+	writeFileSync(join(artifactRoot, id, "execution-packet.json"), packetBytes);
+	const packetIdentity = artifactIdentity(`${id}/execution-packet.json`, packetBytes);
+	const evidence = {
+		planningCommit: { expected: "1".repeat(40), actual: "1".repeat(40), status: "matched" },
+		repositoryTree: { expected: "1".repeat(40), actual: "1".repeat(40), status: "matched" },
+		platform: { expected: process.platform, actual: process.platform, status: "matched" },
+		worker: {
+			extension: { requested: "packages/fanout-pi/src/index.ts", resolved: "/repo/packages/fanout-pi/src/index.ts", status: "available" },
+			launcher: { executable: process.execPath, args: ["--version"], resolvedExecutable: process.execPath, resolvedCwd: "/repo", version: process.version, status: "available" },
+			modelCallableTools: ["read", "grep", "find", "ls", "edit", "write"],
+		},
+		commandCounts: { candidateNormalization: [0, 0], validation: [1, 1] },
+		candidateNormalizationCommands: [],
+		validationCommands: [0, 1].map((packetNodeIndex) => ({
+			packetNodeIndex, nodeId: packetNodeIndex ? "final-validation" : "work", commandIndex: 0,
+			manifest: { ...command, cwd: null }, resolution: { status: "available", resolvedExecutable: process.execPath, resolvedCwd: "/repo" },
+		})),
+	};
+	return {
+		packetIdentity,
+		started: (runId, occurredAt) => ({
+			schema: "fanout.execution-event", version: 3, runId, sequence: 1, occurredAt, event: "run-started",
+			payload: { mode: "dry-run", packet: packetIdentity, planningBaseTree: "1".repeat(40), nodeIds: ["work"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false }, preflightEvidence: evidence },
+		}),
+	};
+}
+
 test("catalog narrowly discovers planning, legacy, invalid, and unverifiable evidence", async () => {
 	const artifactRoot = root();
 	const planningPath = join(artifactRoot, "planning-only", "implementation-plan.json");
@@ -58,7 +111,7 @@ test("catalog narrowly discovers planning, legacy, invalid, and unverifiable evi
 	write(join(artifactRoot, "invalid", "implementation-plan.json"), "{");
 	write(join(artifactRoot, "invalid", "implementation-details.json"), { schema: "fanout.implementation-details", version: 3 });
 	write(join(artifactRoot, "projection-only", "executions", "run-projection", "execution-run.json"), {
-		schema: "fanout.execution-run", version: 4, runId: "run-projection", startedAt: "2026-07-20T00:00:00.000Z",
+		schema: "fanout.execution-run", version: 4, runId: "run-projection", startedAt: "2026-07-20T00:00:00.000Z", updatedAt: "2026-07-21T00:00:00.000Z",
 	});
 	write(join(artifactRoot, "legacy-run", "executions", "run-v2", "events.jsonl"), event("run-v2", "2026-07-18T00:00:00.000Z", 2));
 	write(join(artifactRoot, "unknown.json"), { schema: "not-fanout" });
@@ -84,6 +137,7 @@ test("catalog narrowly discovers planning, legacy, invalid, and unverifiable evi
 		["run-projection", "Unverifiable"],
 		["run-v2", "Legacy"],
 	]);
+	expect(snapshot.executionRuns[0]?.updatedAt).toBe("2026-07-21T00:00:00.000Z");
 	expect(JSON.stringify(snapshot)).not.toContain("unknown.json");
 	expect(JSON.stringify(snapshot)).not.toContain("random/nested");
 	expect(snapshot.activePointer?.admission).toBe("Current");
@@ -170,4 +224,61 @@ test("special-file evidence is rejected without blocking catalog refresh", () =>
 	expect(catalog.snapshot().supportingEvidence).toEqual([
 		expect.objectContaining({ id: "session-fifo", admission: "Invalid", source: null }),
 	]);
+});
+
+test("current Event Logs replay through core and override replaceable views", () => {
+	const artifactRoot = root();
+	const lineage = currentLineage(artifactRoot);
+	const started = lineage.started("run-current", "2026-07-20T00:00:00.000Z");
+	const preflight = { ...started, sequence: 2, occurredAt: "2026-07-20T00:00:00.001Z", event: "preflight-completed", payload: { status: "passed", planningBaseTree: "1".repeat(40), repositoryTree: "1".repeat(40), issues: [] } };
+	const finished = { ...started, sequence: 3, occurredAt: "2026-07-20T00:00:00.002Z", event: "run-finished", payload: { outcome: "dry-run-completed", durationMs: 2, cause: { kind: "event", eventSequence: 2, code: "dry-run" } } };
+	write(join(artifactRoot, "packet", "executions", "run-current", "events.jsonl"), `${[started, preflight, finished].map(JSON.stringify).join("\n")}\n`);
+	write(join(artifactRoot, "packet", "executions", "run-current", "execution-run.json"), { schema: "fanout.execution-run", version: 4, runId: "stale", startedAt: "2000-01-01T00:00:00.000Z" });
+	write(join(artifactRoot, "packet", "executions", "run-current", "summary.md"), "stale report\n");
+
+	const before = readFileSync(join(artifactRoot, "packet", "executions", "run-current", "execution-run.json"));
+	const snapshot = new ProfilerCatalog(artifactRoot).snapshot();
+	const run = snapshot.executionRuns[0]!;
+	expect(run.admission).toBe("Current");
+	expect(run.label).toBe("dry-run-completed");
+	expect(run.projection?.runId).toBe("run-current");
+	expect(run.projection?.terminalOutcome?.outcome).toBe("dry-run-completed");
+	expect(snapshot.lineages).toHaveLength(1);
+	expect(snapshot.lineages[0]?.packet?.schema).toBe("fanout.execution-packet");
+	expect(snapshot.lineages[0]?.graph?.edges).toEqual([["work", "final-validation"]]);
+	expect(snapshot.lineages[0]?.executionRuns[0]).toBe(run);
+	expect(readFileSync(join(artifactRoot, "packet", "executions", "run-current", "execution-run.json"))).toEqual(before);
+});
+
+test("catalog keeps nonterminal and rejected Event Log evidence honest and newest-first", () => {
+	const artifactRoot = root();
+	const lineage = currentLineage(artifactRoot);
+	const current = lineage.started("run-open", "2026-07-20T00:00:00.000Z");
+	write(join(artifactRoot, "packet", "executions", "run-open", "events.jsonl"), `${JSON.stringify(current)}\n`);
+	write(join(artifactRoot, "packet", "executions", "run-gap", "events.jsonl"), `${JSON.stringify({ ...current, runId: "run-gap", occurredAt: "2026-07-19T00:00:00.000Z" })}\n${JSON.stringify({ ...current, runId: "run-gap", sequence: 3, occurredAt: "2026-07-19T00:00:00.001Z", event: "preflight-completed" })}\n`);
+	write(join(artifactRoot, "packet", "executions", "run-mixed", "events.jsonl"), `${JSON.stringify({ ...current, runId: "run-mixed", occurredAt: "2026-07-18T00:00:00.000Z" })}\n${JSON.stringify({ ...current, runId: "run-mixed", version: 2, sequence: 2 })}\n`);
+	write(join(artifactRoot, "packet", "executions", "run-identity", "events.jsonl"), `${JSON.stringify({ ...current, runId: "other", occurredAt: "2026-07-17T00:00:00.000Z" })}\n`);
+	write(join(artifactRoot, "packet", "executions", "run-future", "events.jsonl"), event("run-future", "2026-07-16T00:00:00.000Z", 4));
+	const legacy = event("run-legacy", "2026-07-15T00:00:00.000Z", 2);
+	write(join(artifactRoot, "packet", "executions", "run-legacy", "events.jsonl"), `${JSON.stringify(legacy)}\n${JSON.stringify({ ...legacy, sequence: 2, occurredAt: "2026-07-15T00:00:00.001Z", event: "preflight-completed" })}\n`);
+	const mismatched = lineage.started("run-packet-mismatch", "2026-07-14T00:00:00.000Z");
+	(mismatched.payload as Record<string, unknown>).packet = { ...lineage.packetIdentity, sha256: "f".repeat(64) };
+	write(join(artifactRoot, "packet", "executions", "run-packet-mismatch", "events.jsonl"), `${JSON.stringify(mismatched)}\n`);
+	const reverseMixed = { ...lineage.started("run-reverse-mixed", "2026-07-13T00:00:00.000Z"), version: 2 };
+	write(join(artifactRoot, "packet", "executions", "run-reverse-mixed", "events.jsonl"), `${JSON.stringify(reverseMixed)}\n${JSON.stringify({ ...reverseMixed, version: 3, sequence: 2, occurredAt: "2026-07-13T00:00:00.001Z" })}\n`);
+
+	const runs = new ProfilerCatalog(artifactRoot).snapshot().executionRuns;
+	expect(runs.map(({ id }) => id)).toEqual(["run-open", "run-gap", "run-mixed", "run-identity", "run-future", "run-legacy", "run-packet-mismatch", "run-reverse-mixed"]);
+	expect(runs.map(({ admission, label }) => [admission, label])).toEqual([
+		["Current", "Last admitted: run-started at 2026-07-20T00:00:00.000Z"],
+		["Invalid", "Invalid"],
+		["Invalid", "Invalid"],
+		["Invalid", "Invalid"],
+		["Unverifiable", "Unverifiable"],
+		["Legacy", "Legacy"],
+		["Unverifiable", "Unverifiable"],
+		["Invalid", "Invalid"],
+	]);
+	expect(runs.slice(1).every(({ projection }) => projection === null)).toBe(true);
+	expect(runs.find(({ id }) => id === "run-legacy")?.updatedAt).toBe("2026-07-15T00:00:00.001Z");
 });
