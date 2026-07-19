@@ -47,8 +47,8 @@ test("local profiler exposes only the bounded same-origin HTTP shell", async () 
 	expect(page.status).toBe(200);
 	expect(page.headers.get("content-security-policy")).toContain("default-src 'self'");
 	expect(page.headers.has("access-control-allow-origin")).toBe(false);
-	expect(await page.text()).toMatch(/<header[\s>].*Packet DAG.*Recent Runs.*Trace Evidence.*Same-packet comparison.*Inspector.*<footer[\s>]/s);
-	expect(await (await fetch(`${url}/assets/app.js`)).text()).toContain("omittedMetrics");
+	expect(await page.text()).toMatch(/<header[\s>].*Packet DAG.*Recent Runs.*Trace Evidence.*Run and cross-packet Node comparison.*Comparison Node A.*Comparison Node B.*Inspector.*<footer[\s>]/s);
+	expect(await (await fetch(`${url}/assets/app.js`)).text()).toContain("nodePair");
 
 	const catalog = await fetch(`${url}/api/catalog`);
 	expect(catalog.status).toBe(200);
@@ -64,6 +64,10 @@ test("local profiler exposes only the bounded same-origin HTTP shell", async () 
 	expect(comparison.status).toBe(200);
 	expect(await comparison.json()).toMatchObject({ pair: null, cohorts: [] });
 	expect((await fetch(`${url}/api/comparison`, { method: "POST", headers: { "content-type": "application/json", origin: url }, body: JSON.stringify({ runAId: "missing" }) })).status).toBe(400);
+	const nodeComparison = await fetch(`${url}/api/comparison`, { method: "POST", headers: { "content-type": "application/json", origin: url }, body: JSON.stringify({ runAId: "packet/executions/run-projection", runBId: "packet/executions/run-projection", nodeAId: "a", nodeBId: "b" }) });
+	expect(nodeComparison.status).toBe(400);
+	expect(await nodeComparison.json()).toEqual({ error: "Node comparison requires two admitted packets and replayed runs" });
+	expect((await fetch(`${url}/api/comparison`, { method: "POST", headers: { "content-type": "application/json", origin: url }, body: JSON.stringify({ runAId: "packet/executions/run-projection", runBId: "packet/executions/run-projection", nodeAId: "a" }) })).status).toBe(400);
 	expect((await fetch(`${url}/api/scenario`, { method: "POST", headers: { "content-type": "application/json", origin: url }, body: "{}" })).status).toBe(501);
 
 	expect((await fetch(`${url}/api/evidence?path=/etc/passwd`)).status).toBe(400);

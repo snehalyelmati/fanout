@@ -1,9 +1,13 @@
+import { createHash } from "node:crypto";
+import { deriveAttemptMetricTotals } from "../../fanout-core/src/attempt-metrics";
 import { deepFreeze } from "../../fanout-core/src/contract-value";
 import type { ExecutionRunProjection } from "../../fanout-core/src/execution-projection";
+import type { FanoutExecutionPacket } from "../../fanout-core/src/execution-packet";
+import { validateWorkContract } from "../../fanout-core/src/work-contract";
 import { sameArtifact, type CatalogExecutionRun, type CatalogSnapshot, type CatalogWorkflowLineage, type SourceReference } from "./catalog";
 import { createEvidenceReceipt, executionArtifactGeneration, type EvidenceClass } from "./workspace";
 
-export interface ComparisonRequest { runAId: string; runBId?: string }
+export interface ComparisonRequest { runAId: string; runBId?: string; nodeAId?: string; nodeBId?: string }
 
 interface ReadinessQueue {
 	complete: boolean;
@@ -77,8 +81,107 @@ export function queryComparison(snapshot: CatalogSnapshot, request: ComparisonRe
 		generation: snapshot.generation,
 		planningRunId: runA.planningRunId,
 		pair: request.runBId ? comparePair(snapshot, runA, selectRun(snapshot, request.runBId)) : null,
+		nodePair: request.runBId && request.nodeAId && request.nodeBId ? compareNodes(snapshot, runA, selectRun(snapshot, request.runBId), request.nodeAId, request.nodeBId) : null,
 		cohorts: cohortViews(snapshot, runA, exactPacketRuns),
 	});
+}
+
+const DIFFERENT_WORK_WARNING = "Different work; this delta is descriptive, not a performance or causal claim.";
+const NODE_METRICS = [
+	["attempt-envelope-duration", "Attempt envelopes", "attemptEnvelopeDurationMs", "ms"], ["attempts", "Attempts", "attempts", "attempts"],
+	["input-tokens", "Input tokens", "inputTokens", "tokens"], ["output-tokens", "Output tokens", "outputTokens", "tokens"], ["cache-read-tokens", "Cache-read tokens", "cacheReadTokens", "tokens"], ["cache-write-tokens", "Cache-write tokens", "cacheWriteTokens", "tokens"], ["tokens", "Tokens", "totalTokens", "tokens"],
+	["estimated-cost", "Estimated cost", "estimatedCostUsd", "USD"], ["worker-duration", "Worker duration", "workerDurationMs", "ms"], ["provider-duration", "Provider duration", "providerDurationMs", "ms"], ["tool-duration", "Tool duration", "toolDurationMs", "ms"], ["poll-duration", "Poll duration", "pollDurationMs", "ms"], ["poll-count", "Poll count", "pollCount", "polls"],
+	["files-changed", "Files changed", "filesChanged", "files"], ["insertions", "Insertions", "insertions", "lines"], ["deletions", "Deletions", "deletions", "lines"],
+] as const;
+
+function compareNodes(snapshot: CatalogSnapshot, runA: CatalogExecutionRun, runB: CatalogExecutionRun, nodeAId: string, nodeBId: string): Record<string, any> {
+	const contextA = contextFor(snapshot, runA);
+	const contextB = contextFor(snapshot, runB);
+	const packetA = contextA?.lineage?.packet;
+	const packetB = contextB?.lineage?.packet;
+	if (!contextA || !contextB || !packetA || !packetB) throw new TypeError("Node comparison requires two admitted packets and replayed runs");
+	const nodeA = packetA.nodes.find(({ id }) => id === nodeAId);
+	const nodeB = packetB.nodes.find(({ id }) => id === nodeBId);
+	if (!nodeA || !nodeB) throw new TypeError("comparison Node is not in its selected Execution Packet");
+	const values = { runA: nodeTotals(contextA, nodeAId), runB: nodeTotals(contextB, nodeBId) };
+	const sources = comparisonSources(snapshot, [runA, runB]);
+	const reason = alignmentReason(packetA, packetB, nodeA.workContract, nodeB.workContract);
+	const limitations = ["The transient SHA-256 comparison key is not an Artifact Identity"];
+	const totals = NODE_METRICS.map(([id, label, field, unit]) => {
+		const a = values.runA[field]; const b = values.runB[field];
+		const missingInputs = [...(a === null ? [`Run A ${label}`] : []), ...(b === null ? [`Run B ${label}`] : [])];
+		const evidenceClass: EvidenceClass = reason !== null ? "Heterogeneous" : missingInputs.length ? "Partial" : "Derived";
+		return { id, label, unit, runA: a, runB: b, receipt: createEvidenceReceipt(evidenceClass, `${label}: raw descriptive totals for the two selected Nodes`, sources, missingInputs, [reason ?? "Exact Node alignment"], [...limitations, ...(reason === null ? [] : [DIFFERENT_WORK_WARNING])]) };
+	});
+	if (reason !== null) return {
+		status: "unaligned", runAId: runA.selectionId, runBId: runB.selectionId, nodeAId, nodeBId, reason, warning: DIFFERENT_WORK_WARNING,
+		nodes: { runA: { nodeId: nodeAId, status: values.runA.status }, runB: { nodeId: nodeBId, status: values.runB.status } }, totals, deltas: [], omittedMetrics: [],
+		receipt: createEvidenceReceipt("Heterogeneous", reason, sources, [], ["Exact Planning Base and unique canonical Work Contract equality are required"], [...limitations, "No calculated delta or Diagnostic Observation was produced"]),
+	};
+	const comparable = runA.admission === "Current" && runB.admission === "Current" && contextA.projection.mode === "live" && contextB.projection.mode === "live"
+		&& contextA.projection.terminalOutcome?.outcome === "completed" && contextB.projection.terminalOutcome?.outcome === "completed"
+		&& contextA.projection.nodes.find(({ id }) => id === nodeAId)?.status === "succeeded" && contextB.projection.nodes.find(({ id }) => id === nodeBId)?.status === "succeeded"
+		&& completeNodeEvidence(contextA, nodeAId) && completeNodeEvidence(contextB, nodeBId);
+	const omittedMetrics = NODE_METRICS.flatMap(([id, , field]) => !comparable || values.runA[field] === null || values.runB[field] === null ? [id] : []);
+	const deltas = NODE_METRICS.flatMap(([id, label, field, unit]) => {
+		const a = values.runA[field]; const b = values.runB[field];
+		if (!comparable || a === null || b === null) return [];
+		const percentage = a === 0 ? null : ((b - a) / a) * 100;
+		return [{ id, label, unit, runA: a, runB: b, delta: b - a, percentage, receipt: createEvidenceReceipt("Derived", `${label}: Run B (${b}) - Run A (${a})`, sources, [], ["Exact Node alignment", "completed live runs", "complete selected Node evidence"], [...limitations, "Direction is Run B minus Run A", ...(percentage === null ? ["Percentage unavailable because Run A is zero"] : [])]) }];
+	});
+	return {
+		status: "aligned", runAId: runA.selectionId, runBId: runB.selectionId, nodeAId, nodeBId,
+		reason: "Planning Base commit and tree are identical, and canonical Work Contract JSON has one unique one-to-one in-memory SHA-256 match", warning: null,
+		nodes: { runA: { nodeId: nodeAId, status: values.runA.status }, runB: { nodeId: nodeBId, status: values.runB.status } }, totals, deltas, omittedMetrics,
+		receipt: createEvidenceReceipt(omittedMetrics.length ? "Partial" : "Derived", "Exact cross-packet Node alignment by identical Planning Base and one unique one-to-one canonical Work Contract match", sources, comparable ? omittedMetrics : ["two completed live runs with succeeded selected Nodes", ...omittedMetrics], comparable ? ["Completed live Node evidence"] : [], [...limitations, "Deltas are Run B minus Run A", ...(omittedMetrics.length ? ["Incomplete values remain unavailable"] : [])]),
+	};
+}
+
+function alignmentReason(packetA: FanoutExecutionPacket, packetB: FanoutExecutionPacket, contractA: unknown, contractB: unknown): string | null {
+	if (packetA.planningBase.headCommit !== packetB.planningBase.headCommit || packetA.planningBase.tree !== packetB.planningBase.tree) return "Planning Base commit and tree are not identical";
+	const digestA = workContractDigest(contractA);
+	const digestB = workContractDigest(contractB);
+	if (digestA !== digestB) return "Canonical Work Contract JSON is not exactly equal";
+	const count = (packet: FanoutExecutionPacket, digest: string) => packet.nodes.filter(({ workContract }) => workContractDigest(workContract) === digest).length;
+	if (count(packetA, digestA) !== 1 || count(packetB, digestA) !== 1) return "Canonical Work Contract equality is not unique one-to-one";
+	return null;
+}
+
+function workContractDigest(contract: unknown): string {
+	const validated = validateWorkContract(contract);
+	if (!validated.contract) throw new TypeError("comparison Work Contract is not valid");
+	return createHash("sha256").update(JSON.stringify(validated.contract)).digest("hex");
+}
+
+function completeNodeEvidence(context: ComparisonContext, nodeId: string): boolean {
+	const attempts = context.projection.attempts.filter(({ allocation }) => allocation.nodeId === nodeId);
+	return attempts.length > 0 && attempts.every(({ outcome }) => outcome?.metrics.complete === true);
+}
+
+function nodeTotals(context: ComparisonContext, nodeId: string): Record<string, any> {
+	const attempts = context.projection.attempts.filter(({ allocation }) => allocation.nodeId === nodeId);
+	const outcomes = attempts.map(({ outcome }) => outcome);
+	const metricsComplete = attempts.length > 0 && outcomes.every((outcome) => outcome?.metrics.complete === true);
+	const metricTotals = metricsComplete ? outcomes.map((outcome) => deriveAttemptMetricTotals(outcome!.metrics)) : [];
+	const sum = <T>(values: T[], value: (item: T) => number) => values.reduce((total, item) => total + value(item), 0);
+	const providerComplete = metricsComplete && outcomes.every((outcome) => outcome!.metrics.compatibility === "instrumented" && outcome!.metrics.responses.every(({ durationMs }) => durationMs !== undefined));
+	const accepted = context.projection.acceptedLedger.filter(({ attemptId }) => attempts.some(({ allocation }) => allocation.attemptId === attemptId));
+	return {
+		nodeId, status: context.projection.nodes.find(({ id }) => id === nodeId)?.status ?? "unknown", attempts: attempts.length,
+		attemptEnvelopeDurationMs: attempts.length > 0 && outcomes.every(Boolean) ? sum(outcomes, (outcome) => outcome!.durationMs) : null,
+		inputTokens: metricsComplete ? sum(metricTotals, ({ inputTokens }) => inputTokens) : null,
+		outputTokens: metricsComplete ? sum(metricTotals, ({ outputTokens }) => outputTokens) : null,
+		cacheReadTokens: metricsComplete ? sum(metricTotals, ({ cacheReadTokens }) => cacheReadTokens) : null,
+		cacheWriteTokens: metricsComplete ? sum(metricTotals, ({ cacheWriteTokens }) => cacheWriteTokens) : null,
+		totalTokens: metricsComplete ? sum(metricTotals, ({ totalTokens }) => totalTokens) : null,
+		estimatedCostUsd: metricsComplete ? sum(metricTotals, ({ costUsd }) => costUsd) : null,
+		workerDurationMs: metricsComplete && outcomes.every((outcome) => outcome!.metrics.workerDurationMs !== undefined) ? sum(outcomes, (outcome) => outcome!.metrics.workerDurationMs!) : null,
+		providerDurationMs: providerComplete ? sum(outcomes, (outcome) => sum(outcome!.metrics.responses, ({ durationMs }) => durationMs!)) : null,
+		toolDurationMs: metricsComplete ? sum(metricTotals, ({ toolDurationMs }) => toolDurationMs) : null,
+		pollDurationMs: metricsComplete ? sum(metricTotals, ({ pollDurationMs }) => pollDurationMs) : null,
+		pollCount: metricsComplete ? sum(metricTotals, ({ pollCount }) => pollCount) : null,
+		filesChanged: sum(accepted, ({ transition }) => transition.patch.stats.filesChanged), insertions: sum(accepted, ({ transition }) => transition.patch.stats.insertions), deletions: sum(accepted, ({ transition }) => transition.patch.stats.deletions),
+	};
 }
 
 function comparePair(snapshot: CatalogSnapshot, runA: CatalogExecutionRun, runB: CatalogExecutionRun): Record<string, any> {
@@ -210,7 +313,8 @@ function selectRun(snapshot: CatalogSnapshot, id: string): CatalogExecutionRun {
 }
 
 function comparisonSources(snapshot: CatalogSnapshot, runs: readonly CatalogExecutionRun[], planningRunId = runs[0]?.planningRunId): SourceReference[] {
-	const lineageSources = snapshot.lineages.find(({ id }) => id === planningRunId)?.planningRun?.sources ?? [];
+	const planningRunIds = new Set([planningRunId, ...runs.map(({ planningRunId }) => planningRunId)]);
+	const lineageSources = snapshot.lineages.filter(({ id }) => planningRunIds.has(id)).flatMap(({ planningRun }) => planningRun?.sources ?? []);
 	return [...new Map([...lineageSources, ...runs.flatMap(({ sources }) => sources)].map((source) => [source.id, source])).values()];
 }
 

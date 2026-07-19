@@ -6,6 +6,8 @@ import { queryComparison } from "./comparison";
 const packet = { path: "packet/execution-packet.json", sha256: "a".repeat(64), byteLength: 10 };
 const otherPacket = { path: "other/execution-packet.json", sha256: "b".repeat(64), byteLength: 10 };
 const packetSource: SourceReference = { id: "packet-source", path: packet.path, kind: "planning", byteLength: 10, modifiedAtMs: 1 };
+const base = { headCommit: "1".repeat(40), tree: "2".repeat(40) };
+const contract = { schema: "fanout.work-contract", version: 2, goals: [{ sourcePlanId: "goal", statement: "Do exact work" }], changes: [], readDependencies: [], forbiddenWrites: [], candidateNormalizationCommands: [], validationCommands: [], capabilities: { modelCallableTools: ["read", "grep", "find", "ls", "edit", "write"], validationExecution: "controller-only", shell: "unavailable", extensionTools: "unavailable" }, semanticReviewCriteria: [{ sourcePlanId: "criterion", statement: "It works" }], advisoryNotes: [] };
 
 function totals(runDurationMs: number, totalTokens: number, estimatedCostUsd: number): ExecutionTotals {
 	return {
@@ -29,32 +31,43 @@ function run(
 		complete?: boolean;
 		packet?: typeof packet;
 		admission?: CatalogExecutionRun["admission"];
+		nodeId?: string;
 	} = {},
 ): CatalogExecutionRun {
+	const nodeId = options.nodeId ?? "work";
 	const outcome = options.outcome === undefined ? null : { outcome: options.outcome, durationMs: options.duration ?? 100, cause: {} };
-	const metrics = { complete: options.complete ?? true, compatibility: "instrumented", responses: [{ durationMs: 4 }] };
+	const attemptId = `${id}:attempt`;
+	const metrics = {
+		complete: options.complete ?? true, compatibility: "instrumented", workerDurationMs: 20,
+		turns: [{ inputTokens: options.tokens ?? 10, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: options.tokens ?? 10, costUsd: options.cost ?? 1 }],
+		responses: [{ durationMs: 4 }], polls: [], tools: [{ durationMs: 5 }],
+	};
 	const projection = {
 		runId: id,
 		mode: options.mode ?? "live",
 		terminalOutcome: outcome,
 		packet: options.packet ?? packet,
 		totals: totals(options.duration ?? 100, options.tokens ?? 10, options.cost ?? 1),
-		nodes: [{ id: "work", status: outcome?.outcome === "completed" ? "succeeded" : "failed", causalAttemptId: `${id}:attempt`, causalUpstreamNodeId: null }],
-		attempts: [{ allocation: { attemptId: `${id}:attempt`, nodeId: "work", kind: "original", assignment: { tier: "tier1", provider: "provider", model: "model" } }, outcome: { durationMs: 20, action: outcome?.outcome === "completed" ? "accept" : "fail", terminalFact: { stage: "apply", code: outcome?.outcome === "completed" ? "applied" : "apply-failure" }, metrics } }],
-		acceptedLedger: outcome?.outcome === "completed" ? [{ eventSequence: 5, attemptId: `${id}:attempt`, transition: { patch: { baseTree: "1".repeat(40), resultTree: "2".repeat(40), changedPaths: ["file.ts"], stats: { filesChanged: 1, insertions: 2, deletions: 0 } } } }] : [],
+		nodes: [{ id: nodeId, status: outcome?.outcome === "completed" ? "succeeded" : "failed", causalAttemptId: attemptId, causalUpstreamNodeId: null }],
+		attempts: [{ allocation: { attemptId, nodeId, kind: "original", assignment: { tier: "tier1", provider: "provider", model: "model" } }, outcome: { durationMs: 20, action: outcome?.outcome === "completed" ? "accept" : "fail", terminalFact: { stage: "apply", code: outcome?.outcome === "completed" ? "applied" : "apply-failure" }, metrics } }],
+		acceptedLedger: outcome?.outcome === "completed" ? [{ eventSequence: 5, attemptId, transition: { patch: { baseTree: "1".repeat(40), resultTree: "2".repeat(40), changedPaths: ["file.ts"], stats: { filesChanged: 1, insertions: 2, deletions: 0 } } } }] : [],
 		finalValidation: outcome?.outcome === "completed" ? { disposition: "passed", durationMs: 10 } : { disposition: "not-run" },
 	} as unknown as ExecutionRunProjection;
 	const source = { id: `${id}-source`, path: `packet/executions/${id}/events.jsonl`, kind: "execution" as const, byteLength: 10, modifiedAtMs: 1 };
 	const events = [
 		{ event: "confirmation-decided", occurredAt: "2026-07-20T00:00:00.000Z", payload: { decision: "accepted" } },
-		{ event: "attempt-allocated", occurredAt: "2026-07-20T00:00:00.010Z", payload: { allocation: { nodeId: "work" } } },
-		{ event: "node-completed", occurredAt: "2026-07-20T00:00:00.030Z", payload: { nodeId: "work" } },
+		{ event: "attempt-allocated", occurredAt: "2026-07-20T00:00:00.010Z", payload: { allocation: { nodeId } } },
+		{ event: "node-completed", occurredAt: "2026-07-20T00:00:00.030Z", payload: { nodeId } },
 	] as any;
 	return {
 		id, selectionId: `packet/executions/${id}`, planningRunId: options.packet === otherPacket ? "other" : "packet",
 		admission: options.admission ?? "Current", label: outcome?.outcome ?? "nonterminal", reason: "fixture",
 		createdAt: null, updatedAt: null, projection, events, sources: [source],
 	};
+}
+
+function packetView(nodes: Array<{ id: string; workContract: unknown }>, planningBase = base): any {
+	return { planningBase, nodes: nodes.map((node) => ({ ...node, kind: "implement" })) };
 }
 
 function snapshot(runs: CatalogExecutionRun[]): CatalogSnapshot {
@@ -146,4 +159,64 @@ test("same-packet cohorts are outcome-stratified, require two runs, enumerate co
 	expect(result.cohorts.some(({ outcome }) => outcome === "aborted")).toBe(false);
 	expect(JSON.stringify(result)).not.toMatch(/"(?:mean|significance|trend|regression|percentile|winner|standardDeviation)"/i);
 	expect(duration.receipt.sourceReferences.map(({ id }) => id)).toEqual(expect.arrayContaining(["packet-source", "run-a-source", "run-b-source", "run-c-source"]));
+});
+
+test("cross-packet Nodes align only by identical Planning Base and a unique canonical Work Contract match", () => {
+	const a = run("run-a", { outcome: "completed", tokens: 10, cost: 1, nodeId: "alpha" });
+	const b = run("run-b", { outcome: "completed", tokens: 25, cost: 2, nodeId: "beta", packet: otherPacket });
+	const state = snapshot([a, b]);
+	(state.lineages[0] as any).packet = packetView([{ id: "alpha", workContract: contract }]);
+	(state.lineages[1] as any).packet = packetView([{ id: "beta", workContract: Object.fromEntries(Object.entries(structuredClone(contract)).reverse()) }]);
+
+	const result = queryComparison(state, { runAId: a.selectionId, runBId: b.selectionId, nodeAId: "alpha", nodeBId: "beta" });
+
+	expect(result.nodePair).toMatchObject({ status: "aligned", warning: null, nodes: { runA: { nodeId: "alpha" }, runB: { nodeId: "beta" } }, receipt: { evidenceClass: "Derived" } });
+	expect(result.nodePair.totals.find(({ id }) => id === "tokens")).toMatchObject({ runA: 10, runB: 25, receipt: { evidenceClass: "Derived" } });
+	expect(result.nodePair.deltas.find(({ id }) => id === "tokens")).toMatchObject({ runA: 10, runB: 25, delta: 15, percentage: 150 });
+	expect(result.nodePair.deltas.every(({ receipt }) => receipt.evidenceClass === "Derived")).toBe(true);
+	expect(result.nodePair.receipt.derivation).toContain("unique one-to-one");
+	expect(result.nodePair.receipt.limitations).toContain("The transient SHA-256 comparison key is not an Artifact Identity");
+	expect(JSON.stringify(result.nodePair)).not.toContain('"sha256"');
+});
+
+test("ambiguous and different-work Node selections stay heterogeneous with raw totals and no deltas", () => {
+	const a = run("run-a", { outcome: "completed", tokens: 10, nodeId: "alpha" });
+	const b = run("run-b", { outcome: "completed", tokens: 25, nodeId: "beta", packet: otherPacket });
+	for (const [packetA, packetB, reason] of [
+		[packetView([{ id: "alpha", workContract: contract }]), packetView([{ id: "beta", workContract: contract }, { id: "duplicate", workContract: structuredClone(contract) }]), "not unique"],
+		[packetView([{ id: "alpha", workContract: contract }]), packetView([{ id: "beta", workContract: { ...contract, goals: [{ sourcePlanId: "goal", statement: "Approximately the same work" }] } }]), "not exactly equal"],
+		[packetView([{ id: "alpha", workContract: contract }]), packetView([{ id: "beta", workContract: contract }], { ...base, tree: "3".repeat(40) }), "Planning Base"],
+	] as const) {
+		const state = snapshot([a, b]);
+		(state.lineages[0] as any).packet = packetA;
+		(state.lineages[1] as any).packet = packetB;
+		const nodePair = queryComparison(state, { runAId: a.selectionId, runBId: b.selectionId, nodeAId: "alpha", nodeBId: "beta" }).nodePair;
+		expect(nodePair).toMatchObject({
+			status: "unaligned",
+			warning: "Different work; this delta is descriptive, not a performance or causal claim.",
+			deltas: [], receipt: { evidenceClass: "Heterogeneous" },
+		});
+		expect(nodePair.totals.find(({ id }) => id === "tokens")).toMatchObject({ runA: 10, runB: 25, receipt: { evidenceClass: "Heterogeneous" } });
+		expect(nodePair.totals.every(({ receipt }) => receipt.evidenceClass === "Heterogeneous")).toBe(true);
+		expect(nodePair.reason).toContain(reason);
+		expect(nodePair.totals.every(({ receipt }) => receipt.assumptions.includes(nodePair.reason))).toBe(true);
+		expect(nodePair.receipt.limitations).toContain("No calculated delta or Diagnostic Observation was produced");
+	}
+});
+
+test("aligned incomplete Node evidence remains unknown and emits no performance delta", () => {
+	const a = run("run-a", { outcome: "completed", nodeId: "alpha" });
+	const b = run("run-b", { outcome: "failed", nodeId: "beta", packet: otherPacket });
+	(b.projection!.nodes[0] as any).status = "succeeded";
+	(b.projection as any).attempts = [];
+	const state = snapshot([a, b]);
+	(state.lineages[0] as any).packet = packetView([{ id: "alpha", workContract: contract }]);
+	(state.lineages[1] as any).packet = packetView([{ id: "beta", workContract: contract }]);
+
+	const nodePair = queryComparison(state, { runAId: a.selectionId, runBId: b.selectionId, nodeAId: "alpha", nodeBId: "beta" }).nodePair;
+
+	expect(nodePair).toMatchObject({ status: "aligned", deltas: [], receipt: { evidenceClass: "Partial" } });
+	expect(nodePair.totals.find(({ id }) => id === "tokens")).toMatchObject({ runA: 10, runB: null, receipt: { evidenceClass: "Partial" } });
+	expect(nodePair.receipt.assumptions).not.toContain("Completed live Node evidence");
+	expect(nodePair.receipt.missingInputs).toContain("two completed live runs with succeeded selected Nodes");
 });

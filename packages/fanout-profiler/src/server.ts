@@ -71,9 +71,11 @@ function workspaceRequest(url: URL): WorkspaceRequest {
 function comparisonRequest(value: unknown): ComparisonRequest {
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new RequestError(400, "comparison body must be an object");
 	const body = value as Record<string, unknown>;
-	if (Object.keys(body).some((key) => key !== "runAId" && key !== "runBId")) throw new RequestError(400, "comparison accepts only runAId and runBId");
+	if (Object.keys(body).some((key) => !["runAId", "runBId", "nodeAId", "nodeBId"].includes(key))) throw new RequestError(400, "comparison accepts only Run and Node identities");
 	if (typeof body.runAId !== "string" || !body.runAId || body.runBId !== undefined && (typeof body.runBId !== "string" || !body.runBId)) throw new RequestError(400, "comparison requires runAId and an optional runBId");
-	return { runAId: body.runAId, ...(typeof body.runBId === "string" ? { runBId: body.runBId } : {}) };
+	if ((body.nodeAId === undefined) !== (body.nodeBId === undefined) || body.nodeAId !== undefined && body.runBId === undefined) throw new RequestError(400, "Node comparison requires runBId, nodeAId, and nodeBId together");
+	if (body.nodeAId !== undefined && (typeof body.nodeAId !== "string" || !body.nodeAId || typeof body.nodeBId !== "string" || !body.nodeBId)) throw new RequestError(400, "comparison Node identities must be non-empty strings");
+	return { runAId: body.runAId, ...(typeof body.runBId === "string" ? { runBId: body.runBId } : {}), ...(typeof body.nodeAId === "string" && typeof body.nodeBId === "string" ? { nodeAId: body.nodeAId, nodeBId: body.nodeBId } : {}) };
 }
 
 export function startProfilerServer(artifactRoot: string, port: number): Bun.Server<undefined> {
