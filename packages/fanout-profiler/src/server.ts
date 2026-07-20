@@ -14,6 +14,7 @@ const ASSETS = new Map([
 	["/", ["app.html", "text/html; charset=utf-8"]],
 	["/assets/app.css", ["app.css", "text/css; charset=utf-8"]],
 	["/assets/app.js", ["app.js", "text/javascript; charset=utf-8"]],
+	["/assets/interaction.js", ["interaction.js", "text/javascript; charset=utf-8"]],
 ] as const);
 
 class RequestError extends Error {
@@ -116,7 +117,9 @@ export function startProfilerServer(artifactRoot: string, port: number): Bun.Ser
 			try {
 				const asset = ASSETS.get(url.pathname as keyof typeof ASSETS);
 				if (asset) {
-					if (request.method !== "GET" || url.search) return json(request.method === "GET" ? 400 : 405, { error: request.method === "GET" ? "query-parameters-not-accepted" : "method-not-allowed" });
+					if (request.method !== "GET") return json(405, { error: "method-not-allowed" });
+					if (url.pathname === "/") workspaceRequest(url);
+					else if (url.search) return json(400, { error: "query-parameters-not-accepted" });
 					return response(Bun.file(`${import.meta.dir}/${asset[0]}`), 200, asset[1]);
 				}
 				if (url.pathname === "/api/catalog") {
