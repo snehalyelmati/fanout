@@ -80,6 +80,13 @@ export interface CatalogSnapshot {
 	readonly selectedExecutionRunId: string | null;
 }
 
+export function requireExecutionRun(snapshot: CatalogSnapshot, requested?: string): CatalogExecutionRun {
+	const id = requested ?? snapshot.selectedExecutionRunId;
+	const run = snapshot.executionRuns.find((candidate) => candidate.selectionId === id);
+	if (!run) throw new TypeError("execution run is not in the active snapshot");
+	return run;
+}
+
 export interface EvidencePage {
 	readonly status: "Current" | "Changed since refresh";
 	readonly rows: readonly string[];

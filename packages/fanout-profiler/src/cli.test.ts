@@ -47,8 +47,10 @@ test("local profiler exposes only the bounded same-origin HTTP shell", async () 
 	expect(page.status).toBe(200);
 	expect(page.headers.get("content-security-policy")).toContain("default-src 'self'");
 	expect(page.headers.has("access-control-allow-origin")).toBe(false);
-	expect(await page.text()).toMatch(/<header[\s>].*Packet DAG.*Recent Runs.*Trace Evidence.*Run and cross-packet Node comparison.*Comparison Node A.*Comparison Node B.*Inspector.*<footer[\s>]/s);
-	expect(await (await fetch(`${url}/assets/app.js`)).text()).toContain("nodePair");
+	expect(await page.text()).toMatch(/<header[\s>].*Packet DAG.*Recent Runs.*Trace Evidence.*Diagnostic Observations.*Duration.*Cost.*Frequency.*Chronology.*Run and cross-packet Node comparison.*Comparison Node A.*Comparison Node B.*Inspector.*<footer[\s>]/s);
+	const app = await (await fetch(`${url}/assets/app.js`)).text();
+	expect(app).toContain("nodePair");
+	expect(app).toContain("loadDiagnostics");
 
 	const catalog = await fetch(`${url}/api/catalog`);
 	expect(catalog.status).toBe(200);
@@ -56,6 +58,10 @@ test("local profiler exposes only the bounded same-origin HTTP shell", async () 
 	const workspace = await fetch(`${url}/api/workspace`);
 	expect(workspace.status).toBe(200);
 	expect((await workspace.json() as any).inspector).toMatchObject({ kind: "Execution Run" });
+	const diagnostics = await fetch(`${url}/api/diagnostics?sort=frequency`);
+	expect(diagnostics.status).toBe(200);
+	expect(await diagnostics.json()).toMatchObject({ sort: "frequency", observations: [], suppressions: [{ rule: "ready-work-waited-with-free-capacity" }, { rule: "attempt-causally-replaced" }] });
+	expect((await fetch(`${url}/api/diagnostics?sort=severity`)).status).toBe(400);
 	const refreshed = await fetch(`${url}/api/refresh`, { method: "POST", headers: { "content-type": "application/json", origin: url }, body: "{}" });
 	expect(refreshed.status).toBe(200);
 	expect((await refreshed.json() as any).generation).toBe(2);
