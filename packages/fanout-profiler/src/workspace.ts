@@ -1,7 +1,7 @@
 import { resolveExecutionEvidence, type ExecutionRunProjection } from "../../fanout-core/src/execution-projection";
 import { deepFreeze } from "../../fanout-core/src/contract-value";
 import { FINAL_VALIDATION_NODE_ID } from "../../fanout-core/src/work-contract-graph";
-import type { CatalogAdmission, CatalogExecutionRun, CatalogSnapshot, SourceReference } from "./catalog";
+import { requireExecutionRun, type CatalogAdmission, type CatalogExecutionRun, type CatalogSnapshot, type SourceReference } from "./catalog";
 
 export type SelectionKind = "run" | "node" | "attempt" | "turn" | "tool" | "event" | "stage";
 export interface WorkspaceSelection { kind: SelectionKind; id: string; nodeId?: string; attemptId?: string; turnId?: string }
@@ -45,7 +45,7 @@ export function createEvidenceReceipt(evidenceClass: EvidenceClass, derivation: 
 }
 
 export function queryWorkspace(snapshot: CatalogSnapshot, request: WorkspaceRequest): Readonly<Record<string, any>> {
-	const run = selectRun(snapshot, request.runId);
+	const run = requireExecutionRun(snapshot, request.runId);
 	const lineage = snapshot.lineages.find(({ id }) => id === run.planningRunId);
 	const projection = run.projection;
 	const selection = resolveSelection(run, request.selection ?? { kind: "run", id: run.selectionId });
@@ -91,13 +91,6 @@ export function queryWorkspace(snapshot: CatalogSnapshot, request: WorkspaceRequ
 		metrics: projection ? metricViews(projection, scopedRows, selection, receipt) : [],
 		inspector,
 	});
-}
-
-function selectRun(snapshot: CatalogSnapshot, requested?: string): CatalogExecutionRun {
-	const id = requested ?? snapshot.selectedExecutionRunId;
-	const run = snapshot.executionRuns.find((candidate) => candidate.selectionId === id);
-	if (!run) throw new TypeError("execution run is not in the active snapshot");
-	return run;
 }
 
 function resolveSelection(run: CatalogExecutionRun, requested: WorkspaceSelection): WorkspaceSelection {

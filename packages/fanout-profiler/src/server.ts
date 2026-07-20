@@ -1,5 +1,6 @@
 import { ProfilerCatalog } from "./catalog";
 import { queryComparison, type ComparisonRequest } from "./comparison";
+import { queryDiagnostics, type DiagnosticSort } from "./diagnostics";
 import { queryWorkspace, type SelectionKind, type WorkspaceRequest } from "./workspace";
 
 const LOOPBACK = "127.0.0.1";
@@ -7,6 +8,7 @@ const MAX_BODY_BYTES = 64 * 1024;
 const CONTENT_SECURITY_POLICY = "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'";
 const POST_API = new Set(["/api/comparison", "/api/scenario", "/api/refresh"]);
 const SELECTION_KINDS = new Set<SelectionKind>(["run", "node", "attempt", "turn", "tool", "event", "stage"]);
+const DIAGNOSTIC_SORTS = new Set<DiagnosticSort>(["duration", "cost", "frequency", "chronology"]);
 const ASSETS = new Map([
 	["/", ["app.html", "text/html; charset=utf-8"]],
 	["/assets/app.css", ["app.css", "text/css; charset=utf-8"]],
@@ -78,6 +80,15 @@ function comparisonRequest(value: unknown): ComparisonRequest {
 	return { runAId: body.runAId, ...(typeof body.runBId === "string" ? { runBId: body.runBId } : {}), ...(typeof body.nodeAId === "string" && typeof body.nodeBId === "string" ? { nodeAId: body.nodeAId, nodeBId: body.nodeBId } : {}) };
 }
 
+function diagnosticRequest(url: URL): { runId?: string; sort?: DiagnosticSort } {
+	exactQuery(url, ["run", "sort"]);
+	const runId = url.searchParams.get("run");
+	const sort = url.searchParams.get("sort");
+	if (runId !== null && !runId) throw new RequestError(400, "run must be a non-empty active identity");
+	if (sort !== null && !DIAGNOSTIC_SORTS.has(sort as DiagnosticSort)) throw new RequestError(400, "sort must be duration, cost, frequency, or chronology");
+	return { ...(runId ? { runId } : {}), ...(sort ? { sort: sort as DiagnosticSort } : {}) };
+}
+
 export function startProfilerServer(artifactRoot: string, port: number): Bun.Server<undefined> {
 	const catalog = new ProfilerCatalog(artifactRoot);
 	return Bun.serve({
@@ -105,6 +116,10 @@ export function startProfilerServer(artifactRoot: string, port: number): Bun.Ser
 				if (url.pathname === "/api/workspace") {
 					if (request.method !== "GET") return json(405, { error: "method-not-allowed" });
 					return json(200, queryWorkspace(catalog.snapshot(), workspaceRequest(url)));
+				}
+				if (url.pathname === "/api/diagnostics") {
+					if (request.method !== "GET") return json(405, { error: "method-not-allowed" });
+					return json(200, queryDiagnostics(catalog.snapshot(), diagnosticRequest(url)));
 				}
 				if (url.pathname === "/api/evidence") {
 					if (request.method !== "GET") return json(405, { error: "method-not-allowed" });

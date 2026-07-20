@@ -4,7 +4,7 @@ import { deepFreeze } from "../../fanout-core/src/contract-value";
 import type { ExecutionRunProjection } from "../../fanout-core/src/execution-projection";
 import type { FanoutExecutionPacket } from "../../fanout-core/src/execution-packet";
 import { validateWorkContract } from "../../fanout-core/src/work-contract";
-import { sameArtifact, type CatalogExecutionRun, type CatalogSnapshot, type CatalogWorkflowLineage, type SourceReference } from "./catalog";
+import { requireExecutionRun, sameArtifact, type CatalogExecutionRun, type CatalogSnapshot, type CatalogWorkflowLineage, type SourceReference } from "./catalog";
 import { createEvidenceReceipt, executionArtifactGeneration, type EvidenceClass } from "./workspace";
 
 export interface ComparisonRequest { runAId: string; runBId?: string; nodeAId?: string; nodeBId?: string }
@@ -74,14 +74,14 @@ const METRICS: readonly MetricDefinition[] = [
 ];
 
 export function queryComparison(snapshot: CatalogSnapshot, request: ComparisonRequest): Readonly<Record<string, any>> {
-	const runA = selectRun(snapshot, request.runAId);
+	const runA = requireExecutionRun(snapshot, request.runAId);
 	const contextA = contextFor(snapshot, runA);
 	const exactPacketRuns = contextA ? snapshot.executionRuns.filter((run) => run.projection && sameArtifact(run.projection.packet, contextA.projection.packet)) : [runA];
 	return deepFreeze({
 		generation: snapshot.generation,
 		planningRunId: runA.planningRunId,
-		pair: request.runBId ? comparePair(snapshot, runA, selectRun(snapshot, request.runBId)) : null,
-		nodePair: request.runBId && request.nodeAId && request.nodeBId ? compareNodes(snapshot, runA, selectRun(snapshot, request.runBId), request.nodeAId, request.nodeBId) : null,
+		pair: request.runBId ? comparePair(snapshot, runA, requireExecutionRun(snapshot, request.runBId)) : null,
+		nodePair: request.runBId && request.nodeAId && request.nodeBId ? compareNodes(snapshot, runA, requireExecutionRun(snapshot, request.runBId), request.nodeAId, request.nodeBId) : null,
 		cohorts: cohortViews(snapshot, runA, exactPacketRuns),
 	});
 }
@@ -305,12 +305,6 @@ function outcome(run: CatalogExecutionRun): string { return run.projection?.term
 function terminalProjection(projection: ExecutionRunProjection): boolean { return projection.terminalOutcome !== null && projection.attempts.every(({ outcome }) => outcome !== null); }
 function unavailable(reason: string, missingInput: string): PairSuppression { return { reason, evidenceClass: "Unavailable", missingInputs: [missingInput] }; }
 function record(value: unknown): Record<string, any> | null { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : null; }
-
-function selectRun(snapshot: CatalogSnapshot, id: string): CatalogExecutionRun {
-	const run = snapshot.executionRuns.find((candidate) => candidate.selectionId === id);
-	if (!run) throw new TypeError("comparison run is not in the active snapshot");
-	return run;
-}
 
 function comparisonSources(snapshot: CatalogSnapshot, runs: readonly CatalogExecutionRun[], planningRunId = runs[0]?.planningRunId): SourceReference[] {
 	const planningRunIds = new Set([planningRunId, ...runs.map(({ planningRunId }) => planningRunId)]);
