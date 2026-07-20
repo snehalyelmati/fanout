@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, truncateSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { artifactIdentity } from "../../fanout-core/src/artifact-identity";
@@ -213,6 +213,24 @@ test("snapshot-issued references page supporting evidence lazily and reject chan
 	expect(await catalog.readEvidencePage(reference!.id)).toEqual({ status: "Changed since refresh", rows: [], nextOffset: null });
 	await expect(catalog.readEvidencePage("unknown-reference")).rejects.toThrow("active snapshot");
 	await expect(catalog.readEvidencePage(reference!.id, { limit: 501 })).rejects.toThrow("500");
+});
+
+test("128 MB supporting evidence stays metadata-only and pages remain capped", async () => {
+	const artifactRoot = root();
+	const evidence = join(artifactRoot, "observability", "large", "observability.jsonl");
+	write(evidence, `${Array.from({ length: 501 }, (_, index) => `row-${index}`).join("\n")}\n`);
+	truncateSync(evidence, 128 * 1024 * 1024);
+
+	const catalog = new ProfilerCatalog(artifactRoot);
+	const snapshot = catalog.snapshot();
+	const reference = snapshot.supportingEvidence[0]?.source;
+	expect(reference?.byteLength).toBe(128 * 1024 * 1024);
+	expect(reference).not.toHaveProperty("sha256");
+	expect(catalog.loadStatistics().supportingEvidenceBytesRead).toBe(0);
+	expect(JSON.stringify(snapshot)).not.toContain("row-500");
+	expect(await catalog.readEvidencePage(reference!.id, { limit: 500 })).toMatchObject({
+		status: "Current", rows: { length: 500 }, nextOffset: 500,
+	});
 });
 
 test("special-file evidence is rejected without blocking catalog refresh", () => {
