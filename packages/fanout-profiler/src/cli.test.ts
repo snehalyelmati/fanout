@@ -47,13 +47,23 @@ test("local profiler exposes only the bounded same-origin HTTP shell", async () 
 	expect(page.status).toBe(200);
 	expect(page.headers.get("content-security-policy")).toContain("default-src 'self'");
 	expect(page.headers.has("access-control-allow-origin")).toBe(false);
-	expect(await page.text()).toMatch(/<header[\s>].*Packet DAG.*Recent Runs.*Trace Evidence.*Counterfactual Scenario.*Observed.*Sequential.*Custom.*Unlimited.*Tier 1 Provider Profile.*Tier 2 Provider Profile.*Fixed TTFT.*Cold\/warm TTFT.*Cache-read.*Cache-write.*Diagnostic Observations.*Duration.*Cost.*Frequency.*Chronology.*Run and cross-packet Node comparison.*Comparison Node A.*Comparison Node B.*Inspector.*<footer[\s>]/s);
+	const html = await page.text();
+	expect(html).toMatch(/<header[\s>].*Packet DAG.*Recent Runs.*Trace Evidence.*Counterfactual Scenario.*Observed.*Sequential.*Custom.*Unlimited.*Tier 1 Provider Profile.*Tier 2 Provider Profile.*Fixed TTFT.*Cold\/warm TTFT.*Cache-read.*Cache-write.*Diagnostic Observations.*Duration.*Cost.*Frequency.*Chronology.*Run and cross-packet Node comparison.*Comparison Node A.*Comparison Node B.*Inspector.*<footer[\s>]/s);
+	expect(html).toMatch(/data-pane="dag".*aria-label="Maximize DAG pane".*role="separator".*aria-label="Resize DAG and Trace Evidence panes".*data-pane="trace".*aria-label="Maximize Trace Evidence pane".*role="separator".*aria-label="Resize Trace Evidence and Inspector panes".*data-pane="inspector".*aria-label="Maximize Inspector pane"/s);
+	expect((await fetch(`${url}/?run=packet%2Fexecutions%2Frun-projection&kind=run&id=packet%2Fexecutions%2Frun-projection`)).status).toBe(200);
 	const app = await (await fetch(`${url}/assets/app.js`)).text();
+	const interaction = await (await fetch(`${url}/assets/interaction.js`)).text();
 	expect(app).toContain("nodePair");
 	expect(app).toContain("loadDiagnostics");
 	expect(app).toContain("runScenario");
 	expect(app).toContain("profileValue");
 	expect(app).toMatch(/Attempt.*Provider call.*Tool.*Validation scope.*Ledger/s);
+	expect(app).toContain("history.pushState");
+	expect(app).toContain("popstate");
+	expect(app).toContain("aria-expanded");
+	expect(interaction).toContain("Escape");
+	expect(app).toContain("Planned routing");
+	expect(app).toContain("Observed Attempt routing");
 
 	const catalog = await fetch(`${url}/api/catalog`);
 	expect(catalog.status).toBe(200);
