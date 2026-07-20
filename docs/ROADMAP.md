@@ -360,14 +360,14 @@ After stubs, traces, and RPE routing policies:
 
 ## Track 9: Offline Fanout run profiler
 
-Status: the local catalog, linked forensic workspace, exact comparisons, two bounded Diagnostic Observations, and concurrency-only fixed-behavior scenarios are implemented over the current replayable generation. Provider Profile scenarios, interaction/accessibility completion, and measured benchmark/documentation validation remain. The application stays one private Bun-powered `fanout-profiler` package depending only on `fanout-core`, with an explicit artifact root, immutable manual-refresh catalog, lazy large-evidence streaming, and a vanilla loopback web workspace.
+Status: the local catalog, linked forensic workspace, exact comparisons, two bounded Diagnostic Observations, and fixed-behavior concurrency/Provider Profile scenarios are implemented over the current replayable generation. Interaction/accessibility completion and measured benchmark/documentation validation remain. The application stays one private Bun-powered `fanout-profiler` package depending only on `fanout-core`, with an explicit artifact root, immutable manual-refresh catalog, lazy large-evidence streaming, and a vanilla loopback web workspace.
 
 Order:
 
 1. Finish the remaining design tickets and produce the implementation specification.
 2. Completed: producer and consumer contracts cut atomically from Attempt outcome v2/event v2/projection v3 to v3/v3/v4, adding exact Worker Turn, Provider Response, Tool Invocation, and cache evidence.
 3. Completed: the complete offline contract/replay matrix passes for the new generation; no compatibility replay or migration was added.
-4. In progress: implement the smallest read-only local profiler over the new authoritative event generation. Catalog, workspace, comparisons, diagnostics, and Fanout-concurrency scenarios are complete; provider scenarios and final interaction/benchmark work remain.
+4. In progress: implement the smallest read-only local profiler over the new authoritative event generation. Catalog, workspace, comparisons, diagnostics, Fanout-concurrency scenarios, and independent fixed/cold-warm Tier Provider Profiles are complete; final interaction/benchmark work remains.
 
 Attempt Outcome v3/Event v3/Projection v4 is the only current replayable execution generation. Event v2/Projection v3 and earlier artifacts are legacy descriptive evidence only.
 

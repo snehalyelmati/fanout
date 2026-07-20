@@ -7,15 +7,15 @@ const at = (ms: number) => new Date(origin + ms).toISOString();
 const source = (id: string, path: string, kind: "planning" | "execution") => ({ id, path, kind, byteLength: 1, modifiedAtMs: 1 });
 
 function fixture(): CatalogSnapshot {
-	const attempt = (nodeId: string, attemptId: string, allocationSequence: number, completionSequence: number, start: number, end: number, action = "accept", kind = "original", sourceAttemptId?: string) => ({
+	const attempt = (nodeId: string, attemptId: string, allocationSequence: number, completionSequence: number, start: number, end: number, action = "accept", kind = "original", sourceAttemptId?: string, tier: "tier1" | "tier2" = "tier2") => ({
 		allocationSequence, completionSequence,
-		allocation: { nodeId, attemptId, attemptNumber: sourceAttemptId ? 2 : 1, kind, ...(sourceAttemptId ? { sourceAttemptId } : {}), assignment: { tier: "tier2" } },
+		allocation: { nodeId, attemptId, attemptNumber: sourceAttemptId ? 2 : 1, kind, ...(sourceAttemptId ? { sourceAttemptId } : {}), assignment: { tier } },
 		outcome: {
 			nodeId, attemptId, action, startedAt: at(start), finishedAt: at(end), durationMs: end - start,
 			terminalFact: { stage: "apply", code: action === "accept" ? "applied" : "failed" },
 			metrics: {
 				complete: true,
-				turns: [{ turnId: `${attemptId}:turn`, requestedAt: at(start + 5), finishedAt: at(end - 5), durationMs: end - start - 10, costUsd: 0.1 }],
+				turns: [{ attemptId, turnId: `${attemptId}:turn`, terminal: "completed", provider: "provider", model: "model", tier, requestedAt: at(start + 5), firstOutputAt: at(start + 15), finishedAt: at(end - 5), durationMs: end - start - 10, inputTokens: 100, outputTokens: 10, cacheReadTokens: 20, cacheWriteTokens: 30, totalTokens: 110, costUsd: 0.1, pricingSource: "fixture", responseIds: [], toolCallIds: [`${attemptId}:tool`] }],
 				responses: [], polls: [],
 				tools: [{ turnId: `${attemptId}:turn`, toolCallId: `${attemptId}:tool`, name: "edit", startedAt: at(start + 20), finishedAt: at(start + 30), durationMs: 10 }],
 			},
@@ -24,8 +24,8 @@ function fixture(): CatalogSnapshot {
 	const attempts = [
 		attempt("a", "a:1", 4, 6, 0, 100),
 		attempt("b", "b:1", 5, 8, 0, 100),
-		attempt("c", "c:1", 10, 11, 100, 120, "validation-repair"),
-		attempt("c", "c:2", 12, 13, 120, 140, "accept", "validation-repair", "c:1"),
+		attempt("c", "c:1", 10, 11, 100, 120, "validation-repair", "original", undefined, "tier1"),
+		attempt("c", "c:2", 12, 13, 120, 140, "accept", "validation-repair", "c:1", "tier1"),
 	];
 	(attempts[1]!.outcome as any).finishedAt = at(50);
 	(attempts[1]!.outcome as any).durationMs = 50;
@@ -157,6 +157,7 @@ test("baseline mismatches reject alternatives, while incomplete and dry evidence
 	expect(prefix.schedule.attempts).toContainEqual(expect.objectContaining({ attemptId: "c:2", endMs: null }));
 	expect(prefix.completionChain.at(-1)).toMatchObject({ kind: "recorded-prefix", id: "12" });
 	expect(prefix.receipt.limitations.join(" ")).toContain("recorded prefix");
+	expect(prefix.cost.status).toBe("available");
 	const elapsedPrefix = incomplete;
 	(elapsedPrefix.executionRuns[0]!.projection as any).lastEventSequence = 13;
 	(elapsedPrefix.executionRuns[0]!.projection as any).updatedAt = at(130);
@@ -193,4 +194,97 @@ test("baseline mismatches reject alternatives, while incomplete and dry evidence
 	const dryResult = queryScenario(dry, { concurrency: { mode: "unlimited" } });
 	expect(dryResult).toMatchObject({ status: "dry-run", scenarioBoundaryMs: null, deltaMs: null, schedule: { nodes: [], attempts: [], acceptanceGate: [] } });
 	expect(dryResult.receipt.limitations.join(" ")).toContain("no meaningful schedule delta");
+});
+
+const prices = { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 };
+
+test("Provider Profiles independently apply fixed timing, FIFO capacity, and cache-aware cost", () => {
+	const result = queryScenario(fixture(), {
+		concurrency: { mode: "custom", limit: 2 },
+		providerProfiles: {
+			tier1: { mode: "observed" },
+			tier2: { mode: "fixed", name: "Fixed Tier 2", capacity: 1, ttftMs: 20, outputTokensPerSecond: 1_000, pricesPerMillion: prices },
+		},
+	});
+	expect(result.configuration.providerProfiles).toEqual({ tier1: { mode: "observed" }, tier2: expect.objectContaining({ mode: "fixed", name: "Fixed Tier 2" }) });
+	expect(result.schedule.turns).toContainEqual(expect.objectContaining({ attemptId: "a:1", tier: "tier2", providerWaitMs: 0, ttftMs: 20, generationMs: 10, scenarioCostUsd: 0.0003 }));
+	expect(result.schedule.turns).toContainEqual(expect.objectContaining({ attemptId: "b:1", tier: "tier2", providerWaitMs: 30, ttftMs: 20, generationMs: 10, scenarioCostUsd: 0.0003 }));
+	expect(result.schedule.turns).toContainEqual(expect.objectContaining({ attemptId: "c:1", tier: "tier1", providerWaitMs: 0, ttftMs: 10, generationMs: 0, scenarioCostUsd: 0.1 }));
+	expect(result.schedule.tiers).toContainEqual(expect.objectContaining({ tier: "tier2", providerWaitMs: 30, ttftMs: 40, generationMs: 20, costStatus: "available", scenarioCostUsd: 0.0006 }));
+	expect(result.cost).toMatchObject({ status: "available", observedUsd: 0.4, scenarioUsd: 0.2006, deltaUsd: -0.1994 });
+	expect(result.preserved).toMatchObject({ tierAssignments: ["tier2", "tier2", "tier1", "tier1"] });
+	expect(result.receipt.assumptions.join(" ")).toContain("Fixed Tier 2");
+	expect(result.statement).toContain("Under these fixed assumptions");
+});
+
+test("Provider Profiles schedule every Response, shift interleaved Tools, and identify the FIFO constraint", () => {
+	const state = fixture();
+	const attempt = state.executionRuns[0]!.projection!.attempts.find(({ allocation }) => allocation.attemptId === "a:1")!.outcome!.metrics as any;
+	attempt.complete = false; // Cost strength depends on usage fields, not unrelated envelope completeness.
+	attempt.responses = [
+		{ turnId: "a:1:turn", responseId: "a:r1", requestedAt: at(5), firstTokenAt: at(10), finishedAt: at(25), durationMs: 20, inputTokens: 40, outputTokens: 4, cacheReadTokens: 10, cacheWriteTokens: 5, costUsd: 0.04 },
+		{ turnId: "a:1:turn", responseId: "a:r2", requestedAt: at(35), firstTokenAt: at(40), finishedAt: at(65), durationMs: 30, inputTokens: 60, outputTokens: 6, cacheReadTokens: 10, cacheWriteTokens: 25, costUsd: 0.06 },
+	];
+	Object.assign(attempt.tools[0], { startedAt: at(26), finishedAt: at(34), durationMs: 8 });
+	const fixed = { mode: "fixed" as const, name: "Response FIFO", capacity: 1, ttftMs: 10, outputTokensPerSecond: 1_000, pricesPerMillion: prices };
+	const result = queryScenario(state, { concurrency: { mode: "custom", limit: 2 }, providerProfiles: { tier1: { mode: "observed" }, tier2: fixed } });
+	expect(result.schedule.responses).toEqual(expect.arrayContaining([
+		expect.objectContaining({ responseId: "a:r1", issueMs: 5, providerStartMs: 5, providerEndMs: 19, providerWaitMs: 0 }),
+		expect.objectContaining({ responseId: null, turnId: "b:1:turn", providerStartMs: 19, providerEndMs: 39, capacityPredecessorId: "a:r1" }),
+		expect.objectContaining({ responseId: "a:r2", issueMs: 29, providerStartMs: 39, providerEndMs: 55, providerWaitMs: 10, capacityPredecessorId: "b:1:turn:provider" }),
+	]));
+	expect(result.schedule.turns.find(({ turnId }: any) => turnId === "a:1:turn")).toMatchObject({ responseIds: ["a:r1", "a:r2"], providerWaitMs: 10, ttftMs: 20, generationMs: 10, scenarioCostUsd: 0.0003 });
+	expect(result.schedule.tools.find(({ toolCallId }: any) => toolCallId === "a:1:tool")).toMatchObject({ startMs: 20, endMs: 28, durationMs: 8 });
+	expect(result.completionChain).toContainEqual(expect.objectContaining({ kind: "provider-capacity", id: "a:r2 waiting for b:1:turn:provider", completedMs: 39 }));
+	expect(result.cost.status).toBe("available");
+});
+
+test("cold/warm classification uses issue-time scope and approved reset controls", () => {
+	const state = fixture();
+	const attempts = state.executionRuns[0]!.projection!.attempts;
+	const a = attempts.find(({ allocation }) => allocation.attemptId === "a:1")!.outcome!.metrics.turns[0]! as any;
+	const b = attempts.find(({ allocation }) => allocation.attemptId === "b:1")!.outcome!.metrics.turns[0]! as any;
+	Object.assign(a, { requestedAt: at(5), firstOutputAt: at(15), finishedAt: at(25), durationMs: 20 });
+	Object.assign(b, { requestedAt: at(35), firstOutputAt: at(40), finishedAt: at(45), durationMs: 10 });
+	const profile = (warmthScope: "attempt" | "run", reset?: Record<string, number>) => ({
+		mode: "cold-warm" as const, name: "Warm Tier 2", capacity: "unlimited" as const, warmthScope,
+		coldTtftMs: 20, warmTtftMs: 5, outputTokensPerSecond: 1_000, pricesPerMillion: prices, ...(reset ? { reset } : {}),
+	});
+	for (const [label, selected, expected] of [
+		["per-Attempt", profile("attempt"), 20],
+		["shared-run", profile("run"), 5],
+		["idle expiry", profile("run", { idleExpiryMs: 0 }), 20],
+		["response duration", profile("run", { previousResponseDurationResetMs: 30 }), 20],
+	] as const) {
+		const result = queryScenario(state, { concurrency: { mode: "custom", limit: 2 }, providerProfiles: { tier1: { mode: "observed" }, tier2: selected } });
+		expect(result.schedule.turns.find(({ attemptId }: any) => attemptId === "b:1")?.ttftMs, label).toBe(expected);
+	}
+	const c = attempts.find(({ allocation }) => allocation.attemptId === "c:1")! as any;
+	c.allocation.assignment.tier = "tier2";
+	c.outcome.metrics.turns[0].tier = "tier2";
+	const limited = queryScenario(state, { concurrency: { mode: "custom", limit: 2 }, providerProfiles: { tier1: { mode: "observed" }, tier2: profile("run", { warmCallLimit: 1 }) } });
+	expect(limited.schedule.turns.find(({ attemptId }: any) => attemptId === "c:1")).toMatchObject({ warmth: "cold", ttftMs: 20 });
+});
+
+test("scenario cost remains Partial or Unavailable when required provider-call usage is missing", () => {
+	const fixed = { mode: "fixed" as const, name: "Fixed", capacity: 1, ttftMs: 0, outputTokensPerSecond: 1_000, pricesPerMillion: prices };
+	const request = { concurrency: { mode: "observed" as const }, providerProfiles: { tier1: fixed, tier2: fixed } };
+	const partial = fixture();
+	delete (partial.executionRuns[0]!.projection!.attempts[0]!.outcome!.metrics.turns[0] as any).cacheReadTokens;
+	expect(queryScenario(partial, request).cost.status).toBe("partial");
+	const unavailable = fixture();
+	for (const attempt of unavailable.executionRuns[0]!.projection!.attempts) for (const turn of attempt.outcome?.metrics.turns ?? []) delete (turn as any).inputTokens;
+	expect(queryScenario(unavailable, request).cost).toMatchObject({ status: "unavailable", scenarioUsd: null, deltaUsd: null });
+});
+
+test("Provider Profile input is tier-wide, closed, and bounded", () => {
+	const fixed = { mode: "fixed", name: "Fixed", capacity: 1, ttftMs: 0, outputTokensPerSecond: 1, pricesPerMillion: prices };
+	for (const providerProfiles of [
+		{ tier1: { mode: "observed" } },
+		{ tier1: { mode: "observed" }, tier2: { ...fixed, capacity: 0 } },
+		{ tier1: { mode: "observed" }, tier2: { ...fixed, warmthScope: "attempt" } },
+		{ tier1: { mode: "observed" }, tier2: { ...fixed, perCallOverrides: [] } },
+		{ tier1: { mode: "observed" }, tier2: { ...fixed, pricesPerMillion: { ...prices, cacheRead: -1 } } },
+		{ tier1: { mode: "observed" }, tier2: { mode: "cold-warm", name: "Warm", capacity: 1, warmthScope: "run", coldTtftMs: 1, warmTtftMs: 0, outputTokensPerSecond: 1, pricesPerMillion: prices, reset: { warmCallLimit: 0 } } },
+	] as any[]) expect(() => queryScenario(fixture(), { concurrency: { mode: "observed" }, providerProfiles })).toThrow();
 });

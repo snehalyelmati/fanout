@@ -93,12 +93,12 @@ function diagnosticRequest(url: URL): { runId?: string; sort?: DiagnosticSort } 
 function scenarioRequest(value: unknown): ScenarioRequest {
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new RequestError(400, "scenario body must be an object");
 	const body = value as Record<string, unknown>;
-	if (Object.keys(body).some((key) => !["runId", "concurrency"].includes(key))) throw new RequestError(400, "scenario accepts only one Run identity and Fanout concurrency");
+	if (Object.keys(body).some((key) => !["runId", "concurrency", "providerProfiles"].includes(key))) throw new RequestError(400, "scenario accepts only one Run identity, Fanout concurrency, and Tier Provider Profiles");
 	if (body.runId !== undefined && (typeof body.runId !== "string" || !body.runId)) throw new RequestError(400, "scenario Run identity must be a non-empty string");
 	if (!body.concurrency || typeof body.concurrency !== "object" || Array.isArray(body.concurrency)) throw new RequestError(400, "scenario concurrency must be an object");
 	const concurrency = body.concurrency as Record<string, unknown>;
 	if (typeof concurrency.mode !== "string" || Object.keys(concurrency).some((key) => key !== "mode" && key !== "limit") || (concurrency.mode === "custom") !== Object.hasOwn(concurrency, "limit")) throw new RequestError(400, "scenario concurrency must contain one mode and only custom contains a limit");
-	return { ...(typeof body.runId === "string" ? { runId: body.runId } : {}), concurrency: concurrency as unknown as ScenarioConcurrency };
+	return { ...(typeof body.runId === "string" ? { runId: body.runId } : {}), concurrency: concurrency as unknown as ScenarioConcurrency, ...(body.providerProfiles === undefined ? {} : { providerProfiles: body.providerProfiles as ScenarioRequest["providerProfiles"] }) };
 }
 
 export function startProfilerServer(artifactRoot: string, port: number): Bun.Server<undefined> {
