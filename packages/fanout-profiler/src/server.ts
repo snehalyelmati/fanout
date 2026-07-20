@@ -1,6 +1,7 @@
 import { ProfilerCatalog } from "./catalog";
 import { queryComparison, type ComparisonRequest } from "./comparison";
 import { queryDiagnostics, type DiagnosticSort } from "./diagnostics";
+import { queryScenario, type ScenarioConcurrency, type ScenarioRequest } from "./scenario";
 import { queryWorkspace, type SelectionKind, type WorkspaceRequest } from "./workspace";
 
 const LOOPBACK = "127.0.0.1";
@@ -89,6 +90,17 @@ function diagnosticRequest(url: URL): { runId?: string; sort?: DiagnosticSort } 
 	return { ...(runId ? { runId } : {}), ...(sort ? { sort: sort as DiagnosticSort } : {}) };
 }
 
+function scenarioRequest(value: unknown): ScenarioRequest {
+	if (!value || typeof value !== "object" || Array.isArray(value)) throw new RequestError(400, "scenario body must be an object");
+	const body = value as Record<string, unknown>;
+	if (Object.keys(body).some((key) => !["runId", "concurrency"].includes(key))) throw new RequestError(400, "scenario accepts only one Run identity and Fanout concurrency");
+	if (body.runId !== undefined && (typeof body.runId !== "string" || !body.runId)) throw new RequestError(400, "scenario Run identity must be a non-empty string");
+	if (!body.concurrency || typeof body.concurrency !== "object" || Array.isArray(body.concurrency)) throw new RequestError(400, "scenario concurrency must be an object");
+	const concurrency = body.concurrency as Record<string, unknown>;
+	if (typeof concurrency.mode !== "string" || Object.keys(concurrency).some((key) => key !== "mode" && key !== "limit") || (concurrency.mode === "custom") !== Object.hasOwn(concurrency, "limit")) throw new RequestError(400, "scenario concurrency must contain one mode and only custom contains a limit");
+	return { ...(typeof body.runId === "string" ? { runId: body.runId } : {}), concurrency: concurrency as unknown as ScenarioConcurrency };
+}
+
 export function startProfilerServer(artifactRoot: string, port: number): Bun.Server<undefined> {
 	const catalog = new ProfilerCatalog(artifactRoot);
 	return Bun.serve({
@@ -135,6 +147,7 @@ export function startProfilerServer(artifactRoot: string, port: number): Bun.Ser
 					const body = await readBody(request);
 					if (containsFilesystemSelector(body)) throw new RequestError(400, "filesystem-selectors-not-accepted");
 					if (url.pathname === "/api/comparison") return json(200, queryComparison(catalog.snapshot(), comparisonRequest(body)));
+					if (url.pathname === "/api/scenario") return json(200, queryScenario(catalog.snapshot(), scenarioRequest(body)));
 					if (url.pathname !== "/api/refresh") return json(501, { error: "not-implemented" });
 					if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length) throw new RequestError(400, "refresh accepts only an empty object");
 					const snapshot = await catalog.refresh();

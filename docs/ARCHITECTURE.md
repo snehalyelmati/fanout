@@ -9,6 +9,7 @@ Fanout has one planning-to-execution path. The architecture separates semantic m
 | `fanout-core` | Pi-independent schemas, validators, compiler, resource and graph derivation, routing policy, event reducer, projection, and deterministic report model |
 | `fanout-pi` | Pi commands and capabilities, artifact publication, worker processes, Git worktrees, normalization, validation, event recording, and context-free presentation |
 | `doubleword-provider` | Standalone Doubleword provider, model discovery, transport, and provider observability; it has no Fanout dependency |
+| `fanout-profiler` | Private read-only catalog, workspace queries, comparisons, diagnostics, fixed-behavior scenarios, and loopback HTTP presentation; it depends only on `fanout-core` |
 
 `fanout-core` imports neither Pi nor Doubleword. `fanout-pi` adapts both Pi and provider evidence into core contracts rather than defining a second execution model. The standalone provider exposes no Fanout fields; the Pi runtime adapter projects remembered Doubleword models into the `model.fanout` registry shape used for routing.
 
@@ -82,6 +83,14 @@ Attempt allocation and final-validation start events are recorded before their d
 The pure core reducer produces projection v4 from the otherwise gapless event-v3 log; `execution-run.json` and terminal `summary.md` are replaceable derived views. Audit replay can regenerate those views but has no execution or Git authority; replaying a nonterminal log removes any stale summary. Planning and execution reports are displayed through Pi custom entries that do not enter later model context.
 
 Relevant code: [`execution-event.ts`](../packages/fanout-core/src/execution-event.ts), [`execution-projection.ts`](../packages/fanout-core/src/execution-projection.ts), [`execution-event-store.ts`](../packages/fanout-pi/src/execution-event-store.ts), and [`report-presentation.ts`](../packages/fanout-pi/src/report-presentation.ts).
+
+### Offline profiler scenarios
+
+The profiler admits current Event Logs through `fanout-core` and exposes a user-invoked, read-only scenario query. Observed, sequential, custom positive-safe-integer, and unlimited Fanout concurrency calculations keep the recorded packet DAG, Attempt chains, Worker Turns, tools, outcomes, validations, patches, and Accepted Ledger order fixed. Accepted transitions pass through the recorded ledger-order gate. Results show capacity waits, acceptance waits, uncovered time, the calculated completion chain, and an Evidence Receipt; incomplete runs stop at their recorded prefix and dry runs have no schedule delta. The observed baseline must match the authoritative post-confirmation boundary exactly before an alternative is returned.
+
+These calculations do not reroute calls, alter work or outcomes, predict quality or provider behavior, or recommend a configuration. Provider Profile timing and cost scenarios are a separate later layer.
+
+Relevant code: [`scenario.ts`](../packages/fanout-profiler/src/scenario.ts), [`server.ts`](../packages/fanout-profiler/src/server.ts), and [`app.js`](../packages/fanout-profiler/src/app.js).
 
 ## Trust boundary
 

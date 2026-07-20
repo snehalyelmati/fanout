@@ -494,6 +494,19 @@ Conclusion: tier2 Planned Parallel RPE is not a generic realtime accelerator. It
 
 The 15-trace prediction artifact is tracked at `datasets/fixtures/tat-bucket-code-shards-predictions.jsonl`; it acts as the selected trace manifest because each row includes the target `traceId` and `prefixBoundary`. The full command may load all local `badlogicgames/pi-mono` JSONL traces from `datasets/traces/pi-mono-full` (626 trace files in the downloaded sample), but only the 15 prediction rows are evaluated. The prediction protocol is documented in [`docs/benchmarks/safe-work-unit-eval-protocol.md`](benchmarks/safe-work-unit-eval-protocol.md).
 
+## P3 — Offline profiler fixed-behavior concurrency scenarios
+
+The profiler's public scenario query calculates observed, sequential, custom positive-safe-integer, and unlimited Fanout-concurrency schedules over admitted Event v3/Projection v4 evidence. The packet DAG, recorded Attempt and repair chains, Worker Turns, Tool Invocations, outcomes, validations, patches, and Accepted Ledger order stay fixed. Results expose capacity and acceptance-gate waits, uncovered time, the completion chain, recorded-prefix or dry-run limits, and one Evidence Receipt. They are deterministic workflow experiments under fixed assumptions, not provider forecasts, quality claims, routing recommendations, or measured performance baselines.
+
+Validation:
+
+```bash
+rtk bun test packages/fanout-profiler/src/scenario.test.ts
+rtk npm run check
+```
+
+The focused table covers observed-boundary reproduction and rejection, sequential/custom/unlimited capacity, deterministic allocation ties, dependency and repair preservation, ledger-order acceptance, nested timing evidence, incomplete prefixes, and dry runs. No benchmark dataset, pricing input, routing policy, cost baseline, or measured latency result changed in this slice; provider timing and cost scenarios remain separate follow-up work.
+
 ## Hardened execution baseline
 
 1. **Measure the admitted packet-v5 scheduler policy**
