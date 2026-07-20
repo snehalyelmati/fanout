@@ -47,10 +47,11 @@ test("local profiler exposes only the bounded same-origin HTTP shell", async () 
 	expect(page.status).toBe(200);
 	expect(page.headers.get("content-security-policy")).toContain("default-src 'self'");
 	expect(page.headers.has("access-control-allow-origin")).toBe(false);
-	expect(await page.text()).toMatch(/<header[\s>].*Packet DAG.*Recent Runs.*Trace Evidence.*Diagnostic Observations.*Duration.*Cost.*Frequency.*Chronology.*Run and cross-packet Node comparison.*Comparison Node A.*Comparison Node B.*Inspector.*<footer[\s>]/s);
+	expect(await page.text()).toMatch(/<header[\s>].*Packet DAG.*Recent Runs.*Trace Evidence.*Counterfactual Scenario.*Observed.*Sequential.*Custom.*Unlimited.*Diagnostic Observations.*Duration.*Cost.*Frequency.*Chronology.*Run and cross-packet Node comparison.*Comparison Node A.*Comparison Node B.*Inspector.*<footer[\s>]/s);
 	const app = await (await fetch(`${url}/assets/app.js`)).text();
 	expect(app).toContain("nodePair");
 	expect(app).toContain("loadDiagnostics");
+	expect(app).toContain("runScenario");
 
 	const catalog = await fetch(`${url}/api/catalog`);
 	expect(catalog.status).toBe(200);
@@ -74,7 +75,10 @@ test("local profiler exposes only the bounded same-origin HTTP shell", async () 
 	expect(nodeComparison.status).toBe(400);
 	expect(await nodeComparison.json()).toEqual({ error: "Node comparison requires two admitted packets and replayed runs" });
 	expect((await fetch(`${url}/api/comparison`, { method: "POST", headers: { "content-type": "application/json", origin: url }, body: JSON.stringify({ runAId: "packet/executions/run-projection", runBId: "packet/executions/run-projection", nodeAId: "a" }) })).status).toBe(400);
-	expect((await fetch(`${url}/api/scenario`, { method: "POST", headers: { "content-type": "application/json", origin: url }, body: "{}" })).status).toBe(501);
+	const scenario = await fetch(`${url}/api/scenario`, { method: "POST", headers: { "content-type": "application/json", origin: url }, body: JSON.stringify({ runId: "packet/executions/run-projection", concurrency: { mode: "observed" } }) });
+	expect(scenario.status).toBe(400);
+	expect(await scenario.json()).toEqual({ error: "scenario requires one current admitted Event Log, Execution Packet, and replayed projection" });
+	expect((await fetch(`${url}/api/scenario`, { method: "POST", headers: { "content-type": "application/json", origin: url }, body: JSON.stringify({ concurrency: { mode: "custom", limit: 0 } }) })).status).toBe(400);
 
 	expect((await fetch(`${url}/api/evidence?path=/etc/passwd`)).status).toBe(400);
 	expect((await fetch(`${url}/api/refresh`, { method: "POST", headers: { "content-type": "application/json", origin: url }, body: JSON.stringify({ path: "/etc/passwd" }) })).status).toBe(400);
