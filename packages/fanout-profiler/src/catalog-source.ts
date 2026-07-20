@@ -32,11 +32,13 @@ export class ReferenceIssuer {
 	readonly #generation: number;
 	#sequence = 0;
 	readonly #references = new Map<string, StoredReference>();
+	readonly #contentBytesRead: Record<SourceKind, number> = { planning: 0, execution: 0, pointer: 0, "supporting-evidence": 0 };
 
 	readonly #rootIdentity: RootIdentity;
 
 	constructor(root: string, rootIdentity: RootIdentity, generation: number) { this.#root = root; this.#rootIdentity = rootIdentity; this.#generation = generation; }
 	get references(): ReadonlyMap<string, StoredReference> { return this.#references; }
+	get contentBytesRead(): Readonly<Record<SourceKind, number>> { return this.#contentBytesRead; }
 	readdir(path = ""): string[] { return readdirContained(this.#root, this.#rootIdentity, path); }
 	kind(path: string): "file" | "directory" {
 		const fd = openContained(this.#root, this.#rootIdentity, path, "any");
@@ -53,6 +55,7 @@ export class ReferenceIssuer {
 		try {
 			const before = fingerprint(fstatSync(fd, { bigint: true }));
 			const bytes = readFileSync(fd);
+			this.#contentBytesRead[kind] += bytes.byteLength;
 			const stat = fstatSync(fd, { bigint: true });
 			if (!sameFingerprint(before, fingerprint(stat))) throw new Error(`${path} changed during refresh`);
 			if (!sourceMatches(this.#root, this.#rootIdentity, path, fingerprint(stat))) throw new Error(`${path} changed during refresh`);
@@ -65,6 +68,7 @@ export class ReferenceIssuer {
 		try {
 			const before = fingerprint(fstatSync(fd, { bigint: true }));
 			const bytes = firstLine(fd);
+			this.#contentBytesRead[kind] += bytes.byteLength;
 			const stat = fstatSync(fd, { bigint: true });
 			if (!sameFingerprint(before, fingerprint(stat))) throw new Error(`${path} changed during refresh`);
 			if (!sourceMatches(this.#root, this.#rootIdentity, path, fingerprint(stat))) throw new Error(`${path} changed during refresh`);

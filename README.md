@@ -1,10 +1,11 @@
 # Fanout
 
-Monorepo workspace for three related packages:
+Monorepo workspace for four related packages:
 
 - `doubleword-provider`: [Doubleword](https://doubleword.ai) model/provider integration.
 - `fanout-core`: agent-agnostic work splitting, scheduling, validation, and review policy.
 - `fanout-pi`: Pi adapter and install target that wires Fanout plus the Doubleword provider into Pi.
+- `fanout-profiler`: private, offline read-only profiler for admitted Fanout artifacts.
 
 Current package layout:
 
@@ -13,6 +14,7 @@ packages/
   doubleword-provider/
   fanout-core/
   fanout-pi/
+  fanout-profiler/
 ```
 
 Current focus:
@@ -70,6 +72,21 @@ Execution artifacts live under the admitted packet's containing artifact directo
     validation.json
     apply-check.json
     result.json                       # process, metrics, patch identity/paths/stats, and failure data
+```
+
+Offline profiler:
+
+```text
+rtk npm run profiler -- --artifact-root /absolute/path/to/fanout-artifacts
+rtk npm run profiler -- --artifact-root /absolute/path/to/fanout-artifacts --port 4173
+```
+
+The artifact root is required, resolved to one canonical directory at startup, and fixed until the process exits. The profiler binds only to `127.0.0.1`, prints its URL, and never opens a browser or changes source artifacts. Use the workspace Refresh control (or `POST /api/refresh` with `{}`) to admit newly written evidence: refresh builds and atomically swaps one immutable snapshot, preserves the selected Execution Run when possible, and retains the prior snapshot after a root-level failure. Current Event Logs remain authoritative and replay through `fanout-core`; older generations are descriptive Legacy evidence, projections and reports never override a valid Event Log, and supporting logs are represented by metadata until a capped evidence page is requested. A changed Source Reference returns `Changed since refresh` rather than mixing old catalog state with new bytes.
+
+The normal repository check includes profiler unit and loopback HTTP smoke checks. The representative performance benchmark is intentionally separate:
+
+```text
+rtk npm run benchmark:profiler
 ```
 
 `doubleword-stub` exposes `glm-5-2` and `deepseek-v4-flash` with offline cost estimates. Realtime/tier 1 prices are GLM $1.40/$4.40 and DeepSeek $0.14/$0.28 per MTok in/out; tier 2/flex prices are GLM $1.05/$3.30 and DeepSeek $0.10/$0.20.

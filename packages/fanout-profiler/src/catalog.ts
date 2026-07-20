@@ -93,7 +93,14 @@ export interface EvidencePage {
 	readonly nextOffset: number | null;
 }
 
-interface SnapshotState { snapshot: CatalogSnapshot; references: ReadonlyMap<string, StoredReference> }
+export interface CatalogLoadStatistics {
+	readonly planningBytesRead: number;
+	readonly executionBytesRead: number;
+	readonly pointerBytesRead: number;
+	readonly supportingEvidenceBytesRead: number;
+}
+
+interface SnapshotState { snapshot: CatalogSnapshot; references: ReadonlyMap<string, StoredReference>; statistics: CatalogLoadStatistics }
 interface PacketContext { packet: FanoutExecutionPacket; identity: ArtifactIdentity }
 
 const PLAN_FILES = new Set(["implementation-plan.json", "implementation-details.json", "execution-packet.json", "executions"]);
@@ -116,6 +123,10 @@ export class ProfilerCatalog {
 
 	snapshot(): CatalogSnapshot {
 		return this.#state.snapshot;
+	}
+
+	loadStatistics(): CatalogLoadStatistics {
+		return this.#state.statistics;
 	}
 
 	selectExecutionRun(id: string): CatalogSnapshot {
@@ -209,7 +220,16 @@ function buildSnapshot(root: string, rootIdentity: RootIdentity, generation: num
 		activePointer,
 		selectedExecutionRunId,
 	});
-	return { snapshot: publicSnapshot, references: issuer.references };
+	return {
+		snapshot: publicSnapshot,
+		references: issuer.references,
+		statistics: freeze({
+			planningBytesRead: issuer.contentBytesRead.planning,
+			executionBytesRead: issuer.contentBytesRead.execution,
+			pointerBytesRead: issuer.contentBytesRead.pointer,
+			supportingEvidenceBytesRead: issuer.contentBytesRead["supporting-evidence"],
+		}),
+	};
 }
 
 function inspectPlanningRun(issuer: ReferenceIssuer, id: string, names: string[]): { planning: CatalogPlanningRun | null; executions: CatalogExecutionRun[] } {

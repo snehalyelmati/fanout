@@ -84,11 +84,21 @@ The pure core reducer produces projection v4 from the otherwise gapless event-v3
 
 Relevant code: [`execution-event.ts`](../packages/fanout-core/src/execution-event.ts), [`execution-projection.ts`](../packages/fanout-core/src/execution-projection.ts), [`execution-event-store.ts`](../packages/fanout-pi/src/execution-event-store.ts), and [`report-presentation.ts`](../packages/fanout-pi/src/report-presentation.ts).
 
+### Offline profiler catalog and authority
+
+The private `fanout-profiler` process resolves one required canonical artifact root at startup and keeps it fixed for its lifetime. Its filesystem catalog discovers only recognized planning, execution, pointer, and observability locations; rejects descendant symlinks and escaped paths; and issues snapshot-bound Source References. A manual refresh serially builds a complete immutable candidate before swapping it atomically. Existing requests may finish against their captured snapshot, root-level refresh failure preserves the prior snapshot, and selection falls back to the newest available Execution Run only when the prior identity disappeared.
+
+The Event Log is still the sole execution-state authority. Current Event v3 logs replay through `fanout-core`; projections and reports are ignored when a valid log exists, while Legacy, Invalid, and Unverifiable evidence remains explicitly labelled. The profiler owns only read-only relationships, workspace views, Evidence Receipts, comparisons, Diagnostic Observations, and Counterfactual Scenarios. It cannot mutate artifacts, route work, accept patches, or publish execution state. Supporting logs remain metadata-only in the catalog and are opened through an active Source Reference only when a page of at most 500 rows is requested. Fingerprint drift returns `Changed since refresh`; missing values remain unavailable, and derived or scenario arithmetic is never promoted to observed fact.
+
+The Bun HTTP adapter binds to `127.0.0.1` and exposes only the fixed same-origin catalog, workspace, evidence, comparison, diagnostics, scenario, and refresh operations. Browser code renders server-produced views; it does not read files, admit contracts, replay events, or simulate schedules.
+
+Relevant code: [`catalog.ts`](../packages/fanout-profiler/src/catalog.ts), [`catalog-source.ts`](../packages/fanout-profiler/src/catalog-source.ts), and [`server.ts`](../packages/fanout-profiler/src/server.ts).
+
 ### Offline profiler scenarios
 
 The profiler admits current Event Logs through `fanout-core` and exposes a user-invoked, read-only scenario query. Observed, sequential, custom positive-safe-integer, and unlimited Fanout concurrency calculations keep the recorded packet DAG, Attempt chains, Worker Turns, tools, outcomes, validations, patches, and Accepted Ledger order fixed. Accepted transitions pass through the recorded ledger-order gate. Results show capacity waits, acceptance waits, uncovered time, the calculated completion chain, and an Evidence Receipt; incomplete runs stop at their recorded prefix and dry runs have no schedule delta. The observed baseline must match the authoritative post-confirmation boundary exactly before an alternative is returned.
 
-These calculations do not reroute calls, alter work or outcomes, predict quality or provider behavior, or recommend a configuration. Provider Profile timing and cost scenarios are a separate later layer.
+These calculations do not reroute calls, alter work or outcomes, predict quality or provider behavior, or recommend a configuration. Independent Tier 1 and Tier 2 Provider Profiles can replace observed provider-call timing and cost with fixed or cold/warm arithmetic, but cannot reassign tiers or fill missing evidence.
 
 Relevant code: [`scenario.ts`](../packages/fanout-profiler/src/scenario.ts), [`server.ts`](../packages/fanout-profiler/src/server.ts), and [`app.js`](../packages/fanout-profiler/src/app.js).
 
