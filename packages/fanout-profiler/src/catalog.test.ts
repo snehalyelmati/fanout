@@ -215,6 +215,32 @@ test("snapshot-issued references page supporting evidence lazily and reject chan
 	await expect(catalog.readEvidencePage(reference!.id, { limit: 501 })).rejects.toThrow("500");
 });
 
+test("catalog references only bounded execution supporting evidence without reading it", async () => {
+	const artifactRoot = root();
+	write(join(artifactRoot, "packet", "executions", "run", "execution-run.json"), { schema: "fanout.execution-run", version: 4, runId: "run", startedAt: "2026-07-20T00:00:00.000Z" });
+	const attempt = join(artifactRoot, "packet", "executions", "run", "workers", "work", "attempts", "work-000001");
+	for (const [name, contents] of [
+		["stdout.log", "worker output\n"], ["stderr.log", "worker error\n"], ["observability.jsonl", "observed\n"],
+		["validation.json", "validation\n"], ["ownership-check.json", "ownership\n"], ["unknown.json", "ignored\n"],
+	] as const) write(join(attempt, name), contents);
+	write(join(attempt, "session", "session.jsonl"), "session row\n");
+	write(join(attempt, "session", "unknown.txt"), "ignored\n");
+	write(join(artifactRoot, "packet", "executions", "run", "final-validation", "rounds", "initial.json"), "final validation\n");
+	write(join(artifactRoot, "packet", "executions", "run", "final-validation", "rounds", "unknown.json"), "ignored\n");
+	write(join(artifactRoot, "packet", "executions", "run", "unknown", "stdout.log"), "ignored\n");
+
+	const catalog = new ProfilerCatalog(artifactRoot);
+	const evidence = catalog.snapshot().supportingEvidence.filter(({ executionRunId }) => executionRunId === "packet/executions/run");
+	expect(evidence.map(({ label }) => label)).toEqual(["final-validation/rounds/initial.json", "observability.jsonl", "ownership-check.json", "session/session.jsonl", "stderr.log", "stdout.log", "validation.json"]);
+	expect(evidence.every(({ admission, source }) => admission === "Unverifiable" && source?.kind === "supporting-evidence")).toBe(true);
+	expect(evidence.find(({ label }) => label.startsWith("final-validation"))?.attemptId).toBeNull();
+	expect(evidence.filter(({ label }) => !label.startsWith("final-validation")).every(({ attemptId }) => attemptId === "work-000001")).toBe(true);
+	expect(JSON.stringify(evidence)).not.toContain("worker output");
+	expect(JSON.stringify(evidence)).not.toContain("unknown");
+	expect(catalog.loadStatistics().supportingEvidenceBytesRead).toBe(0);
+	expect(await catalog.readEvidencePage(evidence.find(({ label }) => label === "stdout.log")!.source!.id)).toEqual({ status: "Current", rows: ["worker output"], nextOffset: null });
+});
+
 test("128 MB supporting evidence stays metadata-only and pages remain capped", async () => {
 	const artifactRoot = root();
 	const evidence = join(artifactRoot, "observability", "large", "observability.jsonl");

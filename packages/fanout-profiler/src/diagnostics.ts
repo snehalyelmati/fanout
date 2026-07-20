@@ -16,6 +16,7 @@ interface DiagnosticObservation {
 	chronologyMs: number;
 	durationMs: number;
 	costUsd: number | null;
+	costStatus: "available" | "partial" | "unavailable";
 	frequency: number;
 	evidence: Readonly<Record<string, unknown>>;
 	receipt: EvidenceReceipt;
@@ -122,7 +123,7 @@ function readinessObservations(run: CatalogExecutionRun, edges: readonly (readon
 		observations.push({
 			id: `${WAIT_RULE}:${node.id}`, rule: WAIT_RULE, subjectId: node.id, relatedId: null,
 			title: `Runnable Node ${node.id} waited with recorded free Fanout capacity`, occurredAt: readiness.occurredAt, chronologyMs: readiness.time - origin,
-			durationMs: free.durationMs, costUsd: null, frequency: free.windows, evidence,
+			durationMs: free.durationMs, costUsd: null, costStatus: "unavailable", frequency: free.windows, evidence,
 			receipt: createEvidenceReceipt("Derived", "Free-capacity overlap is the intersection of Node readiness through first allocation with recorded Node occupancy below run maxConcurrency", sourceReferences, [], [], ["Descriptive observation only"], executionArtifactGeneration([run.admission])),
 		});
 	}
@@ -146,10 +147,6 @@ function replacementObservations(run: CatalogExecutionRun, sourceReferences: rea
 			suppressions.push({ rule: REPLACEMENT_RULE, subjectId: sourceAttempt.allocation.attemptId, reason: `Attempt ${sourceAttempt.allocation.attemptId} recorded ${action} intent, but no later admitted ${action} allocation names it as source.` });
 			continue;
 		}
-		if (!sourceAttempt.outcome!.metrics.complete) {
-			suppressions.push({ rule: REPLACEMENT_RULE, subjectId: sourceAttempt.allocation.attemptId, reason: `Attempt ${sourceAttempt.allocation.attemptId} has incomplete metrics, so sortable cost evidence is unavailable.` });
-			continue;
-		}
 		const sourceEvent = eventBySequence.get(sourceAttempt.completionSequence!);
 		const allocationEvent = eventBySequence.get(replacement.allocationSequence);
 		if (sourceEvent?.event !== "attempt-completed" || allocationEvent?.event !== "attempt-allocated") {
@@ -157,13 +154,15 @@ function replacementObservations(run: CatalogExecutionRun, sourceReferences: rea
 			continue;
 		}
 		const frequency = frequencies.get(`${sourceAttempt.allocation.nodeId}\0${action}`)!;
-		const costUsd = sourceAttempt.outcome!.metrics.turns.reduce((sum, turn) => sum + turn.costUsd, 0);
+		const completeCost = sourceAttempt.outcome!.metrics.complete && sourceAttempt.outcome!.metrics.turns.every(({ costUsd }) => typeof costUsd === "number" && Number.isFinite(costUsd));
+		const costUsd = completeCost ? sourceAttempt.outcome!.metrics.turns.reduce((sum, turn) => sum + turn.costUsd, 0) : null;
+		const costStatus = completeCost ? "available" : sourceAttempt.outcome!.metrics.turns.length ? "partial" : "unavailable";
 		observations.push({
 			id: `${REPLACEMENT_RULE}:${sourceAttempt.allocation.attemptId}`, rule: REPLACEMENT_RULE, subjectId: sourceAttempt.allocation.attemptId, relatedId: replacement.allocation.attemptId,
 			title: `Non-accepted Attempt ${sourceAttempt.allocation.attemptId} was causally replaced`, occurredAt: allocationEvent.occurredAt, chronologyMs: Date.parse(allocationEvent.occurredAt) - origin,
-			durationMs: sourceAttempt.outcome!.durationMs, costUsd, frequency,
+			durationMs: sourceAttempt.outcome!.durationMs, costUsd, costStatus, frequency,
 			evidence: { sourceCompletionEventSequence: sourceEvent.sequence, replacementAllocationEventSequence: allocationEvent.sequence, action, sourceAttemptId: sourceAttempt.allocation.attemptId, replacementAttemptId: replacement.allocation.attemptId },
-			receipt: createEvidenceReceipt("Derived", "A later admitted recovery allocation names the non-accepted source Attempt and matches its recorded controller action", sourceReferences, [], [], ["Descriptive observation only"], executionArtifactGeneration([run.admission])),
+			receipt: createEvidenceReceipt(completeCost ? "Derived" : "Partial", "A later admitted recovery allocation names the non-accepted source Attempt and matches its recorded controller action", sourceReferences, completeCost ? [] : ["complete Attempt usage and cost telemetry"], [], ["Descriptive observation only"], executionArtifactGeneration([run.admission])),
 		});
 	}
 }

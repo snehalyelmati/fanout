@@ -64,8 +64,11 @@ export interface CatalogWorkflowLineage {
 
 export interface CatalogSupportingEvidence {
 	readonly id: string;
-	readonly admission: "Current" | "Invalid";
+	readonly admission: CatalogAdmission;
 	readonly reason: string;
+	readonly label: string;
+	readonly executionRunId: string | null;
+	readonly attemptId: string | null;
 	readonly source: SourceReference | null;
 }
 
@@ -104,6 +107,8 @@ interface SnapshotState { snapshot: CatalogSnapshot; references: ReadonlyMap<str
 interface PacketContext { packet: FanoutExecutionPacket; identity: ArtifactIdentity }
 
 const PLAN_FILES = new Set(["implementation-plan.json", "implementation-details.json", "execution-packet.json", "executions"]);
+const ATTEMPT_EVIDENCE_FILES = new Set(["stdout.log", "stderr.log", "observability.jsonl", "result.json", "candidate-normalization.json", "validation.json", "ownership-check.json", "apply-check.json", "attempt-outcome.json"]);
+const FINAL_VALIDATION_EVIDENCE = /^(?:initial|repair-[0-9a-f]{12})(?:-accepted)?\.json$/;
 const MAX_EVIDENCE_ROWS = 500;
 const MAX_EVIDENCE_LINE_BYTES = 1024 * 1024;
 
@@ -198,6 +203,7 @@ function buildSnapshot(root: string, rootIdentity: RootIdentity, generation: num
 		const inspected = inspectPlanningRun(issuer, name, names);
 		if (inspected.planning) planningRuns.push(inspected.planning);
 		executionRuns.push(...inspected.executions);
+		supportingEvidence.push(...inspectExecutionEvidence(issuer, name, inspected.executions));
 	}
 
 	executionRuns.sort((a, b) => (Date.parse(b.updatedAt ?? b.createdAt ?? "") || 0) - (Date.parse(a.updatedAt ?? a.createdAt ?? "") || 0) || b.id.localeCompare(a.id));
@@ -389,12 +395,53 @@ function inspectObservability(issuer: ReferenceIssuer): CatalogSupportingEvidenc
 			const dir = `observability/${id}`;
 			try {
 				if (issuer.kind(dir) !== "directory" || !issuer.readdir(dir).includes("observability.jsonl")) return [];
-				return [freeze({ id, admission: "Current", reason: "planning observability is loaded only when inspected", source: issuer.reference(`${dir}/observability.jsonl`, "supporting-evidence") })];
-			} catch (error) { return [freeze({ id, admission: "Invalid", reason: message(error), source: null })]; }
+				return [freeze({ id, admission: "Current", reason: "planning observability is loaded only when inspected", label: "observability.jsonl", executionRunId: null, attemptId: null, source: issuer.reference(`${dir}/observability.jsonl`, "supporting-evidence") })];
+			} catch (error) { return [freeze({ id, admission: "Invalid", reason: message(error), label: "observability.jsonl", executionRunId: null, attemptId: null, source: null })]; }
 		});
 	} catch (error) {
-		return [freeze({ id: "observability", admission: "Invalid", reason: message(error), source: null })];
+		return [freeze({ id: "observability", admission: "Invalid", reason: message(error), label: "observability.jsonl", executionRunId: null, attemptId: null, source: null })];
 	}
+}
+
+function inspectExecutionEvidence(issuer: ReferenceIssuer, planningRunId: string, runs: readonly CatalogExecutionRun[]): CatalogSupportingEvidence[] {
+	return runs.flatMap((run) => {
+		const runDir = `${planningRunId}/executions/${run.id}`;
+		const workers = `${runDir}/workers`;
+		let nodeIds: string[];
+		try { nodeIds = issuer.readdir(workers); }
+		catch { nodeIds = []; }
+		const attempts = nodeIds.sort().flatMap((nodeId) => {
+			const attempts = `${workers}/${nodeId}/attempts`;
+			let attemptIds: string[];
+			try { attemptIds = issuer.readdir(attempts); }
+			catch { return []; }
+			return attemptIds.sort().flatMap((attemptId) => inspectAttemptEvidence(issuer, run, `${attempts}/${attemptId}`, attemptId));
+		});
+		const rounds = `${runDir}/final-validation/rounds`;
+		let finalValidation: CatalogSupportingEvidence[] = [];
+		try { finalValidation = issuer.readdir(rounds).filter((name) => FINAL_VALIDATION_EVIDENCE.test(name)).sort().map((name) => supportingEvidence(issuer, run, `${rounds}/${name}`, `final-validation/rounds/${name}`, null)); }
+		catch { /* Final Validation evidence is optional supporting evidence. */ }
+		return [...attempts, ...finalValidation];
+	});
+}
+
+function inspectAttemptEvidence(issuer: ReferenceIssuer, run: CatalogExecutionRun, dir: string, attemptId: string): CatalogSupportingEvidence[] {
+	let names: string[];
+	try { names = issuer.readdir(dir); }
+	catch { return []; }
+	const paths = names.filter((name) => ATTEMPT_EVIDENCE_FILES.has(name)).map((name) => [name, `${dir}/${name}`] as const);
+	if (names.includes("session")) {
+		try {
+			for (const name of issuer.readdir(`${dir}/session`).filter((name) => name.endsWith(".jsonl")).sort()) paths.push([`session/${name}`, `${dir}/session/${name}`]);
+		} catch { /* A rejected session directory is not execution authority. */ }
+	}
+	return paths.sort(([left], [right]) => left.localeCompare(right)).map(([label, path]) => supportingEvidence(issuer, run, path, label, attemptId));
+}
+
+function supportingEvidence(issuer: ReferenceIssuer, run: CatalogExecutionRun, path: string, label: string, attemptId: string | null): CatalogSupportingEvidence {
+	const id = `${run.selectionId}/${attemptId ?? "execution"}/${label}`;
+	try { return freeze({ id, admission: run.admission, reason: `${run.admission} read-only supporting evidence; loaded only when inspected`, label, executionRunId: run.selectionId, attemptId, source: issuer.reference(path, "supporting-evidence") }); }
+	catch (error) { return freeze({ id, admission: "Invalid", reason: message(error), label, executionRunId: run.selectionId, attemptId, source: null }); }
 }
 
 function inspectPointer(issuer: ReferenceIssuer): CatalogSnapshot["activePointer"] {

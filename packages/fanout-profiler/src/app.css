@@ -15,15 +15,15 @@ header p { flex: 1; }
 button, input, select { font: inherit; }
 button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 main { --dag-width: 320px; --inspector-width: 360px; height: calc(100vh - 8rem); display: grid; grid-template-columns: var(--dag-width) .55rem minmax(28rem, 1fr) .55rem var(--inspector-width); }
-main > aside, main > .trace { min-width: 0; overflow: auto; padding: .75rem; }
-main > [data-pane="dag"], main > .trace { border-right: 1px solid var(--line); }
+main > aside, main > .evidence { min-width: 0; overflow: auto; padding: .75rem; }
+main > [data-pane="dag"], main > .evidence { border-right: 1px solid var(--line); }
 .resizer { display: grid; place-items: center; cursor: col-resize; user-select: none; touch-action: none; color: CanvasText; background: color-mix(in srgb, Canvas 75%, var(--line)); }
 .pane-title { display: flex; align-items: center; gap: .5rem; }
 .pane-title h2 { flex: 1; }
 .pane-title button { font-size: .72rem; }
 main[data-maximized] { grid-template-columns: minmax(0, 1fr); }
 main[data-maximized] > [data-pane], main[data-maximized] > .resizer { display: none; }
-main[data-maximized="dag"] > [data-pane="dag"], main[data-maximized="trace"] > [data-pane="trace"], main[data-maximized="inspector"] > [data-pane="inspector"] { display: block; grid-column: 1; border: 0; }
+main[data-maximized="dag"] > [data-pane="dag"], main[data-maximized="evidence"] > [data-pane="evidence"], main[data-maximized="inspector"] > [data-pane="inspector"] { display: block; grid-column: 1; border: 0; }
 aside section + section, h3, .inspector h2, #comparison section + section { border-top: 1px solid var(--line); padding-top: .75rem; }
 h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; }
 h3, h4 { font-size: .75rem; }

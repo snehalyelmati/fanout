@@ -1,8 +1,10 @@
 import { deepFreeze } from "../../fanout-core/src/contract-value";
 import type { AttemptProjection, ExecutionRunProjection } from "../../fanout-core/src/execution-projection";
+import type { StageFact } from "../../fanout-core/src/execution-attempt";
+import type { AcceptedPatch } from "../../fanout-core/src/artifact-identity";
 import { requireExecutionRun, type CatalogExecutionRun, type CatalogSnapshot, type SourceReference } from "./catalog";
-import { buildProviderPlan, parseProviderProfiles, type ProviderAttemptInput, type ProviderProfiles } from "./provider-profile";
-import { createEvidenceReceipt, executionArtifactGeneration } from "./workspace";
+import { buildProviderPlan, parseProviderProfiles, type ProviderAttemptInput, type ProviderCallSchedule, type ProviderCostSummary, type ProviderProfiles, type ProviderTierSchedule, type ProviderTurnSchedule } from "./provider-profile";
+import { createEvidenceReceipt, executionArtifactGeneration, type EvidenceReceipt } from "./workspace";
 
 export type { ProviderProfile, ProviderProfiles } from "./provider-profile";
 
@@ -45,25 +47,44 @@ interface ScheduledNode extends RecordedNode {
 }
 
 type ScenarioNodeSchedule = Omit<ScheduledNode, "attempts" | "attemptStarts" | "attemptEnds" | "attemptReadiness" | "attemptWaits" | "allocationOrder" | "completionLagMs">;
+interface ScenarioProviderConstraint { id: string; completedMs: number }
+interface ScenarioNodeRow extends ScenarioNodeSchedule {
+	providerWaitMs?: number; ttftMs?: number; generationMs?: number; toolMs?: number; scenarioCostUsd?: number | null; uncoveredMs?: number; providerConstraint?: ScenarioProviderConstraint;
+}
+interface ScenarioAttemptRow {
+	nodeId: string; attemptId: string; tier: "tier1" | "tier2"; kind: AttemptProjection["allocation"]["kind"]; sourceAttemptId: string | null; action: NonNullable<AttemptProjection["outcome"]>["action"] | null;
+	readinessMs: number | null; fanoutWaitMs: number | null; startMs: number; endMs: number | null; durationMs: number | null; coveredEndMs: number; coveredDurationMs: number; uncoveredMs: number; terminalFact: StageFact | null;
+	providerWaitMs?: number; ttftMs?: number; generationMs?: number; toolMs?: number; localMs?: number | null; scenarioCostUsd?: number | null;
+}
+interface ScenarioTurnRow extends ProviderTurnSchedule { startMs: number; endMs: number }
+interface ScenarioResponseRow extends ProviderCallSchedule { startMs: number; endMs: number }
+interface ScenarioToolRow { nodeId: string; attemptId: string; toolCallId: string; name: string; startMs: number; endMs: number; durationMs: number }
+interface ScenarioAcceptanceRow { ledgerIndex: number; attemptId: string; readyMs: number | null; acceptedMs: number | null; waitMs: number | null; patch: AcceptedPatch }
 interface ScenarioSchedule {
-	nodes: ScenarioNodeSchedule[];
-	attempts: Array<Record<string, unknown>>;
-	turns: Array<Record<string, unknown>>;
-	responses: Array<Record<string, unknown>>;
-	tools: Array<Record<string, unknown>>;
-	validations: Array<{ attemptId: string | null; terminalFact: unknown }>;
-	acceptanceGate: Array<Record<string, unknown>>;
+	nodes: ScenarioNodeRow[];
+	attempts: ScenarioAttemptRow[];
+	turns: ScenarioTurnRow[];
+	responses: ScenarioResponseRow[];
+	tools: ScenarioToolRow[];
+	validations: Array<{ attemptId: string | null; terminalFact: StageFact | { stage: "final-validation"; code: string } | null }>;
+	acceptanceGate: ScenarioAcceptanceRow[];
 	finalValidation: { startMs: number; endMs: number; durationMs: number; outcome: string; complete: boolean } | null;
 	fanout: { capacityWaitMs: number; acceptanceGateWaitMs: number };
 	provider?: { capacityWaitMs: number };
-	tiers: Array<Record<string, unknown>>;
+	tiers: ProviderTierSchedule[];
 	uncoveredMs: number;
 }
 interface CompletionChainEntry { kind: "node" | "fanout-capacity" | "provider-capacity" | "acceptance" | "final-validation" | "recorded-prefix" | "run"; id: string; completedMs?: number }
+interface PreservedScenarioEvidence { packetEdges: string[][]; nodeIds: string[]; attemptIds: string[]; turnIds: string[]; toolCallIds: string[]; outcomeActions: string[]; acceptedLedgerAttemptIds: string[]; acceptedTransitions: ExecutionRunProjection["acceptedLedger"][number]["transition"][]; tierAssignments: Array<"tier1" | "tier2">; responseIds: string[] }
+interface ScenarioResult {
+	status: "available" | "partial" | "dry-run"; statement: string; configuration: { mode: ScenarioConcurrency["mode"]; limit: number | null; providerProfiles: ProviderProfiles };
+	observedBoundaryMs: number | null; scenarioBoundaryMs: number | null; deltaMs: number | null; cost: ProviderCostSummary;
+	coverage: { kind: "complete" | "recorded-prefix" | "dry-run"; lastEventSequence: number }; preserved: PreservedScenarioEvidence; schedule: ScenarioSchedule; completionChain: CompletionChainEntry[]; receipt: EvidenceReceipt;
+}
 
 const STATEMENT = "Under these fixed assumptions, the calculated result is deterministic schedule arithmetic over fixed recorded behavior and outcomes; it is not a forecast, quality claim, routing claim, or recommendation.";
 
-export function queryScenario(snapshot: CatalogSnapshot, request: ScenarioRequest): Readonly<Record<string, any>> {
+export function queryScenario(snapshot: CatalogSnapshot, request: ScenarioRequest): Readonly<ScenarioResult> {
 	const selectedConfiguration = configurationFor(request.concurrency);
 	const providerProfiles = parseProviderProfiles(request.providerProfiles);
 	const run = requireExecutionRun(snapshot, request.runId);
@@ -107,17 +128,17 @@ export function queryScenario(snapshot: CatalogSnapshot, request: ScenarioReques
 			if (round === maxRounds - 1) throw new TypeError("Provider Profile schedule did not reach a deterministic fixed point");
 		}
 	}
-	simulated.schedule.turns = providerPlan.turns.map((turn: any) => ({ ...turn, startMs: turn.issueMs, endMs: turn.providerEndMs }));
+	simulated.schedule.turns = providerPlan.turns.map((turn) => ({ ...turn, startMs: turn.issueMs, endMs: turn.providerEndMs }));
 	simulated.schedule.responses = providerPlan.responses.map((call) => ({ ...call, startMs: call.issueMs, endMs: call.providerEndMs }));
 	const toolSchedule = new Map(providerPlan.tools.map((tool) => [tool.toolCallId, tool]));
-	simulated.schedule.tools = simulated.schedule.tools.map((tool: any) => ({ ...tool, ...(toolSchedule.has(tool.toolCallId) ? { startMs: toolSchedule.get(tool.toolCallId)!.startMs, endMs: toolSchedule.get(tool.toolCallId)!.endMs } : {}) }));
+	simulated.schedule.tools = simulated.schedule.tools.map((tool) => ({ ...tool, ...(toolSchedule.has(tool.toolCallId) ? { startMs: toolSchedule.get(tool.toolCallId)!.startMs, endMs: toolSchedule.get(tool.toolCallId)!.endMs } : {}) }));
 	simulated.schedule.tiers = providerPlan.tiers;
 	addProviderBreakdowns(simulated.schedule);
 	const status = complete ? "available" : "partial";
 	const scenarioBoundaryMs = complete ? simulated.boundaryMs : simulated.coveredBoundaryMs;
 	const missing = [
 		...(complete ? [] : ["terminal post-confirmation execution boundary"]),
-		...((providerPlan.cost as { status: string }).status === "available" ? [] : ["complete recorded provider-call usage for scenario cost"]),
+		...(providerPlan.cost.status === "available" ? [] : ["complete recorded provider-call usage for scenario cost"]),
 	];
 	return deepFreeze({
 		status, statement: STATEMENT, configuration, observedBoundaryMs, scenarioBoundaryMs,
@@ -323,11 +344,20 @@ function resultFor(nodes: ScheduledNode[], run: CatalogExecutionRun | null, proj
 		return { nodeId: node.nodeId, attemptId, tier: attempt.allocation.assignment.tier, kind: attempt.allocation.kind, sourceAttemptId: attempt.allocation.sourceAttemptId ?? null, action: attempt.outcome?.action ?? null, readinessMs: node.attemptReadiness[attemptId] ?? null, fanoutWaitMs: node.attemptWaits[attemptId] ?? null, startMs, endMs, durationMs: endMs === null ? null : endMs - startMs, coveredEndMs, coveredDurationMs, uncoveredMs: Math.max(0, coveredDurationMs - coveredDuration(attempt, allocationEpochMs)), terminalFact: attempt.outcome?.terminalFact ?? null };
 	})).sort((left, right) => projection.attempts.findIndex(({ allocation }) => allocation.attemptId === left.attemptId) - projection.attempts.findIndex(({ allocation }) => allocation.attemptId === right.attemptId));
 	const attemptStart = new Map(attemptRows.map((attempt) => [attempt.attemptId, attempt.startMs]));
-	const evidenceRows = <T extends Record<string, any>>(field: "turns" | "tools", id: (item: T) => Record<string, unknown>) => nodes.flatMap((node) => node.attempts.flatMap(({ attempt, allocationEpochMs }) => (attempt.outcome?.metrics[field] as T[] | undefined ?? []).map((item) => {
-		const start = field === "turns" ? item.requestedAt : item.startedAt;
-		const end = item.finishedAt;
-		return { nodeId: node.nodeId, attemptId: attempt.allocation.attemptId, ...id(item), startMs: attemptStart.get(attempt.allocation.attemptId)! + Date.parse(start) - allocationEpochMs, endMs: attemptStart.get(attempt.allocation.attemptId)! + Date.parse(end) - allocationEpochMs, durationMs: item.durationMs };
-	})));
+	const turnRows = nodes.flatMap((node) => node.attempts.flatMap(({ attempt, allocationEpochMs }) => (attempt.outcome?.metrics.turns ?? []).map((turn): ScenarioTurnRow => ({
+		nodeId: node.nodeId, attemptId: attempt.allocation.attemptId, turnId: turn.turnId, tier: turn.tier, responseIds: [...turn.responseIds],
+		issueMs: attemptStart.get(attempt.allocation.attemptId)! + Date.parse(turn.requestedAt) - allocationEpochMs,
+		providerStartMs: attemptStart.get(attempt.allocation.attemptId)! + Date.parse(turn.requestedAt) - allocationEpochMs,
+		providerEndMs: attemptStart.get(attempt.allocation.attemptId)! + Date.parse(turn.finishedAt) - allocationEpochMs,
+		providerWaitMs: 0, ttftMs: Date.parse(turn.firstOutputAt) - Date.parse(turn.requestedAt), generationMs: Date.parse(turn.finishedAt) - Date.parse(turn.firstOutputAt), durationMs: turn.durationMs, warmth: "observed",
+		observedCostUsd: turn.costUsd, scenarioCostUsd: turn.costUsd, costStatus: "available", capacityPredecessorIds: [],
+		startMs: attemptStart.get(attempt.allocation.attemptId)! + Date.parse(turn.requestedAt) - allocationEpochMs, endMs: attemptStart.get(attempt.allocation.attemptId)! + Date.parse(turn.finishedAt) - allocationEpochMs,
+	}))));
+	const toolRows = nodes.flatMap((node) => node.attempts.flatMap(({ attempt, allocationEpochMs }) => (attempt.outcome?.metrics.tools ?? []).map((tool): ScenarioToolRow => ({
+		nodeId: node.nodeId, attemptId: attempt.allocation.attemptId, toolCallId: tool.toolCallId, name: tool.name,
+		startMs: attemptStart.get(attempt.allocation.attemptId)! + Date.parse(tool.startedAt) - allocationEpochMs,
+		endMs: attemptStart.get(attempt.allocation.attemptId)! + Date.parse(tool.finishedAt) - allocationEpochMs, durationMs: tool.durationMs,
+	}))));
 	const acceptedReady = new Map(nodes.filter(({ acceptedAttemptId }) => acceptedAttemptId).map((node) => [node.acceptedAttemptId!, node.executionEndMs]));
 	const acceptedCompleted = new Map(nodes.filter(({ acceptedAttemptId }) => acceptedAttemptId).map((node) => [node.acceptedAttemptId!, node.completedMs - node.completionLagMs]));
 	const acceptanceGate = projection.acceptedLedger.map((entry, ledgerIndex) => ({ ledgerIndex, attemptId: entry.attemptId, readyMs: acceptedReady.get(entry.attemptId) ?? null, acceptedMs: acceptedCompleted.get(entry.attemptId) ?? null, waitMs: acceptedReady.has(entry.attemptId) ? acceptedCompleted.get(entry.attemptId)! - acceptedReady.get(entry.attemptId)! : null, patch: entry.transition.patch }));
@@ -345,8 +375,7 @@ function resultFor(nodes: ScheduledNode[], run: CatalogExecutionRun | null, proj
 	const schedule: ScenarioSchedule = {
 		nodes: nodes.map(({ attempts: _attempts, attemptStarts: _attemptStarts, attemptEnds: _attemptEnds, attemptReadiness: _attemptReadiness, attemptWaits: _attemptWaits, allocationOrder: _allocationOrder, completionLagMs: _completionLagMs, ...node }) => node),
 		attempts: attemptRows,
-		turns: evidenceRows<any>("turns", ({ turnId, tier, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd }) => ({ turnId, tier, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, observedCostUsd: costUsd, scenarioCostUsd: costUsd })), responses: [],
-		tools: evidenceRows<any>("tools", ({ toolCallId, name }) => ({ toolCallId, name })),
+		turns: turnRows, responses: [], tools: toolRows,
 		validations,
 		acceptanceGate, finalValidation, tiers: [],
 		fanout: { capacityWaitMs: nodes.reduce((sum, node) => sum + node.fanoutWaitMs, 0), acceptanceGateWaitMs: nodes.reduce((sum, node) => sum + node.acceptanceGateWaitMs, 0) },
@@ -356,7 +385,7 @@ function resultFor(nodes: ScheduledNode[], run: CatalogExecutionRun | null, proj
 }
 
 function providerInputs(nodes: RecordedNode[], schedule: ScenarioSchedule, observedBoundaryMs: number): ProviderAttemptInput[] {
-	const starts = new Map(schedule.attempts.map((attempt: any) => [attempt.attemptId, attempt.startMs]));
+	const starts = new Map(schedule.attempts.map((attempt) => [attempt.attemptId, attempt.startMs]));
 	return nodes.flatMap((node) => node.attempts.map(({ attempt, allocationEpochMs, allocationMs, completionMs }) => {
 		const accepted = attempt.allocation.attemptId === node.acceptedAttemptId;
 		const recordedDurationMs = accepted && attempt.outcome
@@ -375,29 +404,29 @@ function sameDurations(left: ReadonlyMap<string, number>, right: ReadonlyMap<str
 }
 
 function addProviderBreakdowns(schedule: ScenarioSchedule): void {
-	const turnsByAttempt = new Map<string, any[]>();
-	for (const turn of schedule.turns as any[]) turnsByAttempt.set(turn.attemptId, [...(turnsByAttempt.get(turn.attemptId) ?? []), turn]);
-	for (const attempt of schedule.attempts as any[]) {
+	const turnsByAttempt = new Map<string, ScenarioTurnRow[]>();
+	for (const turn of schedule.turns) turnsByAttempt.set(turn.attemptId, [...(turnsByAttempt.get(turn.attemptId) ?? []), turn]);
+	for (const attempt of schedule.attempts) {
 		const turns = turnsByAttempt.get(attempt.attemptId) ?? [];
 		attempt.providerWaitMs = turns.reduce((total, turn) => total + turn.providerWaitMs, 0);
 		attempt.ttftMs = turns.reduce((total, turn) => total + turn.ttftMs, 0);
 		attempt.generationMs = turns.reduce((total, turn) => total + turn.generationMs, 0);
-		attempt.toolMs = (schedule.tools as any[]).filter((tool) => tool.attemptId === attempt.attemptId).reduce((total, tool) => total + tool.durationMs, 0);
+		attempt.toolMs = schedule.tools.filter((tool) => tool.attemptId === attempt.attemptId).reduce((total, tool) => total + tool.durationMs, 0);
 		attempt.localMs = attempt.durationMs === null ? null : Math.max(0, attempt.durationMs - attempt.providerWaitMs - attempt.ttftMs - attempt.generationMs - attempt.toolMs);
 		attempt.scenarioCostUsd = turns.every((turn) => turn.scenarioCostUsd !== null) ? turns.reduce((total, turn) => total + turn.scenarioCostUsd, 0) : null;
-		const intervals = [...(schedule.responses as any[]).filter((call) => call.attemptId === attempt.attemptId).map((call) => [call.issueMs, call.providerEndMs]), ...(schedule.tools as any[]).filter((tool) => tool.attemptId === attempt.attemptId).map((tool) => [tool.startMs, tool.endMs])];
+		const intervals = [...schedule.responses.filter((call) => call.attemptId === attempt.attemptId).map((call) => [call.issueMs, call.providerEndMs]), ...schedule.tools.filter((tool) => tool.attemptId === attempt.attemptId).map((tool) => [tool.startMs, tool.endMs])];
 		attempt.uncoveredMs = Math.max(0, attempt.coveredDurationMs - intervalUnionMs(intervals));
 	}
-	for (const node of schedule.nodes as any[]) {
-		const attempts = (schedule.attempts as any[]).filter((attempt) => attempt.nodeId === node.nodeId);
-		for (const field of ["providerWaitMs", "ttftMs", "generationMs", "toolMs"] as const) node[field] = attempts.reduce((total, attempt) => total + attempt[field], 0);
+	for (const node of schedule.nodes) {
+		const attempts = schedule.attempts.filter((attempt) => attempt.nodeId === node.nodeId);
+		for (const field of ["providerWaitMs", "ttftMs", "generationMs", "toolMs"] as const) node[field] = attempts.reduce((total, attempt) => total + (attempt[field] ?? 0), 0);
 		node.scenarioCostUsd = attempts.every((attempt) => attempt.scenarioCostUsd !== null) ? attempts.reduce((total, attempt) => total + attempt.scenarioCostUsd, 0) : null;
 		node.uncoveredMs = attempts.reduce((total, attempt) => total + attempt.uncoveredMs, 0);
-		const constraint = (schedule.responses as any[]).filter((call) => call.nodeId === node.nodeId && call.capacityPredecessorId).sort((left, right) => right.providerEndMs - left.providerEndMs)[0];
+		const constraint = schedule.responses.filter((call) => call.nodeId === node.nodeId && call.capacityPredecessorId).sort((left, right) => right.providerEndMs - left.providerEndMs)[0];
 		if (constraint) node.providerConstraint = { id: `${constraint.responseId ?? constraint.turnId} waiting for ${constraint.capacityPredecessorId}`, completedMs: constraint.providerStartMs };
 	}
-	schedule.provider = { capacityWaitMs: (schedule.responses as any[]).reduce((total, call) => total + call.providerWaitMs, 0) };
-	schedule.uncoveredMs = (schedule.attempts as any[]).reduce((total, attempt) => total + attempt.uncoveredMs, 0);
+	schedule.provider = { capacityWaitMs: schedule.responses.reduce((total, call) => total + call.providerWaitMs, 0) };
+	schedule.uncoveredMs = schedule.attempts.reduce((total, attempt) => total + attempt.uncoveredMs, 0);
 }
 
 function intervalUnionMs(intervals: number[][]): number {
@@ -422,7 +451,7 @@ function recordedGateLag(recorded: RecordedAttempt, previous: RecordedAttempt | 
 	return Math.max(0, recorded.completionMs - Math.max(candidateMs, previous?.completionMs ?? 0));
 }
 
-function preservedEvidence(projection: ExecutionRunProjection, edges: readonly (readonly [string, string])[]): Record<string, unknown> {
+function preservedEvidence(projection: ExecutionRunProjection, edges: readonly (readonly [string, string])[]): PreservedScenarioEvidence {
 	return {
 		packetEdges: edges.map(([from, to]) => [from, to]),
 		nodeIds: projection.nodes.map(({ id }) => id),
@@ -437,16 +466,16 @@ function preservedEvidence(projection: ExecutionRunProjection, edges: readonly (
 	};
 }
 
-function completionChain(nodes: readonly ScenarioNodeSchedule[], finalValidation: ScenarioSchedule["finalValidation"], runId: string): CompletionChainEntry[] {
+function completionChain(nodes: readonly ScenarioNodeRow[], finalValidation: ScenarioSchedule["finalValidation"], runId: string): CompletionChainEntry[] {
 	if (!nodes.length) return finalValidation ? [{ kind: "final-validation", id: "final-validation", completedMs: finalValidation.endMs }, { kind: "run", id: runId }] : [{ kind: "run", id: runId }];
 	const byId = new Map(nodes.map((node) => [node.nodeId, node]));
 	const terminal = [...nodes].sort((left, right) => right.completedMs - left.completedMs || left.nodeId.localeCompare(right.nodeId))[0]!;
 	const chain: CompletionChainEntry[] = [];
-	const append = (node: ScenarioNodeSchedule) => {
+	const append = (node: ScenarioNodeRow) => {
 		const predecessor = [...byId.values()].filter((candidate) => node.dependencies.includes(candidate.nodeId) && candidate.completedMs === node.readinessMs).sort((left, right) => left.nodeId.localeCompare(right.nodeId))[0];
 		if (predecessor) append(predecessor);
 		if (node.fanoutWaitMs > 0) chain.push({ kind: "fanout-capacity", id: node.nodeId, completedMs: node.startMs });
-		if ((node as any).providerConstraint) chain.push({ kind: "provider-capacity", ...(node as any).providerConstraint });
+		if (node.providerConstraint) chain.push({ kind: "provider-capacity", ...node.providerConstraint });
 		chain.push({ kind: "node", id: node.nodeId, completedMs: node.executionEndMs });
 		if (node.acceptanceGateWaitMs > 0) chain.push({ kind: "acceptance", id: node.acceptedAttemptId ?? `${node.nodeId}:accepted`, completedMs: node.completedMs });
 	};
@@ -456,7 +485,7 @@ function completionChain(nodes: readonly ScenarioNodeSchedule[], finalValidation
 	return chain;
 }
 
-function prefixCompletionChain(nodes: readonly ScenarioNodeSchedule[], finalValidation: ScenarioSchedule["finalValidation"], lastEventSequence: number): CompletionChainEntry[] {
+function prefixCompletionChain(nodes: readonly ScenarioNodeRow[], finalValidation: ScenarioSchedule["finalValidation"], lastEventSequence: number): CompletionChainEntry[] {
 	const chain = completionChain(nodes, finalValidation, "recorded-prefix").filter(({ kind }) => kind !== "run");
 	chain.push({ kind: "recorded-prefix", id: String(lastEventSequence), completedMs: Math.max(nodes.reduce((latest, node) => Math.max(latest, node.executionEndMs), 0), finalValidation?.endMs ?? 0) });
 	return chain;

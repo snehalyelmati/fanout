@@ -252,7 +252,7 @@ Reason: Tier 2 comparisons should show the latency/cost tradeoff instead of reus
 
 ### Keep DAG executor deferred after trace-DAG check
 
-Decision: Do not build a DAG executor from the B0 trace evidence.
+Decision: Do not build a DAG executor from the B0 execution evidence.
 
 Reason: D1 found no off-critical assistant/model turns in the faithful trace DAG. The only trace-backed fan-out is local tool batching, while tier 2 remains useful only for background or batch work outside the active loop.
 
@@ -296,7 +296,7 @@ Reason: Portfolio evidence must not accept the fastest invalid branch or hide re
 
 Decision: Treat the current <=3x active TAT passes as synthetic fixture-policy evidence unless a workflow source is observed or explicitly trace-derived. Mixed benchmark reports must keep `observability`, `pi-session`, and synthetic `hybrid-workflow` source labels visible, and docs must not describe synthetic passes as observed trace feasibility.
 
-Reason: The mixed run proves parser, simulator, schedule, active/background, and target-accounting semantics across existing and synthetic inputs. It does not prove that existing Pi traces have the same eligible workflow shape, so overclaiming would hide the difference between workflow feasibility and observed-trace evidence.
+Reason: The mixed run proves parser, simulator, schedule, active/background, and target-accounting semantics across existing and synthetic inputs. It does not prove that existing Pi execution evidence has the same eligible workflow shape, so overclaiming would hide the difference between workflow feasibility and observed execution evidence.
 
 ### Use active acceptance boundaries for target comparisons
 

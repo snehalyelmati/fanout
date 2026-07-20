@@ -2,7 +2,7 @@ export function createInteractionState(search=""){
 	return{query:new URLSearchParams(search),nodes:new Map(),attempts:new Set(),turns:new Set(),paneWidths:{dag:320,inspector:360},maximized:null}
 }
 const key=(run,id)=>`${run}|${id}`;
-export function selectionQuery(state,selection,run){const next=new URLSearchParams(state.query);if(run)next.set("run",run);next.set("kind",selection.kind);next.set("id",selection.id);for(const [name,value] of [["node",selection.nodeId],["attempt",selection.attemptId],["turn",selection.turnId]])value?next.set(name,value):next.delete(name);return next}
+export function selectionQuery(state,selection,run){const next=new URLSearchParams(state.query);if(selection.kind==="lineage")next.delete("run");else if(run)next.set("run",run);next.set("kind",selection.kind);next.set("id",selection.id);for(const [name,value] of [["node",selection.nodeId],["attempt",selection.attemptId],["turn",selection.turnId]])value?next.set(name,value):next.delete(name);return next}
 export function setQuery(state,query){state.query=query}
 export function restoreQuery(state,search){state.query=new URLSearchParams(search);return state.query}
 export function revealSelection(state,selection,run){if(!run)return;const node=selection.kind==="node"?selection.id:selection.nodeId;if(node)state.nodes.set(run,node);const attempt=selection.kind==="attempt"||selection.kind==="stage"?selection.id:selection.attemptId;if(attempt)state.attempts.add(key(run,`attempt:${attempt}`));const turn=selection.kind==="turn"?selection.id:selection.turnId;if(attempt&&turn)state.turns.add(key(run,`turn:${attempt}:${turn}`))}
@@ -11,7 +11,7 @@ export function toggleRow(state,row,run){if(row.kind==="node"||row.kind==="final
 export function resizePane(state,pane,size){return state.paneWidths[pane]=Math.max(200,Math.min(600,Math.round(size)))}
 export function toggleMaximized(state,pane){return state.maximized=state.maximized===pane?null:pane}
 export function restoreWorkspace(state){state.maximized=null}
-const paneLabel=(pane)=>pane==="dag"?"DAG":pane==="trace"?"Trace Evidence":"Inspector";
+const paneLabel=(pane)=>pane==="dag"?"DAG":pane==="evidence"?"Execution Evidence":"Inspector";
 export function installPaneControls(state,onEscape){
 	const main=document.querySelector("main"),controls=[...document.querySelectorAll("[data-maximize]")];
 	const sync=()=>{if(state.maximized)main.dataset.maximized=state.maximized;else delete main.dataset.maximized;for(const item of controls){const active=item.dataset.maximize===state.maximized;item.textContent=active?"Restore":"Maximize";item.setAttribute("aria-label",`${active?"Restore":"Maximize"} ${paneLabel(item.dataset.maximize)} pane`)}};

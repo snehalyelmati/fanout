@@ -1,9 +1,9 @@
 import { resolveExecutionEvidence, type ExecutionRunProjection } from "../../fanout-core/src/execution-projection";
 import { deepFreeze } from "../../fanout-core/src/contract-value";
 import { FINAL_VALIDATION_NODE_ID } from "../../fanout-core/src/work-contract-graph";
-import { requireExecutionRun, type CatalogAdmission, type CatalogExecutionRun, type CatalogSnapshot, type SourceReference } from "./catalog";
+import { requireExecutionRun, type CatalogAdmission, type CatalogExecutionRun, type CatalogSnapshot, type CatalogWorkflowLineage, type SourceReference } from "./catalog";
 
-export type SelectionKind = "run" | "node" | "attempt" | "turn" | "tool" | "event" | "stage";
+export type SelectionKind = "lineage" | "run" | "node" | "attempt" | "turn" | "tool" | "event" | "stage";
 export interface WorkspaceSelection { kind: SelectionKind; id: string; nodeId?: string; attemptId?: string; turnId?: string }
 export interface WorkspaceRequest { runId?: string; selection?: WorkspaceSelection; sort?: "chronological" | "duration" }
 export type EvidenceClass = "Observed" | "Derived" | "Partial" | "Legacy" | "Heterogeneous" | "Scenario" | "Unavailable";
@@ -45,6 +45,12 @@ export function createEvidenceReceipt(evidenceClass: EvidenceClass, derivation: 
 }
 
 export function queryWorkspace(snapshot: CatalogSnapshot, request: WorkspaceRequest): Readonly<Record<string, any>> {
+	if (request.selection?.kind === "lineage" || snapshot.executionRuns.length === 0) {
+		const id = request.selection?.kind === "lineage" ? request.selection.id : snapshot.lineages[0]?.id;
+		const lineage = snapshot.lineages.find((candidate) => candidate.id === id);
+		if (!lineage) throw new TypeError("Workflow Lineage is not in the active snapshot");
+		return planningWorkspace(snapshot, lineage);
+	}
 	const run = requireExecutionRun(snapshot, request.runId);
 	const lineage = snapshot.lineages.find(({ id }) => id === run.planningRunId);
 	const projection = run.projection;
@@ -82,6 +88,7 @@ export function queryWorkspace(snapshot: CatalogSnapshot, request: WorkspaceRequ
 		objective: lineage?.packet?.objective ?? lineage?.planningRun?.objective ?? null,
 		selection,
 		breadcrumbs,
+		recentLineages: lineageViews(snapshot, lineage?.id ?? null),
 		recentRuns: snapshot.executionRuns.map((item) => ({ id: item.selectionId, runId: item.id, admission: item.admission, label: item.label, updatedAt: item.updatedAt, selected: item.selectionId === run.selectionId, selection: { kind: "run", id: item.selectionId } })),
 		dag: { nodes: dagNodes, edges: (graph?.edges ?? []).map(([from, to]) => ({ from, to })) },
 		waterfall: scopedRows,
@@ -89,11 +96,58 @@ export function queryWorkspace(snapshot: CatalogSnapshot, request: WorkspaceRequ
 		ledger,
 		routing,
 		metrics: projection ? metricViews(projection, scopedRows, selection, receipt) : [],
+		supportingEvidence: snapshot.supportingEvidence.filter(({ executionRunId }) => executionRunId === run.selectionId),
 		inspector,
 	});
 }
 
+function planningWorkspace(snapshot: CatalogSnapshot, lineage: CatalogWorkflowLineage): Readonly<Record<string, any>> {
+	const selection = { kind: "lineage", id: lineage.id } satisfies WorkspaceSelection;
+	const sources = lineage.planningRun?.sources ?? [];
+	const packetNodes = lineage.packet?.nodes ?? [];
+	const graph = lineage.graph;
+	const runCount = snapshot.executionRuns.filter(({ planningRunId }) => planningRunId === lineage.id).length;
+	const executionState = runCount ? `${runCount} admitted Execution Run${runCount === 1 ? "" : "s"} available; none selected` : "Unavailable — no admitted Execution Run";
+	const dagNodes = (graph?.topologicalOrder ?? packetNodes.map(({ id }) => id)).map((id, index) => {
+		const level = graph?.parallelGroups.findIndex((group) => group.includes(id)) ?? index;
+		const packetNode = packetNodes.find((node) => node.id === id);
+		return { id, label: packetNode?.workContract.goals[0]?.statement ?? id, status: "Planned authority only", x: 24 + ((graph?.parallelGroups[level]?.indexOf(id) ?? 0) * 180), y: 24 + level * 84, selected: false, selection };
+	});
+	const evidenceClass: EvidenceClass = lineage.admission === "Legacy" ? "Legacy" : lineage.admission === "Invalid" || lineage.admission === "Unverifiable" ? "Unavailable" : "Partial";
+	return deepFreeze({
+		generation: snapshot.generation,
+		refreshedAt: snapshot.refreshedAt,
+		objective: lineage.packet?.objective ?? lineage.planningRun?.objective ?? null,
+		selection,
+		breadcrumbs: [{ ...selection, label: lineage.id }],
+		recentLineages: lineageViews(snapshot, lineage.id),
+		recentRuns: snapshot.executionRuns.map((run) => ({ id: run.selectionId, runId: run.id, admission: run.admission, label: run.label, updatedAt: run.updatedAt, selected: false, selection: { kind: "run", id: run.selectionId } })),
+		dag: { nodes: dagNodes, edges: (graph?.edges ?? []).map(([from, to]) => ({ from, to })) },
+		waterfall: [], events: [], ledger: [], metrics: [], supportingEvidence: snapshot.supportingEvidence.filter(({ executionRunId }) => executionRunId === null),
+		routing: packetNodes.map((node) => ({ nodeId: node.id, planned: { tier: node.tier.assigned, provider: node.tier.provider, model: node.tier.model }, observed: [] })),
+		inspector: {
+			title: lineage.id,
+			kind: "Workflow Lineage",
+			fields: [["Admission", lineage.admission], ["Execution state", executionState]],
+			receipt: createEvidenceReceipt(evidenceClass, lineage.reason, sources, [runCount ? "selected Execution Run" : "admitted Execution Run"], [], ["Planning evidence does not establish execution state"], planningArtifactGeneration(lineage)),
+		},
+	});
+}
+
+function planningArtifactGeneration(lineage: CatalogWorkflowLineage): string {
+	if (lineage.admission === "Legacy") return "Legacy planning generation";
+	if (lineage.packet) return "Planning v2 / Details v4 / Packet v6";
+	if (lineage.planningRun?.details) return "Planning v2 / Details v4";
+	if (lineage.planningRun?.plan) return "Planning v2";
+	return "Unverifiable planning generation";
+}
+
+function lineageViews(snapshot: CatalogSnapshot, selectedId: string | null): Array<Record<string, unknown>> {
+	return snapshot.lineages.map((lineage) => ({ id: lineage.id, admission: lineage.admission, reason: lineage.reason, executionRunCount: lineage.executionRuns.length, selected: lineage.id === selectedId, selection: { kind: "lineage", id: lineage.id } }));
+}
+
 function resolveSelection(run: CatalogExecutionRun, requested: WorkspaceSelection): WorkspaceSelection {
+	if (requested.kind === "lineage") throw new TypeError("Workflow Lineage selection does not name an Execution Run");
 	if (requested.kind === "run") {
 		if (requested.id !== run.selectionId && requested.id !== run.id) throw new TypeError("run selection is stale");
 		return { kind: "run", id: run.selectionId };
