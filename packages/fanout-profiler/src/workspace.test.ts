@@ -113,3 +113,25 @@ test("non-current workspace receipts do not claim the current generation", () =>
 	const workspace = queryWorkspace(legacy, {});
 	expect(workspace.inspector.receipt).toMatchObject({ evidenceClass: "Legacy", artifactGeneration: "Legacy execution generation" });
 });
+
+test("planning-only Workflow Lineages are openable without invented execution state", () => {
+	const planning = {
+		generation: 3, refreshedAt: "2026-07-20T00:00:00.000Z", selectedExecutionRunId: null,
+		executionRuns: [], supportingEvidence: [], activePointer: null,
+		planningRuns: [{ id: "planning-only", admission: "Planning-only", reason: "Planning Run has no Execution Packet or Execution Run", createdAt: "2026-07-20T00:00:00.000Z", objective: "Plan safely", plan: {}, details: null, packet: null, graph: null, sources: [packetSource] }],
+		lineages: [{ id: "planning-only", admission: "Planning-only", reason: "Planning Run has no Execution Packet or Execution Run", planningRun: { objective: "Plan safely", plan: {}, details: null, sources: [packetSource] }, packet: null, graph: null, executionRuns: [] }],
+	} as unknown as CatalogSnapshot;
+	const workspace = queryWorkspace(planning, { selection: { kind: "lineage", id: "planning-only" } });
+	expect(workspace.selection).toEqual({ kind: "lineage", id: "planning-only" });
+	expect(workspace.objective).toBe("Plan safely");
+	expect(workspace.recentLineages).toEqual([expect.objectContaining({ id: "planning-only", admission: "Planning-only", selected: true })]);
+	expect(workspace.dag.nodes).toEqual([]);
+	expect(workspace.events).toEqual([]);
+	expect(workspace.metrics).toEqual([]);
+	expect(workspace.inspector).toMatchObject({ kind: "Workflow Lineage", fields: [["Admission", "Planning-only"], ["Execution state", "Unavailable — no admitted Execution Run"]], receipt: { evidenceClass: "Partial", sourceReferences: [packetSource] } });
+	expect(workspace.inspector.receipt.artifactGeneration).toBe("Planning v2");
+
+	const currentLineage = queryWorkspace(snapshot, { selection: { kind: "lineage", id: "packet" } });
+	expect(currentLineage.inspector.fields).toContainEqual(["Execution state", "1 admitted Execution Run available; none selected"]);
+	expect(currentLineage.inspector.receipt).toMatchObject({ artifactGeneration: "Planning v2 / Details v4 / Packet v6", missingInputs: ["selected Execution Run"] });
+});

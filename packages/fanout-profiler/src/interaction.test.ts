@@ -19,7 +19,7 @@ test("native interaction state preserves linked history, disclosures, panes, and
 
 	expect(resizePane(state, "dag", 50)).toBe(200);
 	expect(resizePane(state, "inspector", 900)).toBe(600);
-	expect(toggleMaximized(state, "trace")).toBe("trace");
+	expect(toggleMaximized(state, "evidence")).toBe("evidence");
 	restoreWorkspace(state);
 	expect(state.maximized).toBeNull();
 	expect(rowExpanded(state, { kind: "attempt", id: "attempt:work:1" }, "packet/run")).toBe(true);

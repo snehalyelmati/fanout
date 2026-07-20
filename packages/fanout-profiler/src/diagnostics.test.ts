@@ -112,10 +112,14 @@ test("a non-accepted Attempt is replaced only by a later admitted causal recover
 		reason: "Attempt orphan:000001 recorded retry intent, but no later admitted retry allocation names it as source.",
 	}));
 	expect(Object.keys(replacement)).not.toEqual(expect.arrayContaining(["severity", "confidence", "remedy", "rootCause", "globalRank"]));
-	((run.projection!.attempts as any[]).find(({ allocation: item }) => item.attemptId === "repair:000001").outcome.metrics as any).complete = false;
+	const partialMetrics = ((run.projection!.attempts as any[]).find(({ allocation: item }) => item.attemptId === "repair:000001").outcome.metrics as any);
+	partialMetrics.complete = false;
+	partialMetrics.turns[0].costUsd = undefined;
 	const incomplete = queryDiagnostics(state, {});
-	expect(incomplete.observations.some(({ subjectId }) => subjectId === "repair:000001")).toBe(false);
-	expect(incomplete.suppressions).toContainEqual(expect.objectContaining({ subjectId: "repair:000001", reason: "Attempt repair:000001 has incomplete metrics, so sortable cost evidence is unavailable." }));
+	expect(incomplete.observations.find(({ subjectId }) => subjectId === "repair:000001")).toMatchObject({
+		costUsd: null, costStatus: "partial", receipt: { evidenceClass: "Partial", missingInputs: ["complete Attempt usage and cost telemetry"] },
+	});
+	expect(incomplete.suppressions.some(({ subjectId }) => subjectId === "repair:000001")).toBe(false);
 });
 
 test("unavailable evidence emits no observations and exposes one reason per rule", () => {

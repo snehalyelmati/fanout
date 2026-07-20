@@ -379,7 +379,7 @@ Purpose: record the post-mission workflow direction after comparing simulator ev
 Evidence status:
 
 - **Simulator evidence**: one-turn synthetic hybrid fixtures prove parser, scheduler, active/background accounting, target statuses, speculative waste, and infeasibility semantics.
-- **Observed trace evidence**: manual multi-turn `pi-mono` reviews show generic interactive tier2 DAG routing is weak, with about 1.5% semantic tier2 savings in the reviewed sample.
+- **Observed execution evidence**: manual multi-turn `pi-mono` reviews show generic interactive tier2 DAG routing is weak, with about 1.5% semantic tier2 savings in the reviewed sample.
 - **Trace-backed RPE evidence**: five RPE-shaped traces show about 22% provider cost savings when research+plan stays tier1 and execution moves to tier2, but blocking completion grows to hours.
 - **Future runtime work**: no live runtime TAT improvement is claimed yet. Planned Parallel RPE remains a design and evaluation direction.
 

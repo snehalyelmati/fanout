@@ -8,12 +8,15 @@ const LOOPBACK = "127.0.0.1";
 const MAX_BODY_BYTES = 64 * 1024;
 const CONTENT_SECURITY_POLICY = "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'";
 const POST_API = new Set(["/api/comparison", "/api/scenario", "/api/refresh"]);
-const SELECTION_KINDS = new Set<SelectionKind>(["run", "node", "attempt", "turn", "tool", "event", "stage"]);
+const SELECTION_KINDS = new Set<SelectionKind>(["lineage", "run", "node", "attempt", "turn", "tool", "event", "stage"]);
 const DIAGNOSTIC_SORTS = new Set<DiagnosticSort>(["duration", "cost", "frequency", "chronology"]);
 const ASSETS = new Map([
 	["/", ["app.html", "text/html; charset=utf-8"]],
 	["/assets/app.css", ["app.css", "text/css; charset=utf-8"]],
 	["/assets/app.js", ["app.js", "text/javascript; charset=utf-8"]],
+	["/assets/comparison-render.js", ["comparison-render.js", "text/javascript; charset=utf-8"]],
+	["/assets/scenario-render.js", ["scenario-render.js", "text/javascript; charset=utf-8"]],
+	["/assets/workspace-render.js", ["workspace-render.js", "text/javascript; charset=utf-8"]],
 	["/assets/interaction.js", ["interaction.js", "text/javascript; charset=utf-8"]],
 ] as const);
 
@@ -126,7 +129,7 @@ export function startProfilerServer(artifactRoot: string, port: number): Bun.Ser
 					if (request.method !== "GET") return json(405, { error: "method-not-allowed" });
 					exactQuery(url, []);
 					const snapshot = catalog.snapshot();
-					return json(200, { generation: snapshot.generation, refreshedAt: snapshot.refreshedAt, selectedExecutionRunId: snapshot.selectedExecutionRunId, recentRuns: snapshot.executionRuns.map((run) => ({ id: run.selectionId, runId: run.id, admission: run.admission, label: run.label, updatedAt: run.updatedAt })) });
+					return json(200, { generation: snapshot.generation, refreshedAt: snapshot.refreshedAt, selectedExecutionRunId: snapshot.selectedExecutionRunId, lineages: snapshot.lineages.map((lineage) => ({ id: lineage.id, admission: lineage.admission, reason: lineage.reason, executionRunCount: lineage.executionRuns.length })), recentRuns: snapshot.executionRuns.map((run) => ({ id: run.selectionId, runId: run.id, admission: run.admission, label: run.label, updatedAt: run.updatedAt })) });
 				}
 				if (url.pathname === "/api/workspace") {
 					if (request.method !== "GET") return json(405, { error: "method-not-allowed" });
@@ -142,7 +145,8 @@ export function startProfilerServer(artifactRoot: string, port: number): Bun.Ser
 					const reference = url.searchParams.get("reference");
 					if (!reference) throw new RequestError(400, "active Source Reference is required");
 					const integer = (name: "offset" | "limit") => { const value = url.searchParams.get(name); if (value === null) return undefined; if (!/^\d+$/.test(value)) throw new RequestError(400, `${name} must be a non-negative integer`); return Number(value); };
-					return json(200, await catalog.readEvidencePage(reference, { offset: integer("offset"), limit: integer("limit") }));
+					try { return json(200, await catalog.readEvidencePage(reference, { offset: integer("offset"), limit: integer("limit") })); }
+					catch (error) { throw new RequestError(400, error instanceof Error ? error.message : String(error)); }
 				}
 				if (POST_API.has(url.pathname)) {
 					if (request.method !== "POST") return json(405, { error: "method-not-allowed" });

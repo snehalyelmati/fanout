@@ -28,13 +28,25 @@ export interface ProviderCallSchedule {
 	observedCostUsd: number | null; scenarioCostUsd: number | null; capacityPredecessorId: string | null;
 }
 
+export interface ProviderTurnSchedule {
+	nodeId: string; attemptId: string; turnId: string; tier: "tier1" | "tier2"; responseIds: string[];
+	issueMs: number; providerStartMs: number; providerEndMs: number; providerWaitMs: number; ttftMs: number; generationMs: number; durationMs: number;
+	warmth: string; observedCostUsd: number | null; scenarioCostUsd: number | null; costStatus: CostStatus; capacityPredecessorIds: string[];
+}
+export interface ProviderToolSchedule { toolCallId: string; startMs: number; endMs: number }
+export interface ProviderTierSchedule {
+	tier: "tier1" | "tier2"; profile: string; mode: ProviderProfile["mode"]; calls: number; providerWaitMs: number; ttftMs: number; generationMs: number; peakProviderUtilization: number; costStatus: CostStatus; scenarioCostUsd: number | null;
+}
+export type CostStatus = "available" | "partial" | "unavailable";
+export interface ProviderCostSummary { status: CostStatus; observedUsd: number | null; scenarioUsd: number | null; deltaUsd: number | null }
+
 export interface ProviderPlan {
-	turns: Array<Record<string, unknown>>;
+	turns: ProviderTurnSchedule[];
 	responses: ProviderCallSchedule[];
-	tools: Array<{ toolCallId: string; startMs: number; endMs: number }>;
+	tools: ProviderToolSchedule[];
 	durationOverrides: ReadonlyMap<string, number>;
-	tiers: Array<Record<string, unknown>>;
-	cost: Record<string, unknown>;
+	tiers: ProviderTierSchedule[];
+	cost: ProviderCostSummary;
 }
 
 const OBSERVED: ProviderProfile = { mode: "observed" };
@@ -137,12 +149,12 @@ function classifyWarmth(profile: Exclude<ProviderProfile, { mode: "observed" | "
 	return "warm";
 }
 
-function aggregateTier(tier: "tier1" | "tier2", calls: ProviderCallSchedule[], profile: ProviderProfile): Record<string, unknown> {
+function aggregateTier(tier: "tier1" | "tier2", calls: ProviderCallSchedule[], profile: ProviderProfile): ProviderTierSchedule {
 	const scenario = costSummary(calls, "scenarioCostUsd");
 	return { tier, profile: profile.mode === "observed" ? "Observed" : profile.name, mode: profile.mode, calls: calls.length, providerWaitMs: sum(calls, "providerWaitMs"), ttftMs: sum(calls, "ttftMs"), generationMs: sum(calls, "generationMs"), peakProviderUtilization: peak(calls), costStatus: scenario.status, scenarioCostUsd: scenario.value };
 }
 
-function costSummary(calls: ProviderCallSchedule[], field: "observedCostUsd" | "scenarioCostUsd"): { status: "available" | "partial" | "unavailable"; value: number | null } {
+function costSummary(calls: ProviderCallSchedule[], field: "observedCostUsd" | "scenarioCostUsd"): { status: CostStatus; value: number | null } {
 	const known = calls.flatMap((call) => call[field] === null ? [] : [call[field]!]);
 	return { status: !known.length ? "unavailable" : known.length === calls.length ? "available" : "partial", value: known.length ? money(known.reduce((total, value) => total + value, 0)) : null };
 }
@@ -165,7 +177,7 @@ function callEvidence(turnId: string, responseId: string | null, requestedAt: st
 	return { turnId, responseId, callId: responseId ?? `${turnId}:provider`, requestedAt, firstTokenAt, finishedAt, durationMs, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, cacheReadTokens: usage.cacheReadTokens, cacheWriteTokens: usage.cacheWriteTokens, costUsd: usage.costUsd, turnOrder, callOrder };
 }
 
-function aggregateTurns(calls: ProviderCallSchedule[]): Array<Record<string, unknown>> {
+function aggregateTurns(calls: ProviderCallSchedule[]): ProviderTurnSchedule[] {
 	const groups = new Map<string, ProviderCallSchedule[]>();
 	for (const call of calls) {
 		const key = `${call.attemptId}\0${call.turnId}`;
@@ -177,7 +189,7 @@ function aggregateTurns(calls: ProviderCallSchedule[]): Array<Record<string, unk
 	});
 }
 
-function scheduleTools(attempts: ProviderAttemptInput[], calls: ProviderCallSchedule[]): Array<{ toolCallId: string; startMs: number; endMs: number }> {
+function scheduleTools(attempts: ProviderAttemptInput[], calls: ProviderCallSchedule[]): ProviderToolSchedule[] {
 	return attempts.flatMap((attempt) => {
 		const evidence = callsForAttempt(attempt), scheduled = calls.filter(({ attemptId }) => attemptId === attempt.attemptId);
 		return attempt.tools.flatMap((tool) => {
@@ -227,7 +239,7 @@ function money(value: number): number { return Math.round(value * 1e12) / 1e12; 
 function nonNegative(value: unknown): boolean { return typeof value === "number" && Number.isFinite(value) && value >= 0; }
 function nonNegativeNumber(value: unknown, path: string): void { if (!nonNegative(value)) throw new TypeError(`${path} must be a non-negative finite number`); }
 function positive(value: unknown, path: string): void { if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw new TypeError(`${path} must be a positive finite number`); }
-function record(value: unknown, path: string): Record<string, any> { if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${path} must be an object`); return value as Record<string, any>; }
-function exactKeys(value: Record<string, any>, keys: string[], path: string, optional: string[] = []): void {
+function record(value: unknown, path: string): Record<string, unknown> { if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${path} must be an object`); return value as Record<string, unknown>; }
+function exactKeys(value: Record<string, unknown>, keys: string[], path: string, optional: string[] = []): void {
 	const allowed = new Set(keys); if (Object.keys(value).some((key) => !allowed.has(key)) || keys.some((key) => !optional.includes(key) && !Object.hasOwn(value, key))) throw new TypeError(`${path} contains unsupported or missing fields`);
 }
