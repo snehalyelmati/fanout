@@ -7,21 +7,66 @@
   <link rel="stylesheet" href="/assets/app.css">
 </head>
 <body>
-  <header><h1>Fanout run profiler</h1><p id="objective">Read-only local evidence</p><button type="button" id="refresh">Refresh</button></header>
-  <nav id="breadcrumbs" aria-label="Evidence scope"></nav>
-	<main>
-		<aside data-pane="dag"><section><div class="pane-title"><h2>Packet DAG</h2><button type="button" data-maximize="dag" aria-label="Maximize DAG pane">Maximize</button></div><svg id="dag" role="group" aria-label="Vertical Execution Packet DAG"></svg></section><section><h2>Workflow Lineages</h2><div id="lineages"></div></section><section><h2>Recent Runs</h2><div id="runs"></div></section></aside>
-		<div class="resizer" data-resize="dag" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize DAG and Execution Evidence panes" aria-valuemin="200" aria-valuemax="600" aria-valuenow="320">↔</div>
-		<section class="evidence" data-pane="evidence"><div class="pane-title"><h2>Execution Evidence</h2><button type="button" data-maximize="evidence" aria-label="Maximize Execution Evidence pane">Maximize</button></div><div id="metrics"></div><h3>Counterfactual Scenario</h3><p>Calculate a schedule under fixed recorded behavior. This is not a forecast or recommendation.</p><label>Fanout concurrency <select id="scenario-mode"><option value="observed">Observed</option><option value="sequential">Sequential</option><option value="custom">Custom</option><option value="unlimited">Unlimited</option></select></label><label>Custom limit <input id="scenario-limit" type="number" min="1" step="1" value="2" disabled></label>
-	      <div class="profiles">
-	        <fieldset data-profile="tier1"><legend>Tier 1 Provider Profile</legend></fieldset>
-	        <fieldset data-profile="tier2"><legend>Tier 2 Provider Profile</legend></fieldset>
-	        <template id="provider-profile-fields"><label>Mode <select data-field="mode"><option value="observed">Observed</option><option value="fixed">Fixed TTFT</option><option value="cold-warm">Cold/warm TTFT</option></select></label><label>Name <input data-field="name"></label><label>Capacity <input data-field="capacity" type="number" min="1" step="1" placeholder="Unlimited"></label><label>Warmth <select data-field="warmthScope"><option value="attempt">Per Attempt</option><option value="run">Shared across run</option></select></label><label>Fixed TTFT (ms) <input data-field="ttftMs" type="number" min="0" step="any" value="0"></label><label>Cold TTFT (ms) <input data-field="coldTtftMs" type="number" min="0" step="any" value="0"></label><label>Warm TTFT (ms) <input data-field="warmTtftMs" type="number" min="0" step="any" value="0"></label><label>Output tokens/second <input data-field="outputTokensPerSecond" type="number" min="0.000001" step="any" value="1"></label><label>Idle expiry (ms) <input data-field="idleExpiryMs" type="number" min="0" step="any"></label><label>Warm-call limit <input data-field="warmCallLimit" type="number" min="1" step="1"></label><label>Response reset (ms) <input data-field="previousResponseDurationResetMs" type="number" min="0" step="any"></label><label>Input $/million <input data-field="input" type="number" min="0" step="any" value="0"></label><label>Output $/million <input data-field="output" type="number" min="0" step="any" value="0"></label><label>Cache-read $/million <input data-field="cacheRead" type="number" min="0" step="any" value="0"></label><label>Cache-write $/million <input data-field="cacheWrite" type="number" min="0" step="any" value="0"></label></template>
-		</div><button id="scenario-run" type="button">Calculate scenario</button><div id="scenario" class="scenarios" aria-live="polite"><p data-empty>Choose fixed assumptions and calculate scenarios for side-by-side inspection.</p></div><h3>Diagnostic Observations</h3><label>Sort observations <select id="diagnostic-sort"><option value="duration">Duration</option><option value="cost">Cost</option><option value="frequency">Frequency</option><option value="chronology" selected>Chronology</option></select></label><div id="diagnostics"></div><h3>Run and cross-packet Node comparison</h3><p>Run A is the selected run. Calculated deltas are Run B minus Run A.</p><label>Run B <select id="comparison-run" aria-label="Comparison Run B"></select></label><label>Comparison Node A <select id="comparison-node-a" aria-label="Comparison Node A"></select></label><label>Comparison Node B <select id="comparison-node-b" aria-label="Comparison Node B"></select></label><div id="comparison"></div><h3>Waterfall</h3><div id="waterfall" role="group" aria-label="Execution timing hierarchy"></div><h3>Events</h3><div id="events"></div><h3>Timing ledger</h3><label>Sort <select id="sort"><option value="chronological">Chronological</option><option value="duration">Duration</option></select></label><div class="table-scroll"><table><thead><tr><th>Start</th><th>End</th><th>Duration</th><th>Source</th><th>Operation</th><th>Outcome</th></tr></thead><tbody id="ledger"></tbody></table></div></section>
-		<div class="resizer" data-resize="inspector" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize Execution Evidence and Inspector panes" aria-valuemin="200" aria-valuemax="600" aria-valuenow="360">↔</div>
-		<aside class="inspector" data-pane="inspector"><div class="pane-title"><h2>Inspector</h2><button type="button" data-maximize="inspector" aria-label="Maximize Inspector pane">Maximize</button></div><div id="details"></div><h2>Source Evidence</h2><div id="source-evidence"></div><h2>Evidence Receipt</h2><div id="receipt"></div><h2>Routing</h2><div id="routing"></div></aside>
+  <header class="topbar">
+    <div class="brand"><span class="mark" aria-hidden="true">F</span><div><h1>Fanout run profiler</h1><p id="objective">Read-only local evidence</p></div></div>
+    <div class="top-actions"><output id="status" aria-live="polite"></output><button type="button" id="refresh">Refresh</button></div>
+  </header>
+
+  <section class="run-strip" aria-label="Selected evidence summary">
+    <div class="run-summary"><small>Execution evidence</small><strong id="summary-run">No run selected</strong><span id="summary-id" class="mono">—</span></div>
+    <div><small>Admission</small><strong id="summary-admission">—</strong><span id="summary-generation" class="mono">—</span></div>
+    <div><small>Wall time</small><strong id="summary-duration">—</strong><span>selected scope</span></div>
+    <div><small>Attempts</small><strong id="summary-attempts">—</strong><span id="summary-events">— events</span></div>
+    <div><small>Tokens</small><strong id="summary-tokens">—</strong><span>recorded</span></div>
+    <div><small>Cost</small><strong id="summary-cost">—</strong><span>estimated</span></div>
+  </section>
+
+  <nav id="breadcrumbs" class="breadcrumbs" aria-label="Evidence scope"></nav>
+
+  <main>
+    <aside class="left-rail" data-pane="dag">
+      <section class="dag-pane"><div class="pane-title"><div><h2>Packet DAG</h2><small>Topology and observed state</small></div><button type="button" data-maximize="dag" aria-label="Maximize DAG pane">Maximize</button></div><div class="dag-stage"><svg id="dag" role="group" aria-label="Vertical Execution Packet DAG"></svg></div></section>
+      <section class="lineage-pane"><h2>Workflow Lineages</h2><div id="lineages"></div></section>
+      <section class="runs-pane"><h2>Recent Runs</h2><div id="runs"></div></section>
+    </aside>
+
+    <div class="resizer" data-resize="dag" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize DAG and Execution Evidence panes" aria-valuemin="200" aria-valuemax="600" aria-valuenow="320"></div>
+
+    <section class="evidence" data-pane="evidence">
+      <div class="pane-title"><div><h2>Execution Evidence</h2><small>Linked run-relative trace</small></div><button type="button" data-maximize="evidence" aria-label="Maximize Execution Evidence pane">Maximize</button></div>
+      <div id="metrics" class="metrics-strip"></div>
+      <section class="trace-section" aria-labelledby="trace-title"><div class="section-title"><h3 id="trace-title">Trace evidence</h3><span id="trace-note">Select a row to inspect its evidence.</span></div><div id="waterfall" class="waterfall" role="group" aria-label="Execution timing hierarchy"></div></section>
+      <div class="evidence-lower">
+        <section class="events-pane"><div class="section-title"><h3>Events</h3><small>Structured lifecycle evidence</small></div><div id="events"></div></section>
+        <section class="ledger-pane"><div class="section-title"><h3>Timing ledger</h3><label>Sort <select id="sort"><option value="chronological">Chronological</option><option value="duration">Duration</option></select></label></div><div class="table-scroll"><table><thead><tr><th>Start</th><th>End</th><th>Duration</th><th>Source</th><th>Operation</th><th>Outcome</th></tr></thead><tbody id="ledger"></tbody></table></div></section>
+      </div>
+
+      <details class="analysis-tools">
+        <summary>Analysis tools</summary>
+        <section><h3>Counterfactual Scenario</h3><p>Calculate a schedule under fixed recorded behavior. This is not a forecast or recommendation.</p><label>Fanout concurrency <select id="scenario-mode"><option value="observed">Observed</option><option value="sequential">Sequential</option><option value="custom">Custom</option><option value="unlimited">Unlimited</option></select></label><label>Custom limit <input id="scenario-limit" type="number" min="1" step="1" value="2" disabled></label>
+          <div class="profiles">
+            <fieldset data-profile="tier1"><legend>Tier 1 Provider Profile</legend></fieldset>
+            <fieldset data-profile="tier2"><legend>Tier 2 Provider Profile</legend></fieldset>
+            <template id="provider-profile-fields"><label>Mode <select data-field="mode"><option value="observed">Observed</option><option value="fixed">Fixed TTFT</option><option value="cold-warm">Cold/warm TTFT</option></select></label><label>Name <input data-field="name"></label><label>Capacity <input data-field="capacity" type="number" min="1" step="1" placeholder="Unlimited"></label><label>Warmth <select data-field="warmthScope"><option value="attempt">Per Attempt</option><option value="run">Shared across run</option></select></label><label>Fixed TTFT (ms) <input data-field="ttftMs" type="number" min="0" step="any" value="0"></label><label>Cold TTFT (ms) <input data-field="coldTtftMs" type="number" min="0" step="any" value="0"></label><label>Warm TTFT (ms) <input data-field="warmTtftMs" type="number" min="0" step="any" value="0"></label><label>Output tokens/second <input data-field="outputTokensPerSecond" type="number" min="0.000001" step="any" value="1"></label><label>Idle expiry (ms) <input data-field="idleExpiryMs" type="number" min="0" step="any"></label><label>Warm-call limit <input data-field="warmCallLimit" type="number" min="1" step="1"></label><label>Response reset (ms) <input data-field="previousResponseDurationResetMs" type="number" min="0" step="any"></label><label>Input $/million <input data-field="input" type="number" min="0" step="any" value="0"></label><label>Output $/million <input data-field="output" type="number" min="0" step="any" value="0"></label><label>Cache-read $/million <input data-field="cacheRead" type="number" min="0" step="any" value="0"></label><label>Cache-write $/million <input data-field="cacheWrite" type="number" min="0" step="any" value="0"></label></template>
+          </div><button id="scenario-run" type="button">Calculate scenario</button><div id="scenario" class="scenarios" aria-live="polite"><p data-empty>Choose fixed assumptions and calculate scenarios for side-by-side inspection.</p></div>
+        </section>
+        <section><h3>Diagnostic Observations</h3><label>Sort observations <select id="diagnostic-sort"><option value="duration">Duration</option><option value="cost">Cost</option><option value="frequency">Frequency</option><option value="chronology" selected>Chronology</option></select></label><div id="diagnostics"></div></section>
+        <section><h3>Run and cross-packet Node comparison</h3><p>Run A is the selected run. Calculated deltas are Run B minus Run A.</p><label>Run B <select id="comparison-run" aria-label="Comparison Run B"></select></label><label>Comparison Node A <select id="comparison-node-a" aria-label="Comparison Node A"></select></label><label>Comparison Node B <select id="comparison-node-b" aria-label="Comparison Node B"></select></label><div id="comparison"></div></section>
+      </details>
+    </section>
+
+    <div class="resizer" data-resize="inspector" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize Execution Evidence and Inspector panes" aria-valuemin="200" aria-valuemax="600" aria-valuenow="360"></div>
+
+    <aside class="inspector" data-pane="inspector">
+      <div class="pane-title"><div><h2>Inspector</h2><small>Selection-linked evidence</small></div><button type="button" data-maximize="inspector" aria-label="Maximize Inspector pane">Maximize</button></div>
+      <section><h3>Selected evidence</h3><div id="details"></div></section>
+      <section><h2>Evidence Receipt</h2><div id="receipt"></div></section>
+      <section><h2>Routing</h2><div id="routing"></div></section>
+      <details class="source-drawer"><summary>Source Evidence <span id="source-count"></span></summary><div id="source-evidence"></div></details>
+    </aside>
   </main>
-  <footer><output id="status" aria-live="polite"></output></footer>
+
+  <footer>Local, read-only evidence workspace.</footer>
   <script type="module" src="/assets/app.js"></script>
 </body>
 </html>
