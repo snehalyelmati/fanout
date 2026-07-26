@@ -1,5 +1,13 @@
 # Design Decisions
 
+## 2026-07-26
+
+### Discover projects within one fixed profiler storage root
+
+Decision: Repository `npm run profiler` resolves the current working directory through `fanout-pi`'s existing artifact settings, supplies one storage root and preferred current-project identity to `fanout-profiler`, and presents every immediate canonical child containing planning or execution evidence in a URL-addressable project picker. Every HTTP operation names only an admitted opaque project identity. Refresh rescans membership and atomically refreshes the selected catalog; root-level failure preserves prior registry state. `--artifact-root` retains single-project forensic mode. The composition stays in the repository launcher, so the profiler package still depends only on `fanout-core`. This supersedes the current-project-only repository default and the one-project startup scope, but not the fixed-root, read-only, or no-filesystem-selector contracts.
+
+Reason: Fanout's default Pi-owned storage already groups hashed project roots beneath one user storage root. Discovering only evidence-bearing children removes manual path reconstruction and supports switching among real projects without a database, source-repository reads, arbitrary browser paths, or profiler-to-Pi coupling. Project-specific artifact roots outside the selected storage root remain explicit forensic inputs until a concrete cross-root indexing need exists.
+
 ## 2026-07-19
 
 ### Omit profiler exports from v1

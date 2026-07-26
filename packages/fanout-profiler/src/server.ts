@@ -1,4 +1,4 @@
-import { ProfilerCatalog } from "./catalog";
+import { ProjectRegistry } from "./project-registry";
 import { queryComparison, type ComparisonRequest } from "./comparison";
 import { queryDiagnostics, type DiagnosticSort } from "./diagnostics";
 import { queryScenario, type ScenarioConcurrency, type ScenarioRequest } from "./scenario";
@@ -61,8 +61,14 @@ function exactQuery(url: URL, allowed: readonly string[]): void {
 	for (const key of allowed) if (url.searchParams.getAll(key).length > 1) throw new RequestError(400, "query parameter must be unique");
 }
 
+function projectRequest(url: URL): string | undefined {
+	const project = url.searchParams.get("project");
+	if (project !== null && !project) throw new RequestError(400, "project must be a non-empty active identity");
+	return project ?? undefined;
+}
+
 function workspaceRequest(url: URL): WorkspaceRequest {
-	exactQuery(url, ["run", "kind", "id", "node", "attempt", "turn", "sort"]);
+	exactQuery(url, ["project", "run", "kind", "id", "node", "attempt", "turn", "sort"]);
 	const kind = url.searchParams.get("kind");
 	const id = url.searchParams.get("id");
 	if ((kind === null) !== (id === null) || kind !== null && !SELECTION_KINDS.has(kind as SelectionKind)) throw new RequestError(400, "selection kind and id must name one supported selection");
@@ -86,7 +92,7 @@ function comparisonRequest(value: unknown): ComparisonRequest {
 }
 
 function diagnosticRequest(url: URL): { runId?: string; sort?: DiagnosticSort } {
-	exactQuery(url, ["run", "sort"]);
+	exactQuery(url, ["project", "run", "sort"]);
 	const runId = url.searchParams.get("run");
 	const sort = url.searchParams.get("sort");
 	if (runId !== null && !runId) throw new RequestError(400, "run must be a non-empty active identity");
@@ -105,8 +111,7 @@ function scenarioRequest(value: unknown): ScenarioRequest {
 	return { ...(typeof body.runId === "string" ? { runId: body.runId } : {}), concurrency: concurrency as unknown as ScenarioConcurrency, ...(body.providerProfiles === undefined ? {} : { providerProfiles: body.providerProfiles as ScenarioRequest["providerProfiles"] }) };
 }
 
-export function startProfilerServer(artifactRoot: string, port: number): Bun.Server<undefined> {
-	const catalog = new ProfilerCatalog(artifactRoot);
+export function startProfilerServer(projects: ProjectRegistry, port: number): Bun.Server<undefined> {
 	return Bun.serve({
 		hostname: LOOPBACK,
 		port,
@@ -117,6 +122,7 @@ export function startProfilerServer(artifactRoot: string, port: number): Bun.Ser
 			const origin = request.headers.get("origin");
 			if (origin !== null && origin !== `http://${expectedHost}`) return json(403, { error: "unexpected-origin" });
 			const url = new URL(request.url);
+			const selectedProject = () => projects.require(projectRequest(url));
 			try {
 				const asset = ASSETS.get(url.pathname as keyof typeof ASSETS);
 				if (asset) {
@@ -125,40 +131,49 @@ export function startProfilerServer(artifactRoot: string, port: number): Bun.Ser
 					else if (url.search) return json(400, { error: "query-parameters-not-accepted" });
 					return response(Bun.file(`${import.meta.dir}/${asset[0]}`), 200, asset[1]);
 				}
+				if (url.pathname === "/api/projects") {
+					if (request.method !== "GET") return json(405, { error: "method-not-allowed" });
+					exactQuery(url, ["project"]);
+					return json(200, projects.overview(projectRequest(url)));
+				}
 				if (url.pathname === "/api/catalog") {
 					if (request.method !== "GET") return json(405, { error: "method-not-allowed" });
-					exactQuery(url, []);
-					const snapshot = catalog.snapshot();
-					return json(200, { generation: snapshot.generation, refreshedAt: snapshot.refreshedAt, selectedExecutionRunId: snapshot.selectedExecutionRunId, lineages: snapshot.lineages.map((lineage) => ({ id: lineage.id, admission: lineage.admission, reason: lineage.reason, executionRunCount: lineage.executionRuns.length })), recentRuns: snapshot.executionRuns.map((run) => ({ id: run.selectionId, runId: run.id, admission: run.admission, label: run.label, updatedAt: run.updatedAt })) });
+					exactQuery(url, ["project"]);
+					const { project, catalog } = selectedProject(), snapshot = catalog.snapshot();
+					return json(200, { projectId: project.id, generation: snapshot.generation, refreshedAt: snapshot.refreshedAt, selectedExecutionRunId: snapshot.selectedExecutionRunId, lineages: snapshot.lineages.map((lineage) => ({ id: lineage.id, admission: lineage.admission, reason: lineage.reason, executionRunCount: lineage.executionRuns.length })), recentRuns: snapshot.executionRuns.map((run) => ({ id: run.selectionId, runId: run.id, admission: run.admission, label: run.label, updatedAt: run.updatedAt })) });
 				}
 				if (url.pathname === "/api/workspace") {
 					if (request.method !== "GET") return json(405, { error: "method-not-allowed" });
-					return json(200, queryWorkspace(catalog.snapshot(), workspaceRequest(url)));
+					const { project, catalog } = selectedProject();
+					return json(200, { projectId: project.id, ...queryWorkspace(catalog.snapshot(), workspaceRequest(url)) });
 				}
 				if (url.pathname === "/api/diagnostics") {
 					if (request.method !== "GET") return json(405, { error: "method-not-allowed" });
-					return json(200, queryDiagnostics(catalog.snapshot(), diagnosticRequest(url)));
+					return json(200, queryDiagnostics(selectedProject().catalog.snapshot(), diagnosticRequest(url)));
 				}
 				if (url.pathname === "/api/evidence") {
 					if (request.method !== "GET") return json(405, { error: "method-not-allowed" });
-					exactQuery(url, ["reference", "offset", "limit"]);
+					exactQuery(url, ["project", "reference", "offset", "limit"]);
 					const reference = url.searchParams.get("reference");
 					if (!reference) throw new RequestError(400, "active Source Reference is required");
 					const integer = (name: "offset" | "limit") => { const value = url.searchParams.get(name); if (value === null) return undefined; if (!/^\d+$/.test(value)) throw new RequestError(400, `${name} must be a non-negative integer`); return Number(value); };
-					try { return json(200, await catalog.readEvidencePage(reference, { offset: integer("offset"), limit: integer("limit") })); }
+					try { return json(200, await selectedProject().catalog.readEvidencePage(reference, { offset: integer("offset"), limit: integer("limit") })); }
 					catch (error) { throw new RequestError(400, error instanceof Error ? error.message : String(error)); }
 				}
 				if (POST_API.has(url.pathname)) {
 					if (request.method !== "POST") return json(405, { error: "method-not-allowed" });
-					exactQuery(url, []);
+					exactQuery(url, ["project"]);
 					const body = await readBody(request);
 					if (containsFilesystemSelector(body)) throw new RequestError(400, "filesystem-selectors-not-accepted");
-					if (url.pathname === "/api/comparison") return json(200, queryComparison(catalog.snapshot(), comparisonRequest(body)));
-					if (url.pathname === "/api/scenario") return json(200, queryScenario(catalog.snapshot(), scenarioRequest(body)));
+					const projectId = projectRequest(url);
+					if (url.pathname === "/api/comparison") return json(200, queryComparison(selectedProject().catalog.snapshot(), comparisonRequest(body)));
+					if (url.pathname === "/api/scenario") return json(200, queryScenario(selectedProject().catalog.snapshot(), scenarioRequest(body)));
 					if (url.pathname !== "/api/refresh") return json(501, { error: "not-implemented" });
 					if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length) throw new RequestError(400, "refresh accepts only an empty object");
-					const snapshot = await catalog.refresh();
-					return json(200, { generation: snapshot.generation, refreshedAt: snapshot.refreshedAt, selectedExecutionRunId: snapshot.selectedExecutionRunId });
+					const refreshed = await projects.refresh(projectId);
+					if (!refreshed.selection) return json(200, { projectId: refreshed.selectedProjectId, selectedProjectId: refreshed.selectedProjectId, projects: refreshed.projects, disappearedProjectId: refreshed.disappearedProjectId });
+					const { project, catalog } = refreshed.selection, snapshot = catalog.snapshot();
+					return json(200, { projectId: project.id, selectedProjectId: project.id, projects: refreshed.projects, disappearedProjectId: null, generation: snapshot.generation, refreshedAt: snapshot.refreshedAt, selectedExecutionRunId: snapshot.selectedExecutionRunId });
 				}
 				return json(404, { error: "not-found" });
 			} catch (error) {

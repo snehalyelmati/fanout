@@ -1,4 +1,4 @@
-export function createScenarioController({ $, text, receiptNode, comparisonTable, directed, getWorkspace }) {
+export function createScenarioController({ $, api, text, receiptNode, comparisonTable, directed, getWorkspace }) {
 	const profileValue = (tier) => {
 		const root = document.querySelector(`[data-profile="${tier}"]`), value = (name) => root.querySelector(`[data-field="${name}"]`).value, mode = value("mode");
 		if (mode === "observed") return { mode };
@@ -8,12 +8,13 @@ export function createScenarioController({ $, text, receiptNode, comparisonTable
 		return { ...common, warmthScope: value("warmthScope"), coldTtftMs: Number(value("coldTtftMs")), warmTtftMs: Number(value("warmTtftMs")), ...(Object.keys(reset).length ? { reset } : {}) };
 	};
 	return async function runScenario() {
-		const root = $("#scenario"), control = $("#scenario-run"), selected = getWorkspace().recentRuns.find((item) => item.selected);
+		const workspace = getWorkspace(), projectId = workspace.projectId, root = $("#scenario"), control = $("#scenario-run"), selected = workspace.recentRuns.find((item) => item.selected);
 		if (!selected) { $("#status").value = "Scenario requires an admitted Execution Run"; return; }
 		const mode = $("#scenario-mode").value, limit = Number($("#scenario-limit").value), concurrency = mode === "custom" ? { mode, limit } : { mode }, providerProfiles = { tier1: profileValue("tier1"), tier2: profileValue("tier2") };
 		control.disabled = true; $("#status").value = "Calculating scenario…";
-		const response = await fetch("/api/scenario", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId: selected.id, concurrency, providerProfiles }) });
+		const response = await fetch(api("/api/scenario"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId: selected.id, concurrency, providerProfiles }) });
 		control.disabled = false;
+		if (getWorkspace()?.projectId !== projectId) return;
 		if (!response.ok) { $("#status").value = `Scenario unavailable: ${(await response.json()).error}`; return; }
 		const result = await response.json(), shown = (value, unit) => value === null ? "unavailable" : `${value} ${unit}`;
 		const summary = comparisonTable(["Result", "Observed", "Scenario", "Signed direction"], [["Post-confirmation execution", shown(result.observedBoundaryMs, "ms"), shown(result.scenarioBoundaryMs, "ms"), result.deltaMs === null ? "unavailable" : directed(result.deltaMs, "ms")], [`Cost · ${result.cost.status}`, shown(result.cost.observedUsd, "USD"), shown(result.cost.scenarioUsd, "USD"), result.cost.deltaUsd === null ? "unavailable" : directed(result.cost.deltaUsd, "USD")]]);

@@ -30,13 +30,14 @@ const libc = dlopen(process.platform === "darwin" ? "/usr/lib/libSystem.B.dylib"
 export class ReferenceIssuer {
 	readonly #root: string;
 	readonly #generation: number;
+	readonly #namespace: string;
 	#sequence = 0;
 	readonly #references = new Map<string, StoredReference>();
 	readonly #contentBytesRead: Record<SourceKind, number> = { planning: 0, execution: 0, pointer: 0, "supporting-evidence": 0 };
 
 	readonly #rootIdentity: RootIdentity;
 
-	constructor(root: string, rootIdentity: RootIdentity, generation: number) { this.#root = root; this.#rootIdentity = rootIdentity; this.#generation = generation; }
+	constructor(root: string, rootIdentity: RootIdentity, generation: number) { this.#root = root; this.#rootIdentity = rootIdentity; this.#generation = generation; this.#namespace = createHash("sha256").update(root).digest("hex").slice(0, 12); }
 	get references(): ReadonlyMap<string, StoredReference> { return this.#references; }
 	get contentBytesRead(): Readonly<Record<SourceKind, number>> { return this.#contentBytesRead; }
 	readdir(path = ""): string[] { return readdirContained(this.#root, this.#rootIdentity, path); }
@@ -87,7 +88,7 @@ export class ReferenceIssuer {
 	}
 
 	#issue(path: string, kind: SourceKind, stat: BigIntStats, sha256?: string): SourceReference {
-		const id = `source-${this.#generation}-${++this.#sequence}`;
+		const id = `source-${this.#namespace}-${this.#generation}-${++this.#sequence}`;
 		const reference = Object.freeze({ id, path, kind, byteLength: Number(stat.size), modifiedAtMs: Number(stat.mtimeNs) / 1_000_000, ...(sha256 ? { sha256 } : {}) });
 		this.#references.set(id, { reference, fingerprint: fingerprint(stat) });
 		return reference;
