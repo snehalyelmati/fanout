@@ -31,6 +31,7 @@ export interface TimingRow {
 	source: string;
 	operation: string;
 	outcome: string;
+	fact: string | null;
 	selection: WorkspaceSelection;
 }
 
@@ -91,7 +92,8 @@ export function queryWorkspace(snapshot: CatalogSnapshot, request: WorkspaceRequ
 		recentLineages: lineageViews(snapshot, lineage?.id ?? null),
 		recentRuns: snapshot.executionRuns.map((item) => ({ id: item.selectionId, runId: item.id, admission: item.admission, label: item.label, updatedAt: item.updatedAt, selected: item.selectionId === run.selectionId, selection: { kind: "run", id: item.selectionId } })),
 		dag: { nodes: dagNodes, edges: (graph?.edges ?? []).map(([from, to]) => ({ from, to })) },
-		waterfall: scopedRows,
+		waterfall: rows.filter(({ kind }) => kind !== "stage" && kind !== "worker"),
+		attemptCount: scopedRows.filter(({ kind }) => kind === "attempt").length,
 		events,
 		ledger,
 		routing,
@@ -123,7 +125,7 @@ function planningWorkspace(snapshot: CatalogSnapshot, lineage: CatalogWorkflowLi
 		recentLineages: lineageViews(snapshot, lineage.id),
 		recentRuns: snapshot.executionRuns.map((run) => ({ id: run.selectionId, runId: run.id, admission: run.admission, label: run.label, updatedAt: run.updatedAt, selected: false, selection: { kind: "run", id: run.selectionId } })),
 		dag: { nodes: dagNodes, edges: (graph?.edges ?? []).map(([from, to]) => ({ from, to })) },
-		waterfall: [], events: [], ledger: [], metrics: [], supportingEvidence: snapshot.supportingEvidence.filter(({ executionRunId }) => executionRunId === null),
+		waterfall: [], attemptCount: 0, events: [], ledger: [], metrics: [], supportingEvidence: snapshot.supportingEvidence.filter(({ executionRunId }) => executionRunId === null),
 		routing: packetNodes.map((node) => ({ nodeId: node.id, planned: { tier: node.tier.assigned, provider: node.tier.provider, model: node.tier.model }, observed: [] })),
 		inspector: {
 			title: lineage.id,
@@ -177,7 +179,8 @@ function timingRows(projection: ExecutionRunProjection, run: CatalogExecutionRun
 	const appendAttempt = (attempt: ExecutionRunProjection["attempts"][number], parentId: string) => {
 		const { allocation, outcome } = attempt;
 		const attemptId = `attempt:${allocation.attemptId}`;
-		rows.push(row(attemptId, parentId, "attempt", allocation.nodeId, allocation.attemptId, null, origin, outcome?.startedAt, outcome?.finishedAt, outcome?.durationMs, "Attempt Outcome", `${allocation.kind} Attempt envelope`, outcome?.action ?? "incomplete", { kind: "attempt", id: allocation.attemptId }));
+		const attemptRow = row(attemptId, parentId, "attempt", allocation.nodeId, allocation.attemptId, null, origin, outcome?.startedAt, outcome?.finishedAt, outcome?.durationMs, "Attempt Outcome", `${allocation.kind} Attempt envelope`, outcome?.action ?? "incomplete", { kind: "attempt", id: allocation.attemptId });
+		rows.push({ ...attemptRow, fact: outcome ? `${outcome.terminalFact.stage}/${outcome.terminalFact.code}` : null });
 		if (!outcome) return;
 		const metrics = outcome.metrics;
 		rows.push(row(`stage:${allocation.attemptId}`, attemptId, "stage", allocation.nodeId, allocation.attemptId, null, origin, undefined, undefined, undefined, "Attempt Outcome", `${outcome.terminalFact.stage}/${outcome.terminalFact.code}`, outcome.action, { kind: "stage", id: allocation.attemptId }));
@@ -211,7 +214,7 @@ function row(id: string, parentId: string, kind: TimingRow["kind"], nodeId: stri
 	const startMs = start === undefined ? null : Date.parse(start) - origin;
 	const endMs = end === undefined ? null : Date.parse(end) - origin;
 	const depth = kind === "node" || kind === "final-validation" ? 1 : kind === "attempt" ? 2 : kind === "worker" || kind === "turn" || kind === "stage" ? 3 : 4;
-	return { id, parentId, depth, kind, nodeId, attemptId, turnId, startMs, endMs, durationMs: duration ?? (startMs !== null && endMs !== null ? endMs - startMs : null), placement: startMs === null || endMs === null ? "unavailable" : "absolute", source, operation, outcome, selection };
+	return { id, parentId, depth, kind, nodeId, attemptId, turnId, startMs, endMs, durationMs: duration ?? (startMs !== null && endMs !== null ? endMs - startMs : null), placement: startMs === null || endMs === null ? "unavailable" : "absolute", source, operation, outcome, fact: null, selection };
 }
 
 function rowInScope(row: TimingRow, selection: WorkspaceSelection): boolean {

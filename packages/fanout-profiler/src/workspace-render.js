@@ -1,28 +1,22 @@
-export function createWorkspaceRenderer({ $, api, text, button, renderList, receiptNode, interaction, getWorkspace, currentRun, select, reveal, rowExpanded, toggleRow, loadDiagnostics, loadComparison }) {
+export function createWorkspaceRenderer({ $, api, text, button, renderList, receiptNode, formatDuration, formatValue, interaction, getWorkspace, currentRun, select, reveal, rowExpanded, toggleRow, resizeTraceLabel, toolDetails, loadDiagnostics, loadComparison }) {
 	const rowSelection = (row) => ({ ...row.selection, ...(row.nodeId ? { nodeId: row.nodeId } : {}), ...(row.attemptId ? { attemptId: row.attemptId } : {}), ...(row.turnId ? { turnId: row.turnId } : {}) });
 	const sameSelection = (left, right) => left.kind === right.kind && left.id === right.id;
-	const formatDuration = (ms) => {
-		if (ms === null || ms === undefined) return "—";
-		if (ms < 1000) return `${Math.round(ms)}ms`;
-		if (ms < 60_000) return `${Number((ms / 1000).toFixed(ms < 10_000 ? 3 : 1))}s`;
-		return `${Math.floor(ms / 60_000)}m ${Math.round(ms % 60_000 / 1000)}s`;
-	};
 	const tone = (outcome = "") => /fail|error|reject|abort|conflict/i.test(outcome) ? "failure" : /repair|retry|fallback/i.test(outcome) ? "repair" : /pending|incomplete|unknown|unavailable/i.test(outcome) ? "" : /pass|success|complete|accept|applied/i.test(outcome) ? "success" : "";
 	const metric = (workspace, id) => workspace.metrics.find((item) => item.id === id)?.value ?? null;
 	const isExpanded = (row) => rowExpanded(interaction, row, currentRun()?.id);
 
 	const renderSummary = (workspace) => {
-		const run = currentRun(), runRow = workspace.waterfall.find((row) => row.kind === "run"), selectedRow = workspace.waterfall.find((row) => sameSelection(row.selection, workspace.selection)), attempts = workspace.waterfall.filter((row) => row.kind === "attempt").length;
+		const run = currentRun(), runRow = workspace.waterfall.find((row) => row.kind === "run"), selectedRow = workspace.waterfall.find((row) => sameSelection(row.selection, workspace.selection)), attempts = workspace.attemptCount;
 		$("#summary-run").textContent = run ? `${run.label} · ${workspace.inspector.kind}` : "Planning evidence";
 		$("#summary-id").textContent = run?.runId ?? workspace.inspector.title;
 		$("#summary-admission").textContent = run?.admission ?? workspace.inspector.fields.find(([name]) => name === "Admission")?.[1] ?? "—";
 		$("#summary-generation").textContent = workspace.inspector.receipt.artifactGeneration;
 		$("#summary-duration").textContent = formatDuration(metric(workspace, "run-duration") ?? runRow?.durationMs ?? selectedRow?.durationMs);
-		$("#summary-attempts").textContent = attempts || "—";
-		$("#summary-events").textContent = `${workspace.events.length} events`;
+		$("#summary-attempts").textContent = attempts ? formatValue(attempts) : "—";
+		$("#summary-events").textContent = formatValue(workspace.events.length, "events");
 		const tokens = metric(workspace, "tokens"), cost = metric(workspace, "cost");
-		$("#summary-tokens").textContent = tokens === null ? "—" : tokens.toLocaleString();
-		$("#summary-cost").textContent = cost === null ? "—" : `$${Number(cost).toFixed(4)}`;
+		$("#summary-tokens").textContent = tokens === null ? "—" : formatValue(tokens, "tokens");
+		$("#summary-cost").textContent = cost === null ? "—" : formatValue(cost, "USD");
 	};
 
 	const renderWaterfall = () => {
@@ -33,32 +27,42 @@ export function createWorkspaceRenderer({ $, api, text, button, renderList, rece
 			$("#trace-note").textContent = legacy ? "Legacy evidence is descriptive only." : "Timing unavailable.";
 			return;
 		}
+		root.style.setProperty("--trace-label-width", `${interaction.traceLabelWidth}px`);
 		const byId = new Map(rows.map((row) => [row.id, row])), max = Math.max(1, ...rows.map((row) => row.endMs ?? 0));
 		const visible = (row) => { const parent = byId.get(row.parentId); return !parent || visible(parent) && (parent.kind === "run" || isExpanded(parent)); };
 		const selectedRow = rows.find((row) => sameSelection(row.selection, workspace.selection));
-		const axis = text("div", "", "trace-axis"), axisLabel = text("div", "Relative run time", "axis-label"), track = text("div", "", "trace-track axis-track");
+		const axis = text("div", "", "trace-axis"), axisLabel = text("div", "Relative run time", "axis-label"), track = text("div", "", "trace-track axis-track"), columnResizer = text("span", "", "trace-column-resizer");
+		columnResizer.tabIndex = 0; columnResizer.setAttribute("role", "separator"); columnResizer.setAttribute("aria-orientation", "vertical"); columnResizer.setAttribute("aria-label", "Resize waterfall information column"); columnResizer.setAttribute("aria-valuemin", "180"); columnResizer.setAttribute("aria-valuemax", "520"); columnResizer.setAttribute("aria-valuenow", String(interaction.traceLabelWidth));
+		let dragX = 0, dragWidth = interaction.traceLabelWidth; const applyWidth = (size) => { const width = resizeTraceLabel(interaction, size); root.style.setProperty("--trace-label-width", `${width}px`); columnResizer.setAttribute("aria-valuenow", String(width)); };
+		columnResizer.addEventListener("pointerdown", (event) => { event.preventDefault(); dragX = event.clientX; dragWidth = interaction.traceLabelWidth; columnResizer.setPointerCapture(event.pointerId); });
+		columnResizer.addEventListener("pointermove", (event) => { if (columnResizer.hasPointerCapture(event.pointerId)) applyWidth(dragWidth + event.clientX - dragX); });
+		columnResizer.addEventListener("keydown", (event) => { if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return; event.preventDefault(); applyWidth(interaction.traceLabelWidth + (event.key === "ArrowRight" ? 20 : -20)); });
+		axisLabel.append(columnResizer);
 		for (let index = 0; index <= 8; index++) { const tick = text("span", formatDuration(max * index / 8), "tick"); tick.style.left = `${index * 12.5}%`; track.append(tick); }
 		if (selectedRow?.placement === "absolute") {
 			const left = 100 * selectedRow.startMs / max, width = Math.max(.3, 100 * selectedRow.durationMs / max), range = text("span", "", "selection-range"), label = text("span", `Start ${formatDuration(selectedRow.startMs)} · End ${formatDuration(selectedRow.endMs)} · Duration ${formatDuration(selectedRow.durationMs)}`, `selection-label${left > 68 ? " align-end" : ""}`);
 			range.style.left = `${left}%`; range.style.width = `${width}%`; label.style.left = `${left}%`; track.append(range, label);
 		}
 		axis.append(axisLabel, track);
-		const lines = rows.filter(visible).map((row) => {
+		const visibleRows = rows.filter(visible), lines = visibleRows.map((row) => {
 			const line = text("div", "", `timing-row${sameSelection(row.selection, workspace.selection) ? " selected" : ""}`), label = text("div", "", "timing-label"), expandable = ["node", "final-validation", "attempt", "turn"].includes(row.kind), state = text("span", "", `state-dot ${tone(row.outcome)}`);
+			const goal = workspace.dag.nodes.find((node) => node.id === row.nodeId)?.label, goalFirst = goal && ["node", "final-validation", "turn", "response"].includes(row.kind), toolDetail = row.kind === "tool" ? toolDetails.get(workspace, row) : null, primary = toolDetail ? `${row.operation} · ${toolDetail}` : goalFirst ? goal : row.operation, secondary = [goalFirst ? row.operation : null, row.kind, row.fact, row.outcome, toolDetail ? "supporting evidence" : null].filter(Boolean).join(" · ");
+			const expand = () => { toggleRow(interaction, row, currentRun().id); renderWaterfall(); };
 			label.style.setProperty("--depth", String(row.depth));
 			if (expandable) {
-				const open = isExpanded(row), toggle = text("button", open ? "⌄" : "›", "timing-toggle");
-				toggle.type = "button"; toggle.setAttribute("aria-expanded", String(open)); toggle.setAttribute("aria-label", `${open ? "Collapse" : "Expand"} ${row.kind} ${row.operation}`);
-				toggle.addEventListener("click", () => { toggleRow(interaction, row, currentRun().id); renderWaterfall(); }); label.append(toggle);
+				const open = isExpanded(row), toggle = text("button", open ? "▾" : "▸", "timing-toggle");
+				toggle.type = "button"; toggle.setAttribute("aria-expanded", String(open)); toggle.setAttribute("aria-label", `${open ? "Collapse" : "Expand"} ${row.kind} ${primary}`);
+				toggle.addEventListener("click", expand); label.append(toggle);
 			} else label.append(text("span", "", "timing-leaf"));
-			const choose = text("button", "", "timing-select"); choose.type = "button"; choose.setAttribute("aria-label", `Select ${row.kind} ${row.operation}`); choose.append(document.createTextNode(row.operation), text("small", `${row.kind} · ${row.outcome}`)); choose.addEventListener("click", () => select(rowSelection(row))); label.append(choose, state);
+			const choose = text("button", "", "timing-select"); choose.type = "button"; choose.setAttribute("aria-label", `${expandable ? isExpanded(row) ? "Collapse" : "Expand" : "Select"} ${row.kind} ${primary}`); choose.append(document.createTextNode(primary), text("small", secondary)); choose.addEventListener("click", expandable ? expand : () => select(rowSelection(row))); label.append(choose, state);
 			const rowTrack = text("div", "", "trace-track");
 			if (row.placement === "absolute") {
-				const bar = text("button", row.operation, `timeline-bar ${tone(row.outcome)}${sameSelection(row.selection, workspace.selection) ? " selected" : ""}`); bar.type = "button"; bar.style.left = `${100 * row.startMs / max}%`; bar.style.width = `${Math.max(.45, 100 * row.durationMs / max)}%`; bar.title = `${formatDuration(row.startMs)} to ${formatDuration(row.endMs)} · ${formatDuration(row.durationMs)}`; bar.addEventListener("click", () => select(rowSelection(row))); rowTrack.append(bar);
+				const bar = text("button", primary, `timeline-bar ${tone(row.outcome)}${sameSelection(row.selection, workspace.selection) ? " selected" : ""}`); bar.type = "button"; bar.style.left = `${100 * row.startMs / max}%`; bar.style.width = `${Math.max(.45, 100 * row.durationMs / max)}%`; bar.title = `${formatDuration(row.startMs)} to ${formatDuration(row.endMs)} · ${formatDuration(row.durationMs)}`; bar.addEventListener("click", expandable ? expand : () => select(rowSelection(row))); rowTrack.append(bar);
 			} else rowTrack.append(text("span", `${formatDuration(row.durationMs)} measured · absolute placement unavailable`, "unavailable"));
 			line.append(label, rowTrack); return line;
 		});
-		root.replaceChildren(axis, ...lines); $("#trace-note").textContent = `${rows.length} evidence rows · selected range on ruler`;
+		root.replaceChildren(axis, ...lines); $("#trace-note").textContent = `${formatValue(rows.length, "evidence rows")} · selected range on ruler`;
+		void toolDetails.load(workspace, visibleRows).then((changed) => { if (changed && getWorkspace() === workspace) renderWaterfall(); });
 	};
 
 	return function renderWorkspace(value) {
@@ -86,13 +90,24 @@ export function createWorkspaceRenderer({ $, api, text, button, renderList, rece
 		renderList("#events", value.events, (event) => { const current = value.selection.kind === "event" && value.selection.id === event.selection.id, node = text("button", "", `event${current ? " selected" : ""}`); node.type = "button"; if (current) node.setAttribute("aria-current", "true"); node.append(text("span", `#${event.sequence}`, "mono"), text("span", `${event.event} · ${event.summary}`)); node.addEventListener("click", () => select(event.selection)); return node; });
 		renderList("#ledger", value.ledger, (row) => {
 			const tr = document.createElement("tr");
-			for (const [index, item] of [row.startMs, row.endMs, row.durationMs, row.source, row.operation, row.outcome].entries()) { const td = document.createElement("td"); if (index === 4) { const choose = text("button", String(item)); choose.type = "button"; choose.setAttribute("aria-label", `Select ${row.operation}: ${row.outcome}`); choose.addEventListener("click", () => select(rowSelection(row))); td.append(choose); } else td.textContent = item === null ? "unavailable" : String(item); tr.append(td); } return tr;
+			for (const [index, item] of [row.startMs, row.endMs, row.durationMs, row.source, row.operation, row.outcome].entries()) { const td = document.createElement("td"); if (index === 4) { const choose = text("button", String(item)); choose.type = "button"; choose.setAttribute("aria-label", `Select ${row.operation}: ${row.outcome}`); choose.addEventListener("click", () => select(rowSelection(row))); td.append(choose); } else td.textContent = item === null ? "unavailable" : index < 3 ? formatValue(item, "ms") : String(item); tr.append(td); } return tr;
 		});
-		const metrics = text("div", "", "metrics"); for (const item of value.metrics) { const node = text("div", "", "metric"); node.append(text("b", item.value === null ? "unknown" : `${item.value} ${item.unit}`), text("small", `${item.label} · ${item.category} · ${item.evidenceClass}`), receiptNode(item.receipt)); metrics.append(node); } $("#metrics").replaceChildren(metrics);
+		const metrics = text("div", "", "metrics"); for (const item of value.metrics) { const node = text("div", "", "metric"); node.append(text("b", item.value === null ? "unknown" : formatValue(item.value, item.unit)), text("small", `${item.label} · ${item.category} · ${item.evidenceClass}`), receiptNode(item.receipt)); metrics.append(node); } $("#metrics").replaceChildren(metrics);
 
-		const dl = document.createElement("dl"); dl.append(text("dt", "Selection"), text("dd", `${value.inspector.kind}: ${value.inspector.title}`)); for (const [name, item] of value.inspector.fields) dl.append(text("dt", name), text("dd", item)); $("#details").replaceChildren(dl, ...(value.inspector.relatedSelections ?? []).map((item) => button(item.label, item.selection, "event")));
+		const dl = document.createElement("dl"); dl.append(text("dt", "Selection"), text("dd", `${value.inspector.kind}: ${value.inspector.title}`)); for (const [name, item] of value.inspector.fields) { const shown = name === "Duration" && Number.isFinite(Number(item)) ? formatValue(Number(item), "ms") : item; dl.append(text("dt", name), text("dd", shown)); } $("#details").replaceChildren(dl, ...(value.inspector.relatedSelections ?? []).map((item) => button(item.label, item.selection, "event")));
 		$("#receipt").replaceChildren(receiptNode(value.inspector.receipt)); $("#source-count").textContent = `(${value.supportingEvidence.length})`;
-		renderList("#source-evidence", value.supportingEvidence, (item) => { const section = document.createElement("section"), open = text("button", `Open ${item.label}`), output = text("pre", item.reason); open.type = "button"; open.disabled = !item.source; open.addEventListener("click", async () => { const response = await fetch(api("/api/evidence", { reference: item.source.id, limit: 100 })); if (!response.ok) { output.textContent = `Evidence unavailable: ${(await response.json()).error}`; return; } const page = await response.json(); output.textContent = page.status === "Current" ? page.rows.join("\n") : page.status; }); section.append(open, output); return section; });
+		const groups = new Map(); for (const item of value.supportingEvidence) { const id = item.attemptId ?? "run"; if (!groups.has(id)) groups.set(id, []); groups.get(id).push(item); }
+		const evidenceGroups = [...groups].map(([id, items]) => {
+			const group = document.createElement("details"), summary = document.createElement("summary"), list = text("div", "", "source-list"); group.className = "source-group"; summary.append(text("strong", id === "run" ? value.selection.kind === "lineage" ? "Planning evidence" : "Run evidence" : `Attempt ${id}`), text("span", `${items.length} file${items.length === 1 ? "" : "s"}`)); group.append(summary);
+			for (const item of items) {
+				const file = document.createElement("details"), heading = document.createElement("summary"), identity = text("span", "", "source-identity"), output = text("pre", item.source ? "" : item.reason); file.className = "source-file";
+				identity.append(text("strong", item.label), text("small", item.source?.path ?? item.reason, "mono")); heading.append(identity, text("span", item.admission, `evidence-status ${item.admission.toLowerCase()}`)); file.append(heading, output);
+				let loaded = false; file.addEventListener("toggle", async () => { if (!file.open || loaded || !item.source) return; loaded = true; output.textContent = "Loading evidence…"; const response = await fetch(api("/api/evidence", { reference: item.source.id, limit: 100 })); if (!response.ok) { output.textContent = `Evidence unavailable: ${(await response.json()).error}`; return; } const page = await response.json(); output.textContent = page.status === "Current" ? page.rows.join("\n") || "No evidence rows." : page.status; });
+				list.append(file);
+			}
+			group.append(list); return group;
+		});
+		$("#source-evidence").replaceChildren(...evidenceGroups);
 		renderList("#routing", value.routing, (route) => { const node = document.createElement("p"); node.append(text("strong", "Planned routing: "), document.createTextNode(`${route.nodeId} · ${route.planned.tier} ${route.planned.provider}/${route.planned.model}; `), text("strong", "Observed Attempt routing: "), document.createTextNode(route.observed.map((item) => `${item.attemptId} · ${item.tier} ${item.provider}/${item.model}`).join(", ") || "none")); return node; });
 		$("#sort").value = interaction.query.get("sort") ?? "chronological"; loadDiagnostics(); loadComparison();
 	};

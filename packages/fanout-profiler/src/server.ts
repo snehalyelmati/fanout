@@ -18,6 +18,8 @@ const ASSETS = new Map([
 	["/assets/scenario-render.js", ["scenario-render.js", "text/javascript; charset=utf-8"]],
 	["/assets/workspace-render.js", ["workspace-render.js", "text/javascript; charset=utf-8"]],
 	["/assets/interaction.js", ["interaction.js", "text/javascript; charset=utf-8"]],
+	["/assets/format.js", ["format.js", "text/javascript; charset=utf-8"]],
+	["/assets/tool-detail.js", ["tool-detail.js", "text/javascript; charset=utf-8"]],
 ] as const);
 
 class RequestError extends Error {
