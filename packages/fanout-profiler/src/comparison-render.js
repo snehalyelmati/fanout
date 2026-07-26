@@ -1,4 +1,4 @@
-export function createComparisonController({ $, text, receiptNode, comparisonTable, directed, getWorkspace }) {
+export function createComparisonController({ $, api, text, receiptNode, comparisonTable, directed, getWorkspace }) {
 	let serial = 0;
 	const options = (picker, values, prior) => {
 		picker.replaceChildren(...values.map((value) => { const option = text("option", value.label); option.value = value.id; return option; }));
@@ -38,17 +38,17 @@ export function createComparisonController({ $, text, receiptNode, comparisonTab
 		root.replaceChildren(...nodes);
 	};
 	return async function loadComparison() {
-		const requestSerial = ++serial, workspace = getWorkspace(), selected = workspace.recentRuns.find((run) => run.selected);
+		const requestSerial = ++serial, workspace = getWorkspace(), projectId = workspace.projectId, selected = workspace.recentRuns.find((run) => run.selected);
 		if (!selected) { $("#comparison").replaceChildren(text("p", "Comparisons require an admitted Execution Run.")); return; }
 		const picker = $("#comparison-run"), nodeA = $("#comparison-node-a"), nodeB = $("#comparison-node-b"), priorRun = picker.value, priorA = nodeA.value, priorB = nodeB.value;
 		options(picker, workspace.recentRuns.filter((run) => run.id !== selected.id).map((run) => ({ id: run.id, label: `${run.runId} · ${run.label}` })), priorRun);
 		options(nodeA, workspace.dag.nodes.map((node) => ({ id: node.id, label: node.label })), workspace.selection.kind === "node" ? workspace.selection.id : priorA);
 		let target = null;
-		if (picker.value) { const response = await fetch(`/api/workspace?run=${encodeURIComponent(picker.value)}`); if (response.ok) target = await response.json(); }
-		if (requestSerial !== serial) return;
+		if (picker.value) { const response = await fetch(api("/api/workspace", { run: picker.value })); if (response.ok) target = await response.json(); }
+		if (requestSerial !== serial || getWorkspace()?.projectId !== projectId) return;
 		options(nodeB, target?.dag.nodes.map((node) => ({ id: node.id, label: node.label })) ?? [], priorB);
-		const response = await fetch("/api/comparison", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runAId: selected.id, ...(picker.value ? { runBId: picker.value } : {}), ...(picker.value && nodeA.value && nodeB.value ? { nodeAId: nodeA.value, nodeBId: nodeB.value } : {}) }) });
-		if (requestSerial !== serial) return;
+		const response = await fetch(api("/api/comparison"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runAId: selected.id, ...(picker.value ? { runBId: picker.value } : {}), ...(picker.value && nodeA.value && nodeB.value ? { nodeAId: nodeA.value, nodeBId: nodeB.value } : {}) }) });
+		if (requestSerial !== serial || getWorkspace()?.projectId !== projectId) return;
 		if (!response.ok) { $("#comparison").replaceChildren(text("p", `Comparison unavailable: ${(await response.json()).error}`)); return; }
 		render(await response.json());
 	};

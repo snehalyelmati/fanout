@@ -360,7 +360,7 @@ After stubs, traces, and RPE routing policies:
 
 ## Track 9: Offline Fanout run profiler
 
-Status: implementation-complete for the approved offline v1 scope; release acceptance still requires the #58 manual walkthrough in current Chrome and Firefox. The local catalog, linked forensic workspace, exact comparisons, two bounded Diagnostic Observations, fixed-behavior concurrency/Provider Profile scenarios, native interaction/accessibility behavior, root validation, and separate representative benchmark are implemented over the current replayable generation. The application stays one private Bun-powered `fanout-profiler` package depending only on `fanout-core`, with an explicit artifact root, immutable manual-refresh catalog, lazy large-evidence streaming, and a vanilla loopback web workspace. The 2026-07-20 Apple M1 Pro measurement met every local target; see [`docs/BENCHMARKS.md`](BENCHMARKS.md).
+Status: implementation-complete for the approved offline v1 scope; release acceptance still requires the #58 manual walkthrough in current Chrome and Firefox. The local multi-project registry, linked forensic workspace, exact comparisons, two bounded Diagnostic Observations, fixed-behavior concurrency/Provider Profile scenarios, native interaction/accessibility behavior, root validation, and separate representative benchmark are implemented over the current replayable generation. The application stays one private Bun-powered `fanout-profiler` package depending only on `fanout-core`, with one fixed storage root, opaque project-scoped catalogs, explicit single-project override, immutable manual refresh, lazy large-evidence streaming, and a vanilla loopback web workspace. The 2026-07-26 Apple M1 Pro measurement met every local target; see [`docs/BENCHMARKS.md`](BENCHMARKS.md).
 
 Order:
 
@@ -368,6 +368,7 @@ Order:
 2. Completed: producer and consumer contracts cut atomically from Attempt outcome v2/event v2/projection v3 to v3/v3/v4, adding exact Worker Turn, Provider Response, Tool Invocation, and cache evidence.
 3. Completed: the complete offline contract/replay matrix passes for the new generation; no compatibility replay or migration was added.
 4. Implementation completed: built and repository-validated the smallest read-only local profiler over the new authoritative event generation, including the catalog, workspace, comparisons, diagnostics, Fanout-concurrency scenarios, independent fixed/cold-warm Tier Provider Profiles, URL-addressable keyboard-operable interactions, and separate measured benchmark. The manual Chrome/Firefox acceptance walkthrough remains pending under #58.
+5. Repository startup now resolves one Fanout storage root, prefers the current project, and exposes an accessible URL-addressable picker for every evidence-bearing project under that root; refresh rescans membership, `--artifact-root` remains a single-project override, and the profiler package retains its Pi-independent dependency direction.
 
 Attempt Outcome v3/Event v3/Projection v4 is the only current replayable execution generation. Event v2/Projection v3 and earlier artifacts are legacy descriptive evidence only.
 

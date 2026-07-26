@@ -1,15 +1,26 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createServer } from "node:net";
+import { fanoutProjectId } from "../../fanout-pi/src/fanout-runtime-context";
 
 const cli = join(import.meta.dir, "cli.ts");
+const launcher = join(import.meta.dir, "../../../scripts/start-profiler.ts");
 const artifactRoot = mkdtempSync(join(tmpdir(), "fanout-profiler-"));
 const outsideRoot = mkdtempSync(join(tmpdir(), "fanout-profiler-outside-"));
 let profilerProcess: ReturnType<typeof Bun.spawn>;
 let url: string;
+
+function availablePort(): Promise<number> {
+	return new Promise((resolve, reject) => {
+		const listener = createServer().once("error", reject).listen(0, "127.0.0.1", () => {
+			const address = listener.address();
+			listener.close(error => error ? reject(error) : resolve(typeof address === "object" && address ? address.port : 0));
+		});
+	});
+}
 
 beforeAll(async () => {
 	mkdirSync(join(artifactRoot, "packet", "executions", "run-projection"), { recursive: true });
@@ -24,12 +35,7 @@ beforeAll(async () => {
 	mkdirSync(join(artifactRoot, "observability", "session"), { recursive: true });
 	writeFileSync(join(artifactRoot, "observability", "session", "observability.jsonl"), "one\ntwo\n");
 	writeFileSync(join(outsideRoot, "observability.jsonl"), "outside\n");
-	const port = await new Promise<number>((resolve, reject) => {
-		const listener = createServer().once("error", reject).listen(0, "127.0.0.1", () => {
-			const address = listener.address();
-			listener.close(error => error ? reject(error) : resolve(typeof address === "object" && address ? address.port : 0));
-		});
-	});
+	const port = await availablePort();
 	profilerProcess = Bun.spawn([Bun.argv[0], cli, "--artifact-root", artifactRoot, "--port", String(port)], {
 		stdout: "pipe",
 		stderr: "pipe",
@@ -53,6 +59,51 @@ test("startup requires one fixed artifact root", async () => {
 	expect(await new Response(missing.stderr).text()).toContain("--artifact-root");
 });
 
+test("repository startup resolves the cwd project and preserves the explicit override", async () => {
+	const project = realpathSync(mkdtempSync(join(tmpdir(), "fanout-profiler-project-")));
+	const storage = mkdtempSync(join(tmpdir(), "fanout-profiler-storage-"));
+	const projectId = fanoutProjectId(project);
+	const runDir = join(storage, projectId, "packet", "executions", "cwd-run"), otherRunDir = join(storage, "other-project", "packet", "executions", "other-run");
+	mkdirSync(runDir, { recursive: true }); mkdirSync(otherRunDir, { recursive: true });
+	writeFileSync(join(runDir, "execution-run.json"), `${JSON.stringify({ schema: "fanout.execution-run", version: 4, runId: "cwd-run", startedAt: "2026-07-25T00:00:00.000Z" })}\n`);
+	writeFileSync(join(otherRunDir, "execution-run.json"), `${JSON.stringify({ schema: "fanout.execution-run", version: 4, runId: "other-run", startedAt: "2026-07-26T00:00:00.000Z" })}\n`);
+	const start = async (args: string[]) => {
+		const process = Bun.spawn([Bun.argv[0], launcher, ...args], { cwd: project, env: { ...Bun.env, FANOUT_ARTIFACT_DIR: storage }, stdout: "pipe", stderr: "pipe" });
+		const reader = process.stdout.getReader();
+		const { value } = await reader.read();
+		reader.releaseLock();
+		if (!value) throw new Error(await new Response(process.stderr).text());
+		return { process, url: new TextDecoder().decode(value).trim() };
+	};
+	try {
+		const automatic = await start(["--port", String(await availablePort())]);
+		try {
+			const projects = await (await fetch(`${automatic.url}/api/projects`)).json() as any;
+			expect(projects.selectedProjectId).toBe(projectId);
+			expect(projects.projects.map(({ id }) => id)).toEqual(["other-project", projectId]);
+			const catalog = await (await fetch(`${automatic.url}/api/catalog`)).json() as any;
+			expect(catalog).toMatchObject({ projectId, recentRuns: [expect.objectContaining({ runId: "cwd-run" })] });
+			const other = await (await fetch(`${automatic.url}/api/catalog?project=other-project`)).json() as any;
+			expect(other).toMatchObject({ projectId: "other-project", recentRuns: [expect.objectContaining({ runId: "other-run" })] });
+			expect((await fetch(`${automatic.url}/api/catalog?project=missing`)).status).toBe(400);
+			expect((await fetch(`${automatic.url}/api/projects?project=missing`)).status).toBe(400);
+			rmSync(join(storage, projectId), { recursive: true });
+			const disappeared = await (await fetch(`${automatic.url}/api/refresh?project=${projectId}`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json() as any;
+			expect(disappeared).toMatchObject({ projectId: "other-project", selectedProjectId: "other-project", disappearedProjectId: projectId, projects: [expect.objectContaining({ id: "other-project" })] });
+		} finally { automatic.process.kill(); }
+
+		const explicit = await start(["--artifact-root", artifactRoot, "--port", String(await availablePort())]);
+		try {
+			const catalog = await (await fetch(`${explicit.url}/api/catalog`)).json() as any;
+			expect(catalog.recentRuns).toContainEqual(expect.objectContaining({ runId: "run-projection" }));
+			expect(catalog.recentRuns).not.toContainEqual(expect.objectContaining({ runId: "cwd-run" }));
+		} finally { explicit.process.kill(); }
+	} finally {
+		rmSync(project, { recursive: true, force: true });
+		rmSync(storage, { recursive: true, force: true });
+	}
+});
+
 test("local profiler exposes only the bounded same-origin HTTP shell", async () => {
 	expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
 	const immutableSources = [
@@ -66,6 +117,7 @@ test("local profiler exposes only the bounded same-origin HTTP shell", async () 
 	expect(page.headers.has("access-control-allow-origin")).toBe(false);
 	const html = await page.text();
 	expect(html).not.toContain("<script>alert('artifact')</script>");
+	expect(html).toMatch(/<select id="project" aria-label="Fanout project">.*id="refresh".*aria-label="Refresh project evidence".*title="Refresh project evidence"/s);
 	expect(html).toMatch(/<header[\s>].*Packet DAG.*Workflow Lineages.*Recent Runs.*Execution Evidence.*Counterfactual Scenario.*Observed.*Sequential.*Custom.*Unlimited.*Tier 1 Provider Profile.*Tier 2 Provider Profile.*Fixed TTFT.*Cold\/warm TTFT.*Cache-read.*Cache-write.*Diagnostic Observations.*Duration.*Cost.*Frequency.*Chronology.*Run and cross-packet Node comparison.*Comparison Node A.*Comparison Node B.*Inspector.*<footer[\s>]/s);
 	expect(html).toMatch(/data-pane="dag".*aria-label="Maximize DAG pane".*role="separator".*aria-label="Resize DAG and Execution Evidence panes".*data-pane="evidence".*aria-label="Maximize Execution Evidence pane".*role="separator".*aria-label="Resize Execution Evidence and Inspector panes".*data-pane="inspector".*aria-label="Maximize Inspector pane"/s);
 	expect((await fetch(`${url}/?run=packet%2Fexecutions%2Frun-projection&kind=run&id=packet%2Fexecutions%2Frun-projection`)).status).toBe(200);
@@ -84,6 +136,11 @@ test("local profiler exposes only the bounded same-origin HTTP shell", async () 
 	expect(app).toContain('from "/assets/workspace-render.js"');
 	expect(comparisonRendering).toContain("nodePair");
 	expect(app).toContain("loadDiagnostics");
+	expect(app).toContain('fetch(api("/api/workspace"');
+	expect(app).toContain("clearProjectWorkspace");
+	expect(app).toContain("resetProjectState");
+	expect(app).toContain("No Fanout project evidence found");
+	expect(app).toContain("is no longer available");
 	expect(scenarioRendering).toContain("runScenario");
 	expect(scenarioRendering).toContain("profileValue");
 	expect(scenarioRendering).toMatch(/Attempt.*Provider call.*Tool.*Validation scope.*Ledger/s);

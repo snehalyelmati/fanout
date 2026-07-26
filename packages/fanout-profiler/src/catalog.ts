@@ -134,6 +134,10 @@ export class ProfilerCatalog {
 		return this.#state.statistics;
 	}
 
+	assertCurrentRoot(): void {
+		assertRoot(this.#root, this.#rootIdentity);
+	}
+
 	selectExecutionRun(id: string): CatalogSnapshot {
 		if (!this.#state.snapshot.executionRuns.some((run) => run.selectionId === id)) throw new Error("execution run is not in the active snapshot");
 		this.#state = { ...this.#state, snapshot: freeze({ ...this.#state.snapshot, selectedExecutionRunId: id }) };

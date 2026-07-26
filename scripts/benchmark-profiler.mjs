@@ -5,8 +5,8 @@ import { artifactIdentity } from "../packages/fanout-core/src/artifact-identity.
 import { correlateAttemptMetrics } from "../packages/fanout-core/src/attempt-metrics.ts";
 import { allocateAttempt, completeAttempt, createNodeAttemptState } from "../packages/fanout-core/src/execution-attempt.ts";
 import { compileExecutionPacket } from "../packages/fanout-core/src/fanout-compiler.ts";
-import { ProfilerCatalog } from "../packages/fanout-profiler/src/catalog.ts";
 import { queryComparison } from "../packages/fanout-profiler/src/comparison.ts";
+import { ProjectRegistry } from "../packages/fanout-profiler/src/project-registry.ts";
 import { queryScenario } from "../packages/fanout-profiler/src/scenario.ts";
 import { queryWorkspace } from "../packages/fanout-profiler/src/workspace.ts";
 
@@ -17,21 +17,30 @@ const EVENTS_PER_RUN = 200;
 const LARGE_LOG_BYTES = 128 * 1024 * 1024;
 const LARGE_LOG_PAYLOAD = "benchmark-evidence".padEnd(113, "x");
 const LARGE_LOG_ROW = `${JSON.stringify({ message: LARGE_LOG_PAYLOAD })}\n`;
+const PROJECT_DIRECTORIES = 50;
+const ADMITTED_PROJECTS = 3;
 const BASE_TREE = "1".repeat(40);
 const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-const root = mkdtempSync(join(tmpdir(), "fanout-profiler-benchmark-"));
+const storageRoot = mkdtempSync(join(tmpdir(), "fanout-profiler-benchmark-"));
+const projectId = "benchmark-project";
+const root = join(storageRoot, projectId);
 
 try {
 	const generatedAt = performance.now();
+	mkdirSync(root);
+	for (let index = 1; index < ADMITTED_PROJECTS; index++) write(join(storageRoot, `benchmark-peer-${index}`, "packet", "executions", `peer-run-${index}`, "execution-run.json"), `${JSON.stringify({ schema: "fanout.execution-run", version: 4, runId: `peer-run-${index}`, startedAt: `2026-07-2${index}T00:00:00.000Z` })}\n`);
+	for (let index = ADMITTED_PROJECTS; index < PROJECT_DIRECTORIES; index++) write(join(storageRoot, `runtime-only-${String(index).padStart(2, "0")}`, "runtime-context.json"), "{}\n");
 	const fixture = createFixture();
 	for (let lineage = 0; lineage < LINEAGES; lineage++) writeLineage(lineage, fixture);
 	const evidencePath = join(root, "observability", "benchmark", "observability.jsonl");
 	writeLargeLog(evidencePath);
 	const generationMs = performance.now() - generatedAt;
 
-	const initial = measure(() => new ProfilerCatalog(root));
-	const catalog = initial.value;
+	const initial = measure(() => new ProjectRegistry({ storageRoot, preferredProjectId: projectId }));
+	const registry = initial.value;
+	const catalog = registry.require().catalog;
 	const snapshot = catalog.snapshot();
+	assert(registry.overview().projects.length === ADMITTED_PROJECTS, "multi-project discovery did not admit only evidence projects");
 	assert(snapshot.lineages.length === LINEAGES, `expected ${LINEAGES} Workflow Lineages`);
 	assert(snapshot.executionRuns.length === LINEAGES * RUNS_PER_LINEAGE, `expected ${LINEAGES * RUNS_PER_LINEAGE} Execution Runs`);
 	assert(LINEAGES * RUNS_PER_LINEAGE * EVENTS_PER_RUN === 100_000, "expected 100,000 generated events");
@@ -42,13 +51,15 @@ try {
 	const workspace = measure(() => queryWorkspace(snapshot, { runId: selected.selectionId }));
 	const comparison = measure(() => queryComparison(snapshot, { runAId: selected.selectionId, runBId: peer.selectionId }));
 	const scenario = measure(() => queryScenario(snapshot, { runId: selected.selectionId, concurrency: { mode: "observed" } }));
-	const refresh = await measureAsync(() => catalog.refresh());
-	const refreshedReference = refresh.value.supportingEvidence[0]?.source;
+	const refresh = await measureAsync(() => registry.refresh(projectId));
+	assert(refresh.value.selection, "selected benchmark project disappeared during refresh");
+	const refreshedSnapshot = refresh.value.selection.catalog.snapshot();
+	const refreshedReference = refreshedSnapshot.supportingEvidence[0]?.source;
 	assert(refreshedReference?.byteLength === LARGE_LOG_BYTES, "128 MB supporting log metadata was not admitted");
 	assert(catalog.loadStatistics().supportingEvidenceBytesRead === 0, "supporting log bytes were eagerly read during refresh");
 	const evidence = await measureAsync(() => catalog.readEvidencePage(refreshedReference.id, { limit: 500 }));
 	assert(evidence.value.rows.length === 500 && evidence.value.nextOffset === 500, "evidence page cap was not preserved");
-	const snapshotJson = JSON.stringify(refresh.value);
+	const snapshotJson = JSON.stringify(refreshedSnapshot);
 	assert(!snapshotJson.includes(LARGE_LOG_PAYLOAD), "supporting log content was retained in the catalog snapshot");
 
 	console.log(JSON.stringify({
@@ -60,6 +71,8 @@ try {
 			cpu: cpus()[0]?.model ?? "unknown",
 		},
 		dataset: {
+			projectDirectories: PROJECT_DIRECTORIES,
+			admittedProjects: registry.overview().projects.length,
 			workflowLineages: snapshot.lineages.length,
 			executionRuns: snapshot.executionRuns.length,
 			events: LINEAGES * RUNS_PER_LINEAGE * EVENTS_PER_RUN,
@@ -71,8 +84,8 @@ try {
 		},
 		measurementsMs: {
 			fixtureGeneration: round(generationMs),
-			initialCatalog: round(initial.durationMs),
-			refresh: round(refresh.durationMs),
+			initialStorageCatalog: round(initial.durationMs),
+			storageRefresh: round(refresh.durationMs),
 			workspace: round(workspace.durationMs),
 			comparison: round(comparison.durationMs),
 			scenario: round(scenario.durationMs),
@@ -87,7 +100,7 @@ try {
 		},
 	}, null, 2));
 } finally {
-	rmSync(root, { recursive: true, force: true });
+	rmSync(storageRoot, { recursive: true, force: true });
 }
 
 function createFixture() {

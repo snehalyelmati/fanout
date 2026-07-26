@@ -3,6 +3,8 @@ export function createInteractionState(search=""){
 }
 const key=(run,id)=>`${run}|${id}`;
 export function selectionQuery(state,selection,run){const next=new URLSearchParams(state.query);if(selection.kind==="lineage")next.delete("run");else if(run)next.set("run",run);next.set("kind",selection.kind);next.set("id",selection.id);for(const [name,value] of [["node",selection.nodeId],["attempt",selection.attemptId],["turn",selection.turnId]])value?next.set(name,value):next.delete(name);return next}
+export function projectQuery(state,project){const next=new URLSearchParams({project}),sort=state.query.get("sort");if(sort)next.set("sort",sort);return next}
+export function resetProjectState(state){state.nodes.clear();state.attempts.clear();state.turns.clear()}
 export function setQuery(state,query){state.query=query}
 export function restoreQuery(state,search){state.query=new URLSearchParams(search);return state.query}
 export function revealSelection(state,selection,run){if(!run)return;const node=selection.kind==="node"?selection.id:selection.nodeId;if(node)state.nodes.set(run,node);const attempt=selection.kind==="attempt"||selection.kind==="stage"?selection.id:selection.attemptId;if(attempt)state.attempts.add(key(run,`attempt:${attempt}`));const turn=selection.kind==="turn"?selection.id:selection.turnId;if(attempt&&turn)state.turns.add(key(run,`turn:${attempt}:${turn}`))}

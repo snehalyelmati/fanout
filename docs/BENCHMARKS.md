@@ -515,19 +515,19 @@ Run separately from normal validation:
 rtk npm run benchmark:profiler
 ```
 
-The generated temporary corpus contains exactly 100 Workflow Lineages, 500 Execution Runs, 100,000 Event Log rows, and one 134,217,728-byte (128 MiB) supporting log. Two completed current runs contribute 400 fully admitted Event v3 rows and support the workspace, exact same-packet comparison, and observed-scenario measurements. The other 498 runs contribute 99,600 recognized Event v2 envelope rows, exercising Legacy discovery without pretending old evidence is current or replayable. The supporting log contains 1,048,576 complete 128-byte JSONL rows. Catalog load accounting must report zero supporting-evidence content bytes before the benchmark requests the capped first 500 rows, and the immutable snapshot must not contain the row payload.
+The generated temporary storage root contains exactly 50 project directories. Three are admitted projects: one contains 100 Workflow Lineages, 500 Execution Runs, 100,000 Event Log rows, and one 134,217,728-byte (128 MiB) supporting log, while two contain lightweight execution evidence. The other 47 directories contain runtime context only and must not enter the project registry. Two completed current runs contribute 400 fully admitted Event v3 rows and support the workspace, exact same-packet comparison, and observed-scenario measurements. The other 498 runs contribute 99,600 recognized Event v2 envelope rows, exercising Legacy discovery without pretending old evidence is current or replayable. The supporting log contains 1,048,576 complete 128-byte JSONL rows. Catalog load accounting must report zero supporting-evidence content bytes before the benchmark requests the capped first 500 rows, and the immutable snapshot must not contain the row payload.
 
-Local targets from issue #46 are under 5,000 ms for initial catalog load or refresh, under 250 ms for workspace/comparison/scenario queries, and under 500 ms for a capped evidence page. One run on 2026-07-20 used Bun 1.3.14 on macOS arm64 with an Apple M1 Pro:
+Local targets from issue #46 are under 5,000 ms for initial storage-root discovery/catalog load or refresh, under 250 ms for workspace/comparison/scenario queries, and under 500 ms for a capped evidence page. One run on 2026-07-26 used Bun 1.3.14 on macOS arm64 with an Apple M1 Pro:
 
 | Measurement | Result | Target |
 | --- | ---: | ---: |
-| Fixture generation (reported separately) | 189.66 ms | n/a |
-| Initial catalog | 1,571.47 ms | <5,000 ms |
-| Manual refresh | 1,542.70 ms | <5,000 ms |
-| Workspace query | 5.52 ms | <250 ms |
-| Exact comparison query | 6.01 ms | <250 ms |
-| Observed scenario query | 8.67 ms | <250 ms |
-| 500-row evidence page | 0.94 ms | <500 ms |
+| Fixture generation (reported separately) | 282.75 ms | n/a |
+| Initial storage-root discovery and catalog | 1,699.59 ms | <5,000 ms |
+| Storage-root rescan and selected-project refresh | 1,680.15 ms | <5,000 ms |
+| Workspace query | 6.06 ms | <250 ms |
+| Exact comparison query | 6.24 ms | <250 ms |
+| Observed scenario query | 7.32 ms | <250 ms |
+| 500-row evidence page | 0.82 ms | <500 ms |
 
 These are one local wall-clock observation, not a CI guarantee, provider benchmark, or claim that 99,600 Legacy rows cost the same as replaying 99,600 current events. The benchmark contains no timing assertions. Normal checks instead prove structurally that a 128 MiB supporting log is represented only by metadata until selected, is not retained in the immutable snapshot, and cannot return more than 500 rows per page.
 

@@ -72,11 +72,15 @@ export function configureMainObservability(context: { projectArtifactRoot: strin
 	return process.env.DOUBLEWORD_OBSERVABILITY_FILE ?? observabilityPath;
 }
 
+export function fanoutProjectId(cwd: string): string {
+	return `${basename(cwd)}-${createHash("sha1").update(resolve(cwd)).digest("hex").slice(0, 12)}`;
+}
+
 export function fanoutRuntimeContext(cwd: string, model: unknown, thinking: unknown, models?: unknown) {
 	const settings = fanoutSettings(cwd);
 	const registryModels = augmentRegistryModels(Array.isArray(models) ? (models as Array<Record<string, unknown>>).filter(isRecord) : []);
 	const artifactRoot = resolve(process.env.FANOUT_ARTIFACT_DIR || optionalString(settings.artifactDir) || join(getAgentDir(), "fanout"));
-	const projectId = `${basename(cwd)}-${createHash("sha1").update(resolve(cwd)).digest("hex").slice(0, 12)}`;
+	const projectId = fanoutProjectId(cwd);
 	const projectArtifactRoot = join(artifactRoot, projectId);
 	const active = modelInfo(model);
 	const activeThinking = optionalString(thinking) ?? "auto";

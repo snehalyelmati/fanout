@@ -35,6 +35,9 @@ small { color: var(--steel); }
 .brand p { max-width: 70vw; margin: 1px 0 0; overflow: hidden; color: var(--steel); font-size: .58rem; text-overflow: ellipsis; white-space: nowrap; }
 .mark { width: 29px; height: 29px; display: grid; flex: 0 0 auto; place-items: center; border: 1px solid var(--ink); font-weight: 800; }
 #status { max-width: 260px; overflow: hidden; color: var(--steel); font-size: .57rem; text-overflow: ellipsis; white-space: nowrap; }
+.project-picker { display: flex; align-items: center; gap: 5px; color: var(--steel); font-size: .57rem; }
+#project { width: min(360px, 32vw); }
+.icon-button { width: 28px; padding: 2px; font-size: 1rem; line-height: 1; }
 button, select, input { min-height: 26px; border: 1px solid var(--rule-dark); border-radius: 1px; background: var(--white); }
 button { padding: 4px 8px; }
 button:hover { border-color: var(--signal); background: var(--signal-soft); }
@@ -168,6 +171,9 @@ footer { height: 26px; display: flex; align-items: center; padding: 0 9px; borde
   body { overflow: auto; }
   .topbar { height: auto; flex-wrap: wrap; }
   .brand { width: 100%; }
+  .top-actions { width: 100%; }
+  #status { margin-right: auto; }
+  #project { width: min(360px, 48vw); }
   .brand p { max-width: calc(100vw - 60px); }
   .run-strip { display: flex; }
   .run-strip > div { min-width: 112px; }
