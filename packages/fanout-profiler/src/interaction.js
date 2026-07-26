@@ -1,5 +1,5 @@
 export function createInteractionState(search=""){
-	return{query:new URLSearchParams(search),nodes:new Map(),attempts:new Set(),turns:new Set(),paneWidths:{dag:320,inspector:360},maximized:null}
+	return{query:new URLSearchParams(search),nodes:new Set(),attempts:new Set(),turns:new Set(),paneWidths:{dag:320,inspector:360},traceLabelWidth:260,maximized:null}
 }
 const key=(run,id)=>`${run}|${id}`;
 export function selectionQuery(state,selection,run){const next=new URLSearchParams(state.query);if(selection.kind==="lineage")next.delete("run");else if(run)next.set("run",run);next.set("kind",selection.kind);next.set("id",selection.id);for(const [name,value] of [["node",selection.nodeId],["attempt",selection.attemptId],["turn",selection.turnId]])value?next.set(name,value):next.delete(name);return next}
@@ -7,10 +7,11 @@ export function projectQuery(state,project){const next=new URLSearchParams({proj
 export function resetProjectState(state){state.nodes.clear();state.attempts.clear();state.turns.clear()}
 export function setQuery(state,query){state.query=query}
 export function restoreQuery(state,search){state.query=new URLSearchParams(search);return state.query}
-export function revealSelection(state,selection,run){if(!run)return;const node=selection.kind==="node"?selection.id:selection.nodeId;if(node)state.nodes.set(run,node);const attempt=selection.kind==="attempt"||selection.kind==="stage"?selection.id:selection.attemptId;if(attempt)state.attempts.add(key(run,`attempt:${attempt}`));const turn=selection.kind==="turn"?selection.id:selection.turnId;if(attempt&&turn)state.turns.add(key(run,`turn:${attempt}:${turn}`))}
-export function rowExpanded(state,row,run){if(row.kind==="node"||row.kind==="final-validation")return state.nodes.get(run)===(row.nodeId??row.id);if(row.kind==="attempt")return state.attempts.has(key(run,row.id));if(row.kind==="turn")return state.turns.has(key(run,row.id));return false}
-export function toggleRow(state,row,run){if(row.kind==="node"||row.kind==="final-validation"){const node=row.nodeId??row.id;state.nodes.get(run)===node?state.nodes.delete(run):state.nodes.set(run,node);return}const values=row.kind==="attempt"?state.attempts:state.turns,id=key(run,row.id);values.has(id)?values.delete(id):values.add(id)}
+export function revealSelection(state,selection,run){if(!run)return;const node=selection.kind==="node"?selection.id:selection.nodeId;if(node)state.nodes.add(key(run,node));const attempt=selection.kind==="attempt"||selection.kind==="stage"?selection.id:selection.attemptId;if(attempt)state.attempts.add(key(run,`attempt:${attempt}`));const turn=selection.kind==="turn"?selection.id:selection.turnId;if(attempt&&turn)state.turns.add(key(run,`turn:${attempt}:${turn}`))}
+export function rowExpanded(state,row,run){if(row.kind==="node"||row.kind==="final-validation")return state.nodes.has(key(run,row.nodeId??row.id));if(row.kind==="attempt")return state.attempts.has(key(run,row.id));if(row.kind==="turn")return state.turns.has(key(run,row.id));return false}
+export function toggleRow(state,row,run){const values=row.kind==="node"||row.kind==="final-validation"?state.nodes:row.kind==="attempt"?state.attempts:state.turns,id=key(run,row.kind==="node"||row.kind==="final-validation"?row.nodeId??row.id:row.id);values.has(id)?values.delete(id):values.add(id)}
 export function resizePane(state,pane,size){return state.paneWidths[pane]=Math.max(200,Math.min(600,Math.round(size)))}
+export function resizeTraceLabel(state,size){return state.traceLabelWidth=Math.max(180,Math.min(520,Math.round(size)))}
 export function toggleMaximized(state,pane){return state.maximized=state.maximized===pane?null:pane}
 export function restoreWorkspace(state){state.maximized=null}
 const paneLabel=(pane)=>pane==="dag"?"DAG":pane==="evidence"?"Execution Evidence":"Inspector";

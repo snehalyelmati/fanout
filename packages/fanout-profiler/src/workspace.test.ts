@@ -52,11 +52,17 @@ test("linked workspace keeps run, node, Attempt, Turn, Tool, Event, and Stage vi
 	expect(node.dag.nodes.find(({ id }) => id === "final-validation")?.status).toBe("passed");
 	expect(node.events.map(({ sequence }) => sequence)).toEqual([4, 5, 6]);
 	expect(node.ledger.every(({ nodeId }) => nodeId === "work")).toBe(true);
+	expect(node.waterfall.some(({ id }) => id === "final-validation")).toBe(true);
+	expect(node.attemptCount).toBe(1);
 	expect(node.routing).toEqual([{ nodeId: "work", planned: { tier: "tier2", provider: "planned-provider", model: "planned-model" }, observed: [{ attemptId: "work:000001", tier: "tier1", provider: "observed-provider", model: "observed-model" }] }]);
 	expect(node.metrics.some(({ id }) => id === "run-duration")).toBe(false);
 	expect(node.inspector.receipt.sourceReferences).toEqual([packetSource, source]);
 	const attempt = queryWorkspace(snapshot, { selection: { kind: "attempt", id: "work:000001" } });
 	expect(attempt.inspector.relatedSelections).toEqual([{ label: "Stage Fact", selection: { kind: "stage", id: "work:000001" } }]);
+	expect(attempt.waterfall.find(({ id }) => id === "attempt:work:000001")).toMatchObject({ fact: "apply/applied" });
+	expect(attempt.waterfall.some(({ kind }) => kind === "stage" || kind === "worker")).toBe(false);
+	expect(attempt.ledger.some(({ kind }) => kind === "stage")).toBe(true);
+	expect(attempt.ledger.some(({ kind }) => kind === "worker")).toBe(true);
 
 	const tool = queryWorkspace(snapshot, { selection: { kind: "tool", id: "tool-1" } });
 	expect(tool.breadcrumbs.map(({ kind }) => kind)).toEqual(["run", "node", "attempt", "turn", "tool"]);
@@ -73,7 +79,7 @@ test("linked workspace keeps run, node, Attempt, Turn, Tool, Event, and Stage vi
 	const stage = queryWorkspace(snapshot, { selection: { kind: "stage", id: "work:000001" } });
 	expect(stage.inspector.fields).toContainEqual(["Controller action", "accept"]);
 	expect(stage.inspector.fields).toContainEqual(["Stage Fact", "apply/applied"]);
-	expect(stage.waterfall).toContainEqual(expect.objectContaining({ id: "stage:work:000001", depth: 3, kind: "stage" }));
+	expect(stage.waterfall.some(({ kind }) => kind === "stage" || kind === "worker")).toBe(false);
 	const finalValidation = queryWorkspace(snapshot, { selection: { kind: "node", id: "final-validation" } });
 	expect(finalValidation.inspector.fields).toContainEqual(["Observed state", "passed"]);
 });

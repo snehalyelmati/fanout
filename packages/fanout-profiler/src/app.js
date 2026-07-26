@@ -1,7 +1,9 @@
 import { createComparisonController } from "/assets/comparison-render.js";
 import { createScenarioController } from "/assets/scenario-render.js";
 import { createWorkspaceRenderer } from "/assets/workspace-render.js";
-import { createInteractionState, installPaneControls, projectQuery, resetProjectState, restoreQuery, revealSelection, rowExpanded, selectionQuery, setQuery as rememberQuery, toggleRow } from "/assets/interaction.js";
+import { createInteractionState, installPaneControls, projectQuery, resetProjectState, resizeTraceLabel, restoreQuery, revealSelection, rowExpanded, selectionQuery, setQuery as rememberQuery, toggleRow } from "/assets/interaction.js";
+import { formatDelta, formatDuration, formatValue } from "/assets/format.js";
+import { createToolDetailLoader } from "/assets/tool-detail.js";
 
 const $ = (selector) => document.querySelector(selector);
 for (const root of document.querySelectorAll("[data-profile]")) {
@@ -16,6 +18,7 @@ const api = (path, params = {}, scoped = true) => {
 	const project = interaction.query.get("project"); if (scoped && project) query.set("project", project);
 	return `${path}${query.size ? `?${query}` : ""}`;
 };
+const toolDetails = createToolDetailLoader(api);
 const text = (tag, value, className) => { const node = document.createElement(tag); node.textContent = value ?? "unknown"; if (className) node.className = className; return node; };
 const currentRun = () => workspace?.recentRuns.find((run) => run.selected);
 const setQuery = (next, replace = false) => { rememberQuery(interaction, next); const value = next.toString(), url = `${location.pathname}${value ? `?${value}` : ""}`; if (replace) history.replaceState(null, "", url); else history.pushState(null, "", url); };
@@ -41,8 +44,7 @@ const comparisonTable = (headers, rows) => {
 	for (const values of rows) { const row = document.createElement("tr"); for (const value of values) { const td = document.createElement("td"); td.append(value instanceof Node ? value : document.createTextNode(value)); row.append(td); } tbody.append(row); }
 	table.append(thead, tbody); return table;
 };
-const directed = (value, unit) => value > 0 ? `↑ +${value} ${unit}` : value < 0 ? `↓ ${value} ${unit}` : `— 0 ${unit}`;
-const moduleDependencies = { $, api, text, receiptNode, comparisonTable, directed, getWorkspace: () => workspace };
+const moduleDependencies = { $, api, text, receiptNode, comparisonTable, directed: formatDelta, formatDuration, formatValue, getWorkspace: () => workspace };
 const loadComparison = createComparisonController(moduleDependencies);
 const runScenario = createScenarioController(moduleDependencies);
 
@@ -52,12 +54,12 @@ async function loadDiagnostics() {
 	const sort = $("#diagnostic-sort").value, response = await fetch(api("/api/diagnostics", { run: selected.id, sort }));
 	if (workspace?.projectId !== projectId) return;
 	if (!response.ok) { root.replaceChildren(text("p", `Diagnostics unavailable: ${(await response.json()).error}`)); return; }
-	const result = await response.json(), nodes = result.observations.map((item) => { const section = document.createElement("section"); section.append(text("h4", item.title), text("p", `${item.durationMs} ms · ${item.costUsd === null ? `${item.costStatus} cost` : `$${item.costUsd}`} · frequency ${item.frequency} · ${item.occurredAt}`), receiptNode(item.receipt)); return section; });
+	const result = await response.json(), nodes = result.observations.map((item) => { const section = document.createElement("section"); section.append(text("h4", item.title), text("p", `${formatDuration(item.durationMs)} · ${item.costUsd === null ? `${item.costStatus} cost` : formatValue(item.costUsd, "USD")} · ${formatValue(item.frequency, "occurrences")} · ${item.occurredAt}`), receiptNode(item.receipt)); return section; });
 	if (result.suppressions.length) { const details = document.createElement("details"), summary = text("summary", `Suppressed observations (${result.suppressions.length})`), list = document.createElement("ul"); for (const item of result.suppressions) list.append(text("li", `${item.subjectId}: ${item.reason}`)); details.append(summary, list); nodes.push(details); }
 	if (!nodes.length) nodes.push(text("p", "No supported Diagnostic Observations.")); root.replaceChildren(...nodes);
 }
 
-const render = createWorkspaceRenderer({ $, api, text, button, renderList, receiptNode, interaction, getWorkspace: () => workspace, currentRun, select, reveal, rowExpanded, toggleRow, loadDiagnostics, loadComparison });
+const render = createWorkspaceRenderer({ $, api, text, button, renderList, receiptNode, formatDuration, formatValue, interaction, getWorkspace: () => workspace, currentRun, select, reveal, rowExpanded, toggleRow, resizeTraceLabel, toolDetails, loadDiagnostics, loadComparison });
 async function loadProjects() {
 	const requested = interaction.query.get("project");
 	let response = await fetch(api("/api/projects"));

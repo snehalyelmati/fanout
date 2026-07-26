@@ -21,8 +21,6 @@
     <div><small>Cost</small><strong id="summary-cost">—</strong><span>estimated</span></div>
   </section>
 
-  <nav id="breadcrumbs" class="breadcrumbs" aria-label="Evidence scope"></nav>
-
   <main>
     <aside class="left-rail" data-pane="dag">
       <section class="dag-pane"><div class="pane-title"><div><h2>Packet DAG</h2><small>Topology and observed state</small></div><button type="button" data-maximize="dag" aria-label="Maximize DAG pane">Maximize</button></div><div class="dag-stage"><svg id="dag" role="group" aria-label="Vertical Execution Packet DAG"></svg></div></section>
@@ -36,6 +34,7 @@
       <div class="pane-title"><div><h2>Execution Evidence</h2><small>Linked run-relative trace</small></div><button type="button" data-maximize="evidence" aria-label="Maximize Execution Evidence pane">Maximize</button></div>
       <div id="metrics" class="metrics-strip"></div>
       <section class="trace-section" aria-labelledby="trace-title"><div class="section-title"><h3 id="trace-title">Trace evidence</h3><span id="trace-note">Select a row to inspect its evidence.</span></div><div id="waterfall" class="waterfall" role="group" aria-label="Execution timing hierarchy"></div></section>
+      <nav id="breadcrumbs" class="breadcrumbs" aria-label="Evidence scope"></nav>
       <div class="evidence-lower">
         <section class="events-pane"><div class="section-title"><h3>Events</h3><small>Structured lifecycle evidence</small></div><div id="events"></div></section>
         <section class="ledger-pane"><div class="section-title"><h3>Timing ledger</h3><label>Sort <select id="sort"><option value="chronological">Chronological</option><option value="duration">Duration</option></select></label></div><div class="table-scroll"><table><thead><tr><th>Start</th><th>End</th><th>Duration</th><th>Source</th><th>Operation</th><th>Outcome</th></tr></thead><tbody id="ledger"></tbody></table></div></section>
@@ -43,7 +42,7 @@
 
       <details class="analysis-tools">
         <summary>Analysis tools</summary>
-        <section><h3>Counterfactual Scenario</h3><p>Calculate a schedule under fixed recorded behavior. This is not a forecast or recommendation.</p><label>Fanout concurrency <select id="scenario-mode"><option value="observed">Observed</option><option value="sequential">Sequential</option><option value="custom">Custom</option><option value="unlimited">Unlimited</option></select></label><label>Custom limit <input id="scenario-limit" type="number" min="1" step="1" value="2" disabled></label>
+        <section><h3>Counterfactual Scenario</h3><p>Calculate a schedule under fixed recorded behavior. This is not a forecast or recommendation.</p><div class="scenario-controls"><label>Fanout concurrency <select id="scenario-mode"><option value="observed">Observed</option><option value="sequential">Sequential</option><option value="custom">Custom</option><option value="unlimited">Unlimited</option></select></label><label>Custom limit <input id="scenario-limit" type="number" min="1" step="1" value="2" disabled></label></div>
           <div class="profiles">
             <fieldset data-profile="tier1"><legend>Tier 1 Provider Profile</legend></fieldset>
             <fieldset data-profile="tier2"><legend>Tier 2 Provider Profile</legend></fieldset>
