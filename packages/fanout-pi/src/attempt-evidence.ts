@@ -86,7 +86,7 @@ export function attemptEvidenceRefs(runDir: string, attempt: PatchAttemptEvidenc
 	const refs = artifactFile(join(attempt.attemptDir, "result.json")) ? ["result.json"] : [];
 	if (artifactFile(join(attempt.attemptDir, "observability.jsonl"))) refs.push("observability.jsonl");
 	if (attempt.patch) refs.push(attempt.patch.artifact.path);
-	for (const name of ["candidate-normalization.json", "validation.json", "ownership-check.json", "apply-check.json"]) if (artifactFile(join(attempt.attemptDir, name))) refs.push(name);
+	for (const name of ["preparation.json", "candidate-normalization.json", "validation.json", "ownership-check.json", "apply-check.json", "reconciliation.json"]) if (artifactFile(join(attempt.attemptDir, name))) refs.push(name);
 	return [...new Set(refs.filter((reference) => !excluded.has(reference)).map((reference) => reference.includes("/") ? reference : `${prefix}/${reference}`))];
 }
 

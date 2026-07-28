@@ -8,25 +8,27 @@ The coordinated schema cutover is implemented and passes the repository's keyles
 
 | Artifact | Schema | Version |
 | --- | --- | ---: |
-| Planning result | `fanout.implementation-plan` | 2 |
-| Grounded details | `fanout.implementation-details` | 4 |
-| Execution packet | `fanout.execution-packet` | 6 |
+| Project Execution Profile | `fanout.project-execution-profile` | 1 |
+| Active profile pointer | `fanout.active-project-execution-profile` | 1 |
+| Planning result | `fanout.implementation-plan` | 3 |
+| Grounded details | `fanout.implementation-details` | 5 |
+| Execution packet | `fanout.execution-packet` | 7 |
 | Active pointer | `fanout.active-packet` | 2 |
-| Embedded work contract | `fanout.work-contract` | 2 |
+| Embedded work contract | `fanout.work-contract` | 3 |
 | Planning presentation data | `fanout.planning-report` | 1 |
 
 These versions are a closed generation. Producers emit only these versions and consumers reject legacy, future, mixed-generation, and unknown-field input. There is no migration or compatibility bridge; rerun `/fanout-plan` to replace an obsolete pointer or packet.
 
 ## Authority flow
 
-1. The controller captures the exact planning commit, full Git-visible tree, platform, and plan run identity before Phase A.
+1. The controller resolves the exact active profile identity, planning commit, full Git-visible tree, platform, and plan run identity before Phase A. `/fanout-plan --refresh-profile` gathers and validates a replacement in a disposable clean worktree before atomically publishing it; failure preserves the previous profile.
 2. Phase A's model submits only the plan body. The controller supplies schema, version, ID, timestamp, planning host, and planning base.
 3. Phase B's model submits only grounded details. The controller supplies schema, version, ID, timestamp, and the exact digest/length/path identity of the once-read Phase A bytes.
-4. Details use typed `create`, `modify`, `delete`, and `move` intents; typed repository resources; classified reads; typed forbidden resources; one repository-level direct executable/argv candidate-normalization manifest; and direct executable/argv validation manifests. Prose and shell strings are not executable authority.
-5. `fanout-core` strictly validates both controller envelopes, copies the ordered normalization manifest into every canonical work contract, assigns tiers, captures immutable runtime policy, derives dependencies from typed contracts, appends the final-validation controller node, and produces packet v6.
+4. Details use typed `create`, `modify`, `delete`, and `move` intents; typed repository resources; classified reads; typed forbidden resources; and direct executable/argv task-validation manifests. The profile separately owns preparation, readiness, normalization, and required final gates.
+5. `fanout-core` validates both envelopes, assigns tiers, derives dependencies, fuses eligible unique vertical serial chains, appends final validation, and produces packet v7 bound to the exact profile identity.
 6. `fanout-pi` atomically publishes immutable plan, details, packet, and packet-derived Markdown/Mermaid views. It publishes pointer v2 last. A failed plan invalidates the old pointer instead of preserving stale executable authority.
 
-The packet contains exact source-artifact identities, planning identity, objective/context, tier plan, and ordered nodes with embedded work contracts. It does not duplicate flattened ownership, validation, dependency, or worker-prompt fields. Human views are deterministic projections and are never read as execution input.
+The packet contains exact source and profile identities, planning identity, objective/context, tier plan, and ordered nodes with embedded work contracts. It does not duplicate profile commands, flattened ownership, dependency, or worker-prompt fields.
 
 ## Capability boundary
 
@@ -48,7 +50,7 @@ rtk npm run test:doubleword-provider
 rtk git diff --check
 ```
 
-The compiler and packet smokes additionally prove exact plan-v2/details-v4/packet-v6/pointer-v2/work-contract-v2 admission, mixed-generation rejection, deterministic derived graph/views, pointer-last identity binding, normalization-manifest propagation, and package independence.
+The planning, compiler, contract, and packet smokes prove profile-v1/plan-v3/details-v5/packet-v7/pointer-v2/work-contract-v3 admission, failed-refresh preservation, exact profile binding, mixed-generation rejection, deterministic fusion/graph/views, pointer-last publication, packet/profile independence, and package independence.
 
 ## Release gates
 

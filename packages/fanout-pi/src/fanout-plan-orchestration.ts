@@ -11,15 +11,17 @@ export { IMPLEMENTATION_PLAN_SCHEMA, IMPLEMENTATION_PLAN_VERSION };
 export interface FanoutPlanRun {
 	runId: string;
 	artifactDir: string;
+	projectExecutionProfilePath: string;
 	implementationPlanPath: string;
 	implementationDetailsPath: string;
 }
 
 export interface FanoutPhaseState extends FanoutPlanRun {
-	phase: "implementation" | "details";
+	phase: "profile" | "implementation" | "details";
 	systemPrompt?: string;
-	acceptedSubmission?: { runId: string; phase: "implementation" | "details"; path: string; identity: ArtifactIdentity };
+	acceptedSubmission?: { runId: string; phase: FanoutPhaseState["phase"]; path: string; identity: ArtifactIdentity };
 	planIdentity?: ArtifactIdentity;
+	profileIdentity?: ArtifactIdentity;
 	acceptedPlan?: ImplementationPlan;
 	invocation: string;
 	objective: string;
@@ -32,7 +34,11 @@ export interface FanoutPhaseState extends FanoutPlanRun {
 export function createFanoutPlanRun(objective: string, context: { projectArtifactRoot: string }, now = new Date()): FanoutPlanRun {
 	const runId = `${timestamp(now)}-${slug(objective)}`;
 	const artifactDir = join(context.projectArtifactRoot, runId);
-	return { runId, artifactDir, implementationPlanPath: join(artifactDir, "implementation-plan.json"), implementationDetailsPath: join(artifactDir, "implementation-details.json") };
+	return { runId, artifactDir, projectExecutionProfilePath: join(artifactDir, "project-execution-profile.json"), implementationPlanPath: join(artifactDir, "implementation-plan.json"), implementationDetailsPath: join(artifactDir, "implementation-details.json") };
+}
+
+export function buildProjectExecutionProfilePrompt(objective: string, context: unknown, run: FanoutPlanRun): string {
+	return buildPrompt("fanout-execution-profile.md", "profile", objective, context, run);
 }
 
 export function buildImplementationPlanPrompt(objective: string, context: unknown, run: FanoutPlanRun): string {
@@ -77,6 +83,7 @@ function phaseBInput(run: FanoutPlanRun, requiredReadClassifications: RequiredRe
 	const accepted = run as FanoutPhaseState;
 	return {
 		artifactTargets: { runId: run.runId, artifactDir: run.artifactDir, implementationPlanPath: run.implementationPlanPath, implementationDetailsPath: run.implementationDetailsPath },
+		profileIdentity: accepted.profileIdentity,
 		planIdentity: accepted.planIdentity,
 		acceptedPlan: accepted.acceptedPlan,
 		requiredReadClassifications,

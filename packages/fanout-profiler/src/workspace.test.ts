@@ -5,8 +5,10 @@ import { queryWorkspace } from "./workspace";
 
 const source = { id: "source-7-1", path: "packet/executions/run-1/events.jsonl", kind: "execution" as const, byteLength: 123, modifiedAtMs: 1 };
 const packetSource = { id: "source-7-2", path: "packet/execution-packet.json", kind: "planning" as const, byteLength: 456, modifiedAtMs: 1 };
+const profile = { path: "profiles/default.json", sha256: "a".repeat(64), byteLength: 10 };
 const packet = {
-	version: 6,
+	version: 7,
+	profile,
 	objective: "Keep <script>alert('no')</script> as evidence text",
 	nodes: [
 		{ id: "work", kind: "implement", tier: { preferred: "tier2", assigned: "tier2", fallback: "tier1", provider: "planned-provider", model: "planned-model", thinking: "off", reason: "approved background worker" }, workContract: { goals: [{ statement: "Do work" }] } },
@@ -15,14 +17,15 @@ const packet = {
 };
 const projection = {
 	runId: "run-1", startedAt: "2026-07-20T00:00:00.000Z", updatedAt: "2026-07-20T00:00:01.000Z", finishedAt: "2026-07-20T00:00:01.000Z",
-	terminalOutcome: { outcome: "completed", durationMs: 1_000 }, mode: "live", finalValidation: { disposition: "passed", durationMs: 100 },
+	profile,
+	terminalOutcome: { outcome: "completed", durationMs: 1_000, cleanupDurationMs: 0 }, mode: "live", finalValidation: { disposition: "passed", durationMs: 100 },
 	nodes: [{ id: "work", status: "succeeded", attemptIds: ["work:000001"] }],
 	attempts: [{
 		allocationSequence: 4, completionSequence: 5,
 		allocation: { nodeId: "work", attemptId: "work:000001", kind: "original", assignment: { tier: "tier1", provider: "observed-provider", model: "observed-model" } },
 		outcome: {
 			attemptId: "work:000001", nodeId: "work", kind: "original", startedAt: "2026-07-20T00:00:00.100Z", finishedAt: "2026-07-20T00:00:00.900Z", durationMs: 800,
-			action: "accept", terminalFact: { stage: "apply", code: "applied" }, evidenceRefs: ["attempt-outcome.json"],
+			action: "accept", disposition: "deterministic-reconciliation", terminalFact: { stage: "apply", code: "applied" }, evidenceRefs: ["attempt-outcome.json"],
 			metrics: {
 				compatibility: "generic", complete: true, workerDurationMs: 700,
 				turns: [{ turnId: "turn-1", requestedAt: "2026-07-20T00:00:00.200Z", firstOutputAt: "2026-07-20T00:00:00.300Z", finishedAt: "2026-07-20T00:00:00.800Z", durationMs: 600, provider: "observed-provider", model: "observed-model", tier: "tier1", inputTokens: 2, outputTokens: 3, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 5, costUsd: 0.1, pricingSource: "fixture", responseIds: [], toolCallIds: ["tool-1"] }],
@@ -59,6 +62,7 @@ test("linked workspace keeps run, node, Attempt, Turn, Tool, Event, and Stage vi
 	expect(node.inspector.receipt.sourceReferences).toEqual([packetSource, source]);
 	const attempt = queryWorkspace(snapshot, { selection: { kind: "attempt", id: "work:000001" } });
 	expect(attempt.inspector.relatedSelections).toEqual([{ label: "Stage Fact", selection: { kind: "stage", id: "work:000001" } }]);
+	expect(attempt.inspector.fields).toContainEqual(["Controller disposition", "deterministic-reconciliation"]);
 	expect(attempt.waterfall.find(({ id }) => id === "attempt:work:000001")).toMatchObject({ fact: "apply/applied" });
 	expect(attempt.waterfall.some(({ kind }) => kind === "stage" || kind === "worker")).toBe(false);
 	expect(attempt.ledger.some(({ kind }) => kind === "stage")).toBe(true);
@@ -78,6 +82,7 @@ test("linked workspace keeps run, node, Attempt, Turn, Tool, Event, and Stage vi
 	expect(causalEvent.breadcrumbs.map(({ kind }) => kind)).toEqual(["run", "node", "attempt", "event"]);
 	const stage = queryWorkspace(snapshot, { selection: { kind: "stage", id: "work:000001" } });
 	expect(stage.inspector.fields).toContainEqual(["Controller action", "accept"]);
+	expect(stage.inspector.fields).toContainEqual(["Controller disposition", "deterministic-reconciliation"]);
 	expect(stage.inspector.fields).toContainEqual(["Stage Fact", "apply/applied"]);
 	expect(stage.waterfall.some(({ kind }) => kind === "stage" || kind === "worker")).toBe(false);
 	const finalValidation = queryWorkspace(snapshot, { selection: { kind: "node", id: "final-validation" } });
@@ -90,7 +95,7 @@ test("timing views distinguish boundaries, overlapping measured work, unavailabl
 	expect(workspace.metrics.find(({ id }) => id === "worker-duration")).toMatchObject({ value: 700, category: "overlapping-measured-work" });
 	expect(workspace.metrics.find(({ id }) => id === "worker-duration")).toMatchObject({ evidenceClass: "Derived", receipt: { evidenceClass: "Derived" } });
 	expect(workspace.metrics.find(({ id }) => id === "provider-duration")).toMatchObject({ value: null, evidenceClass: "Unavailable" });
-	expect(workspace.metrics.every(({ receipt }) => receipt.artifactGeneration === "Event v3 / Projection v4")).toBe(true);
+	expect(workspace.metrics.every(({ receipt }) => receipt.artifactGeneration === "Event v4 / Projection v5" && JSON.stringify(receipt.profileIdentity) === JSON.stringify(profile))).toBe(true);
 	expect(workspace.ledger.find(({ id }) => id === "poll:poll-1")).toMatchObject({ startMs: null, endMs: null, durationMs: 25, placement: "unavailable" });
 	expect(workspace.inspector.receipt).toMatchObject({ evidenceClass: "Observed", derivation: expect.any(String), missingInputs: expect.any(Array), assumptions: expect.any(Array), limitations: expect.any(Array) });
 	expect(workspace.objective).toContain("<script>");
@@ -135,9 +140,9 @@ test("planning-only Workflow Lineages are openable without invented execution st
 	expect(workspace.events).toEqual([]);
 	expect(workspace.metrics).toEqual([]);
 	expect(workspace.inspector).toMatchObject({ kind: "Workflow Lineage", fields: [["Admission", "Planning-only"], ["Execution state", "Unavailable — no admitted Execution Run"]], receipt: { evidenceClass: "Partial", sourceReferences: [packetSource] } });
-	expect(workspace.inspector.receipt.artifactGeneration).toBe("Planning v2");
+	expect(workspace.inspector.receipt.artifactGeneration).toBe("Planning v3");
 
 	const currentLineage = queryWorkspace(snapshot, { selection: { kind: "lineage", id: "packet" } });
 	expect(currentLineage.inspector.fields).toContainEqual(["Execution state", "1 admitted Execution Run available; none selected"]);
-	expect(currentLineage.inspector.receipt).toMatchObject({ artifactGeneration: "Planning v2 / Details v4 / Packet v6", missingInputs: ["selected Execution Run"] });
+	expect(currentLineage.inspector.receipt).toMatchObject({ artifactGeneration: "Planning v3 / Details v5 / Packet v7", profileIdentity: profile, missingInputs: ["selected Execution Run"] });
 });

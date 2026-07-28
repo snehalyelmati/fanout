@@ -31,6 +31,7 @@ try {
 	for (let index = 1; index < ADMITTED_PROJECTS; index++) write(join(storageRoot, `benchmark-peer-${index}`, "packet", "executions", `peer-run-${index}`, "execution-run.json"), `${JSON.stringify({ schema: "fanout.execution-run", version: 4, runId: `peer-run-${index}`, startedAt: `2026-07-2${index}T00:00:00.000Z` })}\n`);
 	for (let index = ADMITTED_PROJECTS; index < PROJECT_DIRECTORIES; index++) write(join(storageRoot, `runtime-only-${String(index).padStart(2, "0")}`, "runtime-context.json"), "{}\n");
 	const fixture = createFixture();
+	write(join(root, fixture.profileIdentity.path), fixture.profileBytes);
 	for (let lineage = 0; lineage < LINEAGES; lineage++) writeLineage(lineage, fixture);
 	const evidencePath = join(root, "observability", "benchmark", "observability.jsonl");
 	writeLargeLog(evidencePath);
@@ -107,16 +108,19 @@ function createFixture() {
 	const lineageId = "lineage-template";
 	const baseTime = Date.UTC(2026, 6, 20);
 	const command = { executable: "bun", args: ["--version"] };
+	const profile = { schema: "fanout.project-execution-profile", version: 1, profileId: "benchmark", createdAt: isoTimestamp(baseTime), preparation: [], readiness: [], candidateNormalization: [], requiredFinalGates: [] };
+	const profileBytes = bytes(profile);
+	const profileIdentity = artifactIdentity("profiles/benchmark.json", profileBytes);
 	const implementationItems = Array.from({ length: NODES_PER_PACKET }, (_, node) => ({
 		id: nodeId(node), goals: [`Implement benchmark work ${node}`], writeResources: [{ kind: "file", path: `src/work-${String(node).padStart(2, "0")}.ts` }], readResources: [], forbiddenWrites: [], semanticReviewCriteria: ["Work is visible"], advisoryNotes: [],
 	}));
 	const plan = {
-		schema: "fanout.implementation-plan", version: 2, planId: lineageId, createdAt: isoTimestamp(baseTime), planningHost: { platform: process.platform }, planningBase: { headCommit: BASE_TREE, tree: BASE_TREE }, objective: `Benchmark ${lineageId}`, userContext: [], discoveredRepoFacts: [], assumptions: [], implementationItems,
+		schema: "fanout.implementation-plan", version: 3, planId: lineageId, createdAt: isoTimestamp(baseTime), planningHost: { platform: process.platform }, planningBase: { headCommit: BASE_TREE, tree: BASE_TREE }, profile: profileIdentity, objective: `Benchmark ${lineageId}`, userContext: [], discoveredRepoFacts: [], assumptions: [], implementationItems,
 	};
 	const planBytes = bytes(plan);
 	const planIdentity = artifactIdentity("implementation-plan.json", planBytes);
 	const details = {
-		schema: "fanout.implementation-details", version: 4, detailsId: lineageId, createdAt: isoTimestamp(baseTime + 1), plan: planIdentity, candidateNormalizationCommands: [],
+		schema: "fanout.implementation-details", version: 5, detailsId: lineageId, createdAt: isoTimestamp(baseTime + 1), plan: planIdentity,
 		items: implementationItems.map((item) => ({ id: item.id, kind: "implement", changes: [{ kind: "create", target: { resource: item.writeResources[0], sourcePlanIds: [item.id] }, contentIntent: "benchmark work" }], readDependencies: [], forbiddenWrites: [], validationCommands: [command], advisoryNotes: [] })),
 		finalValidationCommands: [command],
 	};
@@ -132,7 +136,7 @@ function createFixture() {
 	const events = executionEvents(compiled.packet, packetIdentity, lineageId, "run-template", baseTime + 10_000);
 	assert(events.length === EVENTS_PER_RUN, `template generated ${events.length} events`);
 	const legacyJsonl = `${Array.from({ length: EVENTS_PER_RUN }, (_, index) => JSON.stringify({ schema: "fanout.execution-event", version: 2, runId: "run-template", sequence: index + 1, occurredAt: isoTimestamp(baseTime + 10_000 + index), event: index ? "legacy-observation" : "run-started", payload: {} })).join("\n")}\n`;
-	return { planBytes, detailsBytes, packetBytes, eventsJsonl: `${events.map(JSON.stringify).join("\n")}\n`, legacyJsonl };
+	return { profileBytes, profileIdentity, planBytes, detailsBytes, packetBytes, eventsJsonl: `${events.map(JSON.stringify).join("\n")}\n`, legacyJsonl };
 }
 
 function writeLineage(index, fixture) {
@@ -150,14 +154,14 @@ function writeLineage(index, fixture) {
 
 function executionEvents(packet, packetIdentity, lineageId, runId, baseTime) {
 	const events = [];
-	const emit = (event, payload) => events.push({ schema: "fanout.execution-event", version: 3, runId, sequence: events.length + 1, occurredAt: isoTimestamp(baseTime + events.length), event, payload });
+	const emit = (event, payload) => events.push({ schema: "fanout.execution-event", version: 4, runId, sequence: events.length + 1, occurredAt: isoTimestamp(baseTime + events.length), event, payload });
 	const commandEvidence = packet.nodes.map((node, packetNodeIndex) => ({ packetNodeIndex, nodeId: node.id, commandIndex: 0, manifest: { executable: "bun", args: ["--version"], cwd: null }, resolution: { status: "available", resolvedExecutable: process.execPath, resolvedCwd: process.cwd() } }));
 	const preflightEvidence = {
 		planningCommit: { expected: BASE_TREE, actual: BASE_TREE, status: "matched" }, repositoryTree: { expected: BASE_TREE, actual: BASE_TREE, status: "matched" }, platform: { expected: process.platform, actual: process.platform, status: "matched" },
 		worker: { extension: { requested: "packages/fanout-pi/src/index.ts", resolved: join(process.cwd(), "packages/fanout-pi/src/index.ts"), status: "available" }, launcher: { executable: "bun", args: ["--version"], resolvedExecutable: process.execPath, resolvedCwd: process.cwd(), version: Bun.version, status: "available" }, modelCallableTools: ["read", "grep", "find", "ls", "edit", "write"] },
 		commandCounts: { candidateNormalization: packet.nodes.map(() => 0), validation: packet.nodes.map(() => 1) }, candidateNormalizationCommands: [], validationCommands: commandEvidence,
 	};
-	emit("run-started", { mode: "live", packet: packetIdentity, planningBaseTree: BASE_TREE, nodeIds: packet.nodes.filter((node) => node.kind !== "final-validation").map((node) => node.id), policy: packet.runtimePolicy, preflightEvidence });
+	emit("run-started", { mode: "live", packet: packetIdentity, profile: packet.profile, profileValidation: { path: `${lineageId}/executions/${runId}/profile-validation/evidence.json`, sha256: "b".repeat(64), byteLength: 1 }, planningBaseTree: BASE_TREE, nodeIds: packet.nodes.filter((node) => node.kind !== "final-validation").map((node) => node.id), policy: packet.runtimePolicy, preflightEvidence });
 	emit("preflight-completed", { status: "passed", planningBaseTree: BASE_TREE, repositoryTree: BASE_TREE, issues: [] });
 	emit("confirmation-decided", { decision: "accepted" });
 	for (const [index, node] of packet.nodes.filter((candidate) => candidate.kind !== "final-validation").entries()) {
@@ -180,7 +184,7 @@ function executionEvents(packet, packetIdentity, lineageId, runId, baseTime) {
 	}
 	emit("final-validation-started", { commandIdentities: ["final-validation:0"], expectedTree: BASE_TREE });
 	emit("final-validation-completed", { status: "passed", commandCount: 1, durationMs: 1, evidence: { path: `${lineageId}/executions/${runId}/final-validation/rounds/1.json`, sha256: "a".repeat(64), byteLength: 1 }, expectedTree: BASE_TREE, beforeTree: BASE_TREE, afterTree: BASE_TREE });
-	emit("run-finished", { outcome: "completed", durationMs: events.length, cause: { kind: "event", eventSequence: events.length, code: "final-validation-passed" } });
+	emit("run-finished", { outcome: "completed", durationMs: events.length, cleanupDurationMs: 0, cause: { kind: "event", eventSequence: events.length, code: "final-validation-passed" } });
 	return events;
 }
 

@@ -1,4 +1,5 @@
 import { resolveExecutionEvidence, type ExecutionRunProjection } from "../../fanout-core/src/execution-projection";
+import type { ArtifactIdentity } from "../../fanout-core/src/artifact-identity";
 import { deepFreeze } from "../../fanout-core/src/contract-value";
 import { FINAL_VALIDATION_NODE_ID } from "../../fanout-core/src/work-contract-graph";
 import { requireExecutionRun, type CatalogAdmission, type CatalogExecutionRun, type CatalogSnapshot, type CatalogWorkflowLineage, type SourceReference } from "./catalog";
@@ -15,6 +16,7 @@ export interface EvidenceReceipt {
 	missingInputs: readonly string[];
 	assumptions: readonly string[];
 	limitations: readonly string[];
+	profileIdentity: ArtifactIdentity | null;
 }
 export interface TimingRow {
 	id: string;
@@ -35,14 +37,14 @@ export interface TimingRow {
 	selection: WorkspaceSelection;
 }
 
-export const CURRENT_EXECUTION_GENERATION = "Event v3 / Projection v4";
+export const CURRENT_EXECUTION_GENERATION = "Event v4 / Projection v5";
 
 export function executionArtifactGeneration(admissions: readonly CatalogAdmission[]): string {
 	return admissions.some((admission) => admission === "Legacy") ? "Legacy execution generation" : admissions.some((admission) => admission !== "Current") ? "Unverifiable execution generation" : CURRENT_EXECUTION_GENERATION;
 }
 
-export function createEvidenceReceipt(evidenceClass: EvidenceClass, derivation: string, sourceReferences: readonly SourceReference[], missingInputs: readonly string[] = [], assumptions: readonly string[] = [], limitations: readonly string[] = [], artifactGeneration = CURRENT_EXECUTION_GENERATION): EvidenceReceipt {
-	return { evidenceClass, artifactGeneration, sourceReferences, derivation, missingInputs, assumptions, limitations };
+export function createEvidenceReceipt(evidenceClass: EvidenceClass, derivation: string, sourceReferences: readonly SourceReference[], missingInputs: readonly string[] = [], assumptions: readonly string[] = [], limitations: readonly string[] = [], artifactGeneration = CURRENT_EXECUTION_GENERATION, profileIdentity: ArtifactIdentity | null = null): EvidenceReceipt {
+	return { evidenceClass, artifactGeneration, sourceReferences, derivation, missingInputs, assumptions, limitations, profileIdentity };
 }
 
 export function queryWorkspace(snapshot: CatalogSnapshot, request: WorkspaceRequest): Readonly<Record<string, any>> {
@@ -57,7 +59,7 @@ export function queryWorkspace(snapshot: CatalogSnapshot, request: WorkspaceRequ
 	const projection = run.projection;
 	const selection = resolveSelection(run, request.selection ?? { kind: "run", id: run.selectionId });
 	const artifactGeneration = executionArtifactGeneration([run.admission]);
-	const receipt = (evidenceClass: EvidenceClass, derivation: string, missingInputs: string[] = [], limitations: string[] = [], sourceReferences: readonly SourceReference[] = run.sources): EvidenceReceipt => createEvidenceReceipt(evidenceClass, derivation, sourceReferences, missingInputs, [], limitations, artifactGeneration);
+	const receipt = (evidenceClass: EvidenceClass, derivation: string, missingInputs: string[] = [], limitations: string[] = [], sourceReferences: readonly SourceReference[] = run.sources): EvidenceReceipt => createEvidenceReceipt(evidenceClass, derivation, sourceReferences, missingInputs, [], limitations, artifactGeneration, projection?.profile ?? null);
 	const rows = projection ? timingRows(projection, run) : [];
 	const scopedRows = rows.filter((row) => rowInScope(row, selection));
 	const ledger = [...scopedRows].sort(request.sort === "duration"
@@ -131,16 +133,16 @@ function planningWorkspace(snapshot: CatalogSnapshot, lineage: CatalogWorkflowLi
 			title: lineage.id,
 			kind: "Workflow Lineage",
 			fields: [["Admission", lineage.admission], ["Execution state", executionState]],
-			receipt: createEvidenceReceipt(evidenceClass, lineage.reason, sources, [runCount ? "selected Execution Run" : "admitted Execution Run"], [], ["Planning evidence does not establish execution state"], planningArtifactGeneration(lineage)),
+			receipt: createEvidenceReceipt(evidenceClass, lineage.reason, sources, [runCount ? "selected Execution Run" : "admitted Execution Run"], [], ["Planning evidence does not establish execution state"], planningArtifactGeneration(lineage), lineage.packet?.profile ?? lineage.planningRun?.plan?.profile ?? null),
 		},
 	});
 }
 
 function planningArtifactGeneration(lineage: CatalogWorkflowLineage): string {
 	if (lineage.admission === "Legacy") return "Legacy planning generation";
-	if (lineage.packet) return "Planning v2 / Details v4 / Packet v6";
-	if (lineage.planningRun?.details) return "Planning v2 / Details v4";
-	if (lineage.planningRun?.plan) return "Planning v2";
+	if (lineage.packet) return "Planning v3 / Details v5 / Packet v7";
+	if (lineage.planningRun?.details) return "Planning v3 / Details v5";
+	if (lineage.planningRun?.plan) return "Planning v3";
 	return "Unverifiable planning generation";
 }
 
@@ -285,16 +287,16 @@ function inspectorFor(run: CatalogExecutionRun, projection: ExecutionRunProjecti
 	}
 	const attemptId = selection.kind === "attempt" || selection.kind === "stage" ? selection.id : selection.attemptId;
 	const attempt = projection && attemptId ? resolveExecutionEvidence(projection, { attemptId }).attempt : null;
-	if (selection.kind === "stage" && attempt?.outcome) return { title: `${attempt.outcome.terminalFact.stage}/${attempt.outcome.terminalFact.code}`, kind: "Stage Fact", fields: [["Controller action", attempt.outcome.action], ["Stage Fact", `${attempt.outcome.terminalFact.stage}/${attempt.outcome.terminalFact.code}`]], receipt: receipt("Observed", "Typed terminal Stage Fact and controller action from Attempt Outcome v3", [], [], sources) };
+	if (selection.kind === "stage" && attempt?.outcome) return { title: `${attempt.outcome.terminalFact.stage}/${attempt.outcome.terminalFact.code}`, kind: "Stage Fact", fields: [["Controller action", attempt.outcome.action], ["Controller disposition", attempt.outcome.disposition], ["Stage Fact", `${attempt.outcome.terminalFact.stage}/${attempt.outcome.terminalFact.code}`]], receipt: receipt("Observed", "Typed terminal Stage Fact, action, and disposition from Attempt Outcome v4", [], [], sources) };
 	if (selection.kind === "tool" && attempt?.outcome) {
 		const tool = attempt.outcome.metrics.tools.find(({ toolCallId, turnId }) => toolCallId === selection.id && turnId === selection.turnId)!;
-		return { title: tool.name, kind: "Tool Invocation", fields: [["Tool ID", tool.toolCallId], ["Duration", show(tool.durationMs)]], receipt: receipt("Observed", "Correlated Tool Invocation interval from Attempt Outcome v3", tool.durationMs === undefined ? ["tool duration"] : [], [], sources) };
+		return { title: tool.name, kind: "Tool Invocation", fields: [["Tool ID", tool.toolCallId], ["Duration", show(tool.durationMs)]], receipt: receipt("Observed", "Correlated Tool Invocation interval from Attempt Outcome v4", tool.durationMs === undefined ? ["tool duration"] : [], [], sources) };
 	}
 	if (selection.kind === "turn" && attempt?.outcome) {
 		const turn = attempt.outcome.metrics.turns.find(({ turnId }) => turnId === selection.id)!;
-		return { title: turn.turnId, kind: "Worker Turn", fields: [["Provider", turn.provider], ["Model", turn.model], ["Tier", turn.tier]], receipt: receipt("Observed", "Correlated Worker Turn from Attempt Outcome v3", [], [], sources) };
+		return { title: turn.turnId, kind: "Worker Turn", fields: [["Provider", turn.provider], ["Model", turn.model], ["Tier", turn.tier]], receipt: receipt("Observed", "Correlated Worker Turn from Attempt Outcome v4", [], [], sources) };
 	}
-	if (attempt) return { title: attempt.allocation.attemptId, kind: "Attempt", fields: [["Kind", attempt.allocation.kind], ["Observed routing", `${attempt.allocation.assignment.tier} · ${attempt.allocation.assignment.provider}/${attempt.allocation.assignment.model}`], ["Controller action", attempt.outcome?.action ?? "unknown"]], relatedSelections: attempt.outcome ? [{ label: "Stage Fact", selection: { kind: "stage", id: attempt.allocation.attemptId } }] : [], receipt: receipt(attempt.outcome ? "Observed" : "Partial", "Attempt allocation and admitted terminal outcome", attempt.outcome ? [] : ["terminal Attempt Outcome"], [], sources) };
+	if (attempt) return { title: attempt.allocation.attemptId, kind: "Attempt", fields: [["Kind", attempt.allocation.kind], ["Observed routing", `${attempt.allocation.assignment.tier} · ${attempt.allocation.assignment.provider}/${attempt.allocation.assignment.model}`], ["Controller action", attempt.outcome?.action ?? "unknown"], ["Controller disposition", attempt.outcome?.disposition ?? "unknown"]], relatedSelections: attempt.outcome ? [{ label: "Stage Fact", selection: { kind: "stage", id: attempt.allocation.attemptId } }] : [], receipt: receipt(attempt.outcome ? "Observed" : "Partial", "Attempt allocation and admitted terminal outcome", attempt.outcome ? [] : ["terminal Attempt Outcome"], [], sources) };
 	const node = projection?.nodes.find(({ id }) => id === selection.id);
 	if (selection.id === FINAL_VALIDATION_NODE_ID && projection) return { title: selection.id, kind: "DAG Node", fields: [["Observed state", projection.finalValidation.disposition]], receipt: receipt("Derived", "Packet topology joined to Final Validation state replayed through fanout-core", [], ["Packet topology is structural; validation disposition is replay state"], sources) };
 	return { title: selection.id, kind: "DAG Node", fields: [["Observed state", node?.status ?? "unknown"]], receipt: receipt(node ? "Derived" : "Unavailable", "Packet topology joined to Node state replayed through fanout-core", node ? [] : ["current replayed Node state"], ["Packet topology is structural; Node status is observed replay state"], sources) };

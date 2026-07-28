@@ -8,6 +8,7 @@ import {
 	buildImplementationDetailsPrompt,
 	buildImplementationDetailsRepairPrompt,
 	buildImplementationPlanPrompt,
+	buildProjectExecutionProfilePrompt,
 	createFanoutPlanRun,
 	type FanoutPhaseState,
 } from "./fanout-plan-orchestration.ts";
@@ -21,6 +22,11 @@ import {
 	startPlanningPhase,
 } from "./planning-observability.ts";
 import { publishExecutionPacket } from "./planning-publication.ts";
+import {
+	loadActiveProjectExecutionProfile,
+	publishProjectExecutionProfile,
+	validateProjectExecutionProfile,
+} from "./project-execution-profile.ts";
 import { capturePlanningBase } from "./repository-identity.ts";
 import { displayFanoutPlanReport } from "./report-presentation.ts";
 import { fanoutRuntimeContext, isRecord, positiveIntegerSetting, recordField, relativeArtifact, stringField, tier1Resolved, writeFanoutRuntimeContext } from "./fanout-runtime-context.ts";
@@ -71,7 +77,8 @@ export class FanoutPlanningController {
 					ctx.ui.notify("A Fanout plan is already in progress. Wait for it to finish, then retry /fanout-plan.", "warning");
 					return;
 				}
-				const invocation = args.trim() || "Use the current conversation context.";
+				const parsedInvocation = planningInvocation(args);
+				const invocation = parsedInvocation.objective;
 				const model = this.#options.activeModel() ?? ctx.model;
 				const thinking = this.#options.activeThinking() ?? this.#pi.getThinkingLevel();
 				const models = ctx.modelRegistry?.getAll?.();
@@ -94,9 +101,19 @@ export class FanoutPlanningController {
 					return;
 				}
 				const run = createFanoutPlanRun(invocation, context);
-				this.#pending = { phase: "implementation", systemPrompt: buildImplementationPlanPrompt(invocation, context, run), invocation, objective: invocation, context, metrics: createPlanningMetrics(), ...run };
-				writeJsonl("fanout_plan_start", { planRunId: run.runId, invocation, phase: "implementation", artifactRoot: context.artifactRoot, artifactDir: run.artifactDir, implementationPlanPath: run.implementationPlanPath, implementationDetailsPath: run.implementationDetailsPath, tierDefaults: context.tierDefaults }, ctx.cwd);
-				writeJsonl("fanout_plan_preflight", { planRunId: run.runId, phase: "implementation", tierPlan: context.resolvedTierPlan, tier2Availability: context.tier2Availability }, ctx.cwd);
+				let profileIdentity;
+				if (!parsedInvocation.refreshProfile && existsSync(context.activeProfilePointerPath)) {
+					try { profileIdentity = loadActiveProjectExecutionProfile(context.activeProfilePointerPath, context.projectArtifactRoot).identity; }
+					catch (error) {
+						ctx.ui.notify(`Active Project Execution Profile is invalid: ${message(error)}\nRerun with /fanout-plan --refresh-profile <objective>.`, "error");
+						return;
+					}
+				}
+				const phase = profileIdentity ? "implementation" as const : "profile" as const;
+				const state = { phase, invocation, objective: invocation, context, metrics: createPlanningMetrics(), profileIdentity, ...run };
+				this.#pending = { ...state, systemPrompt: profileIdentity ? buildImplementationPlanPrompt(invocation, context, state) : buildProjectExecutionProfilePrompt(invocation, context, state) };
+				writeJsonl("fanout_plan_start", { planRunId: run.runId, invocation, phase, refreshProfile: parsedInvocation.refreshProfile, artifactRoot: context.artifactRoot, artifactDir: run.artifactDir, projectExecutionProfilePath: run.projectExecutionProfilePath, implementationPlanPath: run.implementationPlanPath, implementationDetailsPath: run.implementationDetailsPath, tierDefaults: context.tierDefaults }, ctx.cwd);
+				writeJsonl("fanout_plan_preflight", { planRunId: run.runId, phase, profileIdentity, tierPlan: context.resolvedTierPlan, tier2Availability: context.tier2Availability }, ctx.cwd);
 				if (!ctx.isIdle()) {
 					this.#pi.sendUserMessage(`Run Fanout planning for: ${invocation}`, { deliverAs: "followUp" });
 					ctx.ui.notify("Queued /fanout-plan after the current turn.", "info");
@@ -121,9 +138,30 @@ export class FanoutPlanningController {
 		this.#toolsBefore = undefined;
 		const finished = this.#pending;
 		const phaseTurnStarted = finished !== undefined && this.#started?.runId === finished.runId && this.#started.phase === finished.phase;
-		const expectedSubmissionPath = finished?.phase === "implementation" ? finished.implementationPlanPath : finished?.implementationDetailsPath;
+		const expectedSubmissionPath = finished?.phase === "profile" ? finished.projectExecutionProfilePath : finished?.phase === "implementation" ? finished.implementationPlanPath : finished?.implementationDetailsPath;
 		const phaseSubmitted = phaseTurnStarted && finished?.acceptedSubmission?.runId === finished.runId && finished.acceptedSubmission.phase === finished.phase && finished.acceptedSubmission.path === expectedSubmissionPath;
 		this.#started = undefined;
+		if (finished?.phase === "profile") {
+			if (!phaseSubmitted) return this.#fail(ctx, finished, "profile", ["project execution profile was not accepted by fanout_submit_artifact"]);
+			try {
+				const profile = readAcceptedImplementationPlan(finished.projectExecutionProfilePath, finished.acceptedSubmission.identity);
+				const approved = await ctx.ui.confirm("Approve Project Execution Profile", profileSummary(profile));
+				if (!approved) return this.#fail(ctx, finished, "profile", ["project execution profile approval declined"]);
+				const validation = await validateProjectExecutionProfile(profile, { repoRoot: ctx.cwd, runDir: finished.artifactDir, planningBase: recordField(finished.context.planningBase) as any, profileIdentity: finished.acceptedSubmission.identity });
+				writeJsonl("fanout_profile_validation", { planRunId: finished.runId, phase: "profile", evidence: validation.artifact, ...validation.evidence }, ctx.cwd);
+				if (validation.evidence.status !== "passed") return this.#fail(ctx, finished, "profile", [validation.evidence.error ?? "profile validation failed"]);
+				const published = publishProjectExecutionProfile(profile, stringField(finished.context.projectArtifactRoot), stringField(finished.context.activeProfilePointerPath));
+				finishPlanningPhase(finished.metrics, "profile");
+				startPlanningPhase(finished.metrics);
+				const implementationState = { ...finished, phase: "implementation" as const, acceptedSubmission: undefined, profileIdentity: published.identity };
+				this.#pending = { ...implementationState, systemPrompt: buildImplementationPlanPrompt(finished.objective, finished.context, implementationState) };
+				ctx.ui.notify("Project Execution Profile approved; planning implementation.", "info");
+				this.#startTurn(this.#pending, `Continue Fanout implementation planning for: ${finished.objective}`);
+				return;
+			} catch (error) {
+				return this.#fail(ctx, finished, "profile", [message(error)]);
+			}
+		}
 		if (finished?.phase === "implementation") {
 			if (!existsSync(finished.implementationPlanPath) && !phaseTurnStarted) return;
 			if (!phaseSubmitted) return this.#fail(ctx, finished, "implementation", ["implementation plan was not accepted by fanout_submit_artifact"]);
@@ -233,4 +271,20 @@ function readClassificationFailure(issues: Array<{ code: string }>): boolean {
 
 function message(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+function planningInvocation(args: string): { objective: string; refreshProfile: boolean } {
+	const value = args.trim();
+	if (!value.startsWith("--refresh-profile")) return { objective: value || "Use the current conversation context.", refreshProfile: false };
+	const remainder = value.slice("--refresh-profile".length);
+	if (remainder && !/^\s/.test(remainder)) throw new Error("Usage: /fanout-plan [--refresh-profile] <objective>");
+	return { objective: remainder.trim() || "Use the current conversation context.", refreshProfile: true };
+}
+
+function profileSummary(value: unknown): string {
+	const profile = recordField(value);
+	const rows = ["preparation", "readiness", "candidateNormalization", "requiredFinalGates"].flatMap((field) =>
+		Array.isArray(profile[field]) ? profile[field].map((entry, index) => `${field}[${index}]: ${JSON.stringify(entry)}`) : [],
+	);
+	return [`Profile: ${stringField(profile.profileId)}`, ...rows].join("\n");
 }

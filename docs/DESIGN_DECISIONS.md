@@ -92,6 +92,46 @@ Reason: Prompt text is semantic guidance, not a capability boundary, and custom 
 
 This file records design decisions made during development. Keep new entries dated and concise.
 
+## 2026-07-27
+
+### Cut planning and execution to Project Execution Profiles
+
+Decision: The only executable generation is Project Execution Profile v1, implementation plan v3, implementation details v5, work contract v3, execution packet v7, active packet pointer v2, Attempt Outcome v4, final-validation evidence v2, execution event v4, and projection v5. Profiles own approved preparation, readiness, candidate normalization, and project-wide final gates; packets retain task scope, graph, task validation, routing, and model-work authority and bind the exact profile artifact identity. Packet final commands run before profile final gates, and final-repair recovery derives from that exact combined ordered command manifest. `/fanout-plan --refresh-profile` validates a replacement in a disposable clean worktree before atomically publishing it; failure preserves the previous profile. Older executable artifacts require replanning, while older events and projections remain descriptive Legacy evidence.
+
+Profile mutation disclosure is phase-specific: `candidate-owned` is valid only for candidate normalization and does not expand the packet/work-contract write boundary. Preparation and readiness remain limited to `none` or `ignored-only`, and clean-baseline validation still rejects tracked mutation.
+
+Reason: Environment commands and project-wide gates change independently from task decomposition. One immutable, user-approved profile removes duplicated command authority, makes isolated setup auditable before paid allocation, and avoids migration or another orchestrator.
+
+### Preserve rejected repair candidates cumulatively
+
+Decision: Every final repair is seeded from the immediately preceding rejected candidate, including across process-only launch failures. The candidate remains evidence rather than ledger authority; a successful repair is recaptured from the accepted tree and may enter the ledger only after ordinary identity, ownership, validation, and compare-and-swap acceptance.
+
+Reason: Reconstructing every repair from the accepted tree silently discarded prior repair work. Exact seed continuity fixes the loss without granting rejected bytes repository authority.
+
+### Reconcile only exact path-disjoint stale candidates
+
+Decision: Before model-driven integration repair, the controller may reconcile a stale candidate only when its exact changed paths are disjoint from every intervening accepted transition. It reconstructs the latest ledger, overlays the candidate, runs profile normalization, recaptures, enforces ownership, validates, and compare-and-swap applies. It retries only after ledger advancement. Unavailable base, overlap, overlay, normalization, ownership, or combined-validation failure routes through existing typed integration repair; preparation and repository infrastructure failure terminates without repair allocation.
+
+Reason: Exact path disjointness proves the narrow safe case with existing reconstruction and validation machinery. Same-file, semantic, fuzzy, and three-way policies remain out of scope.
+
+### Stop repairs on exact repeated state
+
+Decision: Core hashes candidate identity plus typed failure state while excluding only attempt IDs, timestamps, and durations. An identical pair terminates as exact no-progress without spending remaining repair budget; changed candidates or failure facts continue.
+
+Reason: Fixed budgets cap cost but still allow provably identical work. Exact hashing provides deterministic termination without fuzzy progress policy.
+
+### Fuse eligible vertical serial chains in the compiler
+
+Decision: After initial graph and tier derivation, the compiler iteratively fuses only unique predecessor/successor chains with matching kind, tier, profile context, coverage-normalized resource closure, and compatible validation. A later node must explicitly read an earlier write after change. Source order, exact-entry deduplication, authority union, dependencies, and `sourcePlanIds` are preserved; deterministic fused IDs derive from ordered source node IDs. Branches, joins, final-validation edges, incompatible contexts, and runtime fusion are excluded.
+
+Reason: One setup/model/normalization/validation/apply cycle is cheaper than artificial vertical serial boundaries, while deterministic compiler ownership keeps runtime and packet authority unchanged.
+
+### Keep profiler and tmux changes compatibility-only
+
+Decision: Evidence Receipts, exact cohorts, comparisons, and node alignment include exact profile identity, and existing inspector fields surface reconciliation and exact-no-progress dispositions. Scenario schedules use the post-confirmation Event boundary; total run duration may exceed the Event span because profile validation precedes `run-started`, but it may not be shorter. No profiler page, route, export, dashboard, or benchmark framework is added. Interactive benchmark runs create a fresh visible pane in `doubleword:fanout-canary`; tmux remains an operator/runbook boundary and never becomes product authority.
+
+Reason: The current profiler already has the required evidence seams, and pane control is operational evidence collection rather than Fanout behavior.
+
 ## 2026-07-13
 
 ### Make the event log the only run-state authority

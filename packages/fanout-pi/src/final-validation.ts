@@ -39,7 +39,7 @@ export interface FinalValidationRoundOptions {
 	candidate?: AcceptedStateTransition;
 	timeoutMs?: number;
 	signal?: AbortSignal;
-	prepareWorktree?: (worktreePath: string) => void;
+	prepareWorktree?: (worktreePath: string) => ArtifactIdentity | Promise<ArtifactIdentity>;
 }
 
 export interface FinalRepairHooks<T> {
@@ -49,7 +49,7 @@ export interface FinalRepairHooks<T> {
 	upstreamWorkContracts: Array<{ nodeId: string; workContract: WorkContract }>;
 	acceptedLedger: readonly AcceptedLedgerProvenance[];
 	available: () => boolean;
-	launch: (recovery: FinalValidationRecoveryContext, source: { attemptId?: string; evidence?: ArtifactIdentity }) => Promise<{ attemptId: string; candidate?: T; continue: boolean }>;
+	launch: (recovery: FinalValidationRecoveryContext, source: { attemptId?: string; evidence?: ArtifactIdentity }, seed?: T) => Promise<{ attemptId: string; candidate?: T; continue: boolean }>;
 	transition: (candidate: T) => AcceptedStateTransition;
 	authorize: (candidate: T) => Promise<boolean>;
 	reject: (candidate: T, result: FinalValidationResult, recovery: FinalValidationRecoveryContext | undefined, fact: StageFact) => Promise<boolean>;
@@ -66,8 +66,9 @@ export async function runFinalValidation<T>(options: FinalValidationControllerOp
 	if (!result.repairable || !options.repair) return result;
 	let source: { attemptId?: string; evidence?: ArtifactIdentity } = { evidence: result.evidenceArtifact };
 	let recovery = finalRecovery(result, options.repair, options.expectedActiveTree);
+	let latestRejected: T | undefined;
 	while (options.repair.available()) {
-		const launched = await options.repair.launch(recovery, source);
+		const launched = await options.repair.launch(recovery, source, latestRejected);
 		if (!launched.candidate) {
 			if (!launched.continue) return initialResult;
 			source = { attemptId: launched.attemptId };
@@ -83,6 +84,7 @@ export async function runFinalValidation<T>(options: FinalValidationControllerOp
 		}
 		const nextRecovery = result.repairable ? finalRecovery(result, options.repair, options.expectedActiveTree) : undefined;
 		if (!await options.repair.reject(launched.candidate, result, nextRecovery, finalValidationFact(result))) return initialResult;
+		latestRejected = launched.candidate;
 		recovery = nextRecovery as FinalValidationRecoveryContext;
 		source = { attemptId: launched.attemptId };
 	}
@@ -97,7 +99,9 @@ export async function runFinalValidationRound(options: FinalValidationRoundOptio
 	const replay = [...options.ledger, ...(options.candidate ? [options.candidate] : [])];
 	try {
 		createReconstructedWorktree(options.repoRoot, worktreePath, options.planningBase, options.runDir, replay);
-		options.prepareWorktree?.(worktreePath);
+		const preparation = options.prepareWorktree
+			? await options.prepareWorktree(worktreePath)
+			: writeArtifactAtomically(options.runDir, `final-validation/rounds/${options.roundId}/preparation.json`, Buffer.from("{}\n"));
 		const validationBefore = captureRepositoryState(worktreePath);
 		const activeBefore = captureRepositoryState(options.repoRoot);
 		const validationReady = matchesExpected(validationBefore, options.planningBase.headCommit, options.expectedValidationTree);
@@ -141,6 +145,7 @@ export async function runFinalValidationRound(options: FinalValidationRoundOptio
 			active: { before: activeBefore, after: activeAfter },
 			commands: commandEvidence,
 			durationMs,
+			preparation,
 			...(failure ? { failure } : {}),
 			...(options.candidate ? { candidate: options.candidate } : {}),
 			trustBoundary: FINAL_VALIDATION_TRUST_BOUNDARY,

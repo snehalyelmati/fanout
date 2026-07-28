@@ -9,17 +9,20 @@ import type { PreflightCommandEvidence, PreflightComparison, PreflightEvidence, 
 import type { ExecutionRunProjection } from "../../fanout-core/src/execution-projection.ts";
 import type { FinalValidationResult } from "../../fanout-core/src/final-validation.ts";
 import type { ValidationCommand } from "../../fanout-core/src/validation-command.ts";
+import type { ProjectExecutionProfile } from "../../fanout-core/src/project-execution-profile.ts";
 import { contractWriteResources } from "../../fanout-core/src/work-contract.ts";
 import { FanoutNodeExecutor } from "./fanout-node-executor.ts";
 import { fullGitVisibleTree } from "./repository-identity.ts";
 import { RuntimeEventRecorder, commandIdentity } from "./runtime-event-recorder.ts";
 import { preflightValidationCommands } from "./validation-runner.ts";
 import { WORKER_MODEL_TOOLS, WORKER_TRUST_BOUNDARY } from "./worker-capabilities.ts";
-import { parseSharedWorktreePaths, validateSharedWorktreePaths } from "./worktree-preparation.ts";
+import { loadProjectExecutionProfile, validateProjectExecutionProfile } from "./project-execution-profile.ts";
+import { SHARED_WORKTREE_PATHS_ENV } from "./worktree-preparation.ts";
 
 export interface ExecuteFanoutOptions {
 	cwd: string;
 	activePointerPath: string;
+	activeProfilePointerPath?: string;
 	projectArtifactRoot: string;
 	extensionEntry: string;
 	confirm?: (title: string, message: string) => boolean | Promise<boolean>;
@@ -28,7 +31,6 @@ export interface ExecuteFanoutOptions {
 	runId?: string;
 	workerTimeoutMs?: number;
 	validationTimeoutMs?: number;
-	worktreeSharedPaths?: readonly string[];
 	/** Deterministic crash-race injection for repository-boundary regression tests. */
 	afterActiveApply?: () => void;
 }
@@ -49,9 +51,10 @@ export interface ExecuteFanoutResult {
 export async function executeFanout(options: ExecuteFanoutOptions): Promise<ExecuteFanoutResult> {
 	// Exact pointer/packet admission intentionally precedes lock creation and every repository mutation (A18).
 	const loaded = loadActiveExecutionPacket(options.activePointerPath, options.projectArtifactRoot);
+	if (process.env[SHARED_WORKTREE_PATHS_ENV] !== undefined || Object.hasOwn(options, "worktreeSharedPaths")) throw new Error(`${SHARED_WORKTREE_PATHS_ENV} and shared worktree paths are unsupported; refresh the Project Execution Profile`);
+	const loadedProfile = loadProjectExecutionProfile(loaded.packet.profile, options.projectArtifactRoot);
 	rejectArtifactStorageInsideWorktree(options.cwd, loaded.projectArtifactRoot, loaded.artifactDir);
 	const runId = options.runId === undefined ? executionRunId() : canonicalRunId(options.runId);
-	const worktreeSharedPaths = options.worktreeSharedPaths === undefined ? parseSharedWorktreePaths() : parseSharedWorktreePaths(JSON.stringify(options.worktreeSharedPaths));
 	const { maxConcurrency, failFast, fallbackAllowed } = loaded.packet.runtimePolicy;
 	const runDir = join(loaded.artifactDir, "executions", runId);
 	const release = acquireExecutionLock(executionLockPath(options.cwd, loaded.projectArtifactRoot), runId);
@@ -62,24 +65,28 @@ export async function executeFanout(options: ExecuteFanoutOptions): Promise<Exec
 	let finalValidation: FinalValidationResult | undefined;
 	try {
 		recorder = new RuntimeEventRecorder(runDir, runId);
-		const preflight = runPreflight(options, loaded.packet, worktreeSharedPaths);
+		const profileValidation = await validateProjectExecutionProfile(loadedProfile.profile, { repoRoot: options.cwd, runDir, planningBase: loaded.packet.planningBase, profileIdentity: loadedProfile.identity, timeoutMs: options.validationTimeoutMs });
+		const preflight = runPreflight(options, loaded.packet, loadedProfile.profile);
+		if (profileValidation.evidence.status !== "passed") preflight.issues.push({ code: "capability-unavailable", detail: profileValidation.evidence.error ?? "Project Execution Profile validation failed" });
 		await recorder.record("run-started", {
 			mode: options.dryRun ? "dry-run" : "live",
 			packet: loaded.pointer.packet,
 			planningBaseTree: loaded.packet.planningBase.tree,
 			nodeIds: loaded.packet.nodes.filter((node) => node.kind !== "final-validation").map((node) => node.id),
 			policy: { maxConcurrency, failFast, fallbackAllowed },
+			profile: loadedProfile.identity,
+			profileValidation: profileValidation.artifact,
 			preflightEvidence: preflight.evidence,
 		});
 		let projection = await recorder.record("preflight-completed", { status: preflight.issues.length ? "failed" : "passed", planningBaseTree: loaded.packet.planningBase.tree, repositoryTree: preflight.tree, issues: preflight.issues });
-		if (preflight.issues.length) return await finish(recorder, loaded, started, "failed", { kind: "event", eventSequence: projection.preflight!.eventSequence, code: "preflight-failed" }, { error: `Fanout preflight failed: ${preflight.issues.map((issue) => issue.detail).join("; ")}` });
-		if (options.dryRun) return await finish(recorder, loaded, started, "dry-run-completed", { kind: "event", eventSequence: projection.preflight!.eventSequence, code: "dry-run" }, { dryRun: true });
+		if (preflight.issues.length) return await finish(recorder, executor, loaded, started, "failed", { kind: "event", eventSequence: projection.preflight!.eventSequence, code: "preflight-failed" }, { error: `Fanout preflight failed: ${preflight.issues.map((issue) => issue.detail).join("; ")}` });
+		if (options.dryRun) return await finish(recorder, executor, loaded, started, "dry-run-completed", { kind: "event", eventSequence: projection.preflight!.eventSequence, code: "dry-run" }, { dryRun: true });
 
-		const confirmed = options.confirm ? await options.confirm("Execute Fanout packet", confirmationSummary(loaded.packet, maxConcurrency, runDir, worktreeSharedPaths)) : false;
+		const confirmed = options.confirm ? await options.confirm("Execute Fanout packet", confirmationSummary(loaded.packet, loadedProfile.profile, maxConcurrency, runDir)) : false;
 		projection = await recorder.record("confirmation-decided", { decision: confirmed ? "accepted" : "declined" });
-		if (!confirmed) return await finish(recorder, loaded, started, "aborted", { kind: "event", eventSequence: projection.confirmationEventSequence!, code: "confirmation-declined" });
+		if (!confirmed) return await finish(recorder, executor, loaded, started, "aborted", { kind: "event", eventSequence: projection.confirmationEventSequence!, code: "confirmation-declined" });
 
-		executor = new FanoutNodeExecutor({ packet: loaded.packet, packetIdentity: loaded.pointer.packet, repoRoot: preflight.repoRoot!, runDir, runId, extensionEntry: options.extensionEntry, recorder, piCommand: options.piCommand, workerTimeoutMs: options.workerTimeoutMs, validationTimeoutMs: options.validationTimeoutMs, worktreeSharedPaths, afterActiveApply: options.afterActiveApply });
+		executor = new FanoutNodeExecutor({ packet: loaded.packet, packetIdentity: loaded.pointer.packet, profile: loadedProfile.profile, profileIdentity: loadedProfile.identity, repoRoot: preflight.repoRoot!, runDir, runId, extensionEntry: options.extensionEntry, recorder, piCommand: options.piCommand, workerTimeoutMs: options.workerTimeoutMs, validationTimeoutMs: options.validationTimeoutMs, afterActiveApply: options.afterActiveApply });
 		dag = await runDag(loaded.packet, {
 			maxConcurrency,
 			failFast,
@@ -89,12 +96,13 @@ export async function executeFanout(options: ExecuteFanoutOptions): Promise<Exec
 		if (!dag.ok) {
 			projection = recorder.projection();
 			const failed = projection.nodes.find((node) => node.status === "failed") ?? projection.nodes.find((node) => node.status === "skipped")!;
-			return await finish(recorder, loaded, started, "failed", { kind: "event", eventSequence: failed.completionSequence!, code: failed.status === "failed" ? "node-failed" : "dependency-failed", nodeId: failed.id, ...(failed.causalAttemptId ? { attemptId: failed.causalAttemptId } : {}) }, { dag, error: "one or more DAG nodes failed" });
+			return await finish(recorder, executor, loaded, started, "failed", { kind: "event", eventSequence: failed.completionSequence!, code: failed.status === "failed" ? "node-failed" : "dependency-failed", nodeId: failed.id, ...(failed.causalAttemptId ? { attemptId: failed.causalAttemptId } : {}) }, { dag, error: "one or more DAG nodes failed" });
 		}
 
 		const finalNode = loaded.packet.nodes.find((node) => node.kind === "final-validation")!;
 		const expectedTree = recorder.projection().acceptedLedger.at(-1)?.transition.patch.resultTree ?? loaded.packet.planningBase.tree;
-		projection = await recorder.record("final-validation-started", { commandIdentities: finalNode.workContract.validationCommands.map(commandIdentity), expectedTree });
+		const finalCommands = executor.finalValidationCommands(finalNode.workContract.validationCommands);
+		projection = await recorder.record("final-validation-started", { commandIdentities: finalCommands.map(commandIdentity), expectedTree });
 		finalValidation = await executor.runFinalValidation(finalNode.workContract.validationCommands);
 		const validatedTree = finalValidation.evidence.expectedValidationTree;
 		projection = await recorder.record("final-validation-completed", {
@@ -106,17 +114,21 @@ export async function executeFanout(options: ExecuteFanoutOptions): Promise<Exec
 			beforeTree: finalValidation.evidence.validation.before.tree,
 			afterTree: finalValidation.evidence.validation.after.tree,
 		});
-		if (finalValidation.status !== "passed") return await finish(recorder, loaded, started, "failed", { kind: "event", eventSequence: projection.finalValidation.disposition === "failed" ? projection.finalValidation.completionSequence : 0, code: "final-validation-failed" }, { dag, finalValidation, error: "final validation failed" });
-		return await finish(recorder, loaded, started, "completed", { kind: "event", eventSequence: projection.finalValidation.disposition === "passed" ? projection.finalValidation.completionSequence : 0, code: "final-validation-passed" }, { dag, finalValidation });
+		if (finalValidation.status !== "passed") return await finish(recorder, executor, loaded, started, "failed", { kind: "event", eventSequence: projection.finalValidation.disposition === "failed" ? projection.finalValidation.completionSequence : 0, code: "final-validation-failed" }, { dag, finalValidation, error: "final validation failed" });
+		return await finish(recorder, executor, loaded, started, "completed", { kind: "event", eventSequence: projection.finalValidation.disposition === "passed" ? projection.finalValidation.completionSequence : 0, code: "final-validation-passed" }, { dag, finalValidation });
 	} catch (error) {
 		if (!recorder?.store.projection()) throw error;
 		const projection = recorder.projection();
 		if (projection.terminalOutcome) throw error;
 		const aborted = projection.attempts.find((attempt) => attempt.outcome?.action === "abort");
-		if (aborted) return await finish(recorder, loaded, started, "aborted", { kind: "event", eventSequence: aborted.completionSequence!, code: "user-abort", nodeId: aborted.allocation.nodeId, attemptId: aborted.allocation.attemptId }, { dag, finalValidation, error: message(error), dryRun: options.dryRun });
-		return await finish(recorder, loaded, started, "failed", { kind: "controller", stage: projection.phase === "finished" ? "attempts" : projection.phase, code: "internal-failure", detail: message(error) }, { dag, finalValidation, error: message(error), dryRun: options.dryRun });
+		if (aborted) return await finish(recorder, executor, loaded, started, "aborted", { kind: "event", eventSequence: aborted.completionSequence!, code: "user-abort", nodeId: aborted.allocation.nodeId, attemptId: aborted.allocation.attemptId }, { dag, finalValidation, error: message(error), dryRun: options.dryRun });
+		return await finish(recorder, executor, loaded, started, "failed", { kind: "controller", stage: projection.phase === "finished" ? "attempts" : projection.phase, code: "internal-failure", detail: message(error) }, { dag, finalValidation, error: message(error), dryRun: options.dryRun });
 	} finally {
-		try { executor?.cleanupWorktrees(); } finally { if (!executor?.manualReconciliationRequired) release(); }
+		try {
+			if (!recorder?.store.projection()?.terminalOutcome) executor?.cleanupWorktrees();
+		} finally {
+			if (!executor?.manualReconciliationRequired) release();
+		}
 	}
 }
 
@@ -130,12 +142,26 @@ async function recordNodeCompletion(recorder: RuntimeEventRecorder, node: DagNod
 	}
 }
 
-async function finish(recorder: RuntimeEventRecorder, loaded: ReturnType<typeof loadActiveExecutionPacket>, started: number, outcome: "completed" | "dry-run-completed" | "failed" | "aborted", cause: Record<string, unknown>, extra: Partial<ExecuteFanoutResult> = {}): Promise<ExecuteFanoutResult> {
-	const projection = await recorder.record("run-finished", { outcome, durationMs: Math.max(0, Date.now() - started), cause });
-	return { status: outcome === "completed" || outcome === "dry-run-completed" ? "succeeded" : outcome, runId: projection.runId, packetPath: loaded.packetPath, paths: recorder.paths, snapshot: projection, ...extra } as ExecuteFanoutResult;
+async function finish(recorder: RuntimeEventRecorder, executor: FanoutNodeExecutor | undefined, loaded: ReturnType<typeof loadActiveExecutionPacket>, started: number, outcome: "completed" | "dry-run-completed" | "failed" | "aborted", cause: Record<string, unknown>, extra: Partial<ExecuteFanoutResult> = {}): Promise<ExecuteFanoutResult> {
+	const cleanupStarted = performance.now();
+	let cleanupFailure: unknown;
+	try { executor?.cleanupWorktrees(); } catch (error) { cleanupFailure = error; }
+	const cleanupDurationMs = Math.max(0, performance.now() - cleanupStarted);
+	const terminalOutcome = cleanupFailure ? "failed" : outcome;
+	const terminalCause = cleanupFailure ? { kind: "controller", stage: "cleanup", code: "internal-failure", detail: message(cleanupFailure) } : cause;
+	const projection = await recorder.record("run-finished", { outcome: terminalOutcome, durationMs: Math.max(0, Date.now() - started), cleanupDurationMs, cause: terminalCause });
+	return {
+		status: terminalOutcome === "completed" || terminalOutcome === "dry-run-completed" ? "succeeded" : terminalOutcome,
+		runId: projection.runId,
+		packetPath: loaded.packetPath,
+		paths: recorder.paths,
+		snapshot: projection,
+		...extra,
+		...(cleanupFailure ? { error: [extra.error, `cleanup failed: ${message(cleanupFailure)}`].filter(Boolean).join("; ") } : {}),
+	} as ExecuteFanoutResult;
 }
 
-function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPacket, worktreeSharedPaths: readonly string[]): { repoRoot?: string; tree: string; issues: PreflightIssue[]; evidence: PreflightEvidence } {
+function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPacket, profile: ProjectExecutionProfile): { repoRoot?: string; tree: string; issues: PreflightIssue[]; evidence: PreflightEvidence } {
 	const issues: PreflightIssue[] = [];
 	const top = command("git", ["rev-parse", "--show-toplevel"], options.cwd);
 	const repoRoot = top.status === 0 ? resolve(top.stdout.trim()) : undefined;
@@ -151,8 +177,6 @@ function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPack
 		else if (committedTree.stdout.trim() !== packet.planningBase.tree) issues.push({ code: "planning-base-mismatch", detail: "packet planning base contains non-HEAD content that detached workers cannot reconstruct; commit, stash, or remove it and rerun /fanout-plan" });
 		try { actualTree = fullGitVisibleTree(repoRoot); if (actualTree !== packet.planningBase.tree) issues.push({ code: "repository-tree-mismatch", detail: "active Git-visible tree differs from the packet planning base; rerun /fanout-plan" }); }
 		catch (error) { issues.push({ code: "controller-failure", detail: message(error) }); }
-		try { validateSharedWorktreePaths(repoRoot, worktreeSharedPaths); }
-		catch (error) { issues.push({ code: "capability-unavailable", detail: message(error) }); }
 	}
 	if (packet.planningHost.platform !== process.platform) issues.push({ code: "platform-mismatch", detail: `packet was planned for ${packet.planningHost.platform}, running ${process.platform}; rerun /fanout-plan` });
 	const requestedExtension = resolve(options.extensionEntry);
@@ -167,8 +191,8 @@ function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPack
 	const launcherExecutable = options.piCommand ?? process.env.FANOUT_PI_COMMAND ?? "pi";
 	const launcher = preflightLauncher(launcherExecutable, repoRoot ?? options.cwd, packet.planningHost.platform);
 	if (launcher.status === "unavailable") issues.push({ code: "capability-unavailable", detail: "Pi worker command is unavailable" });
-	const candidateNormalizationCommands = preflightCommands(packet, "candidateNormalizationCommands", repoRoot, issues, "candidate normalization");
-	const validationCommands = preflightCommands(packet, "validationCommands", repoRoot, issues, "validation");
+	const candidateNormalizationCommands = preflightProfileCommands(packet, profile.candidateNormalization.map((entry) => entry.command), repoRoot, issues, "candidate normalization");
+	const validationCommands = [...preflightCommands(packet, "validationCommands", repoRoot, issues, "validation"), ...preflightProfileCommands(packet, profile.requiredFinalGates.map((entry) => entry.command), repoRoot, issues, "required final gate", true)];
 	return {
 		repoRoot,
 		tree: actualTree ?? packet.planningBase.tree,
@@ -183,8 +207,8 @@ function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPack
 				modelCallableTools: [...WORKER_MODEL_TOOLS],
 			},
 			commandCounts: {
-				candidateNormalization: packet.nodes.map((node) => node.workContract.candidateNormalizationCommands.length),
-				validation: packet.nodes.map((node) => node.workContract.validationCommands.length),
+				candidateNormalization: packet.nodes.map(() => profile.candidateNormalization.length),
+				validation: packet.nodes.map((node, index) => node.workContract.validationCommands.length + (index === packet.nodes.length - 1 ? profile.requiredFinalGates.length : 0)),
 			},
 			candidateNormalizationCommands,
 			validationCommands,
@@ -209,7 +233,7 @@ function preflightLauncher(executable: string, checkoutRoot: string, expectedPla
 
 function preflightCommands(
 	packet: FanoutExecutionPacket,
-	field: "candidateNormalizationCommands" | "validationCommands",
+	field: "validationCommands",
 	repoRoot: string | undefined,
 	issues: PreflightIssue[],
 	label: string,
@@ -228,6 +252,29 @@ function preflightCommands(
 	}));
 }
 
+function preflightProfileCommands(
+	packet: FanoutExecutionPacket,
+	commands: readonly ValidationCommand[],
+	repoRoot: string | undefined,
+	issues: PreflightIssue[],
+	label: string,
+	finalOnly = false,
+): PreflightCommandEvidence[] {
+	const indexes = finalOnly ? [packet.nodes.length - 1] : packet.nodes.map((_, index) => index);
+	return indexes.flatMap((packetNodeIndex) => commands.map((manifest, commandIndex) => {
+		let resolution: PreflightCommandEvidence["resolution"] = { status: "unavailable", resolvedExecutable: null, resolvedCwd: null };
+		if (repoRoot) {
+			try {
+				const prepared = preflightValidationCommands([manifest], { checkoutRoot: repoRoot, expectedPlatform: packet.planningHost.platform })[0];
+				resolution = { status: "available", resolvedExecutable: prepared.resolvedExecutable, resolvedCwd: prepared.resolvedCwd };
+			} catch (error) {
+				issues.push({ code: "executable-unavailable", detail: `${label}[${commandIndex}]: ${message(error)}` });
+			}
+		}
+		return { packetNodeIndex, nodeId: packet.nodes[packetNodeIndex].id, commandIndex: finalOnly ? packet.nodes[packetNodeIndex].workContract.validationCommands.length + commandIndex : commandIndex, manifest: commandManifest(manifest), resolution };
+	}));
+}
+
 function commandManifest(command: ValidationCommand): PreflightCommandEvidence["manifest"] {
 	return { executable: command.executable, args: [...command.args], cwd: command.cwd ?? null };
 }
@@ -236,10 +283,10 @@ function comparison(expected: string, actual: string | null): PreflightCompariso
 	return { expected, actual, status: actual === null ? "unavailable" : actual === expected ? "matched" : "mismatched" };
 }
 
-function confirmationSummary(packet: FanoutExecutionPacket, maxConcurrency: number, runDir: string, worktreeSharedPaths: readonly string[]): string {
+function confirmationSummary(packet: FanoutExecutionPacket, profile: ProjectExecutionProfile, maxConcurrency: number, runDir: string): string {
 	const writes = [...new Set(packet.nodes.flatMap((node) => contractWriteResources(node.workContract).map((resource) => `${resource.kind}:${resource.path}`)))];
-	const normalizers = [...new Set(packet.nodes.flatMap((node) => node.workContract.candidateNormalizationCommands.map((command) => JSON.stringify(command))))];
-	return [`Objective: ${packet.objective}`, `Packet: ${packet.sourceArtifacts.details.sha256.slice(0, 12)} / base ${packet.planningBase.tree}`, `Work nodes: ${packet.nodes.length - 1}`, `Maximum concurrency: ${maxConcurrency}`, `Typed writes: ${writes.join(", ") || "none"}`, `Candidate normalization manifests: ${normalizers.join(", ") || "none"}`, `Validation manifests: ${packet.nodes.reduce((sum, node) => sum + node.workContract.validationCommands.length, 0)}`, `Shared worktree paths: ${worktreeSharedPaths.join(", ") || "none"}`, WORKER_TRUST_BOUNDARY, `Audit artifacts: ${runDir}`].join("\n");
+	const normalizers = profile.candidateNormalization.map((entry) => JSON.stringify(entry.command));
+	return [`Objective: ${packet.objective}`, `Packet: ${packet.sourceArtifacts.details.sha256.slice(0, 12)} / base ${packet.planningBase.tree}`, `Project Execution Profile: ${profile.profileId}`, `Work nodes: ${packet.nodes.length - 1}`, `Maximum concurrency: ${maxConcurrency}`, `Typed writes: ${writes.join(", ") || "none"}`, `Preparation commands: ${profile.preparation.length}`, `Readiness commands: ${profile.readiness.length}`, `Candidate normalization manifests: ${normalizers.join(", ") || "none"}`, `Validation manifests: ${packet.nodes.reduce((sum, node) => sum + node.workContract.validationCommands.length, 0) + profile.requiredFinalGates.length}`, WORKER_TRUST_BOUNDARY, `Audit artifacts: ${runDir}`].join("\n");
 }
 
 function command(executable: string, args: string[], cwd: string) { const result = spawnSync(executable, executable === "git" ? ["-c", "core.fsmonitor=false", ...args] : args, { cwd, encoding: "utf8", timeout: 30_000 }); return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" }; }

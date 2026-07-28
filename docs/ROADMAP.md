@@ -40,7 +40,7 @@ Fanout should preserve developer velocity by using slower tiers only where laten
 
 ### End-to-end hardening
 
-Status: The current closed generation is plan v2, details v4, packet v6, pointer v2, embedded work contract v2, Attempt Outcome v3, final evidence v1, Event v3, Projection v4, and presentation entry v1. Attempt v3 records exact correlated Turn/Response/Tool intervals plus cache usage; old and mixed execution evidence fails current replay. Planning remains controller-owned; execution remains exact and fail-closed. The live release gate remains separate from this offline cutover.
+Status: The current closed generation is Project Execution Profile v1, plan v3, details v5, packet v7, pointer v2, work contract v3, Attempt Outcome v4, final evidence v2, Event v4, Projection v5, and presentation entry v1. It adds isolated profile preparation, cumulative final-repair seeds, exact path-disjoint reconciliation, exact no-progress termination, compiler-owned vertical fusion, and profile-aware profiler comparisons. Older planning authority requires replanning; older execution evidence remains descriptive Legacy data.
 
 Live `/fanout-execute` remains blocked from release until the explicitly authorized macOS p-map canary, fresh review, and repository-owner approval pass for the same immutable commit. Offline readiness does not satisfy those external gates.
 
@@ -58,7 +58,7 @@ Acceptance criteria:
 
 ### Phase 2: Execution packet via `/fanout-plan`
 
-Status: Phase 2B is cutting over under issue #32. Controller-owned Phase A remains plan v2; Phase B binds exact plan bytes in details v4 and adds one explicit repository-level candidate-normalization command list; `fanout-core` compiles embedded work-contract v2 nodes into packet v6; and `fanout-pi` publishes packet-derived views before pointer v2 last. Old or mixed artifacts require replanning. Live canary evidence remains a release gate, not an offline implementation claim.
+Status: Phase 2B now publishes plan v3/details v5 and compiles work-contract v3 nodes into profile-bound packet v7. A separately approved profile v1 owns preparation, readiness, normalization, and required final gates. `/fanout-plan --refresh-profile` validates replacement before pointer publication; failed refresh preserves the prior profile. Live canary evidence remains a release gate, not an offline implementation claim.
 
 P0 prompt-DAG dry-run benchmarking graduated `combined-general-conflict-proof` as the current best DAG prompt candidate across known and heldout tasks. The hardened `/fanout-execute` offline smoke matrix now covers the public dry-run and live seams, repair, integration, final validation, event replay, and cleanup. Treating the prompt as a released runtime default still requires the explicitly authorized macOS p-map canary and repository-owner approval.
 
@@ -79,10 +79,10 @@ Build the smallest useful packet first:
    - Define implementation items, behavior/contracts, likely writable files/resources, read-only context, semantic dependencies, validation intent, acceptance criteria, risks, and forbidden scope.
    - Do not choose anchors, worker ownership, parallelism, execution dependencies, or tiers in this phase; semantic dependencies are traceability/planning context, not DAG edges.
 4. **Prepare implementation-details artifact**
-   - Ground Phase A items in exact files/resources, stable anchors, edit intent, new-file content shape, read-dependency classification, forbidden changes, validation commands, and one optional-by-empty repository-level candidate-normalization command list.
+   - Ground Phase A items in exact files/resources, stable anchors, edit intent, new-file content shape, read-dependency classification, forbidden changes, and task-specific validation commands.
    - Do not invent contracts/APIs/product scope or write packet/DAG fields.
 5. **Compile canonical work contracts and execution DAG**
-   - Deterministically validate plan v2/details v4, reject missing anchors/source ids/contracts, group overlapping typed changes into packet-v6 work-contract-v2 nodes, derive dependency edges from typed `post-change-required` reads, assign tiers, and add the final-validation contract.
+   - Deterministically validate plan v3/details v5, reject missing anchors/source ids/contracts, group overlapping typed changes into packet-v7 work-contract-v3 nodes, derive dependency edges from typed `post-change-required` reads, assign tiers, fuse eligible unique vertical chains, and add the final-validation contract.
    - Persist no default node, flattened worker packet, or duplicate graph authority.
 6. **Validate the DAG during compilation**
    - Reject cycles, ownerless reads, overlapping ownership contradictions, missing direct-argv validation, malformed semantic criteria, tier-policy violations, and ambiguous read/write overlap.
@@ -102,6 +102,8 @@ Packet artifacts:
 ~/.pi/agent/fanout/<project-id>/<run-id>/execution-plan.md
 ~/.pi/agent/fanout/<project-id>/<run-id>/execution-dag.mmd
 ~/.pi/agent/fanout/<project-id>/active-packet.json
+~/.pi/agent/fanout/<project-id>/profiles/<profile-id>.json
+~/.pi/agent/fanout/<project-id>/active-profile.json
 ~/.pi/agent/fanout/<project-id>/observability/<session-run-id>/observability.jsonl
 ```
 
@@ -115,7 +117,7 @@ Phase 2 acceptance criteria:
 
 ### Phase 3: Execution via `/fanout-execute`
 
-Status: The hardened runtime cutover is implemented and passes the complete keyless A1–A20 matrix. Detailed executable contracts and gate status live in [`docs/impl/phase-3-fanout-execute.md`](impl/phase-3-fanout-execute.md). The live macOS p-map canary and repository-owner approval remain pending.
+Status: The profile-bound runtime cutover is implemented. Focused gates cover isolated preparation, deterministic reconciliation, exact no-progress, fusion, cleanup-before-terminal timing, replay, and profiler compatibility. The controlled p-map canary plus three identical repetitions and repository-owner approval remain release gates.
 
 Goal: execute the active accepted packet, manage workers, validate outputs, run authoritative final validation, and return control with summary plus metrics.
 
@@ -123,29 +125,31 @@ Implemented order:
 
 1. **Active packet loader and guardrails**
    - Load the active execution packet prepared by `/fanout-plan`.
-   - Admit only pointer v2 bound by exact digest/length/path to packet v6, and reject legacy or mixed generations before lock creation or mutation.
+   - Admit only pointer v2 bound to packet v7 and its exact packet-bound profile v1 identity; an orthogonal active-profile refresh does not invalidate an existing packet. Reject legacy or mixed generations before lock creation or mutation.
+   - Revalidate the profile in a disposable clean worktree before confirmation or model allocation; reject shared-path configuration.
    - Refuse paths outside the project artifact root, exact planning commit/tree/platform drift, unsafe typed resources, unavailable direct validation executables, unavailable worker capability, and non-executable derived graphs.
    - Hold one canonical git-worktree execution lock for the run; never delete an existing lock automatically as stale.
    - Show the objective, work-unit count, concurrency, apply behavior, and audit path before asking the user to confirm launch.
 2. **Execution run recorder**
    - Derive `<packet-artifact-dir>` from the loaded packet path and create `<packet-artifact-dir>/executions/<execution-run-id>/` before mutation.
-   - Write authoritative event v3 `events.jsonl`, derived projection v4 `execution-run.json`, and terminal deterministic `summary.md` with typed outcome totals, exact execution intervals and cache usage, final-validation disposition, aggregate accepted patch statistics, and accepted-ledger attempt/tree transitions.
+   - Write authoritative event v4 `events.jsonl`, derived projection v5 `execution-run.json`, and terminal deterministic `summary.md`; cleanup completes and is timed before `run-finished`.
 3. **DAG scheduler**
    - Execute ready nodes in dependency order with deterministic packet-order tie breaking.
    - Keep scheduling separate from worktrees, workers, patch capture, validation, and repair.
 4. **Worker management**
-   - Run approved work units in isolated git worktrees through curated non-interactive Pi subprocess workers.
+   - Run approved work units in independently profile-prepared git worktrees through curated non-interactive Pi subprocess workers.
    - Use `--no-context-files` and explicitly inject only applicable repo-local `AGENTS.md`/`CLAUDE.md` instructions into the curated prompt, while leaving automatic Pi extension discovery enabled under `--approve`; enabled extensions are a separate trusted runtime boundary.
    - Rebuild previously accepted integration state in each fresh downstream worktree by replaying the ordered ledger's digest/length-bound `patch.bin` transitions with exact base/result-tree, changed-path, and patch-stat verification; create no baseline commits or snapshot authority.
 5. **Patch, validation, and apply gates**
-   - After a successful worker edit, run every packet-declared candidate normalizer once, audit command results and before/after repository identity, then capture the normalized patch, enforce owned-file scope, run node validation, and apply only accepted whole-node patches to the active worktree.
+   - After a successful worker edit, run every profile-declared candidate normalizer once, audit identities, capture the patch, enforce authority, run packet task validation, and apply only accepted whole-node patches.
+   - Before integration repair, reconcile only exact path-disjoint stale candidates by reconstruction, overlay, normalization, recapture, ownership, validation, and compare-and-swap.
    - Continue past normalizer nonzero results so partial deterministic fixes reach authoritative validation; hard execution/identity failures stop without consuming model-repair budget.
    - Keep Git-observed filenames identity-preserving at the ownership gate; reject lossy path normalization.
    - Reject validation commands that change the captured patch or move the detached worker `HEAD`.
    - Serialize active-worktree apply checks and applies so parallel workers cannot race the integration state.
    - Allow only typed bounded Tier 1 recovery for validation failures and integration conflicts.
 6. **Tier2 retry / realtime fallback**
-   - Use fixed MVP retry/repair limits and retry only classified transient process/provider failures; only `maxConcurrency` is user-configurable.
+   - Use fixed MVP retry/repair limits and retry only classified transient facts. Stop when exact candidate and typed failure state repeat, leaving unused budget untouched.
    - After retryable Tier 2 exhaustion, run at most one realtime attempt with the packet's concrete `tierPlan.tier2Fallback` model, and only when the typed work-unit assignment permits realtime fallback.
    - Do not switch remaining nodes globally. Tier 1 remains reserved for control-plane work and typed validation/integration recovery.
 7. **Summary and metrics**
@@ -343,7 +347,7 @@ Design target: two narrower opt-in workflows, documented in [`docs/OPTIMISTIC_DA
 
 The hardened Phase 2 and Phase 3 contracts are implemented. Next work is evidence-driven:
 
-- Measure packet-v6 scheduling against accepted DAG depth, immutable concurrency, typed outcomes, complete accepted metrics, and actual Tier 2 wait.
+- Measure packet-v7 scheduling against accepted DAG depth, immutable concurrency, typed outcomes, complete accepted metrics, fusion count, reconciliation, and actual Tier 2 wait.
 - Extend observability only for demonstrated gaps in active planning time, background completion time, late outputs, review latency, or acceptance failures.
 - Keep scheduler changes subordinate to typed work-contract authority, exact transitions, causal events, and fresh final validation.
 - Keep default duplicate implementations deferred until trace-derived evidence shows they are worth the cost.
@@ -360,7 +364,7 @@ After stubs, traces, and RPE routing policies:
 
 ## Track 9: Offline Fanout run profiler
 
-Status: implementation-complete for the approved offline v1 scope; release acceptance still requires the #58 manual walkthrough in current Chrome and Firefox. The local multi-project registry, linked forensic workspace, exact comparisons, two bounded Diagnostic Observations, fixed-behavior concurrency/Provider Profile scenarios, native interaction/accessibility behavior, root validation, and separate representative benchmark are implemented over the current replayable generation. The application stays one private Bun-powered `fanout-profiler` package depending only on `fanout-core`, with one fixed storage root, opaque project-scoped catalogs, explicit single-project override, immutable manual refresh, lazy large-evidence streaming, and a vanilla loopback web workspace. The 2026-07-26 Apple M1 Pro measurement met every local target; see [`docs/BENCHMARKS.md`](BENCHMARKS.md).
+Status: implementation-complete for the approved offline v1 scope; release acceptance still requires the #58 manual walkthrough in current Chrome and Firefox. The local multi-project registry, linked forensic workspace, exact comparisons, two bounded Diagnostic Observations, fixed-behavior concurrency/Provider Profile scenarios, native interaction/accessibility behavior, root validation, and separate representative benchmark are implemented over the current replayable generation. Current scenarios admit total run duration that includes pre-Event profile validation while retaining Event-derived post-confirmation scheduling and rejecting impossible shorter totals. The application stays one private Bun-powered `fanout-profiler` package depending only on `fanout-core`, with one fixed storage root, opaque project-scoped catalogs, explicit single-project override, immutable manual refresh, lazy large-evidence streaming, and a vanilla loopback web workspace. The 2026-07-26 Apple M1 Pro measurement met every local target; see [`docs/BENCHMARKS.md`](BENCHMARKS.md).
 
 Order:
 
@@ -370,7 +374,7 @@ Order:
 4. Implementation completed: built and repository-validated the smallest read-only local profiler over the new authoritative event generation, including the catalog, workspace, comparisons, diagnostics, Fanout-concurrency scenarios, independent fixed/cold-warm Tier Provider Profiles, URL-addressable keyboard-operable interactions, and separate measured benchmark. The manual Chrome/Firefox acceptance walkthrough remains pending under #58.
 5. Repository startup now resolves one Fanout storage root, prefers the current project, and exposes an accessible URL-addressable picker for every evidence-bearing project under that root; refresh rescans membership, `--artifact-root` remains a single-project override, and the profiler package retains its Pi-independent dependency direction.
 
-Attempt Outcome v3/Event v3/Projection v4 is the only current replayable execution generation. Event v2/Projection v3 and earlier artifacts are legacy descriptive evidence only.
+Attempt Outcome v4/Event v4/Projection v5 with exact profile identity is the only current replayable execution generation. Older artifacts are Legacy descriptive evidence only.
 
 ## Deferred ideas
 

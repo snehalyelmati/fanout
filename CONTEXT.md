@@ -70,6 +70,14 @@ _Avoid_: Task description, implementation note
 The exact repository commit and Git-visible tree against which a plan was accepted.
 _Avoid_: Base branch, current checkout
 
+**Project Execution Profile**:
+The immutable user-approved direct-argv authority for isolated preparation, readiness, candidate normalization, and project-wide final gates, versioned separately from task packets.
+_Avoid_: Packet configuration, model profile
+
+**Active Profile Pointer**:
+The atomically published exact identity of the Project Execution Profile used for new planning and execution.
+_Avoid_: Latest setup, environment defaults
+
 ## Execution language
 
 **DAG Node**:
@@ -109,7 +117,7 @@ The repository state produced by an attempt before it is accepted into the repos
 _Avoid_: Patch, result
 
 **Candidate Normalization**:
-A packet-declared deterministic transformation applied once to a candidate before its patch is captured and validated.
+A Project Execution Profile-declared deterministic transformation applied once to a candidate before its patch is captured and validated.
 _Avoid_: Auto-fix inference, repair
 
 **Validation**:
@@ -140,6 +148,14 @@ _Avoid_: Repair candidate, accepted patch
 The repository state produced by a repair attempt, which must pass fresh reconstruction and the normal acceptance gates before it can enter the ledger.
 _Avoid_: Repair seed, accepted state
 
+**Repair State**:
+The exact digest pair of candidate identity and typed failure state used to prove progress between repair attempts.
+_Avoid_: Similarity score, retry counter
+
+**Deterministic Reconciliation**:
+The controller-only recapture of a stale candidate onto the latest accepted tree when every intervening accepted transition is exactly path-disjoint.
+_Avoid_: Rebase, merge, fuzzy reconciliation
+
 **Accepted Patch**:
 Exact binary Git patch bytes bound to their changed paths, planning commit, base tree, and result tree.
 _Avoid_: Diff file, overlay
@@ -151,6 +167,10 @@ _Avoid_: Apply result
 **Accepted Ledger**:
 The ordered chain of accepted-state transitions for a run.
 _Avoid_: Patch list, current files
+
+**Vertical Serial-Chain Fusion**:
+Compiler-owned replacement of an eligible unique predecessor/successor chain with one deterministic node while preserving ordered source provenance, authority, validation, and external dependencies.
+_Avoid_: Runtime fusion, batching
 
 ## Profiler language
 

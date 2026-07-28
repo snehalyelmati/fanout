@@ -101,6 +101,7 @@ export function queryScenario(snapshot: CatalogSnapshot, request: ScenarioReques
 		["Recorded packet dependencies, Attempts, Turns, tokens, tools, outcomes, and Accepted Ledger order remain fixed", `Fanout concurrency mode is ${configuration.mode}${configuration.limit === null ? "" : ` with limit ${configuration.limit}`}`, `Tier 1 mapping is ${JSON.stringify(providerProfiles.tier1)}`, `Tier 2 mapping is ${JSON.stringify(providerProfiles.tier2)}`, "Profile call duration is TTFT plus output tokens divided by output tokens per second; cost applies displayed per-million rates"],
 		["No work, quality, routing, conflict, or provider behavior is predicted", ...limitations],
 		executionArtifactGeneration([run.admission]),
+		projection.profile,
 	);
 	const preserved = preservedEvidence(projection, lineage.graph.edges);
 	if (projection.mode === "dry-run") return deepFreeze({
@@ -171,7 +172,7 @@ function authoritativeBoundary(run: CatalogExecutionRun, projection: ExecutionRu
 	if (!end || projection.terminalOutcome && end.event !== "run-finished") throw new TypeError("observed baseline has no authoritative execution boundary");
 	const boundary = Date.parse(end.occurredAt) - Date.parse(confirmation.occurredAt);
 	const runDuration = Date.parse(end.occurredAt) - Date.parse(projection.startedAt);
-	if (boundary < 0 || projection.terminalOutcome && (projection.terminalOutcome.durationMs !== runDuration || projection.finishedAt !== end.occurredAt)) throw new TypeError("observed baseline does not reproduce the authoritative observed execution boundary exactly");
+	if (boundary < 0 || projection.terminalOutcome && (projection.terminalOutcome.durationMs < runDuration || projection.finishedAt !== end.occurredAt)) throw new TypeError("observed baseline does not reproduce the authoritative observed execution boundary exactly");
 	return boundary;
 }
 

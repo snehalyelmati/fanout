@@ -259,10 +259,10 @@ const accepted = completeAttempt(forged.allocation, {
   evidenceRefs: ["patch.json", "validation.json"],
   diagnostic: "human-only text: 429 network crash",
 });
-assert(accepted.action === "accept" && accepted.durationMs === 1000 && accepted.budgetTransition.name === "original", "terminal outcome lost actual action or budget transition");
-assert(accepted.version === 3, "attempt outcome did not advance to v3");
-expectThrow(() => parseAttemptOutcome({ ...accepted, version: 2 }), "legacy attempt outcome v2 was admitted");
-expectThrow(() => parseAttemptOutcome({ ...accepted, version: 4 }), "future attempt outcome v4 was admitted");
+assert(accepted.action === "accept" && accepted.disposition === "ordinary" && accepted.durationMs === 1000 && accepted.budgetTransition.name === "original", "terminal outcome lost actual action, disposition, or budget transition");
+assert(accepted.version === 4, "attempt outcome did not advance to v4");
+expectThrow(() => parseAttemptOutcome({ ...accepted, version: 3 }), "legacy attempt outcome v3 was admitted");
+expectThrow(() => parseAttemptOutcome({ ...accepted, version: 5 }), "future attempt outcome v5 was admitted");
 const mixedAttemptMetrics = structuredClone(accepted);
 delete mixedAttemptMetrics.metrics.turns[0].requestedAt;
 expectThrow(() => parseAttemptOutcome(mixedAttemptMetrics), "mixed-generation Attempt metrics were admitted");
@@ -390,7 +390,46 @@ expectThrow(() => completeAttempt(incompleteCase.allocation, { startedAt: accept
 finishAttempt(incompleteCase.allocation, incompleteCase.state, { stage: "metrics", code: "missing-timing" });
 expectThrow(() => completeAttempt(forged.allocation, { startedAt: accepted.startedAt, finishedAt: accepted.finishedAt, terminalFact: { stage: "metrics", code: "complete" }, state: forged.state, fallbackAllowed: true, metrics: forgedMetrics }), "one allocation produced two terminal outcomes");
 
-console.log("attempt outcomes smoke passed (A10, A11, A12)");
+let noProgressState = createNodeAttemptState("no-progress");
+const noProgressOriginal = allocateAttempt(noProgressState, { runId: "run", nodeId: "no-progress", kind: "original", assignment });
+noProgressState = noProgressOriginal.state;
+const noProgressSource = parseAttemptRecoveryContext(validationRecoveryEvidence(noProgressOriginal.allocation.attemptId));
+finishAttempt(noProgressOriginal.allocation, noProgressState, { stage: "validation", code: "timeout", failedCommandIndexes: [1] }, { recovery: noProgressSource });
+const noProgressRepair = allocateAttempt(noProgressState, { runId: "run", nodeId: "no-progress", kind: "validation-repair", assignment: { ...assignment, tier: "tier1" }, sourceAttemptId: noProgressOriginal.allocation.attemptId });
+noProgressState = noProgressRepair.state;
+const noProgressCurrent = parseAttemptRecoveryContext(validationRecoveryEvidence(noProgressRepair.allocation.attemptId));
+noProgressCurrent.commands[1].durationMs += 50;
+noProgressCurrent.rejectedPatch.artifact.path = "workers/no-progress/attempts/002-validation-repair/patch.bin";
+const noProgressOutcome = finishAttempt(noProgressRepair.allocation, noProgressState, { stage: "validation", code: "timeout", failedCommandIndexes: [1] }, { recovery: noProgressCurrent, repairSource: noProgressSource });
+assert(noProgressOutcome.action === "fail"
+  && noProgressOutcome.disposition === "exact-no-progress"
+  && noProgressOutcome.repairProgress?.disposition === "exact-no-progress"
+  && noProgressOutcome.repairProgress.candidateEqual
+  && noProgressOutcome.repairProgress.failureEqual
+  && !noProgressOutcome.repairProgress.progressed
+  && noProgressState.counts.validationRepair === 1, "attempt-local artifact path or duration change consumed the remaining repair budget");
+const missingProgress = structuredClone(noProgressOutcome);
+delete missingProgress.repairProgress;
+expectThrow(() => parseAttemptOutcome(missingProgress), "failed repair outcome omitted mandatory exact progress evidence");
+
+let progressState = createNodeAttemptState("progress");
+const progressOriginal = allocateAttempt(progressState, { runId: "run", nodeId: "progress", kind: "original", assignment });
+progressState = progressOriginal.state;
+const progressSource = parseAttemptRecoveryContext(validationRecoveryEvidence(progressOriginal.allocation.attemptId));
+finishAttempt(progressOriginal.allocation, progressState, { stage: "validation", code: "timeout", failedCommandIndexes: [1] }, { recovery: progressSource });
+const progressRepair = allocateAttempt(progressState, { runId: "run", nodeId: "progress", kind: "validation-repair", assignment: { ...assignment, tier: "tier1" }, sourceAttemptId: progressOriginal.allocation.attemptId });
+progressState = progressRepair.state;
+const progressCurrent = parseAttemptRecoveryContext(validationRecoveryEvidence(progressRepair.allocation.attemptId));
+progressCurrent.commands[1].stderr = "different exact output";
+const progressOutcome = finishAttempt(progressRepair.allocation, progressState, { stage: "validation", code: "timeout", failedCommandIndexes: [1] }, { recovery: progressCurrent, repairSource: progressSource });
+assert(progressOutcome.action === "validation-repair"
+  && progressOutcome.disposition === "changed"
+  && progressOutcome.repairProgress?.disposition === "changed"
+  && progressOutcome.repairProgress.candidateEqual
+  && !progressOutcome.repairProgress.failureEqual
+  && progressOutcome.repairProgress.progressed, "changed exact failure output was falsely terminated as no-progress");
+
+console.log("attempt outcomes smoke passed (A10, A11, A12, exact no-progress)");
 
 function originalLaunch(nodeId, nextAssignment) {
   return allocateAttempt(createNodeAttemptState(nodeId), { runId: "run", nodeId, kind: "original", assignment: nextAssignment });
@@ -410,6 +449,12 @@ function observedMetrics(allocation, complete = false) {
 }
 
 function finishAttempt(allocation, nextState, terminalFact, extra = {}) {
+  if ((allocation.kind === "validation-repair" || allocation.kind === "integration-repair") && extra.recovery && !extra.repairSource) {
+    const repairSource = structuredClone(extra.recovery);
+    if (repairSource.kind === "integration") repairSource.applyFailure.stderr = `${repairSource.applyFailure.stderr}\ncausal source`;
+    else repairSource.commands[repairSource.commands.findIndex((command) => command.status !== "passed" && command.status !== "unexecuted")].stderr += "\ncausal source";
+    extra = { ...extra, repairSource };
+  }
   return completeAttempt(allocation, {
     startedAt: "2026-07-13T00:00:00.000Z",
     finishedAt: "2026-07-13T00:00:00.100Z",
@@ -520,12 +565,11 @@ function commandEvidence(index, status, extra = {}) {
 function workContract() {
   return {
     schema: "fanout.work-contract",
-    version: 2,
+    version: 3,
     goals: [{ sourcePlanId: "plan", statement: "Update the file." }],
     changes: [{ kind: "create", target: { resource: { kind: "file", path: "src/value.ts" }, sourcePlanIds: ["plan"] }, contentIntent: "Create the value module." }],
     readDependencies: [],
     forbiddenWrites: [],
-    candidateNormalizationCommands: [],
     validationCommands: [{ executable: "node", args: ["check.mjs"] }],
     capabilities: FIXED_WORKER_CAPABILITIES,
     semanticReviewCriteria: [{ sourcePlanId: "plan", statement: "The module validates." }],

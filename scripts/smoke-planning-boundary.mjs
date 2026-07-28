@@ -19,6 +19,9 @@ import {
   FANOUT_PLAN_REPORT_ENTRY,
   registerFanoutReportPresentation,
 } from "../packages/fanout-pi/src/report-presentation.ts";
+import { publishProjectExecutionProfile } from "../packages/fanout-pi/src/project-execution-profile.ts";
+
+const profileIdentity = { path: "project-execution-profile.json", sha256: "a".repeat(64), byteLength: 1 };
 
 const root = mkdtempSync(join(tmpdir(), "fanout-planning-boundary-"));
 try {
@@ -48,7 +51,8 @@ function testArtifactSubmission() {
   const artifactRoot = join(root, "artifacts");
   mkdirSync(repository);
   const artifactDir = join(artifactRoot, "run-1");
-  const state = phaseState(repository, artifactRoot, artifactDir, "implementation");
+  const submittedProfile = submitPlanningArtifact(phaseState(repository, artifactRoot, artifactDir, "profile"), validProfile(), repository);
+  const state = { ...phaseState(repository, artifactRoot, artifactDir, "implementation"), profileIdentity: submittedProfile.identity };
   const plan = validPlan(artifactDir);
   const submittedPlan = submitPlanningArtifact(state, plan, repository);
   assert(submittedPlan.path === state.implementationPlanPath, "controller did not select the Phase A destination");
@@ -144,6 +148,21 @@ async function testPlanningLifecycle() {
   const extension = (await import("../packages/fanout-pi/src/index.ts")).default;
   const rejectedPreflight = await extensionHarness(extension, "no-model", false, false);
   assert(rejectedPreflight.messages.length === 0 && !existsSync(rejectedPreflight.activePointerPath) && rejectedPreflight.notifications.some((entry) => entry.message.includes("prior active packet selection remains invalidated")), "planning preflight rejection left or misreported the prior active selection");
+  for (const [scenario, profile, published] of [
+    ["refresh-profile-failure", validProfile(), false],
+    ["refresh-profile-success", { preparation: [], readiness: [], candidateNormalization: [], requiredFinalGates: [] }, true],
+  ]) {
+    const harness = await extensionHarness(extension, scenario, false, true, "--refresh-profile Test planning boundary");
+    const previous = readFileSync(harness.activeProfilePath);
+    const started = harness.handler("before_agent_start")({ prompt: harness.messages[0].content, systemPrompt: "base" }, harness.ctx);
+    assert(started.systemPrompt.includes("Project Execution Profile"), `${scenario}: refresh did not enter the profile phase`);
+    await harness.submit.execute("submit", { artifact: profile }, undefined, undefined, harness.ctx);
+    harness.handler("agent_end")({}, harness.ctx);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const current = readFileSync(harness.activeProfilePath);
+    assert(published ? !current.equals(previous) : current.equals(previous), `${scenario}: active profile publication was not atomic`);
+    assert(published ? harness.notifications.some(({ message }) => message.includes("Profile approved")) : harness.messages.length === 1, `${scenario}: refresh lifecycle advanced incorrectly`);
+  }
   for (const scenario of ["success", "failure", "unsubmitted-file", "mutated-submission", "mutated-details-submission", "cancellation", "clarification", "queued-transition"]) {
     const harness = await extensionHarness(extension, scenario, scenario === "queued-transition" || scenario === "mutated-details-submission");
     const before = harness.handler("before_agent_start");
@@ -203,7 +222,7 @@ async function testPlanningLifecycle() {
   }
 }
 
-async function extensionHarness(extension, scenario, queued, modelAvailable = true) {
+async function extensionHarness(extension, scenario, queued, modelAvailable = true, invocation = "Test planning boundary") {
   const handlers = new Map();
   const commands = new Map();
   const tools = new Map();
@@ -232,7 +251,7 @@ async function extensionHarness(extension, scenario, queued, modelAvailable = tr
   const ctx = {
     cwd: join(root, `lifecycle-${scenario}`), mode: "tui", hasUI: true, model: modelAvailable ? model : undefined,
     modelRegistry: { getAll: () => [model] }, isIdle: () => !queued,
-    ui: { notify: (message, level) => notifications.push({ message, level }), setStatus() {}, confirm: async () => false },
+    ui: { notify: (message, level) => notifications.push({ message, level }), setStatus() {}, confirm: async () => scenario.startsWith("refresh-profile") },
   };
   mkdirSync(ctx.cwd, { recursive: true });
   execFileSync("git", ["init", "-q"], { cwd: ctx.cwd });
@@ -243,13 +262,16 @@ async function extensionHarness(extension, scenario, queued, modelAvailable = tr
   execFileSync("git", ["commit", "-qm", "fixture"], { cwd: ctx.cwd });
   const projectId = `${basename(ctx.cwd)}-${createHash("sha1").update(resolve(ctx.cwd)).digest("hex").slice(0, 12)}`;
   const activePointerPath = join(process.env.FANOUT_ARTIFACT_DIR, projectId, "active-packet.json");
+  const projectArtifactRoot = dirname(activePointerPath);
+  const activeProfilePath = join(projectArtifactRoot, "active-profile.json");
+  publishProjectExecutionProfile({ schema: "fanout.project-execution-profile", version: 1, profileId: "test", createdAt: new Date(0).toISOString(), ...validProfile() }, projectArtifactRoot, activeProfilePath);
   mkdirSync(dirname(activePointerPath), { recursive: true });
   writeFileSync(activePointerPath, '{"legacy":"selection"}\n');
-  await commands.get("fanout-plan").handler("Test planning boundary", ctx);
+  await commands.get("fanout-plan").handler(invocation, ctx);
   assert(!existsSync(activePointerPath), `${scenario}: /fanout-plan did not invalidate the prior active selection before planning`);
   return {
     get activeTools() { return pi.activeTools; },
-    messages, notifications, activePointerPath, ctx, submit: tools.get("fanout_submit_artifact"),
+    messages, notifications, activePointerPath, activeProfilePath, ctx, submit: tools.get("fanout_submit_artifact"),
     handler(event) {
       const value = handlers.get(event);
       if (!value) throw new Error(`missing ${event} handler`);
@@ -270,7 +292,9 @@ function phaseState(repository, artifactRoot, artifactDir, phase) {
     objective: "Test planning boundary",
     context: { projectArtifactRoot: artifactRoot, planningBase: { headCommit: "1".repeat(40), tree: "1".repeat(40) } },
     metrics: {},
+    profileIdentity,
     artifactDir,
+    projectExecutionProfilePath: join(artifactDir, "project-execution-profile.json"),
     implementationPlanPath: join(artifactDir, "implementation-plan.json"),
     implementationDetailsPath: join(artifactDir, "implementation-details.json"),
   };
@@ -283,10 +307,14 @@ function validPlan(_artifactDir) {
   };
 }
 
+function validProfile() {
+  const declaration = (purpose) => ({ command: { executable: "rtk", args: ["npm", "run", "check"] }, purpose, expectedMutations: "none", networkAccess: false, lifecycleScripts: false });
+  return { preparation: [], readiness: [declaration("Verify project readiness")], candidateNormalization: [], requiredFinalGates: [declaration("Run required final gate")] };
+}
+
 function validDetails(_state, _objective) {
   const command = { executable: "rtk", args: ["npm", "run", "check"] };
   return {
-    candidateNormalizationCommands: [],
     finalValidationCommands: [command],
     items: [{ id: "code", kind: "docs", changes: [{ kind: "modify", target: { resource: { kind: "file", path: "README.md" }, sourcePlanIds: ["code"] }, intent: "Test", anchors: [{ kind: "section", section: "Test" }] }], readDependencies: [], forbiddenWrites: [], validationCommands: [command], advisoryNotes: [] }],
   };

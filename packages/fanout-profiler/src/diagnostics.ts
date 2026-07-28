@@ -124,7 +124,7 @@ function readinessObservations(run: CatalogExecutionRun, edges: readonly (readon
 			id: `${WAIT_RULE}:${node.id}`, rule: WAIT_RULE, subjectId: node.id, relatedId: null,
 			title: `Runnable Node ${node.id} waited with recorded free Fanout capacity`, occurredAt: readiness.occurredAt, chronologyMs: readiness.time - origin,
 			durationMs: free.durationMs, costUsd: null, costStatus: "unavailable", frequency: free.windows, evidence,
-			receipt: createEvidenceReceipt("Derived", "Free-capacity overlap is the intersection of Node readiness through first allocation with recorded Node occupancy below run maxConcurrency", sourceReferences, [], [], ["Descriptive observation only"], executionArtifactGeneration([run.admission])),
+			receipt: createEvidenceReceipt("Derived", "Free-capacity overlap is the intersection of Node readiness through first allocation with recorded Node occupancy below run maxConcurrency", sourceReferences, [], [], ["Descriptive observation only"], executionArtifactGeneration([run.admission]), projection.profile),
 		});
 	}
 }
@@ -162,7 +162,7 @@ function replacementObservations(run: CatalogExecutionRun, sourceReferences: rea
 			title: `Non-accepted Attempt ${sourceAttempt.allocation.attemptId} was causally replaced`, occurredAt: allocationEvent.occurredAt, chronologyMs: Date.parse(allocationEvent.occurredAt) - origin,
 			durationMs: sourceAttempt.outcome!.durationMs, costUsd, costStatus, frequency,
 			evidence: { sourceCompletionEventSequence: sourceEvent.sequence, replacementAllocationEventSequence: allocationEvent.sequence, action, sourceAttemptId: sourceAttempt.allocation.attemptId, replacementAttemptId: replacement.allocation.attemptId },
-			receipt: createEvidenceReceipt(completeCost ? "Derived" : "Partial", "A later admitted recovery allocation names the non-accepted source Attempt and matches its recorded controller action", sourceReferences, completeCost ? [] : ["complete Attempt usage and cost telemetry"], [], ["Descriptive observation only"], executionArtifactGeneration([run.admission])),
+			receipt: createEvidenceReceipt(completeCost ? "Derived" : "Partial", "A later admitted recovery allocation names the non-accepted source Attempt and matches its recorded controller action", sourceReferences, completeCost ? [] : ["complete Attempt usage and cost telemetry"], [], ["Descriptive observation only"], executionArtifactGeneration([run.admission]), projection.profile),
 		});
 	}
 }

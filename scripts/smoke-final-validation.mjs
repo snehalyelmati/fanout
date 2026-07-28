@@ -9,7 +9,6 @@ import { FIXED_WORKER_CAPABILITIES, WORK_CONTRACT_SCHEMA, WORK_CONTRACT_VERSION 
 import { checkContractOwnership, checkFinalRepairOwnership, ownershipViolationFactCode } from "../packages/fanout-pi/src/fanout-git.ts";
 import { recordAcceptedFinalRepair, runFinalValidation, runFinalValidationRound } from "../packages/fanout-pi/src/final-validation.ts";
 import { buildCanonicalWorkerPrompt } from "../packages/fanout-pi/src/fanout-worker-contract.ts";
-import { parseSharedWorktreePaths, prepareSharedWorktreePaths } from "../packages/fanout-pi/src/worktree-preparation.ts";
 import {
   applyAcceptedTransition,
   capturePatchCandidate,
@@ -27,15 +26,11 @@ try {
   git(root, ["init", "repo"]);
   git(repo, ["config", "user.email", "fanout@example.test"]);
   git(repo, ["config", "user.name", "Fanout Test"]);
-  writeFileSync(join(repo, ".gitignore"), ".repair-cache\n.validation-cache\n.preinstalled\n");
+  writeFileSync(join(repo, ".gitignore"), ".repair-cache\n.validation-cache\n");
   writeFileSync(join(repo, "source.txt"), "base\n");
   writeFileSync(join(repo, "other.txt"), "base\n");
   git(repo, ["add", "."]);
   git(repo, ["commit", "-m", "fixture"]);
-  mkdirSync(join(repo, ".preinstalled", "dependency"), { recursive: true });
-  writeFileSync(join(repo, ".preinstalled", "dependency", "ready"), "ready\n");
-  assert(JSON.stringify(parseSharedWorktreePaths('[".preinstalled"]')) === '[".preinstalled"]', "explicit shared-worktree preparation input did not parse");
-  assertThrows(() => parseSharedWorktreePaths('["../escape"]'), "shared-worktree preparation admitted a repository escape");
 
   const planningBase = capturePlanningBase(repo);
   const accepted = makeCandidate("accepted", [], (worktree) => writeFileSync(join(worktree, "source.txt"), "accepted\n"));
@@ -46,8 +41,6 @@ try {
   const restored = await round("restored", [node("writeFileSync('transient.txt','x')"), node("rmSync('transient.txt')")]);
   assert(restored.status === "passed", "sequence-boundary validation rejected restored intermediate mutation");
   assert(!existsSync(join(repo, "transient.txt")), "final validation ran in the active checkout");
-  const sharedDependency = await round("shared-dependency", [node("if (readFileSync('.preinstalled/dependency/ready','utf8') !== 'ready\\n') process.exit(1)", "readFileSync")]);
-  assert(sharedDependency.status === "passed", "reconstructed validation worktree could not resolve installed ignored dependencies");
   for (const code of ["active-drift", "validation-drift"]) {
     const fabricatedDrift = structuredClone(restored.evidence);
     fabricatedDrift.status = "failed";
@@ -92,15 +85,13 @@ try {
   assert(outsideContainment.status === "passed" && existsSync(external), "A20 ignored/external effects were falsely treated as contained");
   for (const phrase of ["ignored files", "external paths", "network", "processes", "outside containment"]) assert(FINAL_VALIDATION_TRUST_BOUNDARY.includes(phrase), `A20 trust boundary omitted ${phrase}`);
 
-  const finalNormalizationCommands = [node("process.exit(0)"), node("process.exit(0)")];
-  const finalContract = contract([], [], [node("process.exit(7)"), node("process.exit(0)")], finalNormalizationCommands);
+  const finalContract = contract([], [], [node("process.exit(7)"), node("process.exit(0)")]);
   const upstreamWorkContracts = [
     { nodeId: "source", workContract: contract([modify("source.txt")], [forbidden("forbidden.txt")], [node("process.exit(0)")]) },
     { nodeId: "other", workContract: contract([modify("other.txt")], [], [node("process.exit(0)")]) },
   ];
   const packetIdentity = artifactIdentity("execution-packet.json", Buffer.from("packet\n"));
   const repairContract = deriveFinalRepairWorkContract(upstreamWorkContracts.map((entry) => entry.workContract), finalContract);
-  assert(JSON.stringify(repairContract.candidateNormalizationCommands) === JSON.stringify(finalNormalizationCommands), "final repair did not derive the final contract's ordered normalization list");
   const repairContext = { packetIdentity, finalValidationContract: finalContract, upstreamWorkContracts };
   const coordinated = makeCandidate("coordinated", [accepted], (worktree) => {
     writeFileSync(join(worktree, "source.txt"), "coordinated\n");
@@ -168,6 +159,7 @@ try {
   assert(rejectedRepair.evidence.expectedValidationTree === acceptedTree && !rejectedRepair.evidence.candidate, "rejected final-repair candidate escaped into accepted-tree completion evidence");
 
   const promptRecoveries = [];
+  const promptSeeds = [];
   let promptLaunches = 0;
   await runFinalValidation({
     repoRoot: repo,
@@ -181,13 +173,14 @@ try {
       ...repairContext,
       workContract: repairContract,
       acceptedLedger: [{ sourceAttemptId: "node:000001", patch: accepted.patch }],
-      available: () => promptLaunches < 2,
-      launch: async (recovery) => {
+      available: () => promptLaunches < 3,
+      launch: async (recovery, _source, seed) => {
         promptRecoveries.push(recovery);
+        promptSeeds.push(seed);
         promptLaunches += 1;
-        return promptLaunches === 1
-          ? { attemptId: "final-validation:prompt-1", candidate: ignoredResidue, continue: true }
-          : { attemptId: "final-validation:prompt-2", continue: false };
+        if (promptLaunches === 1) return { attemptId: "final-validation:prompt-1", candidate: ignoredResidue, continue: true };
+        if (promptLaunches === 2) return { attemptId: "final-validation:prompt-2", continue: true };
+        return { attemptId: "final-validation:prompt-3", continue: false };
       },
       transition: (candidate) => candidate,
       authorize: async () => true,
@@ -195,7 +188,8 @@ try {
       apply: async () => false,
     },
   });
-  assert(promptRecoveries.length === 2 && !promptRecoveries[0].failedRound.candidate && promptRecoveries[1].failedRound.candidate?.patch.artifact.sha256 === ignoredResidue.patch.artifact.sha256, "first/subsequent final-repair contexts lost failed-round candidate identity");
+  assert(promptRecoveries.length === 3 && !promptRecoveries[0].failedRound.candidate && promptRecoveries[1].failedRound.candidate?.patch.artifact.sha256 === ignoredResidue.patch.artifact.sha256, "first/subsequent final-repair contexts lost failed-round candidate identity");
+  assert(promptSeeds[0] === undefined && promptSeeds[1]?.patch.artifact.sha256 === ignoredResidue.patch.artifact.sha256 && promptSeeds[2]?.patch.artifact.sha256 === ignoredResidue.patch.artifact.sha256, "final-repair seed continuity was lost across a process-only launch failure");
   for (const [index, recovery] of promptRecoveries.entries()) {
     const prompt = buildCanonicalWorkerPrompt({ objective: "repair", userContext: [], discoveredRepoFacts: [], assumptions: [] }, { id: "final-validation", kind: "implement", workContract: repairContract }, [], recovery);
     for (const identity of [recovery.failedRound.validation.before.tree, recovery.failedRound.validation.after.tree, recovery.failedRound.active.before.tree, recovery.failedRound.active.after.tree]) assert(prompt.includes(identity), `final-repair prompt ${index + 1} omitted a failed-round repository identity`);
@@ -282,7 +276,7 @@ try {
   console.log("final validation smoke passed (A16, A17, A20)");
 
   async function round(roundId, commands) {
-    return await runFinalValidationRound({ repoRoot: repo, runDir, roundId, planningBase, ledger: [accepted], commands, expectedValidationTree: acceptedTree, expectedActiveTree: acceptedTree, prepareWorktree: (worktree) => prepareSharedWorktreePaths(repo, worktree, [".preinstalled"]) });
+    return await runFinalValidationRound({ repoRoot: repo, runDir, roundId, planningBase, ledger: [accepted], commands, expectedValidationTree: acceptedTree, expectedActiveTree: acceptedTree });
   }
 
   function makeCandidate(name, ledger, edit) {
@@ -304,7 +298,7 @@ function node(source, imports = "writeFileSync,rmSync") {
   return { executable: process.execPath, args: ["--input-type=module", "-e", `import { ${imports} } from 'node:fs';${source}`] };
 }
 
-function contract(changes, forbiddenWrites, validationCommands, candidateNormalizationCommands = []) {
+function contract(changes, forbiddenWrites, validationCommands) {
   return {
     schema: WORK_CONTRACT_SCHEMA,
     version: WORK_CONTRACT_VERSION,
@@ -312,7 +306,6 @@ function contract(changes, forbiddenWrites, validationCommands, candidateNormali
     changes,
     readDependencies: [],
     forbiddenWrites,
-    candidateNormalizationCommands,
     validationCommands,
     capabilities: FIXED_WORKER_CAPABILITIES,
     semanticReviewCriteria: [{ sourcePlanId: "plan", statement: "The final checks pass" }],

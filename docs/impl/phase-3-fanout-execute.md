@@ -2,25 +2,25 @@
 
 ## Status
 
-The coordinated caller cutover is implemented and passes the complete keyless A1–A20 matrix. It is an offline release candidate, not an approved live release: the macOS p-map canary and repository-owner approval remain external gates.
+The coordinated caller cutover is implemented with focused offline coverage. It is not an approved live release: one controlled p-map canary, three identical repetitions, evidence inspection, and repository-owner approval remain external gates.
 
 ## Executable generation
 
-`/fanout-execute` admits only active pointer v2 referencing the exact digest, byte length, and artifact-relative path of execution packet v6. Packet v6 embeds work-contract v2 nodes and binds plan v2/details v4 source identities, the planning commit/full Git-visible tree, and planning platform. Runtime authority is event v3 carrying Attempt Outcome v3; `execution-run.json` is projection v4; final-validation evidence v1 is referenced by the event log; and disposable `fanout.execution-report` presentation data is v1 and contains only derived Markdown. Event v2/projection v3 and earlier evidence is legacy descriptive data with no current replay path.
+`/fanout-execute` admits only active pointer v2 referencing packet v7, whose exact top-level profile identity must match active Project Execution Profile v1. Packet v7 embeds work-contract v3 nodes and binds plan v3/details v5, planning identity, and platform. Runtime authority is event v4 carrying Attempt Outcome v4; `execution-run.json` is projection v5; final-validation evidence is v2; presentation data remains v1. Older authority requires replanning and older execution evidence is descriptive Legacy data.
 
-Legacy, mixed, or per-node-divergent normalization manifests fail during pointer/packet admission, before lock creation, execution-directory creation, worker launch, or repository mutation. No runtime component migrates, guesses, repairs, or partially accepts old artifacts. The recovery instruction is to rerun `/fanout-plan`.
+Legacy, mixed, profile-mismatched, or shared-path configurations fail before model allocation. No runtime component migrates or partially accepts old artifacts.
 
 ## Runtime flow
 
-1. Read the pointer bytes once, validate the closed pointer shape, resolve the packet under the project artifact root, read packet bytes once, and verify digest plus byte length before parsing packet v6.
+1. Verify the active packet pointer, packet bytes, and packet-bound profile bytes exactly before repository mutation. An orthogonal active-profile refresh does not invalidate the packet.
 2. Reject artifact storage inside the active worktree, then acquire the canonical Git-worktree execution lock after exact artifact admission. Only the lock owner creates the execution directory and event storage.
-3. Record `run-started` with the packet's immutable concurrency/fail-fast/fallback policy and strict preflight evidence. Preflight compares exact planning commit, full Git-visible tree, platform, worker capability, and every direct executable/argv normalization and validation manifest.
+3. Validate the profile in a disposable clean worktree, then record `run-started` with exact profile/validation identities and strict preflight evidence. Environment failure consumes no worker or repair budget.
 4. Dry run terminates explicitly after passed preflight. Live mode records an explicit confirmation decision before any attempt allocation.
 5. Derive the scheduler graph from embedded contracts. Every worker/retry/fallback/repair launch consumes a fixed typed budget allocation and every allocation receives exactly one typed terminal outcome.
-6. Run workers in fresh detached reconstructions with curated file capabilities. After a successful edit, run each packet-declared candidate normalizer once in order and audit its result and repository identity. Then capture the normalized binary patch, enforce typed ownership/forbidden resources, run the original controller-owned validation, reverify the unchanged patch, and apply verified bytes through Git stdin under exact pre/post tree checks. Nonzero normalizer exits do not consume model-repair budget; hard launch, interruption, or identity failures fail closed before patch capture.
-7. Append every accepted transition to the causal ledger. Final validation reconstructs that ledger in a new worktree. A typed program failure may consume at most two Tier 1 repair attempts under derived upstream authority; an accepted repair advances both ledger and final-validation expected-tree authority.
-8. Record one gapless lifecycle in `events.jsonl` using exactly the nine event-v3 transition types; retries and repairs can make a run longer than nine records. Attempt outcomes carry exact Turn/Response/Tool intervals and cache usage. Atomically regenerate projection v4 after every appended event and write deterministic `summary.md` only once the projection is terminal. Derived publication failure stops subsequent effects; audit replay reads only the authoritative log.
-9. Finish with an explicit causal outcome: completed, dry-run-completed, failed, or aborted.
+6. Independently prepare every worker/repair worktree through the profile, run profile normalization after edits, then capture, enforce authority, run packet task validation, reverify, and exact-apply.
+7. Before integration repair, reconcile only exact path-disjoint stale candidates through latest-ledger reconstruction, overlay, normalization, recapture, ownership, validation, and compare-and-swap. Retry only after ledger advancement.
+8. Preserve the immediately preceding rejected repair candidate as the next exact seed. Stop a repair chain when exact candidate identity and typed failure state repeat, leaving unused budget untouched.
+9. Final validation runs packet final commands followed by profile-required final gates in an independently prepared worktree. Record event v4/projection v5; cleanup runs and is timed before the causal terminal event.
 
 Residual host trust is explicit: installed extensions/providers, validation programs, ignored files, external paths, network, and processes execute with user permissions and are not a container boundary.
 
@@ -48,6 +48,10 @@ Residual host trust is explicit: installed extensions/providers, validation prog
 | A18 | `smoke-fanout-packet.mjs`, `smoke-fanout-execute.mjs` | legacy or mixed generations fail before lock/mutation while historical bytes remain unchanged |
 | A19 | `smoke-worker-pipeline.mjs` | automatic extension/provider discovery coexists with exactly the fixed six model-callable tools |
 | A20 | `smoke-worker-pipeline.mjs`, `smoke-final-validation.mjs` | ignored-file, external-path, network, and process effects are tested and documented as outside containment |
+| A21 | `smoke-final-validation.mjs` | final repairs see the exact immediately preceding rejected candidate and invalid seeds launch no model |
+| A22 | `smoke-fanout-execute.mjs` | exact path-disjoint stale candidates reconcile without a model; overlap routes through integration repair |
+| A23 | `smoke-attempt-outcomes.mjs` | exact repeated candidate/failure state stops and cannot fabricate progress |
+| A24 | `smoke-fanout-compiler.mjs`, `smoke-fanout-execute.mjs` | eligible vertical chains fuse deterministically and execute through one cycle |
 
 All named scripts run through:
 
