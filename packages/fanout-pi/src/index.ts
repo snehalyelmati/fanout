@@ -91,6 +91,7 @@ export default async function (pi: ExtensionAPI) {
 				const result = await executeFanout({
 					cwd: ctx.cwd,
 					activePointerPath: context.activePointerPath,
+					activeProfilePointerPath: context.activeProfilePointerPath,
 					projectArtifactRoot: context.projectArtifactRoot,
 					extensionEntry: fileURLToPath(import.meta.url),
 					dryRun: argument === "--dry-run",

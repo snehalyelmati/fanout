@@ -76,7 +76,7 @@ const METRICS: readonly MetricDefinition[] = [
 export function queryComparison(snapshot: CatalogSnapshot, request: ComparisonRequest): Readonly<Record<string, any>> {
 	const runA = requireExecutionRun(snapshot, request.runAId);
 	const contextA = contextFor(snapshot, runA);
-	const exactPacketRuns = contextA ? snapshot.executionRuns.filter((run) => run.projection && sameArtifact(run.projection.packet, contextA.projection.packet)) : [runA];
+	const exactPacketRuns = contextA ? snapshot.executionRuns.filter((run) => run.projection && sameArtifact(run.projection.packet, contextA.projection.packet) && sameArtifact(run.projection.profile, contextA.projection.profile)) : [runA];
 	return deepFreeze({
 		generation: snapshot.generation,
 		planningRunId: runA.planningRunId,
@@ -106,17 +106,18 @@ function compareNodes(snapshot: CatalogSnapshot, runA: CatalogExecutionRun, runB
 	const values = { runA: nodeTotals(contextA, nodeAId), runB: nodeTotals(contextB, nodeBId) };
 	const sources = comparisonSources(snapshot, [runA, runB]);
 	const reason = alignmentReason(packetA, packetB, nodeA.workContract, nodeB.workContract);
+	const profile = reason === null ? packetA.profile : null;
 	const limitations = ["The transient SHA-256 comparison key is not an Artifact Identity"];
 	const totals = NODE_METRICS.map(([id, label, field, unit]) => {
 		const a = values.runA[field]; const b = values.runB[field];
 		const missingInputs = [...(a === null ? [`Run A ${label}`] : []), ...(b === null ? [`Run B ${label}`] : [])];
 		const evidenceClass: EvidenceClass = reason !== null ? "Heterogeneous" : missingInputs.length ? "Partial" : "Derived";
-		return { id, label, unit, runA: a, runB: b, receipt: createEvidenceReceipt(evidenceClass, `${label}: raw descriptive totals for the two selected Nodes`, sources, missingInputs, [reason ?? "Exact Node alignment"], [...limitations, ...(reason === null ? [] : [DIFFERENT_WORK_WARNING])]) };
+		return { id, label, unit, runA: a, runB: b, receipt: createEvidenceReceipt(evidenceClass, `${label}: raw descriptive totals for the two selected Nodes`, sources, missingInputs, [reason ?? "Exact Node alignment"], [...limitations, ...(reason === null ? [] : [DIFFERENT_WORK_WARNING])], executionArtifactGeneration([runA.admission, runB.admission]), profile) };
 	});
 	if (reason !== null) return {
 		status: "unaligned", runAId: runA.selectionId, runBId: runB.selectionId, nodeAId, nodeBId, reason, warning: DIFFERENT_WORK_WARNING,
 		nodes: { runA: { nodeId: nodeAId, status: values.runA.status }, runB: { nodeId: nodeBId, status: values.runB.status } }, totals, deltas: [], omittedMetrics: [],
-		receipt: createEvidenceReceipt("Heterogeneous", reason, sources, [], ["Exact Planning Base and unique canonical Work Contract equality are required"], [...limitations, "No calculated delta or Diagnostic Observation was produced"]),
+		receipt: createEvidenceReceipt("Heterogeneous", reason, sources, [], ["Exact Project Execution Profile, Planning Base, and unique canonical Work Contract equality are required"], [...limitations, "No calculated delta or Diagnostic Observation was produced"], executionArtifactGeneration([runA.admission, runB.admission]), profile),
 	};
 	const comparable = runA.admission === "Current" && runB.admission === "Current" && contextA.projection.mode === "live" && contextB.projection.mode === "live"
 		&& contextA.projection.terminalOutcome?.outcome === "completed" && contextB.projection.terminalOutcome?.outcome === "completed"
@@ -127,17 +128,18 @@ function compareNodes(snapshot: CatalogSnapshot, runA: CatalogExecutionRun, runB
 		const a = values.runA[field]; const b = values.runB[field];
 		if (!comparable || a === null || b === null) return [];
 		const percentage = a === 0 ? null : ((b - a) / a) * 100;
-		return [{ id, label, unit, runA: a, runB: b, delta: b - a, percentage, receipt: createEvidenceReceipt("Derived", `${label}: Run B (${b}) - Run A (${a})`, sources, [], ["Exact Node alignment", "completed live runs", "complete selected Node evidence"], [...limitations, "Direction is Run B minus Run A", ...(percentage === null ? ["Percentage unavailable because Run A is zero"] : [])]) }];
+		return [{ id, label, unit, runA: a, runB: b, delta: b - a, percentage, receipt: createEvidenceReceipt("Derived", `${label}: Run B (${b}) - Run A (${a})`, sources, [], ["Exact Node alignment", "completed live runs", "complete selected Node evidence"], [...limitations, "Direction is Run B minus Run A", ...(percentage === null ? ["Percentage unavailable because Run A is zero"] : [])], executionArtifactGeneration([runA.admission, runB.admission]), profile) }];
 	});
 	return {
 		status: "aligned", runAId: runA.selectionId, runBId: runB.selectionId, nodeAId, nodeBId,
 		reason: "Planning Base commit and tree are identical, and canonical Work Contract JSON has one unique one-to-one in-memory SHA-256 match", warning: null,
 		nodes: { runA: { nodeId: nodeAId, status: values.runA.status }, runB: { nodeId: nodeBId, status: values.runB.status } }, totals, deltas, omittedMetrics,
-		receipt: createEvidenceReceipt(omittedMetrics.length ? "Partial" : "Derived", "Exact cross-packet Node alignment by identical Planning Base and one unique one-to-one canonical Work Contract match", sources, comparable ? omittedMetrics : ["two completed live runs with succeeded selected Nodes", ...omittedMetrics], comparable ? ["Completed live Node evidence"] : [], [...limitations, "Deltas are Run B minus Run A", ...(omittedMetrics.length ? ["Incomplete values remain unavailable"] : [])]),
+		receipt: createEvidenceReceipt(omittedMetrics.length ? "Partial" : "Derived", "Exact cross-packet Node alignment by identical Project Execution Profile, Planning Base, and one unique one-to-one canonical Work Contract match", sources, comparable ? omittedMetrics : ["two completed live runs with succeeded selected Nodes", ...omittedMetrics], comparable ? ["Completed live Node evidence"] : [], [...limitations, "Deltas are Run B minus Run A", ...(omittedMetrics.length ? ["Incomplete values remain unavailable"] : [])], executionArtifactGeneration([runA.admission, runB.admission]), profile),
 	};
 }
 
 function alignmentReason(packetA: FanoutExecutionPacket, packetB: FanoutExecutionPacket, contractA: unknown, contractB: unknown): string | null {
+	if (!sameArtifact(packetA.profile, packetB.profile)) return "Project Execution Profile identities are not identical";
 	if (packetA.planningBase.headCommit !== packetB.planningBase.headCommit || packetA.planningBase.tree !== packetB.planningBase.tree) return "Planning Base commit and tree are not identical";
 	const digestA = workContractDigest(contractA);
 	const digestB = workContractDigest(contractB);
@@ -186,10 +188,11 @@ function nodeTotals(context: ComparisonContext, nodeId: string): Record<string, 
 
 function comparePair(snapshot: CatalogSnapshot, runA: CatalogExecutionRun, runB: CatalogExecutionRun): Record<string, any> {
 	const sources = comparisonSources(snapshot, [runA, runB]);
+	const profile = runA.projection && runB.projection && sameArtifact(runA.projection.profile, runB.projection.profile) ? runA.projection.profile : null;
 	const suppression = pairSuppression(runA, runB);
 	if (suppression) return {
 		status: "unavailable", direction: "Run B minus Run A", runAId: runA.selectionId, runBId: runB.selectionId, reason: suppression.reason, catalogue: null, deltas: [], omittedMetrics: [],
-		receipt: createEvidenceReceipt(suppression.evidenceClass, "Pairwise deltas were suppressed because their exact admission requirements were not met", sources, suppression.missingInputs, [], ["No performance delta was calculated"], generationFor([runA, runB])),
+		receipt: createEvidenceReceipt(suppression.evidenceClass, "Pairwise deltas were suppressed because their exact admission requirements were not met", sources, suppression.missingInputs, [], ["No performance delta was calculated"], generationFor([runA, runB]), profile),
 	};
 	const contextA = contextFor(snapshot, runA)!;
 	const contextB = contextFor(snapshot, runB)!;
@@ -201,14 +204,14 @@ function comparePair(snapshot: CatalogSnapshot, runA: CatalogExecutionRun, runB:
 		const percentage = a === 0 ? null : ((b - a) / a) * 100;
 		return [{
 			id: metric.id, label: metric.label, unit: metric.unit, runA: a, runB: b, delta: b - a, percentage,
-			receipt: createEvidenceReceipt("Derived", `${metric.label}: Run B (${b}) - Run A (${a})`, sources, [], ["Exact Execution Packet identity", "completed live runs", "complete compared metric scope"], ["Direction is Run B minus Run A", ...(percentage === null ? ["Percentage unavailable because Run A is zero"] : [])]),
+			receipt: createEvidenceReceipt("Derived", `${metric.label}: Run B (${b}) - Run A (${a})`, sources, [], ["Exact Execution Packet and Project Execution Profile identities", "completed live runs", "complete compared metric scope"], ["Direction is Run B minus Run A", ...(percentage === null ? ["Percentage unavailable because Run A is zero"] : [])], generationFor([runA, runB]), profile),
 		}];
 	});
 	const evidenceClass: EvidenceClass = omittedMetrics.length ? "Partial" : "Derived";
 	return {
 		status: omittedMetrics.length ? "partial" : "available", direction: "Run B minus Run A", runAId: runA.selectionId, runBId: runB.selectionId, reason: "Exact same-packet completed-live comparison",
 		catalogue: { runA: catalogue(contextA), runB: catalogue(contextB) }, deltas, omittedMetrics,
-		receipt: createEvidenceReceipt(evidenceClass, "Fixed same-packet catalogue with each emitted numeric delta calculated as Run B minus Run A", sources, omittedMetrics.map(({ id }) => id), ["Exact Execution Packet identity", "completed live runs"], ["Descriptive arithmetic only"]),
+		receipt: createEvidenceReceipt(evidenceClass, "Fixed same-packet/profile catalogue with each emitted numeric delta calculated as Run B minus Run A", sources, omittedMetrics.map(({ id }) => id), ["Exact Execution Packet and Project Execution Profile identities", "completed live runs"], ["Descriptive arithmetic only"], generationFor([runA, runB]), profile),
 	};
 }
 
@@ -216,6 +219,7 @@ function pairSuppression(runA: CatalogExecutionRun, runB: CatalogExecutionRun): 
 	if (runA.selectionId === runB.selectionId) return unavailable("pairwise deltas require two distinct runs", "distinct Run B");
 	if (!runA.projection || !runB.projection || runA.admission !== "Current" || runB.admission !== "Current") return unavailable("both runs require current admitted Event Log replay", "two current admitted Event Logs");
 	if (!sameArtifact(runA.projection.packet, runB.projection.packet)) return unavailable("runs do not share the exact same Execution Packet", "exact shared Execution Packet identity");
+	if (!sameArtifact(runA.projection.profile, runB.projection.profile)) return unavailable("runs do not share the exact same Project Execution Profile", "exact shared Project Execution Profile identity");
 	if (runA.projection.mode !== "live" || runB.projection.mode !== "live" || runA.projection.terminalOutcome?.outcome !== "completed" || runB.projection.terminalOutcome?.outcome !== "completed") return unavailable("pairwise deltas require two completed live runs", "two completed live runs");
 	if (!terminalProjection(runA.projection) || !terminalProjection(runB.projection) || !runA.projection.attempts.every(({ outcome }) => outcome?.metrics.complete) || !runB.projection.attempts.every(({ outcome }) => outcome?.metrics.complete)) return { reason: "pairwise deltas require complete compared scope", evidenceClass: "Partial", missingInputs: ["complete Attempt metric coverage"] };
 	return null;
@@ -233,6 +237,7 @@ function cohortViews(snapshot: CatalogSnapshot, anchor: CatalogExecutionRun, run
 	return [...byOutcome].flatMap(([outcomeName, contributors]) => {
 		if (contributors.length < 2) return [];
 		const contexts = contributors.map((run) => contextFor(snapshot, run)!);
+		const profile = contexts[0]?.projection.profile ?? null;
 		const sources = comparisonSources(snapshot, contributors, anchor.planningRunId);
 		const aggregates = METRICS.flatMap((metric) => {
 			if (contexts.some((context) => !metric.complete(context))) return [];
@@ -242,7 +247,7 @@ function cohortViews(snapshot: CatalogSnapshot, anchor: CatalogExecutionRun, run
 			const median = ordered.length % 2 ? ordered[middle]! : (ordered[middle - 1]! + ordered[middle]!) / 2;
 			return [{
 				id: metric.id, label: metric.label, unit: metric.unit, count: values.length, minimum: ordered[0]!, median, maximum: ordered.at(-1)!, contributors: values,
-				receipt: createEvidenceReceipt("Derived", `${metric.label}: sort contributor values; use the middle value for an odd count or the sum of the two middle values divided by two for an even count; minimum is first and maximum is last`, sources, [], ["Exact Execution Packet identity", `Outcome is ${outcomeName}`], ["Descriptive same-outcome aggregate only"]),
+				receipt: createEvidenceReceipt("Derived", `${metric.label}: sort contributor values; use the middle value for an odd count or the sum of the two middle values divided by two for an even count; minimum is first and maximum is last`, sources, [], ["Exact Execution Packet and Project Execution Profile identities", `Outcome is ${outcomeName}`], ["Descriptive same-outcome aggregate only"], executionArtifactGeneration(contributors.map(({ admission }) => admission)), profile),
 			}];
 		});
 		const omittedMetrics = METRICS.filter((metric) => contexts.some((context) => !metric.complete(context))).map(({ id }) => ({ id, reason: "one or more contributor values are incomplete" }));
@@ -250,7 +255,7 @@ function cohortViews(snapshot: CatalogSnapshot, anchor: CatalogExecutionRun, run
 		return [{
 			status: partial ? "partial" : "available", evidenceClass: partial ? "Partial" : "Derived", outcome: outcomeName, count: contributors.length,
 			contributors: contributors.map(({ selectionId }) => selectionId), aggregates, omittedMetrics,
-			receipt: createEvidenceReceipt(partial ? "Partial" : "Derived", `Exact same-packet runs grouped only by the ${outcomeName} outcome`, sources, omittedMetrics.map(({ id }) => id), ["Exact Execution Packet identity", `Outcome is ${outcomeName}`], ["At least two contributors are required"]),
+			receipt: createEvidenceReceipt(partial ? "Partial" : "Derived", `Exact same-packet/profile runs grouped only by the ${outcomeName} outcome`, sources, omittedMetrics.map(({ id }) => id), ["Exact Execution Packet and Project Execution Profile identities", `Outcome is ${outcomeName}`], ["At least two contributors are required"], executionArtifactGeneration(contributors.map(({ admission }) => admission)), profile),
 		}];
 	});
 }

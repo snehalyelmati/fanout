@@ -55,7 +55,6 @@ export interface WorkContractCompilation {
 
 export interface CompileWorkContractOptions {
 	sequentialReadFallback?: boolean;
-	candidateNormalizationCommands?: readonly ValidationCommand[];
 }
 
 export function compileWorkContracts(plannedInput: readonly PlannedWorkSource[], groundedInput: readonly GroundedWorkInput[], finalValidationCommands: readonly ValidationCommand[], options: CompileWorkContractOptions = {}): WorkContractCompilation {
@@ -104,7 +103,7 @@ export function compileWorkContracts(plannedInput: readonly PlannedWorkSource[],
 		const kinds = unique(group.map((input) => input.kind));
 		if (kinds.length !== 1) { add(errors, "mixed-node-kind", `overlapping grounded work has mixed kinds: ${kinds.join(", ")}`); continue; }
 		const id = uniqueId(group.length === 1 ? group[0].id : group.map((input) => input.id).join("-"), usedIds);
-		const validation = validateWorkContract(makeContract(planned, related, group, options.candidateNormalizationCommands ?? []));
+		const validation = validateWorkContract(makeContract(planned, related, group));
 		if (!validation.ok || !validation.contract) {
 			for (const issue of validation.errors) errors.push({ ...issue, path: issue.path ? `nodes.${id}.workContract.${issue.path}` : `nodes.${id}.workContract` });
 			continue;
@@ -112,7 +111,7 @@ export function compileWorkContracts(plannedInput: readonly PlannedWorkSource[],
 		nodes.push({ id, kind: kinds[0], workContract: validation.contract });
 	}
 
-	const finalValidation = validateWorkContract(makeFinalContract(planned, options.candidateNormalizationCommands ?? [], finalValidationCommands), { finalValidation: true });
+	const finalValidation = validateWorkContract(makeFinalContract(planned, finalValidationCommands), { finalValidation: true });
 	if (!finalValidation.ok || !finalValidation.contract) for (const issue of finalValidation.errors) errors.push({ ...issue, path: issue.path ? `nodes.final-validation.workContract.${issue.path}` : "nodes.final-validation.workContract" });
 	else nodes.push({ id: FINAL_VALIDATION_NODE_ID, kind: "final-validation", workContract: finalValidation.contract });
 	if (errors.length) return { ok: false, errors, warnings, nodes };
@@ -145,7 +144,7 @@ function admitGroundedInputs(value: readonly GroundedWorkInput[], plans: Planned
 	return value.flatMap((input, index) => {
 		const path = `grounded[${index}]`;
 		if (!isRecord(input) || !canonical(input.id) || !canonical(input.kind)) { add(errors, "invalid-grounded-input", "grounded work needs canonical id and kind", path); return []; }
-		const validation = validateWorkContract({ schema: WORK_CONTRACT_SCHEMA, version: WORK_CONTRACT_VERSION, goals: statements, changes: input.changes, readDependencies: input.readDependencies, forbiddenWrites: input.forbiddenWrites, candidateNormalizationCommands: [], validationCommands: input.validationCommands, capabilities: FIXED_WORKER_CAPABILITIES, semanticReviewCriteria: criteria, advisoryNotes: input.advisoryNotes });
+		const validation = validateWorkContract({ schema: WORK_CONTRACT_SCHEMA, version: WORK_CONTRACT_VERSION, goals: statements, changes: input.changes, readDependencies: input.readDependencies, forbiddenWrites: input.forbiddenWrites, validationCommands: input.validationCommands, capabilities: FIXED_WORKER_CAPABILITIES, semanticReviewCriteria: criteria, advisoryNotes: input.advisoryNotes });
 		if (!validation.ok || !validation.contract) { for (const issue of validation.errors) errors.push({ ...issue, path: issue.path ? `${path}.${issue.path}` : path }); return []; }
 		return [{ id: input.id, kind: input.kind, changes: validation.contract.changes, readDependencies: validation.contract.readDependencies, forbiddenWrites: validation.contract.forbiddenWrites, validationCommands: validation.contract.validationCommands, advisoryNotes: validation.contract.advisoryNotes }];
 	});
@@ -155,26 +154,24 @@ function resourceScope(plan: PlannedWorkSource): PlannedResourceScope {
 	return { id: plan.id, writeResources: plan.writeResources, readResources: plan.readResources, forbiddenWriteResources: plan.forbiddenWrites.map((entry) => entry.resource) };
 }
 
-function makeContract(allPlans: PlannedWorkSource[], plans: PlannedWorkSource[], inputs: GroundedWorkInput[], candidateNormalizationCommands: readonly ValidationCommand[]): WorkContract {
+function makeContract(allPlans: PlannedWorkSource[], plans: PlannedWorkSource[], inputs: GroundedWorkInput[]): WorkContract {
 	return {
 		schema: WORK_CONTRACT_SCHEMA, version: WORK_CONTRACT_VERSION,
 		goals: plans.flatMap((plan) => plan.goals.map((statement) => ({ sourcePlanId: plan.id, statement }))),
 		changes: inputs.flatMap((input) => input.changes),
 		readDependencies: inputs.flatMap((input) => input.readDependencies),
 		forbiddenWrites: [...allPlans.flatMap((plan) => plan.forbiddenWrites.map((entry) => ({ resource: entry.resource, sourcePlanIds: [plan.id], reason: entry.reason }))), ...inputs.flatMap((input) => input.forbiddenWrites)],
-		candidateNormalizationCommands: [...candidateNormalizationCommands],
 		validationCommands: inputs.flatMap((input) => input.validationCommands), capabilities: FIXED_WORKER_CAPABILITIES,
 		semanticReviewCriteria: plans.flatMap((plan) => plan.semanticReviewCriteria.map((statement) => ({ sourcePlanId: plan.id, statement }))),
 		advisoryNotes: [...plans.flatMap((plan) => plan.advisoryNotes), ...inputs.flatMap((input) => input.advisoryNotes)],
 	};
 }
 
-function makeFinalContract(plans: PlannedWorkSource[], candidateNormalizationCommands: readonly ValidationCommand[], validationCommands: readonly ValidationCommand[]): WorkContract {
+function makeFinalContract(plans: PlannedWorkSource[], validationCommands: readonly ValidationCommand[]): WorkContract {
 	return {
 		schema: WORK_CONTRACT_SCHEMA, version: WORK_CONTRACT_VERSION,
 		goals: plans.flatMap((plan) => plan.goals.map((statement) => ({ sourcePlanId: plan.id, statement }))), changes: [], readDependencies: [],
 		forbiddenWrites: plans.flatMap((plan) => plan.forbiddenWrites.map((entry) => ({ resource: entry.resource, sourcePlanIds: [plan.id], reason: entry.reason }))),
-		candidateNormalizationCommands: [...candidateNormalizationCommands],
 		validationCommands: [...validationCommands], capabilities: FIXED_WORKER_CAPABILITIES,
 		semanticReviewCriteria: plans.flatMap((plan) => plan.semanticReviewCriteria.map((statement) => ({ sourcePlanId: plan.id, statement }))),
 		advisoryNotes: [{ kind: "context", source: { phase: "compiler", reference: "final-validation" }, text: "Run authoritative integrated validation after every ordinary node." }],

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createServer } from "node:net";
 import { fanoutProjectId } from "../../fanout-pi/src/fanout-runtime-context";
+import { artifactIdentity } from "../../fanout-core/src/artifact-identity";
 
 const cli = join(import.meta.dir, "cli.ts");
 const launcher = join(import.meta.dir, "../../../scripts/start-profiler.ts");
@@ -26,9 +27,12 @@ beforeAll(async () => {
 	mkdirSync(join(artifactRoot, "packet", "executions", "run-projection"), { recursive: true });
 	writeFileSync(join(artifactRoot, "packet", "executions", "run-projection", "execution-run.json"), `${JSON.stringify({ schema: "fanout.execution-run", version: 4, runId: "run-projection", startedAt: "2026-07-20T00:00:00.000Z" })}\n`);
 	const git = "1".repeat(40);
+	const profile = `${JSON.stringify({ schema: "fanout.project-execution-profile", version: 1, profileId: "planning-only", createdAt: "2026-07-20T00:00:00.000Z", preparation: [], readiness: [], candidateNormalization: [], requiredFinalGates: [] })}\n`;
+	mkdirSync(join(artifactRoot, "profiles"), { recursive: true });
+	writeFileSync(join(artifactRoot, "profiles", "planning-only.json"), profile);
 	mkdirSync(join(artifactRoot, "planning-only"), { recursive: true });
 	writeFileSync(join(artifactRoot, "planning-only", "implementation-plan.json"), `${JSON.stringify({
-		schema: "fanout.implementation-plan", version: 2, planId: "planning-only", createdAt: "2026-07-20T00:00:00.000Z", planningHost: { platform: process.platform }, planningBase: { headCommit: git, tree: git },
+		schema: "fanout.implementation-plan", version: 3, planId: "planning-only", createdAt: "2026-07-20T00:00:00.000Z", planningHost: { platform: process.platform }, planningBase: { headCommit: git, tree: git }, profile: artifactIdentity("profiles/planning-only.json", Buffer.from(profile)),
 		objective: "Keep <script>alert('artifact')</script> as text", userContext: [], discoveredRepoFacts: [], assumptions: [],
 		implementationItems: [{ id: "work", goals: ["Do work"], writeResources: [{ kind: "file", path: "src/work.ts" }], readResources: [], forbiddenWrites: [], semanticReviewCriteria: ["Works"], advisoryNotes: [] }],
 	})}\n`);
@@ -168,7 +172,7 @@ test("local profiler exposes only the bounded same-origin HTTP shell", async () 
 	const catalog = await fetch(`${url}/api/catalog`);
 	expect(catalog.status).toBe(200);
 	const catalogBody = await catalog.json() as any;
-	expect(catalogBody.recentRuns[0]).toMatchObject({ runId: "run-projection", admission: "Unverifiable" });
+	expect(catalogBody.recentRuns[0]).toMatchObject({ runId: "run-projection", admission: "Legacy" });
 	expect(catalogBody.lineages).toContainEqual(expect.objectContaining({ id: "planning-only", admission: "Planning-only", executionRunCount: 0 }));
 	const planningWorkspace = await (await fetch(`${url}/api/workspace?kind=lineage&id=planning-only`)).json() as any;
 	expect(planningWorkspace).toMatchObject({ selection: { kind: "lineage", id: "planning-only" }, objective: "Keep <script>alert('artifact')</script> as text", events: [], metrics: [] });

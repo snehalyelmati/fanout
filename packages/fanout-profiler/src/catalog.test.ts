@@ -7,6 +7,8 @@ import { compileExecutionPacket } from "../../fanout-core/src/fanout-compiler";
 import { ProfilerCatalog } from "./catalog";
 
 const roots: string[] = [];
+const profileIdentity = artifactIdentity("profiles/default.json", Buffer.from("{}\n"));
+const profileValidationIdentity = artifactIdentity("profiles/default-validation.json", Buffer.from("{}\n"));
 afterEach(() => {
 	for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -22,7 +24,7 @@ function write(path: string, value: unknown): void {
 	writeFileSync(path, typeof value === "string" ? value : `${JSON.stringify(value)}\n`);
 }
 
-function plan(id: string, version = 2): Record<string, unknown> {
+function plan(id: string, version = 3): Record<string, unknown> {
 	const git = "1".repeat(40);
 	return {
 		schema: "fanout.implementation-plan",
@@ -31,6 +33,7 @@ function plan(id: string, version = 2): Record<string, unknown> {
 		createdAt: `2026-07-${id === "new" ? "20" : "19"}T00:00:00.000Z`,
 		planningHost: { platform: process.platform },
 		planningBase: { headCommit: git, tree: git },
+		profile: profileIdentity,
 		objective: `Objective ${id}`,
 		userContext: [],
 		discoveredRepoFacts: [],
@@ -47,7 +50,7 @@ function plan(id: string, version = 2): Record<string, unknown> {
 	};
 }
 
-function event(runId: string, occurredAt: string, version = 3): Record<string, unknown> {
+function event(runId: string, occurredAt: string, version = 4): Record<string, unknown> {
 	return { schema: "fanout.execution-event", version, runId, sequence: 1, occurredAt, event: "run-started", payload: {} };
 }
 
@@ -59,8 +62,7 @@ function currentLineage(artifactRoot: string, id = "packet"): { packetIdentity: 
 	const planIdentity = artifactIdentity("implementation-plan.json", planBytes);
 	const command = { executable: "node", args: ["--version"] };
 	const details = {
-		schema: "fanout.implementation-details", version: 4, detailsId: id, createdAt: "2026-07-19T00:01:00.000Z", plan: planIdentity,
-		candidateNormalizationCommands: [],
+		schema: "fanout.implementation-details", version: 5, detailsId: id, createdAt: "2026-07-19T00:01:00.000Z", plan: planIdentity,
 		items: [{ id: "work", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "src/work.ts" }, sourcePlanIds: ["work"] }, contentIntent: "work" }], readDependencies: [], forbiddenWrites: [], validationCommands: [command], advisoryNotes: [] }],
 		finalValidationCommands: [command],
 	};
@@ -96,8 +98,8 @@ function currentLineage(artifactRoot: string, id = "packet"): { packetIdentity: 
 	return {
 		packetIdentity,
 		started: (runId, occurredAt) => ({
-			schema: "fanout.execution-event", version: 3, runId, sequence: 1, occurredAt, event: "run-started",
-			payload: { mode: "dry-run", packet: packetIdentity, planningBaseTree: "1".repeat(40), nodeIds: ["work"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false }, preflightEvidence: evidence },
+			schema: "fanout.execution-event", version: 4, runId, sequence: 1, occurredAt, event: "run-started",
+			payload: { mode: "dry-run", packet: packetIdentity, profile: profileIdentity, profileValidation: profileValidationIdentity, planningBaseTree: "1".repeat(40), nodeIds: ["work"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false }, preflightEvidence: evidence },
 		}),
 	};
 }
@@ -134,7 +136,7 @@ test("catalog narrowly discovers planning, legacy, invalid, and unverifiable evi
 		["planning-only", "Planning-only"],
 	]);
 	expect(snapshot.executionRuns.map(({ id, admission }) => [id, admission])).toEqual([
-		["run-projection", "Unverifiable"],
+		["run-projection", "Legacy"],
 		["run-v2", "Legacy"],
 	]);
 	expect(snapshot.executionRuns[0]?.updatedAt).toBe("2026-07-21T00:00:00.000Z");
@@ -232,7 +234,7 @@ test("catalog references only bounded execution supporting evidence without read
 	const catalog = new ProfilerCatalog(artifactRoot);
 	const evidence = catalog.snapshot().supportingEvidence.filter(({ executionRunId }) => executionRunId === "packet/executions/run");
 	expect(evidence.map(({ label }) => label)).toEqual(["final-validation/rounds/initial.json", "observability.jsonl", "ownership-check.json", "session/session.jsonl", "stderr.log", "stdout.log", "validation.json"]);
-	expect(evidence.every(({ admission, source }) => admission === "Unverifiable" && source?.kind === "supporting-evidence")).toBe(true);
+	expect(evidence.every(({ admission, source }) => admission === "Legacy" && source?.kind === "supporting-evidence")).toBe(true);
 	expect(evidence.find(({ label }) => label.startsWith("final-validation"))?.attemptId).toBeNull();
 	expect(evidence.filter(({ label }) => !label.startsWith("final-validation")).every(({ attemptId }) => attemptId === "work-000001")).toBe(true);
 	expect(JSON.stringify(evidence)).not.toContain("worker output");
@@ -275,7 +277,7 @@ test("current Event Logs replay through core and override replaceable views", ()
 	const lineage = currentLineage(artifactRoot);
 	const started = lineage.started("run-current", "2026-07-20T00:00:00.000Z");
 	const preflight = { ...started, sequence: 2, occurredAt: "2026-07-20T00:00:00.001Z", event: "preflight-completed", payload: { status: "passed", planningBaseTree: "1".repeat(40), repositoryTree: "1".repeat(40), issues: [] } };
-	const finished = { ...started, sequence: 3, occurredAt: "2026-07-20T00:00:00.002Z", event: "run-finished", payload: { outcome: "dry-run-completed", durationMs: 2, cause: { kind: "event", eventSequence: 2, code: "dry-run" } } };
+	const finished = { ...started, sequence: 3, occurredAt: "2026-07-20T00:00:00.002Z", event: "run-finished", payload: { outcome: "dry-run-completed", durationMs: 2, cleanupDurationMs: 0, cause: { kind: "event", eventSequence: 2, code: "dry-run" } } };
 	write(join(artifactRoot, "packet", "executions", "run-current", "events.jsonl"), `${[started, preflight, finished].map(JSON.stringify).join("\n")}\n`);
 	write(join(artifactRoot, "packet", "executions", "run-current", "execution-run.json"), { schema: "fanout.execution-run", version: 4, runId: "stale", startedAt: "2000-01-01T00:00:00.000Z" });
 	write(join(artifactRoot, "packet", "executions", "run-current", "summary.md"), "stale report\n");
@@ -302,14 +304,14 @@ test("catalog keeps nonterminal and rejected Event Log evidence honest and newes
 	write(join(artifactRoot, "packet", "executions", "run-gap", "events.jsonl"), `${JSON.stringify({ ...current, runId: "run-gap", occurredAt: "2026-07-19T00:00:00.000Z" })}\n${JSON.stringify({ ...current, runId: "run-gap", sequence: 3, occurredAt: "2026-07-19T00:00:00.001Z", event: "preflight-completed" })}\n`);
 	write(join(artifactRoot, "packet", "executions", "run-mixed", "events.jsonl"), `${JSON.stringify({ ...current, runId: "run-mixed", occurredAt: "2026-07-18T00:00:00.000Z" })}\n${JSON.stringify({ ...current, runId: "run-mixed", version: 2, sequence: 2 })}\n`);
 	write(join(artifactRoot, "packet", "executions", "run-identity", "events.jsonl"), `${JSON.stringify({ ...current, runId: "other", occurredAt: "2026-07-17T00:00:00.000Z" })}\n`);
-	write(join(artifactRoot, "packet", "executions", "run-future", "events.jsonl"), event("run-future", "2026-07-16T00:00:00.000Z", 4));
-	const legacy = event("run-legacy", "2026-07-15T00:00:00.000Z", 2);
+	write(join(artifactRoot, "packet", "executions", "run-future", "events.jsonl"), event("run-future", "2026-07-16T00:00:00.000Z", 5));
+	const legacy = event("run-legacy", "2026-07-15T00:00:00.000Z", 3);
 	write(join(artifactRoot, "packet", "executions", "run-legacy", "events.jsonl"), `${JSON.stringify(legacy)}\n${JSON.stringify({ ...legacy, sequence: 2, occurredAt: "2026-07-15T00:00:00.001Z", event: "preflight-completed" })}\n`);
 	const mismatched = lineage.started("run-packet-mismatch", "2026-07-14T00:00:00.000Z");
 	(mismatched.payload as Record<string, unknown>).packet = { ...lineage.packetIdentity, sha256: "f".repeat(64) };
 	write(join(artifactRoot, "packet", "executions", "run-packet-mismatch", "events.jsonl"), `${JSON.stringify(mismatched)}\n`);
-	const reverseMixed = { ...lineage.started("run-reverse-mixed", "2026-07-13T00:00:00.000Z"), version: 2 };
-	write(join(artifactRoot, "packet", "executions", "run-reverse-mixed", "events.jsonl"), `${JSON.stringify(reverseMixed)}\n${JSON.stringify({ ...reverseMixed, version: 3, sequence: 2, occurredAt: "2026-07-13T00:00:00.001Z" })}\n`);
+	const reverseMixed = { ...lineage.started("run-reverse-mixed", "2026-07-13T00:00:00.000Z"), version: 3 };
+	write(join(artifactRoot, "packet", "executions", "run-reverse-mixed", "events.jsonl"), `${JSON.stringify(reverseMixed)}\n${JSON.stringify({ ...reverseMixed, version: 4, sequence: 2, occurredAt: "2026-07-13T00:00:00.001Z" })}\n`);
 
 	const runs = new ProfilerCatalog(artifactRoot).snapshot().executionRuns;
 	expect(runs.map(({ id }) => id)).toEqual(["run-open", "run-gap", "run-mixed", "run-identity", "run-future", "run-legacy", "run-packet-mismatch", "run-reverse-mixed"]);

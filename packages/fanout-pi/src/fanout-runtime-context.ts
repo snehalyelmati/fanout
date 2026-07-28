@@ -101,6 +101,7 @@ export function fanoutRuntimeContext(cwd: string, model: unknown, thinking: unkn
 		projectId,
 		projectArtifactRoot,
 		activePointerPath: join(projectArtifactRoot, "active-packet.json"),
+		activeProfilePointerPath: join(projectArtifactRoot, "active-profile.json"),
 		runtimeContextFile: join(projectArtifactRoot, "runtime-context.json"),
 		activeModel: active,
 		activeThinking,

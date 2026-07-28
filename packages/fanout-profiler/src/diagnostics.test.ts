@@ -4,6 +4,7 @@ import { queryDiagnostics } from "./diagnostics";
 
 const source = { id: "events", path: "packet/executions/run/events.jsonl", kind: "execution" as const, byteLength: 1, modifiedAtMs: 1 };
 const packetSource = { id: "packet", path: "packet/execution-packet.json", kind: "planning" as const, byteLength: 1, modifiedAtMs: 1 };
+const profile = { path: "profiles/default.json", sha256: "a".repeat(64), byteLength: 10 };
 const at = (ms: number) => new Date(Date.parse("2026-07-20T00:00:00.000Z") + ms).toISOString();
 const event = (sequence: number, occurredMs: number, name: string, payload: Record<string, unknown>) => ({ sequence, occurredAt: at(occurredMs), event: name, payload });
 const allocation = (nodeId: string, attemptId: string, sequence: number, kind = "original", sourceAttemptId?: string) => ({
@@ -39,7 +40,7 @@ function snapshot(options: { capacity?: number; dependentDelay?: number; busyUnt
 		refreshedAt: at(1_000),
 		selectedExecutionRunId: "packet/executions/run",
 		executionRuns: [{ id: "run", selectionId: "packet/executions/run", planningRunId: "packet", admission: "Current", label: "nonterminal", reason: "fixture", createdAt: at(0), updatedAt: at(300), projection: {
-			runId: "run", mode: "live", startedAt: at(0), policy: { maxConcurrency: capacity }, confirmation: "accepted",
+			runId: "run", mode: "live", startedAt: at(0), profile, policy: { maxConcurrency: capacity }, confirmation: "accepted",
 			nodes: ["busy", "root", "dependent"].map((id) => ({ id, status: "pending" })), attempts,
 		} as any, events: events as any, sources: [source] }],
 		planningRuns: [], supportingEvidence: [], activePointer: null,
@@ -55,7 +56,7 @@ test("ready-work observation uses confirmation for roots, predecessor completion
 	]);
 	expect(atThreshold.observations[0]).toMatchObject({
 		evidence: { readiness: { kind: "accepted-confirmation", eventSequence: 3 }, firstAllocationEventSequence: 7, capacity: { maxConcurrency: 2 } },
-		receipt: { evidenceClass: "Derived", artifactGeneration: "Event v3 / Projection v4", sourceReferences: [packetSource, source] },
+		receipt: { evidenceClass: "Derived", artifactGeneration: "Event v4 / Projection v5", profileIdentity: profile, sourceReferences: [packetSource, source] },
 	});
 	expect(atThreshold.observations[1]).toMatchObject({ evidence: { readiness: { kind: "successful-predecessors", predecessorNodeIds: ["root"], eventSequences: [9] } } });
 

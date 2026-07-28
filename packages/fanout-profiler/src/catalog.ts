@@ -107,7 +107,7 @@ interface SnapshotState { snapshot: CatalogSnapshot; references: ReadonlyMap<str
 interface PacketContext { packet: FanoutExecutionPacket; identity: ArtifactIdentity }
 
 const PLAN_FILES = new Set(["implementation-plan.json", "implementation-details.json", "execution-packet.json", "executions"]);
-const ATTEMPT_EVIDENCE_FILES = new Set(["stdout.log", "stderr.log", "observability.jsonl", "result.json", "candidate-normalization.json", "validation.json", "ownership-check.json", "apply-check.json", "attempt-outcome.json"]);
+const ATTEMPT_EVIDENCE_FILES = new Set(["stdout.log", "stderr.log", "observability.jsonl", "result.json", "preparation.json", "candidate-normalization.json", "validation.json", "ownership-check.json", "apply-check.json", "reconciliation.json", "attempt-outcome.json"]);
 const FINAL_VALIDATION_EVIDENCE = /^(?:initial|repair-[0-9a-f]{12})(?:-accepted)?\.json$/;
 const MAX_EVIDENCE_ROWS = 500;
 const MAX_EVIDENCE_LINE_BYTES = 1024 * 1024;
@@ -306,6 +306,7 @@ function inspectPlanningRun(issuer: ReferenceIssuer, id: string, names: string[]
 				if (!result.packet) { admission = "Invalid"; reason = result.errors.map(({ message }) => message).join("; "); }
 				else if (!admittedPlan || !admittedDetails || !planBytes || !detailsBytes) { if (admission !== "Invalid") { admission = "Unverifiable"; reason = "Execution Packet cannot be linked to admitted planning source artifacts"; } }
 				else if (!sameArtifact(result.packet.sourceArtifacts.plan, artifactIdentity("implementation-plan.json", planBytes)) || !sameArtifact(result.packet.sourceArtifacts.details, artifactIdentity("implementation-details.json", detailsBytes))) { admission = "Invalid"; reason = "Execution Packet source artifact identity does not match admitted planning bytes"; }
+				else if (!sameArtifact(result.packet.profile, admittedPlan.profile)) { admission = "Invalid"; reason = "Execution Packet profile identity does not match its admitted plan"; }
 				else {
 					admittedPacket = result.packet;
 					graph = deriveExecutionGraph(result.packet);
@@ -372,7 +373,7 @@ function inspectExecution(issuer: ReferenceIssuer, planningRunId: string, id: st
 				const last = events.at(-1)!;
 				if (projection.runId !== id) return invalidExecution(id, planningRunId, "Event Log run identity does not match its execution directory", sources, createdAt, last.occurredAt);
 				if (!packet) return classifiedExecution(id, planningRunId, "Unverifiable", "current Event Log cannot be linked to an admitted Execution Packet", createdAt, last.occurredAt, sources);
-				if (!sameArtifact(projection.packet, packet.identity) || projection.planningBaseTree !== packet.packet.planningBase.tree || !sameNodeIds(projection.nodes.map(({ id }) => id), packet.packet.nodes.filter(({ kind }) => kind !== "final-validation").map(({ id }) => id)) || !samePolicy(projection.policy, packet.packet.runtimePolicy)) {
+				if (!sameArtifact(projection.packet, packet.identity) || !sameArtifact(projection.profile, packet.packet.profile) || projection.planningBaseTree !== packet.packet.planningBase.tree || !sameNodeIds(projection.nodes.map(({ id }) => id), packet.packet.nodes.filter(({ kind }) => kind !== "final-validation").map(({ id }) => id)) || !samePolicy(projection.policy, packet.packet.runtimePolicy)) {
 					return classifiedExecution(id, planningRunId, "Unverifiable", "Event Log authority does not match its linked Execution Packet", createdAt, last.occurredAt, sources);
 				}
 				return freeze({ id, selectionId, planningRunId, admission: "Current", label: projection.terminalOutcome?.outcome ?? lastAdmissionLabel(last), reason: "authoritative Event Log replayed through fanout-core", createdAt: projection.startedAt, updatedAt: projection.updatedAt, projection, events, sources });

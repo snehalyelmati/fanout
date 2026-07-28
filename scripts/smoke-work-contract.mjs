@@ -66,8 +66,7 @@ const inputs = [
   ] }),
 ];
 const finalCommands = [command("npm", ["test"]), command("npm", ["test"]), command("node", ["check.js", "a b", "", "*.ts"], { cwd: "tools", env: { MODE: "exact" } })];
-const normalizationCommands = [command("normalizer", ["--first"]), command("normalizer", ["--first"])];
-const compiled = compileWorkContracts(plans, inputs, finalCommands, { candidateNormalizationCommands: normalizationCommands });
+const compiled = compileWorkContracts(plans, inputs, finalCommands);
 assert(compiled.ok, `compile failed: ${JSON.stringify(compiled.errors)}`);
 assert(compiled.nodes.length === 4, `expected merged A/B, reader, variants, final: ${compiled.nodes.map((node) => node.id)}`);
 const shared = compiled.nodes.find((node) => node.id === "a-b");
@@ -87,7 +86,7 @@ assert(JSON.stringify(variants.workContract.capabilities) === JSON.stringify(FIX
 const final = compiled.nodes.find((node) => node.kind === "final-validation");
 assert(final && final.workContract.changes.length === 0, "final validation must own no changes");
 assert(JSON.stringify(final.workContract.validationCommands) === JSON.stringify(finalCommands), "final command order, duplicates, or argv changed");
-assert(compiled.nodes.every((node) => JSON.stringify(node.workContract.candidateNormalizationCommands) === JSON.stringify(normalizationCommands)), "repository candidate-normalization commands were not copied unchanged into every contract");
+assert(compiled.nodes.every((node) => !Object.hasOwn(node.workContract, "candidateNormalizationCommands")), "work contracts retained profile-owned candidate normalization");
 assert(!("finalValidationPlan" in compiled) && !compiled.nodes.some((node) => "dependencies" in node || "ownedFiles" in node || "workerPacket" in node), "compiled authority contains legacy copies");
 
 const graph = deriveWorkContractGraph(compiled.nodes);
@@ -110,7 +109,7 @@ const mermaid = renderWorkContractMermaid(compiled.nodes);
 const summary = renderWorkContractLaunchSummary(context, compiled.nodes);
 assert(markdown === renderWorkContractMarkdown(context, compiled.nodes) && mermaid === renderWorkContractMermaid(compiled.nodes) && summary === renderWorkContractLaunchSummary(context, compiled.nodes), "derived views are not deterministic");
 assert(mermaid.includes("a-b -->") === false && mermaid.includes("flowchart TD"), "Mermaid did not use derived graph aliases");
-assert(summary.includes("Typed write resources") && summary.includes(`Candidate normalization commands: ${normalizationCommands.length * compiled.nodes.length}`) && markdown.includes("Canonical") === false, "derived human views are incomplete");
+assert(summary.includes("Typed write resources") && !summary.includes("Candidate normalization commands") && markdown.includes("Canonical") === false, "derived human views are incomplete");
 const prompt = buildCanonicalWorkerPrompt(context, shared, [{ source: "AGENTS.md", text: "Use tabs." }]);
 const serialized = JSON.stringify(shared.workContract, null, 2);
 assert(prompt.split(serialized).length - 1 === 1, "worker prompt did not serialize the canonical contract exactly once");
@@ -125,7 +124,7 @@ expectCode(validateWorkContractNodes([{ id: "legacy", kind: "implement", goal: "
 expectContractCode({ ...shared.workContract, extra: true }, "unknown-field");
 expectContractCode({ ...shared.workContract, schema: "fanout.other" }, "invalid-schema");
 expectContractCode({ ...shared.workContract, version: 1 }, "invalid-version");
-expectContractCode({ ...shared.workContract, candidateNormalizationCommands: ["normalizer --fix"] }, "invalid-candidate-normalization-command");
+expectContractCode({ ...shared.workContract, candidateNormalizationCommands: ["normalizer --fix"] }, "unknown-field");
 expectContractCode({ ...shared.workContract, capabilities: { ...FIXED_WORKER_CAPABILITIES, modelCallableTools: [...FIXED_WORKER_CAPABILITIES.modelCallableTools, "bash"] } }, "capability-profile-mismatch");
 expectContractCode({ ...shared.workContract, validationCommands: ["npm test"] }, "invalid-validation-command");
 expectContractCode({ ...shared.workContract, validationCommands: [] }, "missing-validation");

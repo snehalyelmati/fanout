@@ -51,25 +51,29 @@ Current result: the prior plan-v2/details-v3/packet-v5 generation passed locally
 
 Supersession note (2026-07-20): this remains historical contract evidence for Attempt outcome v2/event v2/projection v3. Attempt Outcome v3/Event v3/Projection v4 is now the only current replayable generation and records exact Worker Turn, Provider Response, named Tool Invocation, and cache evidence. The complete keyless root contract/replay/worker matrix passes through `rtk npm run check`; this is validation evidence, not a new live latency, cost, or release-readiness claim.
 
+Current-generation note (2026-07-27): profile v1, plan v3, details v5, work contract v3, packet v7, Attempt Outcome v4, final evidence v2, Event v4, and Projection v5 supersede that executable generation. Focused offline evidence covers cumulative repair seeds, isolated profile preparation, exact path-disjoint reconciliation, exact no-progress termination, vertical serial-chain fusion, profile-aware profiler compatibility, and cleanup timing before the terminal event. Older execution evidence is descriptive Legacy data; there is no migration.
+
 The attempt-outcome check passes A10–A12 offline: prose-like output cannot affect typed routing, accepted generic and instrumented metrics require exact correlated identities, failed attempts retain observed partial cost, and nested validation/integration repair cannot exceed either fixed two-launch pool. This remains contract evidence only.
 
 The companion execution-event check passes A13–A14 offline: serialized commits remain gapless, projection/report publication failures leave a complete authoritative log, audit replay regenerates only derived views, corrupt logs fail closed, live/dry-run outcomes remain explicit, and accepted final repair rolls projection authority to the newly validated tree. Reports have a byte-stable projection-only contract.
 
-Caveat: worker usage and cost in this smoke are synthetic fake-provider fixtures. P2 controlled real Pi workers and P4 live tier-routing measurements remain pending; no observed latency or cost claim is added here.
+Caveat: worker usage and cost in this smoke are synthetic fake-provider fixtures. P2 now has controlled real-Pi diagnostic evidence below; P4 live tier-routing measurements remain pending.
 
 ## P2 — Manual p-map AbortSignal E2E
 
 Date prepared: 2026-07-10; release-candidate update: 2026-07-14
 
-Status: repeated live execution reached all four successful work nodes but not a passing final validation. Attempts 11 and 12 independently exhausted both final-repair launches on deterministic XO formatting before AVA/tsd, despite complete typed evidence, exact ownership, and correct fail-closed ledger behavior. Reconstructing Attempt 11, running explicit repository command `npx xo --fix`, then `npm test` passed all 55 tests. Issue #32 therefore owns a coordinated packet-declared candidate-normalization revision and replan; unchanged stochastic reruns are stopped until that reviewed cutover is ready.
+Status: the 2026-07-27 implementation addresses the prerequisite and Points 1–4 from the reliability investigation. Its controlled sequence completed the canary and repetitions 1–2, then stopped when repetition 3 exhausted the fused runtime/test node's two validation repairs. The release-confidence gate therefore remains open. A post-run profiler compatibility fix also requires any future sequence to restart at the canary. No reliability rate or universal SLO is inferred.
 
 Runbook: [`docs/benchmarks/p-map-abort-signal-manual-e2e.md`](benchmarks/p-map-abort-signal-manual-e2e.md)
 
 Live tracker: [`docs/benchmarks/p-map-abort-signal-canary-tracker.md`](benchmarks/p-map-abort-signal-canary-tracker.md)
 
+Reliability/latency investigation: [`docs/benchmarks/fanout-optimization-progress.md`](benchmarks/fanout-optimization-progress.md)
+
 Purpose: exercise `/fanout-config` → `/fanout-plan` → `/fanout-execute --dry-run` → `/fanout-execute` manually against a fixed `sindresorhus/p-map` task before building a benchmark harness or routing variations. The run prioritizes correctness, UX, recovery, artifact quality, and observability. It uses local baseline `c3c261e2189f94d1a09724e8f03d5345af518017` and the decision-complete `pMapIterable` AbortSignal benchmark under `/Users/snehalyelmati/Documents/p-map-abort-signal`.
 
-The user operates Pi and authorizes every live or cost-incurring step. Preserve failed artifacts, diagnose the owning component before edits, and record results only after comparing Fanout reports with the nested repository Git state and independent `npm test` output. The fresh attempt ran from a clean 51-test baseline with Tier 1 `openai-codex/gpt-5.6-sol` medium, async Tier 2 disabled, and `openai-codex/gpt-5.6-terra` medium as the realtime worker fallback; the Pi process had the Doubleword credential removed. Pi displayed `$0.759` cumulative planning cost, while correlated Phase A events total `$0.492058`; Phase B events lacked phase/run correlation, so do not use this partial measurement as a provider comparison or completed-canary baseline.
+The user operates Pi and authorizes every live or cost-incurring step. Preserve failed artifacts, diagnose the owning component before edits, and record results only after comparing Fanout reports with the nested repository Git state and independent `npm test` output. The 2026-07-27 sequence ran from clean independent 51-test baselines with Tier 1 `openai-codex/gpt-5.6-sol` medium, async Tier 2 disabled, and `openai-codex/gpt-5.6-terra` medium as the realtime worker fallback; the Pi process had the Doubleword credential removed. Across the three completed identical runs, wall time had median 306.291s and range 278.563–408.114s, tokens median 502,710 and range 348,095–617,895, and estimated cost median `$0.624695` and range `$0.547498`–`$0.843834`. See the tracker for phase, critical-path, overlap, repair, pane, cleanup, tree, and failed-run evidence.
 
 Deferred until this manual path is reliable: automated execution harnesses, policy/model variations, and provider-tier cost or latency comparisons. Add a running-experiment ledger row only after observed artifacts and metrics exist.
 
@@ -422,6 +426,7 @@ Add one row per meaningful workflow or routing change.
 | P1-fallback-role | 2026-07-10 | Introduced separate Tier 2 fallback model role in the then-current packet v4 | fake-provider execution smoke | Tier 1 control plane + Tier 2 async + independent realtime fallback | synthetic | synthetic | Historical schema evidence; the role persists in packet v5. No live cost/TAT claim. |
 | P1-hardened-cutover | 2026-07-14 | Cut planning and execution to plan v2/details v3/packet v5/pointer v2 with event-v1/projection-v2 runtime, exact patch-ledger replay, and typed bounded recovery | complete keyless A1-A20 smoke matrix with fake/stub workers | immutable packet tier policy; public dry-run/live seams | synthetic; no provider-cost claim | synthetic; no live TAT claim | Offline implementation evidence only. The explicitly authorized macOS p-map canary and repository-owner approval remain release gates. |
 | P1-normalization-canary | 2026-07-14 | Packet-declared, language-agnostic candidate normalization with details v4/work-contract v2/packet v6 and event-v2/projection-v3 audit evidence | live `p-map` AbortSignal canary, Attempt 14 | Sol control/final review; Terra workers; async Tier 2 disabled | `$1.1384025` estimated | 465.391s | Full DAG completed: 6 attempts, 655,081 tokens, five accepted files (+327/-30), all normalizers exited 0, and final `npm test` passed 56 tests. Post-E2E review fixes are separately validated at 59 tests and are not attributed to the immutable canary tree. |
+| P2-profile-v1-controlled | 2026-07-27 | Profile v1, packet v7, vertical fusion, cumulative repair seeds, and current Event v4 evidence | one live canary plus three byte-identical `p-map` repetitions | Sol medium control; Tier 2 disabled; Terra medium fallback workers | completed-run median `$0.624695`, range `$0.547498`–`$0.843834` | completed-run median 306.291s, range 278.563–408.114s | Canary and repetitions 1–2 completed; repetition 3 stopped on bounded worker validation-repair exhaustion. This is diagnostic evidence, not release acceptance or a reliability-rate claim. |
 
 ## E1 - Safe work unit prefix evaluation
 
@@ -496,7 +501,7 @@ The 15-trace prediction artifact is tracked at `datasets/fixtures/tat-bucket-cod
 
 ## P3 — Offline profiler fixed-behavior concurrency and Provider Profile scenarios
 
-The profiler's public scenario query calculates observed, sequential, custom positive-safe-integer, and unlimited Fanout-concurrency schedules over admitted Event v3/Projection v4 evidence. Independent Tier 1 and Tier 2 mappings may retain observed calls or apply fixed/cold-warm TTFT, FIFO provider capacity, explicit warmth/reset assumptions, output-token generation speed, and displayed input/output/cache-read/cache-write per-million rates. Missing usage keeps cost Partial or Unavailable. The packet DAG, recorded Attempt and repair chains, tier assignments, Worker Turns, Provider Responses, Tool Invocations, outcomes, validations, patches, and Accepted Ledger order stay fixed. Results expose Fanout/provider capacity and acceptance-gate waits, TTFT, generation, cost, uncovered time, the completion chain, recorded-prefix or dry-run limits, and one Evidence Receipt. They are deterministic workflow experiments under fixed assumptions, not provider forecasts, quality claims, routing recommendations, or measured performance baselines.
+The profiler's public scenario query calculates observed, sequential, custom positive-safe-integer, and unlimited Fanout-concurrency schedules over admitted Event v4/Projection v5 evidence bound to exact profile identity. Independent Tier 1 and Tier 2 mappings may retain observed calls or apply fixed/cold-warm TTFT, FIFO provider capacity, explicit warmth/reset assumptions, output-token generation speed, and displayed input/output/cache-read/cache-write per-million rates. Missing usage keeps cost Partial or Unavailable. The packet DAG, recorded Attempt and repair chains, tier assignments, Worker Turns, Provider Responses, Tool Invocations, outcomes, validations, patches, and Accepted Ledger order stay fixed. Results expose Fanout/provider capacity and acceptance-gate waits, TTFT, generation, cost, uncovered time, the completion chain, recorded-prefix or dry-run limits, and one Evidence Receipt. They are deterministic workflow experiments under fixed assumptions, not provider forecasts, quality claims, routing recommendations, or measured performance baselines.
 
 Validation:
 
@@ -515,26 +520,26 @@ Run separately from normal validation:
 rtk npm run benchmark:profiler
 ```
 
-The generated temporary storage root contains exactly 50 project directories. Three are admitted projects: one contains 100 Workflow Lineages, 500 Execution Runs, 100,000 Event Log rows, and one 134,217,728-byte (128 MiB) supporting log, while two contain lightweight execution evidence. The other 47 directories contain runtime context only and must not enter the project registry. Two completed current runs contribute 400 fully admitted Event v3 rows and support the workspace, exact same-packet comparison, and observed-scenario measurements. The other 498 runs contribute 99,600 recognized Event v2 envelope rows, exercising Legacy discovery without pretending old evidence is current or replayable. The supporting log contains 1,048,576 complete 128-byte JSONL rows. Catalog load accounting must report zero supporting-evidence content bytes before the benchmark requests the capped first 500 rows, and the immutable snapshot must not contain the row payload.
+The generated temporary storage root contains exactly 50 project directories. Three are admitted projects: one contains 100 Workflow Lineages, 500 Execution Runs, 100,000 Event Log rows, and one 134,217,728-byte (128 MiB) supporting log, while two contain lightweight execution evidence. The other 47 directories contain runtime context only and must not enter the project registry. Two completed current runs contribute 400 fully admitted Event v4 rows bound to one exact profile and support the workspace, exact same-packet comparison, and observed-scenario measurements. The other 498 runs contribute 99,600 recognized Event v2 envelope rows, exercising Legacy discovery without pretending old evidence is current or replayable. The supporting log contains 1,048,576 complete 128-byte JSONL rows. Catalog load accounting must report zero supporting-evidence content bytes before the benchmark requests the capped first 500 rows, and the immutable snapshot must not contain the row payload.
 
-Local targets from issue #46 are under 5,000 ms for initial storage-root discovery/catalog load or refresh, under 250 ms for workspace/comparison/scenario queries, and under 500 ms for a capped evidence page. One run on 2026-07-26 used Bun 1.3.14 on macOS arm64 with an Apple M1 Pro:
+Local targets from issue #46 are under 5,000 ms for initial storage-root discovery/catalog load or refresh, under 250 ms for workspace/comparison/scenario queries, and under 500 ms for a capped evidence page. The profile-bound compatibility run on 2026-07-27 used Bun 1.3.14 on macOS arm64 with an Apple M1 Pro:
 
 | Measurement | Result | Target |
 | --- | ---: | ---: |
-| Fixture generation (reported separately) | 282.75 ms | n/a |
-| Initial storage-root discovery and catalog | 1,699.59 ms | <5,000 ms |
-| Storage-root rescan and selected-project refresh | 1,680.15 ms | <5,000 ms |
-| Workspace query | 6.06 ms | <250 ms |
-| Exact comparison query | 6.24 ms | <250 ms |
-| Observed scenario query | 7.32 ms | <250 ms |
-| 500-row evidence page | 0.82 ms | <500 ms |
+| Fixture generation (reported separately) | 196.24 ms | n/a |
+| Initial storage-root discovery and catalog | 1,680.69 ms | <5,000 ms |
+| Storage-root rescan and selected-project refresh | 1,628.47 ms | <5,000 ms |
+| Workspace query | 5.94 ms | <250 ms |
+| Exact comparison query | 6.11 ms | <250 ms |
+| Observed scenario query | 6.63 ms | <250 ms |
+| 500-row evidence page | 1.92 ms | <500 ms |
 
 These are one local wall-clock observation, not a CI guarantee, provider benchmark, or claim that 99,600 Legacy rows cost the same as replaying 99,600 current events. The benchmark contains no timing assertions. Normal checks instead prove structurally that a 128 MiB supporting log is represented only by metadata until selected, is not retained in the immutable snapshot, and cannot return more than 500 rows per page.
 
 ## Hardened execution baseline
 
-1. **Measure the admitted packet-v5 scheduler policy**
-   - Execution authority is the exact packet-v5/work-contract tuple with typed resources, derived dependencies, direct-argv validation, immutable runtime policy, fixed attempt budgets, and causal events.
+1. **Measure the admitted packet-v7 scheduler policy**
+   - Execution authority is the exact profile-v1/packet-v7/work-contract-v3 tuple with typed resources, derived dependencies, direct-argv validation, immutable runtime policy, fixed attempt budgets, and causal events.
    - Future routing experiments must preserve that authority and compare measured critical-path time, accepted metrics, and cost without adding prose stop-rule or budget fields.
 
 2. **Improve tier1 workflow efficiency**

@@ -6,6 +6,7 @@ import type { AttemptAllocation, StageFact } from "../../fanout-core/src/executi
 import type { AttemptRecoveryContext } from "../../fanout-core/src/recovery-evidence.ts";
 import type { FanoutExecutionPacket, FanoutWorkUnit, TierName } from "../../fanout-core/src/execution-packet.ts";
 import type { WorkerMetrics } from "../../fanout-core/src/worker-metrics.ts";
+import type { ProjectExecutionProfile } from "../../fanout-core/src/project-execution-profile.ts";
 import { contractWriteResources, type WorkContract } from "../../fanout-core/src/work-contract.ts";
 import { correlatedWorkerMetrics, emptyAttemptMetrics, processStageFact, retryableProcessFailure } from "./attempt-evidence.ts";
 import { writeArtifactAtomically } from "./artifact-store.ts";
@@ -19,7 +20,6 @@ import {
 	type PlanningBase,
 } from "./repository-identity.ts";
 import { WORKER_MODEL_TOOLS } from "./worker-capabilities.ts";
-import { prepareSharedWorktreePaths } from "./worktree-preparation.ts";
 
 export interface WorkerTier {
 	tier: TierName;
@@ -49,6 +49,7 @@ export interface WorkerAttempt {
 	correlatedMetrics: CorrelatedAttemptMetrics;
 	terminalFact?: StageFact;
 	recovery?: AttemptRecoveryContext;
+	repairSource?: AttemptRecoveryContext;
 	excludedEvidenceRefs?: readonly string[];
 	fallbackAllowed: boolean;
 }
@@ -66,7 +67,8 @@ export interface WorkerAttemptExecutionOptions {
 	validationTimeoutMs: number;
 	planningBase: PlanningBase;
 	ledger: readonly { patch: AcceptedPatch }[];
-	worktreeSharedPaths: readonly string[];
+	profile: ProjectExecutionProfile;
+	preparedBase?: PlanningBase;
 	allocation: AttemptAllocation;
 	attemptDir: string;
 	worktreePath: string;
@@ -93,13 +95,13 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 		startedAt,
 		correlatedMetrics: emptyAttemptMetrics(attemptId),
 		fallbackAllowed: options.fallbackAllowed,
+		...(options.recovery ? { repairSource: options.recovery } : {}),
 	};
 	try {
 		signal?.throwIfAborted();
 		mkdirSync(attemptDir, { recursive: true });
-		const attemptBase = createReconstructedWorktree(options.repoRoot, worktreePath, options.planningBase, options.runDir, options.ledger);
-		if (options.seedPatch) applyRepairSeedOverlay(worktreePath, options.runDir, options.seedPatch);
-		prepareSharedWorktreePaths(options.repoRoot, worktreePath, options.worktreeSharedPaths);
+		const attemptBase = options.preparedBase ?? createReconstructedWorktree(options.repoRoot, worktreePath, options.planningBase, options.runDir, options.ledger);
+		if (!options.preparedBase && options.seedPatch) applyRepairSeedOverlay(worktreePath, options.runDir, options.seedPatch, { exact: options.recovery?.kind === "final-validation" });
 
 		const promptPath = join(attemptDir, "prompt.md");
 		const stdoutPath = join(attemptDir, "stdout.log");
@@ -223,11 +225,11 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 			return { ...base, worktreePath, base: attemptBase, patch, error: [...imported.errors, ...(metricsCorrelated ? [] : ["attempt identity correlation incomplete"])].join("; "), failureKind: "metrics", retryable: false, terminalFact: { stage: "metrics", code: metricsCorrelated ? "malformed" : "correlation-mismatch" } };
 		}
 
-		if (contract.candidateNormalizationCommands.length) {
+		if (options.profile.candidateNormalization.length) {
 			let normalization = await normalizeCandidate({
 				attemptId,
 				worktreePath,
-				commands: contract.candidateNormalizationCommands,
+				commands: options.profile.candidateNormalization.map((entry) => entry.command),
 				expectedPlatform: process.platform,
 				timeoutMs: options.validationTimeoutMs,
 				inheritedEnv: process.env,

@@ -6,15 +6,18 @@ import { artifactIdentity } from "../packages/fanout-core/src/artifact-identity.
 import { compileExecutionPacket } from "../packages/fanout-core/src/fanout-compiler.ts";
 import { runDag } from "../packages/fanout-core/src/dag-scheduler.ts";
 import { executionPacketBytes } from "../packages/fanout-core/src/execution-packet.ts";
+import { parseProjectExecutionProfile } from "../packages/fanout-core/src/project-execution-profile.ts";
 import { executeFanout } from "../packages/fanout-pi/src/fanout-execute.ts";
 import { artifactSegment } from "../packages/fanout-pi/src/fanout-git.ts";
 import { replayExecutionArtifacts } from "../packages/fanout-pi/src/execution-event-store.ts";
 import { FanoutNodeExecutor } from "../packages/fanout-pi/src/fanout-node-executor.ts";
+import { reconcilePathDisjointCandidate } from "../packages/fanout-pi/src/candidate-reconciliation.ts";
 import { publishExecutionPacket } from "../packages/fanout-pi/src/planning-publication.ts";
+import { publishProjectExecutionProfile } from "../packages/fanout-pi/src/project-execution-profile.ts";
 import { capturePlanningBase, fullGitVisibleTree } from "../packages/fanout-pi/src/repository-identity.ts";
 
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
-const root = mkdtempSync(join(tmpdir(), "fanout-v6-execute-"));
+const root = mkdtempSync(join(tmpdir(), "fanout-v7-execute-"));
 try {
   const repo = join(root, "repo"); const artifacts = join(root, "artifacts"); const runDir = join(artifacts, "plan");
   mkdirSync(repo); mkdirSync(runDir, { recursive: true });
@@ -24,10 +27,20 @@ try {
   mkdirSync(join(repo, ".preinstalled"));
   writeFileSync(join(repo, ".preinstalled", "ready"), "ready\n");
   const base = capturePlanningBase(repo);
-  const plan = { schema: "fanout.implementation-plan", version: 2, planId: "p", createdAt: new Date(0).toISOString(), planningHost: { platform: process.platform }, planningBase: base, objective: "Add x", userContext: [], discoveredRepoFacts: [], assumptions: [], implementationItems: [{ id: "x", goals: ["Add x"], writeResources: [{ kind: "file", path: "x.ts" }], readResources: [], forbiddenWrites: [], semanticReviewCriteria: ["x exists"], advisoryNotes: [] }] };
+  const activeProfilePath = join(artifacts, "active-profile.json");
+  const defaultProfile = profile("default");
+  const disclosedNormalizer = profile("disclosed-normalizer", [{ executable: process.execPath, args: ["-e", "process.exit(0)"] }]);
+  assert(parseProjectExecutionProfile(disclosedNormalizer).candidateNormalization[0].expectedMutations === "candidate-owned", "candidate normalizer lost its expected tracked-mutation disclosure");
+  const invalidPreparationDisclosure = structuredClone(defaultProfile);
+  invalidPreparationDisclosure.preparation[0].expectedMutations = "candidate-owned";
+  let invalidPreparationRejected = false;
+  try { parseProjectExecutionProfile(invalidPreparationDisclosure); } catch { invalidPreparationRejected = true; }
+  assert(invalidPreparationRejected, "preparation command gained candidate-owned mutation disclosure outside normalization");
+  const publishedDefaultProfile = publishProjectExecutionProfile(defaultProfile, artifacts, activeProfilePath);
+  const plan = { schema: "fanout.implementation-plan", version: 3, planId: "p", createdAt: new Date(0).toISOString(), planningHost: { platform: process.platform }, planningBase: base, profile: publishedDefaultProfile.identity, objective: "Add x", userContext: [], discoveredRepoFacts: [], assumptions: [], implementationItems: [{ id: "x", goals: ["Add x"], writeResources: [{ kind: "file", path: "x.ts" }], readResources: [], forbiddenWrites: [], semanticReviewCriteria: ["x exists"], advisoryNotes: [] }] };
   const planIdentity = artifactIdentity("implementation-plan.json", Buffer.from(JSON.stringify(plan)));
   const command = { executable: process.execPath, args: ["-e", "if (require('node:fs').readFileSync('x.ts','utf8') !== 'export const x = 1;\\n') process.exit(1)"] };
-  const details = { schema: "fanout.implementation-details", version: 4, detailsId: "p", createdAt: new Date(0).toISOString(), plan: planIdentity, candidateNormalizationCommands: [], items: [{ id: "x", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "x.ts" }, sourcePlanIds: ["x"] }, contentIntent: "x" }], readDependencies: [], forbiddenWrites: [], validationCommands: [command], advisoryNotes: [] }], finalValidationCommands: [command] };
+  const details = { schema: "fanout.implementation-details", version: 5, detailsId: "p", createdAt: new Date(0).toISOString(), plan: planIdentity, items: [{ id: "x", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "x.ts" }, sourcePlanIds: ["x"] }, contentIntent: "x" }], readDependencies: [], forbiddenWrites: [], validationCommands: [command], advisoryNotes: [] }], finalValidationCommands: [command] };
   const detailsIdentity = artifactIdentity("implementation-details.json", Buffer.from(JSON.stringify(details)));
   const summary = { provider: "doubleword-stub", model: "deepseek-v4-flash", thinking: "off", source: "test", status: "available", reason: "test" };
   const compiled = compileExecutionPacket({ implementationPlan: plan, implementationDetails: details, planIdentity, detailsIdentity, tierPlan: { tier1: summary, tier2: { ...summary, status: "unavailable", fallback: "tier1" }, tier2Fallback: summary }, runtimePolicy: { maxConcurrency: 2, failFast: false, fallbackAllowed: true }, createdAt: new Date(0).toISOString() });
@@ -39,14 +52,27 @@ try {
   catch (error) { traversalRejected = /canonical path segment/.test(String(error)); }
   assert(traversalRejected && !existsSync(join(artifacts, "escape")) && !existsSync(join(repo, ".git", "fanout-execution.lock")), "path-traversing run identity escaped execution storage or acquired the repository lock");
   const result = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", dryRun: true, runId: "dry-run", maxConcurrency: 99 });
-  assert(result.status === "succeeded" && result.snapshot.version === 4 && result.snapshot.mode === "dry-run" && result.snapshot.terminalOutcome.outcome === "dry-run-completed", "hardened dry run did not project explicit state");
+  assert(result.status === "succeeded" && result.snapshot.version === 5 && result.snapshot.mode === "dry-run" && result.snapshot.terminalOutcome.outcome === "dry-run-completed" && Number.isFinite(result.snapshot.terminalOutcome.cleanupDurationMs), "hardened dry run did not project explicit state and cleanup timing");
   assert(result.snapshot.policy.maxConcurrency === 2, "execution options overrode immutable packet runtime policy");
   assert(result.snapshot.preflightEvidence.planningCommit.actual === base.headCommit && result.snapshot.preflightEvidence.repositoryTree.actual === base.tree && result.snapshot.preflightEvidence.platform.actual === process.platform, "dry run did not preserve exact repository/platform preflight evidence");
   assert(result.snapshot.preflightEvidence.worker.launcher.resolvedExecutable && result.snapshot.preflightEvidence.worker.extension.resolved && result.snapshot.preflightEvidence.worker.modelCallableTools.join(",") === "read,grep,find,ls,edit,write", "dry run did not preserve worker capability evidence");
   assert(result.snapshot.preflightEvidence.validationCommands.some((entry) => entry.nodeId === "x" && entry.manifest.args.join("\0") === command.args.join("\0") && entry.resolution.status === "available"), "dry run did not preserve resolved validation argv evidence");
   const events = readFileSync(result.paths.eventsPath, "utf8").trim().split("\n").map(JSON.parse);
-  assert(events.map((event) => event.sequence).join(",") === "1,2,3" && events.every((event) => event.version === 3), "events are not gapless v3 authority");
+  assert(events.map((event) => event.sequence).join(",") === "1,2,3" && events.every((event) => event.version === 4), "events are not gapless v4 authority");
+  const profileValidation = JSON.parse(readFileSync(join(result.paths.runDir, events[0].payload.profileValidation.path), "utf8"));
+  assert(JSON.stringify(profileValidation.profile) === JSON.stringify(events[0].payload.profile)
+    && profileValidation.platform === process.platform
+    && profileValidation.before?.tree === base.tree
+    && profileValidation.afterNormalization?.tree === base.tree
+    && Array.isArray(profileValidation.preparationCommands)
+    && Array.isArray(profileValidation.readinessCommands)
+    && profileValidation.normalization?.status === "completed"
+    && profileValidation.finalGateLaunchable === true, `profile validation omitted exact identity, repository, command, normalization, or final-gate evidence: ${JSON.stringify({ profileValidation, expectedProfile: events[0].payload.profile, expectedTree: base.tree, expectedPlatform: process.platform })}`);
   assert(!existsSync(join(repo, ".git", "fanout-execution.lock")), "dry run leaked execution lock");
+  publishProjectExecutionProfile(profile("mismatched-active"), artifacts, activeProfilePath);
+  const historicalProfile = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", dryRun: true, runId: "mismatched-profile" });
+  assert(historicalProfile.status === "succeeded" && JSON.stringify(historicalProfile.snapshot.profile) === JSON.stringify(compiled.packet.profile), "orthogonal active-profile refresh invalidated the packet's exact historical profile");
+  publishProjectExecutionProfile(defaultProfile, artifacts, activeProfilePath);
   const directoryExtension = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: repo, dryRun: true, runId: "directory-extension" });
   assert(directoryExtension.status === "failed" && directoryExtension.snapshot.preflightEvidence.worker.extension.status === "unavailable" && directoryExtension.snapshot.preflight.issues.some((issue) => issue.detail.includes("extension entry")), "preflight admitted a directory as an executable Pi extension entry");
 
@@ -86,11 +112,16 @@ if (process.env.FANOUT_RUN_ID === "provider-abort") {
   appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_error", runId: process.env.DOUBLEWORD_RUN_ID, provider, model, turnIndex: 0, responseId: "response-1", failureCode: "abort" }) + "\\n");
   process.exit(1);
 }
-if (!['post-worker-abort', 'repair-overlay', 'normalized-candidate', 'unauthorized-normalization', 'interrupted-normalization', 'identity-normalization', 'diagnostic-normalization', 'normalization-boundary-abort', 'normalization-boundary-abort-rewrite-failure', 'final-normalization', 'final-normalization-widened'].includes(process.env.FANOUT_RUN_ID) && process.env.FANOUT_WORKER_DIR.endsWith("001-original")) {
+if (!['post-worker-abort', 'repair-overlay', 'disjoint-reconciliation', 'overlap-reconciliation', 'fused-execution', 'normalized-candidate', 'unauthorized-normalization', 'interrupted-normalization', 'identity-normalization', 'diagnostic-normalization', 'normalization-boundary-abort', 'normalization-boundary-abort-rewrite-failure', 'final-normalization', 'final-normalization-widened'].includes(process.env.FANOUT_RUN_ID) && process.env.FANOUT_WORKER_DIR.endsWith("001-original")) {
   appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_error", runId: process.env.DOUBLEWORD_RUN_ID, provider, model, turnIndex: 0, responseId: "response-1", failureCode: "rate-limit", httpStatus: 429 }) + "\\n");
   process.exit(1);
 }
-writeFileSync(process.env.FANOUT_NODE_ID === "y" ? "y.ts" : "x.ts", process.env.FANOUT_WORKER_DIR.endsWith("validation-repair") ? "export const x = 1;\\n" : "export const x = 0;\\n");
+if (process.env.FANOUT_RUN_ID === "fused-execution") {
+  writeFileSync("x.ts", "export const x = 0;\\n");
+  writeFileSync("y.ts", "export const x = 0;\\n");
+} else {
+  writeFileSync(process.env.FANOUT_NODE_ID === "y" ? "y.ts" : "x.ts", process.env.FANOUT_WORKER_DIR.endsWith("validation-repair") ? "export const x = 1;\\n" : "export const x = 0;\\n");
+}
 const observedAt = new Date().toISOString();
 appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, [
   { ts: observedAt, event: "turn_start", turnIndex: 0 },
@@ -106,19 +137,23 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   chmodSync(fakePi, 0o755);
 
   const normalizedNode = structuredClone(compiled.packet.nodes[0]);
-  normalizedNode.workContract.candidateNormalizationCommands = [
-    { executable: process.execPath, args: ["-e", "require('node:fs').writeFileSync('x.ts', 'export const x = 1;\\n'); process.exit(7)"] },
-    { executable: process.execPath, args: ["-e", "require('node:fs').writeFileSync('x.ts', 'export const x = 2;\\n')"] },
+  const normalizedCommands = [
+    { executable: process.execPath, args: ["-e", "const fs=require('node:fs');if(fs.existsSync('x.ts'))fs.writeFileSync('x.ts', 'export const x = 1;\\n'); process.exit(7)"] },
+    { executable: process.execPath, args: ["-e", "const fs=require('node:fs');if(fs.existsSync('x.ts'))fs.writeFileSync('x.ts', 'export const x = 2;\\n')"] },
   ];
   normalizedNode.workContract.validationCommands = [{ executable: process.execPath, args: ["-e", "if (require('node:fs').readFileSync('x.ts', 'utf8') !== 'export const x = 2;\\n') process.exit(1)"] }];
   const normalizedFinal = structuredClone(compiled.packet.nodes.at(-1));
-  normalizedFinal.workContract.candidateNormalizationCommands = structuredClone(normalizedNode.workContract.candidateNormalizationCommands);
   const normalizedPacket = { ...compiled.packet, nodes: [normalizedNode, normalizedFinal] };
+  const normalizedProfile = profile("normalized", normalizedCommands);
+  const normalizedProfileIdentity = artifactIdentity("profiles/normalized.json", Buffer.from(`${JSON.stringify(normalizedProfile, null, 2)}\n`));
+  normalizedPacket.profile = normalizedProfileIdentity;
   const normalizedRunDir = join(runDir, "executions", "normalized-candidate");
   const normalizedCompletions = [];
   const normalizedExecutor = new FanoutNodeExecutor({
     packet: normalizedPacket,
     packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(normalizedPacket)),
+    profile: normalizedProfile,
+    profileIdentity: normalizedProfileIdentity,
     repoRoot: repo,
     runDir: normalizedRunDir,
     runId: "normalized-candidate",
@@ -138,12 +173,14 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
 
   const normalizationPlanDir = join(artifacts, "normalization-confirm-plan");
   const normalizationPaths = publishExecutionPacket(normalizedPacket, artifacts, normalizationPlanDir, join(artifacts, "normalization-confirm-active.json"));
+  publishProjectExecutionProfile(normalizedProfile, artifacts, activeProfilePath);
   let normalizationConfirmation = "";
   const normalizationDeclined = await executeFanout({ cwd: repo, activePointerPath: normalizationPaths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: (_title, message) => { normalizationConfirmation = message; return false; }, piCommand: fakePi, runId: "normalization-confirm" });
-  assert(normalizationDeclined.status === "aborted" && normalizationConfirmation.includes(JSON.stringify(normalizedNode.workContract.candidateNormalizationCommands[0])) && normalizationConfirmation.includes(JSON.stringify(normalizedNode.workContract.candidateNormalizationCommands[1])), "live confirmation omitted packet-declared candidate normalization manifests");
+  assert(normalizationDeclined.status === "aborted" && normalizationConfirmation.includes(JSON.stringify(normalizedCommands[0])) && normalizationConfirmation.includes(JSON.stringify(normalizedCommands[1])), "live confirmation omitted profile-declared candidate normalization manifests");
 
   const unavailablePacket = structuredClone(compiled.packet);
-  for (const node of unavailablePacket.nodes) node.workContract.candidateNormalizationCommands = [{ executable: "fanout-missing-normalizer", args: [] }];
+  const unavailableProfile = profile("unavailable", [{ executable: "fanout-missing-normalizer", args: [] }]);
+  unavailablePacket.profile = publishProjectExecutionProfile(unavailableProfile, artifacts, activeProfilePath).identity;
   const unavailablePlanDir = join(artifacts, "normalization-preflight-plan");
   const unavailablePaths = publishExecutionPacket(unavailablePacket, artifacts, unavailablePlanDir, join(artifacts, "normalization-preflight-active.json"));
   const unavailableResult = await executeFanout({ cwd: repo, activePointerPath: unavailablePaths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", dryRun: true, piCommand: fakePi, runId: "normalization-preflight" });
@@ -151,15 +188,17 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   assert(unavailableResult.snapshot.preflightEvidence.candidateNormalizationCommands.every((entry) => entry.resolution.status === "unavailable" && entry.resolution.resolvedExecutable === null), "failed normalizer resolution was not preserved as closed preflight evidence");
 
   const unauthorizedNode = structuredClone(compiled.packet.nodes[0]);
-  unauthorizedNode.workContract.candidateNormalizationCommands = [{ executable: process.execPath, args: ["-e", "const fs = require('node:fs'); fs.writeFileSync('x.ts', 'export const x = 1;\\n'); fs.writeFileSync('outside.ts', 'outside\\n')"] }];
+  const unauthorizedProfile = profile("unauthorized", [{ executable: process.execPath, args: ["-e", "const fs = require('node:fs'); fs.writeFileSync('x.ts', 'export const x = 1;\\n'); fs.writeFileSync('outside.ts', 'outside\\n')"] }]);
+  const unauthorizedProfileIdentity = artifactIdentity("profiles/unauthorized.json", Buffer.from(`${JSON.stringify(unauthorizedProfile, null, 2)}\n`));
   const unauthorizedFinal = structuredClone(compiled.packet.nodes.at(-1));
-  unauthorizedFinal.workContract.candidateNormalizationCommands = structuredClone(unauthorizedNode.workContract.candidateNormalizationCommands);
   const unauthorizedPacket = { ...compiled.packet, nodes: [unauthorizedNode, unauthorizedFinal] };
   const unauthorizedRunDir = join(runDir, "executions", "unauthorized-normalization");
   const unauthorizedCompletions = [];
   const unauthorizedExecutor = new FanoutNodeExecutor({
     packet: unauthorizedPacket,
     packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(unauthorizedPacket)),
+    profile: unauthorizedProfile,
+    profileIdentity: unauthorizedProfileIdentity,
     repoRoot: repo,
     runDir: unauthorizedRunDir,
     runId: "unauthorized-normalization",
@@ -174,9 +213,11 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   assert(!existsSync(join(repo, "x.ts")) && !existsSync(join(repo, "outside.ts")), "unauthorized normalized candidate reached the active checkout");
 
   const interruptedNode = structuredClone(compiled.packet.nodes[0]);
-  interruptedNode.workContract.candidateNormalizationCommands = [{ executable: process.execPath, args: ["-e", "require('node:fs').writeFileSync('x.ts', 'partial\\n'); setInterval(() => {}, 1000)"] }];
+  const interruptedProfile = profile("interrupted", [{ executable: process.execPath, args: ["-e", "require('node:fs').writeFileSync('x.ts', 'partial\\n'); setInterval(() => {}, 1000)"] }]);
+  interruptedProfile.preparation = [];
+  interruptedProfile.readiness = [];
+  const interruptedProfileIdentity = artifactIdentity("profiles/interrupted.json", Buffer.from(`${JSON.stringify(interruptedProfile, null, 2)}\n`));
   const interruptedFinal = structuredClone(compiled.packet.nodes.at(-1));
-  interruptedFinal.workContract.candidateNormalizationCommands = structuredClone(interruptedNode.workContract.candidateNormalizationCommands);
   const interruptedPacket = { ...compiled.packet, nodes: [interruptedNode, interruptedFinal] };
   const interruptedRunDir = join(runDir, "executions", "interrupted-normalization");
   const interruptedAllocations = [];
@@ -184,6 +225,8 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const interruptedExecutor = new FanoutNodeExecutor({
     packet: interruptedPacket,
     packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(interruptedPacket)),
+    profile: interruptedProfile,
+    profileIdentity: interruptedProfileIdentity,
     repoRoot: repo,
     runDir: interruptedRunDir,
     runId: "interrupted-normalization",
@@ -202,15 +245,19 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const diagnosticRunDir = join(runDir, "executions", "diagnostic-normalization");
   const diagnosticAttemptDir = join(diagnosticRunDir, "workers", artifactSegment("x"), "attempts", "001-original");
   const diagnosticNode = structuredClone(compiled.packet.nodes[0]);
-  diagnosticNode.workContract.candidateNormalizationCommands = [{ executable: process.execPath, args: ["-e", `const fs = require('node:fs'); fs.mkdirSync(${JSON.stringify(join(diagnosticAttemptDir, "result.json"))}, { recursive: true }); fs.rmSync(${JSON.stringify(join(diagnosticAttemptDir, "observability.jsonl"))}); fs.mkdirSync(${JSON.stringify(join(diagnosticAttemptDir, "observability.jsonl"))}); setInterval(() => {}, 1000)`] }];
+  const diagnosticProfile = profile("diagnostic", [{ executable: process.execPath, args: ["-e", `const fs = require('node:fs'); fs.mkdirSync(${JSON.stringify(join(diagnosticAttemptDir, "result.json"))}, { recursive: true }); fs.rmSync(${JSON.stringify(join(diagnosticAttemptDir, "observability.jsonl"))}); fs.mkdirSync(${JSON.stringify(join(diagnosticAttemptDir, "observability.jsonl"))}); setInterval(() => {}, 1000)`] }]);
+  diagnosticProfile.preparation = [];
+  diagnosticProfile.readiness = [];
+  const diagnosticProfileIdentity = artifactIdentity("profiles/diagnostic.json", Buffer.from(`${JSON.stringify(diagnosticProfile, null, 2)}\n`));
   const diagnosticFinal = structuredClone(compiled.packet.nodes.at(-1));
-  diagnosticFinal.workContract.candidateNormalizationCommands = structuredClone(diagnosticNode.workContract.candidateNormalizationCommands);
   const diagnosticPacket = { ...compiled.packet, nodes: [diagnosticNode, diagnosticFinal] };
   const diagnosticAllocations = [];
   const diagnosticCompletions = [];
   const diagnosticExecutor = new FanoutNodeExecutor({
     packet: diagnosticPacket,
     packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(diagnosticPacket)),
+    profile: diagnosticProfile,
+    profileIdentity: diagnosticProfileIdentity,
     repoRoot: repo,
     runDir: diagnosticRunDir,
     runId: "diagnostic-normalization",
@@ -229,15 +276,17 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const boundaryAbortAttemptDir = join(boundaryAbortRunDir, "workers", artifactSegment("x"), "attempts", "001-original");
   const boundaryAbortAuditPath = join(boundaryAbortAttemptDir, "candidate-normalization.json");
   const boundaryAbortNode = structuredClone(compiled.packet.nodes[0]);
-  boundaryAbortNode.workContract.candidateNormalizationCommands = [{ executable: process.execPath, args: ["-e", "process.exit(0)"] }];
+  const boundaryAbortProfile = profile("boundary-abort", [{ executable: process.execPath, args: ["-e", "process.exit(0)"] }]);
+  const boundaryAbortProfileIdentity = artifactIdentity("profiles/boundary-abort.json", Buffer.from(`${JSON.stringify(boundaryAbortProfile, null, 2)}\n`));
   const boundaryAbortFinal = structuredClone(compiled.packet.nodes.at(-1));
-  boundaryAbortFinal.workContract.candidateNormalizationCommands = structuredClone(boundaryAbortNode.workContract.candidateNormalizationCommands);
   const boundaryAbortPacket = { ...compiled.packet, nodes: [boundaryAbortNode, boundaryAbortFinal] };
   const boundaryAbortAllocations = [];
   const boundaryAbortCompletions = [];
   const boundaryAbortExecutor = new FanoutNodeExecutor({
     packet: boundaryAbortPacket,
     packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(boundaryAbortPacket)),
+    profile: boundaryAbortProfile,
+    profileIdentity: boundaryAbortProfileIdentity,
     repoRoot: repo,
     runDir: boundaryAbortRunDir,
     runId: "normalization-boundary-abort",
@@ -263,6 +312,8 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const rewriteFailureExecutor = new FanoutNodeExecutor({
     packet: boundaryAbortPacket,
     packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(boundaryAbortPacket)),
+    profile: boundaryAbortProfile,
+    profileIdentity: boundaryAbortProfileIdentity,
     repoRoot: repo,
     runDir: rewriteFailureRunDir,
     runId: "normalization-boundary-abort-rewrite-failure",
@@ -282,9 +333,9 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   assert(staleRewriteAudit.status === "completed" && !rewriteFailureCompletions[0].evidenceRefs.some((reference) => reference.endsWith("candidate-normalization.json")) && rewriteFailureCompletions[0].diagnostic.includes("audit update failed after user abort") && !existsSync(join(rewriteFailureAttemptDir, "patch.bin")) && !existsSync(join(repo, "x.ts")), "stale completed normalization audit was cited or abort residue reached capture/apply");
 
   const identityNode = structuredClone(compiled.packet.nodes[0]);
-  identityNode.workContract.candidateNormalizationCommands = [{ executable: process.execPath, args: ["-e", "require('node:fs').unlinkSync('.git')"] }];
+  const identityProfile = profile("identity", [{ executable: process.execPath, args: ["-e", "require('node:fs').unlinkSync('.git')"] }]);
+  const identityProfileIdentity = artifactIdentity("profiles/identity.json", Buffer.from(`${JSON.stringify(identityProfile, null, 2)}\n`));
   const identityFinal = structuredClone(compiled.packet.nodes.at(-1));
-  identityFinal.workContract.candidateNormalizationCommands = structuredClone(identityNode.workContract.candidateNormalizationCommands);
   const identityPacket = { ...compiled.packet, nodes: [identityNode, identityFinal] };
   const identityRunDir = join(runDir, "executions", "identity-normalization");
   const identityAllocations = [];
@@ -292,6 +343,8 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const identityExecutor = new FanoutNodeExecutor({
     packet: identityPacket,
     packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(identityPacket)),
+    profile: identityProfile,
+    profileIdentity: identityProfileIdentity,
     repoRoot: repo,
     runDir: identityRunDir,
     runId: "identity-normalization",
@@ -307,16 +360,16 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   assert(!identityResult.ok && identityAllocations.length === 1 && identityCompletions.length === 1 && identityCompletions[0].terminalFact.stage === "candidate-normalization" && identityCompletions[0].terminalFact.code === "identity-failure" && identityCompletions[0].action === "fail", "post-normalization identity failure escaped into model retry routing");
   assert(identityAudit.before && !identityAudit.after && identityAudit.failure.code === "identity-failure" && !existsSync(join(identityAttemptDir, "patch.bin")) && !existsSync(join(repo, "x.ts")), "post-normalization identity failure lost honest audit evidence or captured residue");
 
-  const finalNormalizer = { executable: process.execPath, args: ["-e", "const fs = require('node:fs'); if (fs.readFileSync('x.ts', 'utf8') === 'export const x = 1;\\n') fs.writeFileSync('x.ts', 'export const x = 2;\\n')"] };
+  const finalNormalizer = { executable: process.execPath, args: ["-e", "const fs = require('node:fs'); if (fs.existsSync('x.ts') && fs.readFileSync('x.ts', 'utf8') === 'export const x = 1;\\n') fs.writeFileSync('x.ts', 'export const x = 2;\\n')"] };
   const finalNormalizationDetails = structuredClone(details);
   finalNormalizationDetails.detailsId = "final-normalization";
-  finalNormalizationDetails.candidateNormalizationCommands = [finalNormalizer];
   finalNormalizationDetails.items[0].validationCommands = [{ executable: process.execPath, args: ["-e", "if (require('node:fs').readFileSync('x.ts', 'utf8') !== 'export const x = 0;\\n') process.exit(1)"] }];
   finalNormalizationDetails.finalValidationCommands = [{ executable: process.execPath, args: ["-e", "if (require('node:fs').readFileSync('x.ts', 'utf8') !== 'export const x = 2;\\n') process.exit(1)"] }];
   const finalNormalizationDetailsIdentity = artifactIdentity("implementation-details.json", Buffer.from(JSON.stringify(finalNormalizationDetails)));
   const finalNormalizationCompiled = compileExecutionPacket({ implementationPlan: plan, implementationDetails: finalNormalizationDetails, planIdentity, detailsIdentity: finalNormalizationDetailsIdentity, tierPlan: { tier1: summary, tier2: { ...summary, status: "unavailable", fallback: "tier1" }, tier2Fallback: summary }, runtimePolicy: { maxConcurrency: 2, failFast: false, fallbackAllowed: true }, createdAt: new Date(0).toISOString() });
   assert(finalNormalizationCompiled.packet, finalNormalizationCompiled.errors.join("; "));
   const finalNormalizationPlanDir = join(artifacts, "final-normalization-plan");
+  finalNormalizationCompiled.packet.profile = publishProjectExecutionProfile(profile("final-normalization", [finalNormalizer]), artifacts, activeProfilePath).identity;
   const finalNormalizationPaths = publishExecutionPacket(finalNormalizationCompiled.packet, artifacts, finalNormalizationPlanDir, join(artifacts, "final-normalization-active.json"));
   const finalNormalizationResult = await executeFanout({ cwd: repo, activePointerPath: finalNormalizationPaths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: () => true, piCommand: fakePi, runId: "final-normalization", workerTimeoutMs: 10_000, validationTimeoutMs: 10_000 });
   const finalNormalizationAttempt = finalNormalizationResult.snapshot.attempts.find((attempt) => attempt.allocation.nodeId === "final-validation");
@@ -327,14 +380,14 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   rmSync(join(repo, "x.ts"));
   assert(fullGitVisibleTree(repo) === base.tree, "final normalization success fixture did not restore the planning tree");
 
-  const wideningNormalizer = { executable: process.execPath, args: ["-e", "const fs = require('node:fs'); if (fs.readFileSync('x.ts', 'utf8') === 'export const x = 1;\\n') { fs.writeFileSync('x.ts', 'export const x = 2;\\n'); fs.writeFileSync('outside.ts', 'outside\\n'); }"] };
+  const wideningNormalizer = { executable: process.execPath, args: ["-e", "const fs = require('node:fs'); if (fs.existsSync('x.ts') && fs.readFileSync('x.ts', 'utf8') === 'export const x = 1;\\n') { fs.writeFileSync('x.ts', 'export const x = 2;\\n'); fs.writeFileSync('outside.ts', 'outside\\n'); }"] };
   const wideningDetails = structuredClone(finalNormalizationDetails);
   wideningDetails.detailsId = "final-normalization-widened";
-  wideningDetails.candidateNormalizationCommands = [wideningNormalizer];
   const wideningDetailsIdentity = artifactIdentity("implementation-details.json", Buffer.from(JSON.stringify(wideningDetails)));
   const wideningCompiled = compileExecutionPacket({ implementationPlan: plan, implementationDetails: wideningDetails, planIdentity, detailsIdentity: wideningDetailsIdentity, tierPlan: { tier1: summary, tier2: { ...summary, status: "unavailable", fallback: "tier1" }, tier2Fallback: summary }, runtimePolicy: { maxConcurrency: 2, failFast: false, fallbackAllowed: true }, createdAt: new Date(0).toISOString() });
   assert(wideningCompiled.packet, wideningCompiled.errors.join("; "));
   const wideningPlanDir = join(artifacts, "final-normalization-widened-plan");
+  wideningCompiled.packet.profile = publishProjectExecutionProfile(profile("final-normalization-widened", [wideningNormalizer]), artifacts, activeProfilePath).identity;
   const wideningPaths = publishExecutionPacket(wideningCompiled.packet, artifacts, wideningPlanDir, join(artifacts, "final-normalization-widened-active.json"));
   const wideningResult = await executeFanout({ cwd: repo, activePointerPath: wideningPaths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: () => true, piCommand: fakePi, runId: "final-normalization-widened", workerTimeoutMs: 10_000, validationTimeoutMs: 10_000 });
   const wideningAttempt = wideningResult.snapshot.attempts.find((attempt) => attempt.allocation.nodeId === "final-validation");
@@ -363,6 +416,8 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const abortExecutor = new FanoutNodeExecutor({
     packet: parallelPacket,
     packetIdentity: parallelPacketIdentity,
+    profile: defaultProfile,
+    profileIdentity: publishedDefaultProfile.identity,
     repoRoot: repo,
     runDir: abortRunDir,
     runId: "abort-validation",
@@ -397,11 +452,127 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   assert((git(repo, ["worktree", "list", "--porcelain"]).match(/^worktree /gm) ?? []).length === 1, "aborted real validation leaked worker Git worktree registrations");
   assert(!existsSync(join(abortRunDir, "workers", "y-a1fce436", "attempts", "001-original", "worktree")) && !existsSync(join(abortRunDir, "workers", "y-a1fce436", "attempts", "002-retry", "worktree")), "aborted real validation leaked worker worktree directories");
 
+  const reconciliationStarted = join(root, "reconciliation-x-validation-started");
+  const reconciliationReleased = join(root, "reconciliation-y-validation-finished");
+  const disjointX = structuredClone(compiled.packet.nodes[0]);
+  disjointX.workContract.validationCommands = [{ executable: process.execPath, args: ["-e", `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(reconciliationStarted)},'1');const deadline=Date.now()+5000;while(!fs.existsSync(${JSON.stringify(reconciliationReleased)})){if(Date.now()>deadline)process.exit(2);Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10)}if(fs.readFileSync('x.ts','utf8')!=='export const x = 0;\\n')process.exit(1)`] }];
+  const disjointY = structuredClone(sibling);
+  disjointY.workContract.validationCommands = [{ executable: process.execPath, args: ["-e", `const fs=require('node:fs');const deadline=Date.now()+5000;while(!fs.existsSync(${JSON.stringify(reconciliationStarted)})){if(Date.now()>deadline)process.exit(2);Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10)}if(fs.readFileSync('y.ts','utf8')!=='export const x = 0;\\n')process.exit(1);fs.writeFileSync(${JSON.stringify(reconciliationReleased)},'1')`] }];
+  const disjointPacket = { ...compiled.packet, nodes: [disjointX, disjointY, compiled.packet.nodes.at(-1)] };
+  const disjointRunDir = join(runDir, "executions", "disjoint-reconciliation");
+  const disjointAllocations = [];
+  const disjointCompletions = [];
+  const disjointExecutor = new FanoutNodeExecutor({
+    packet: disjointPacket,
+    packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(disjointPacket)),
+    profile: defaultProfile,
+    profileIdentity: publishedDefaultProfile.identity,
+    repoRoot: repo,
+    runDir: disjointRunDir,
+    runId: "disjoint-reconciliation",
+    extensionEntry: "packages/fanout-pi/src/index.ts",
+    piCommand: fakePi,
+    recorder: { async recordAttemptAllocated(allocation) { disjointAllocations.push(allocation); }, async recordAttemptCompleted(outcome, acceptedTransition) { disjointCompletions.push({ outcome, acceptedTransition }); }, async flush() {} },
+  });
+  let disjointResults;
+  try { disjointResults = await Promise.all([disjointExecutor.runNode(disjointX), disjointExecutor.runNode(disjointY)]); }
+  finally { disjointExecutor.cleanupWorktrees(); }
+  const reconciledCompletion = disjointCompletions.find(({ outcome }) => outcome.disposition === "deterministic-reconciliation");
+  assert(disjointResults.every((entry) => entry.ok) && disjointCompletions.filter(({ acceptedTransition }) => acceptedTransition).length === 2 && reconciledCompletion?.outcome.evidenceRefs.some((reference) => reference.endsWith("reconciliation.json")), "path-disjoint stale candidate did not reconcile through the accepted ledger without a model");
+  const reconciliationRef = reconciledCompletion.outcome.evidenceRefs.find((reference) => reference.endsWith("reconciliation.json"));
+  const reconciliationEvidence = JSON.parse(readFileSync(join(disjointRunDir, reconciliationRef), "utf8"));
+  assert(Number.isFinite(reconciliationEvidence.durationMs)
+    && reconciliationEvidence.originalBaseTree
+    && reconciliationEvidence.latestBaseTree
+    && reconciliationEvidence.pathDisjoint.status === "passed"
+    && reconciliationEvidence.pathDisjoint.overlappingPaths.length === 0
+    && reconciliationEvidence.overlay.status === "passed"
+    && reconciliationEvidence.preparation.evidence.status === "passed"
+    && reconciliationEvidence.normalization.status === "completed"
+    && reconciliationEvidence.validation.status === "passed"
+    && reconciliationEvidence.ledgerAdvanceRetries === 0
+    && reconciliationEvidence.reconciledCandidate, "reconciliation evidence omitted an exact deterministic gate or retry identity");
+  assert(disjointAllocations.every(({ kind }) => kind === "original") && readFileSync(join(repo, "x.ts"), "utf8") === "export const x = 0;\n" && readFileSync(join(repo, "y.ts"), "utf8") === "export const x = 0;\n", "deterministic reconciliation spent repair budget or lost either disjoint candidate");
+  const unavailableBase = await reconcilePathDisjointCandidate({
+    repoRoot: repo,
+    runDir: disjointRunDir,
+    attemptDir: join(disjointRunDir, "base-not-accepted"),
+    attemptId: "base-not-accepted",
+    planningBase: base,
+    ledger: [],
+    candidate: { ...reconciledCompletion.acceptedTransition.patch, baseTree: "f".repeat(40) },
+    contract: disjointX.workContract,
+    profile: defaultProfile,
+    profileIdentity: publishedDefaultProfile.identity,
+    ledgerAdvanceRetry: 0,
+    timeoutMs: 10_000,
+  });
+  assert(!unavailableBase.ok && unavailableBase.code === "base-not-accepted" && JSON.parse(readFileSync(join(disjointRunDir, unavailableBase.evidence.path), "utf8")).code === "base-not-accepted", "unavailable reconciliation base threw or omitted typed fallback evidence");
+  rmSync(join(repo, "x.ts"), { force: true });
+  rmSync(join(repo, "y.ts"), { force: true });
+  assert(fullGitVisibleTree(repo) === base.tree, "disjoint reconciliation fixture did not restore the planning tree");
+
+  rmSync(reconciliationStarted, { force: true });
+  rmSync(reconciliationReleased, { force: true });
+  const normalizationFallbackProfile = profile("reconciliation-normalization", [{ executable: process.execPath, args: ["-e", "const fs=require('node:fs');if(fs.existsSync('x.ts')&&fs.existsSync('y.ts'))setInterval(()=>{},1000)"] }]);
+  const normalizationFallbackIdentity = artifactIdentity("profiles/reconciliation-normalization.json", Buffer.from(`${JSON.stringify(normalizationFallbackProfile, null, 2)}\n`));
+  const normalizationFallbackPacket = { ...disjointPacket, profile: normalizationFallbackIdentity };
+  const normalizationFallbackAllocations = [];
+  const normalizationFallbackExecutor = new FanoutNodeExecutor({
+    packet: normalizationFallbackPacket,
+    packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(normalizationFallbackPacket)),
+    profile: normalizationFallbackProfile,
+    profileIdentity: normalizationFallbackIdentity,
+    repoRoot: repo,
+    runDir: join(runDir, "executions", "normalization-reconciliation"),
+    runId: "normalization-reconciliation",
+    extensionEntry: "packages/fanout-pi/src/index.ts",
+    piCommand: fakePi,
+    validationTimeoutMs: 1_000,
+    recorder: { async recordAttemptAllocated(allocation) { normalizationFallbackAllocations.push(allocation); }, async recordAttemptCompleted() {}, async flush() {} },
+  });
+  let normalizationFallbackResults;
+  try { normalizationFallbackResults = await Promise.all([normalizationFallbackExecutor.runNode(disjointX), normalizationFallbackExecutor.runNode(disjointY)]); }
+  finally { normalizationFallbackExecutor.cleanupWorktrees(); }
+  assert(normalizationFallbackResults.filter((entry) => entry.ok).length === 1 && normalizationFallbackAllocations.some(({ kind }) => kind === "integration-repair"), `reconciliation normalization failure did not route through bounded integration repair: ${JSON.stringify({ results: normalizationFallbackResults.map((entry) => ({ ok: entry.ok, error: entry.error, failureKind: entry.failureKind })), allocations: normalizationFallbackAllocations.map(({ kind }) => kind) })}`);
+  rmSync(join(repo, "x.ts"), { force: true });
+  rmSync(join(repo, "y.ts"), { force: true });
+  rmSync(reconciliationStarted, { force: true });
+  rmSync(reconciliationReleased, { force: true });
+  assert(fullGitVisibleTree(repo) === base.tree, "normalization reconciliation fixture did not restore the planning tree");
+
+  const overlapY = structuredClone(disjointY);
+  overlapY.id = "x-overlap";
+  overlapY.workContract.changes = overlapY.workContract.changes.map((change) => ({ ...change, target: { ...change.target, resource: { kind: "file", path: "x.ts" } } }));
+  overlapY.workContract.validationCommands = [{ executable: process.execPath, args: ["-e", `const fs=require('node:fs');const deadline=Date.now()+5000;while(!fs.existsSync(${JSON.stringify(reconciliationStarted)})){if(Date.now()>deadline)process.exit(2);Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10)}if(fs.readFileSync('x.ts','utf8')!=='export const x = 0;\\n')process.exit(1);fs.writeFileSync(${JSON.stringify(reconciliationReleased)},'1')`] }];
+  const overlapPacket = { ...compiled.packet, nodes: [disjointX, overlapY, compiled.packet.nodes.at(-1)] };
+  const overlapAllocations = [];
+  const overlapExecutor = new FanoutNodeExecutor({
+    packet: overlapPacket,
+    packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(overlapPacket)),
+    profile: defaultProfile,
+    profileIdentity: publishedDefaultProfile.identity,
+    repoRoot: repo,
+    runDir: join(runDir, "executions", "overlap-reconciliation"),
+    runId: "overlap-reconciliation",
+    extensionEntry: "packages/fanout-pi/src/index.ts",
+    piCommand: fakePi,
+    recorder: { async recordAttemptAllocated(allocation) { overlapAllocations.push(allocation); }, async recordAttemptCompleted() {}, async flush() {} },
+  });
+  let overlapResults;
+  try { overlapResults = await Promise.all([overlapExecutor.runNode(disjointX), overlapExecutor.runNode(overlapY)]); }
+  finally { overlapExecutor.cleanupWorktrees(); }
+  assert(overlapResults.filter((entry) => entry.ok).length === 1 && overlapAllocations.some(({ kind }) => kind === "integration-repair"), "overlapping stale candidate did not route through existing integration repair");
+  rmSync(join(repo, "x.ts"), { force: true });
+  assert(fullGitVisibleTree(repo) === base.tree, "overlap reconciliation fixture did not restore the planning tree");
+
   const postWorkerAllocations = [];
   const postWorkerCompletions = [];
   const postWorkerExecutor = new FanoutNodeExecutor({
     packet: compiled.packet,
     packetIdentity,
+    profile: defaultProfile,
+    profileIdentity: publishedDefaultProfile.identity,
     repoRoot: repo,
     runDir: join(runDir, "executions", "post-worker-abort"),
     runId: "post-worker-abort",
@@ -410,13 +581,13 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
     recorder: { async recordAttemptAllocated(allocation) { postWorkerAllocations.push(allocation); }, async recordAttemptCompleted(outcome) { postWorkerCompletions.push(outcome); }, async flush() {} },
   });
   const postWorkerController = new AbortController();
-  let abortReads = 0;
-  Object.defineProperty(postWorkerController.signal, "aborted", { configurable: true, get: () => ++abortReads > 1 });
+  const postWorkerObservability = join(runDir, "executions", "post-worker-abort", "workers", artifactSegment("x"), "attempts", "001-original", "observability.jsonl");
+  Object.defineProperty(postWorkerController.signal, "aborted", { configurable: true, get: () => existsSync(postWorkerObservability) });
   let postWorkerRejected = false;
   try { await postWorkerExecutor.runNode(compiled.packet.nodes[0], postWorkerController.signal); }
-  catch (error) { postWorkerRejected = error?.name === "AbortError"; }
+  catch { postWorkerRejected = true; }
   finally { postWorkerExecutor.cleanupWorktrees(); }
-  assert(postWorkerRejected && postWorkerAllocations.length === 1 && postWorkerCompletions.length === 1 && postWorkerCompletions[0].action === "abort" && postWorkerCompletions[0].attemptId === postWorkerAllocations[0].attemptId, "abort after successful worker launch stranded its allocation before the gate");
+  assert(postWorkerRejected && postWorkerAllocations.length === 1 && postWorkerCompletions.length === 1 && postWorkerCompletions[0].attemptId === postWorkerAllocations[0].attemptId, `abort after successful worker launch stranded its allocation before the next preparation gate: ${JSON.stringify({ postWorkerRejected, allocations: postWorkerAllocations.length, completions: postWorkerCompletions.map((outcome) => ({ attemptId: outcome.attemptId, action: outcome.action, fact: outcome.terminalFact })) })}`);
 
   const repairPrimary = structuredClone(compiled.packet.nodes[0]);
   repairPrimary.workContract.validationCommands = [{ executable: process.execPath, args: ["-e", `const fs = require('node:fs'); const deadline = Date.now() + 5000; while (!fs.existsSync(${JSON.stringify(join(repo, "y.ts"))})) { if (Date.now() >= deadline) process.exit(2); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10); } if (fs.readFileSync('x.ts','utf8') !== 'export const x = 1;\\n') process.exit(1)`] }];
@@ -431,6 +602,8 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const repairExecutor = new FanoutNodeExecutor({
     packet: repairPacket,
     packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(repairPacket)),
+    profile: defaultProfile,
+    profileIdentity: publishedDefaultProfile.identity,
     repoRoot: repo,
     runDir: join(runDir, "executions", "repair-overlay"),
     runId: "repair-overlay",
@@ -449,6 +622,47 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   rmSync(join(repo, "y.ts"), { force: true });
   assert(fullGitVisibleTree(repo) === base.tree, "repair seed overlay fixture did not restore the planning tree");
 
+  const xValidation = { executable: process.execPath, args: ["-e", "if(require('node:fs').readFileSync('x.ts','utf8')!=='export const x = 0;\\n')process.exit(1)"] };
+  const yValidation = { executable: process.execPath, args: ["-e", "if(require('node:fs').readFileSync('y.ts','utf8')!=='export const x = 0;\\n')process.exit(1)"] };
+  const fusedProfile = profile("fused-execution", [{ executable: process.execPath, args: ["-e", "process.exit(0)"] }]);
+  const publishedFusedProfile = publishProjectExecutionProfile(fusedProfile, artifacts, activeProfilePath);
+  const fusedPlan = {
+    ...plan,
+    planId: "fused-execution",
+    profile: publishedFusedProfile.identity,
+    implementationItems: [
+      { id: "fused-x", goals: ["Add x"], writeResources: [{ kind: "file", path: "x.ts" }], readResources: [{ kind: "file", path: "y.ts" }], forbiddenWrites: [], semanticReviewCriteria: ["x exists"], advisoryNotes: [] },
+      { id: "fused-y", goals: ["Add y"], writeResources: [{ kind: "file", path: "y.ts" }], readResources: [{ kind: "file", path: "x.ts" }], forbiddenWrites: [], semanticReviewCriteria: ["y exists"], advisoryNotes: [] },
+    ],
+  };
+  const fusedPlanIdentity = artifactIdentity("fused-execution-plan.json", Buffer.from(JSON.stringify(fusedPlan)));
+  const fusedDetails = {
+    schema: "fanout.implementation-details",
+    version: 5,
+    detailsId: "fused-execution",
+    createdAt: new Date(0).toISOString(),
+    plan: fusedPlanIdentity,
+    items: [
+      { id: "fused-x", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "x.ts" }, sourcePlanIds: ["fused-x"] }, contentIntent: "x" }], readDependencies: [{ resource: { kind: "file", path: "y.ts" }, timing: "baseline-context", timingSource: "phase-b", sourcePlanIds: ["fused-x"], reason: "shared context" }], forbiddenWrites: [], validationCommands: [xValidation], advisoryNotes: [] },
+      { id: "fused-y", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "y.ts" }, sourcePlanIds: ["fused-y"] }, contentIntent: "y" }], readDependencies: [{ resource: { kind: "file", path: "x.ts" }, timing: "post-change-required", timingSource: "phase-b", sourcePlanIds: ["fused-y"], reason: "test implemented x" }], forbiddenWrites: [], validationCommands: [xValidation, yValidation], advisoryNotes: [] },
+    ],
+    finalValidationCommands: [xValidation, yValidation],
+  };
+  const fusedDetailsIdentity = artifactIdentity("fused-execution-details.json", Buffer.from(JSON.stringify(fusedDetails)));
+  const fusedCompiled = compileExecutionPacket({ implementationPlan: fusedPlan, implementationDetails: fusedDetails, planIdentity: fusedPlanIdentity, detailsIdentity: fusedDetailsIdentity, tierPlan: { tier1: summary, tier2: { ...summary, status: "unavailable", fallback: "tier1" }, tier2Fallback: summary }, runtimePolicy: { maxConcurrency: 2, failFast: false, fallbackAllowed: true }, createdAt: new Date(0).toISOString() });
+  assert(fusedCompiled.packet?.nodes.length === 2 && fusedCompiled.packet.nodes[0].id.startsWith("fused-"), `eligible execution chain did not compile to one worker: ${fusedCompiled.errors.join("; ")}`);
+  const fusedPlanDir = join(artifacts, "fused-execution-plan");
+  const fusedPaths = publishExecutionPacket(fusedCompiled.packet, artifacts, fusedPlanDir, join(artifacts, "fused-execution-active.json"));
+  const fusedResult = await executeFanout({ cwd: repo, activePointerPath: fusedPaths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: () => true, piCommand: fakePi, runId: "fused-execution", workerTimeoutMs: 10_000, validationTimeoutMs: 10_000 });
+  const fusedOrdinaryAttempts = fusedResult.snapshot.attempts.filter(({ allocation }) => allocation.nodeId !== "final-validation");
+  assert(fusedResult.status === "succeeded" && fusedOrdinaryAttempts.length === 1 && fusedResult.snapshot.acceptedLedger.length === 1, "fused vertical slice did not run one model/validation/apply cycle");
+  const fusedAttemptDir = join(fusedResult.paths.runDir, "workers", artifactSegment(fusedCompiled.packet.nodes[0].id), "attempts", "001-original");
+  assert(existsSync(join(fusedAttemptDir, "preparation.json")) && existsSync(join(fusedAttemptDir, "candidate-normalization.json")), "fused vertical slice did not run one isolated setup and normalization phase");
+  rmSync(join(repo, "x.ts"), { force: true });
+  rmSync(join(repo, "y.ts"), { force: true });
+  assert(fullGitVisibleTree(repo) === base.tree, "fused execution fixture did not restore the planning tree");
+
+  publishProjectExecutionProfile(defaultProfile, artifacts, activeProfilePath);
   const providerAbort = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: () => true, piCommand: fakePi, runId: "provider-abort", workerTimeoutMs: 10_000, validationTimeoutMs: 10_000 });
   const abortCause = providerAbort.snapshot.terminalOutcome.cause;
   assert(providerAbort.status === "aborted" && abortCause.kind === "event" && abortCause.code === "user-abort" && abortCause.attemptId === providerAbort.snapshot.attempts[0].allocation.attemptId && providerAbort.snapshot.attempts[0].outcome.action === "abort", "typed provider abort did not produce a terminal run citing its causal attempt completion");
@@ -457,11 +671,13 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const failingDetailsIdentity = artifactIdentity("implementation-details.json", Buffer.from(JSON.stringify(failingDetails)));
   const failingCompiled = compileExecutionPacket({ implementationPlan: plan, implementationDetails: failingDetails, planIdentity, detailsIdentity: failingDetailsIdentity, tierPlan: { tier1: summary, tier2: { ...summary, status: "unavailable", fallback: "tier1" }, tier2Fallback: summary }, runtimePolicy: { maxConcurrency: 2, failFast: false, fallbackAllowed: true }, createdAt: new Date(0).toISOString() });
   assert(failingCompiled.packet, failingCompiled.errors.join("; "));
+  const finalFailureProfile = publishProjectExecutionProfile(profile("final-failure", [], [{ executable: process.execPath, args: ["-e", "process.exit(0)"] }]), artifacts, activeProfilePath);
+  const failingPacket = { ...failingCompiled.packet, profile: finalFailureProfile.identity };
   const failingRunDir = join(artifacts, "final-failure-plan");
-  const failingPaths = publishExecutionPacket(failingCompiled.packet, artifacts, failingRunDir, join(artifacts, "final-failure-active.json"));
+  const failingPaths = publishExecutionPacket(failingPacket, artifacts, failingRunDir, join(artifacts, "final-failure-active.json"));
   const failingPacketIdentity = JSON.parse(readFileSync(failingPaths.activePointerPath, "utf8")).packet;
   const finalFailure = await executeFanout({ cwd: repo, activePointerPath: failingPaths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: () => true, piCommand: fakePi, runId: "final-failure", workerTimeoutMs: 10_000, validationTimeoutMs: 10_000 });
-  assert(finalFailure.status === "failed" && finalFailure.snapshot.finalValidation.disposition === "failed" && finalFailure.snapshot.finalValidation.commandCount === 2 && finalFailure.snapshot.terminalOutcome.outcome === "failed", "fail-fast/exhausted repair did not commit explicit accepted-tree final-validation failure");
+  assert(finalFailure.status === "failed" && finalFailure.snapshot.finalValidation.disposition === "failed" && finalFailure.snapshot.finalValidation.commandCount === 3 && finalFailure.snapshot.terminalOutcome.outcome === "failed" && finalFailure.snapshot.attempts.every((attempt) => attempt.outcome), "fail-fast/exhausted repair with a profile final gate did not commit explicit accepted-tree final-validation failure and terminal attempt accounting");
   assert(finalFailure.finalValidation.evidence.expectedValidationTree === finalFailure.snapshot.acceptedLedger.at(-1).transition.patch.resultTree && !finalFailure.finalValidation.evidence.candidate, "rejected final-repair candidate became completion-tree authority");
   const finalRepairPrompt = readFileSync(join(finalFailure.paths.runDir, "workers", artifactSegment("final-validation"), "attempts", "001-validation-repair", "prompt.md"), "utf8");
   assert(finalRepairPrompt.includes(failingPacketIdentity.sha256) && finalRepairPrompt.includes('"nodeId": "x"') && finalRepairPrompt.includes('"finalValidationContract"'), "public final-repair prompt omitted immutable packet identity, original final contract, or packet-ordered upstream contracts");
@@ -477,12 +693,13 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   assert(fullGitVisibleTree(repo) === base.tree, "ambiguous-lock fixture cleanup did not restore the planning base");
 
   let liveConfirmation = "";
-  const live = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: (_title, message) => { liveConfirmation = message; return true; }, piCommand: fakePi, runId: "live", workerTimeoutMs: 10_000, validationTimeoutMs: 10_000, worktreeSharedPaths: [".preinstalled"] });
+  publishProjectExecutionProfile(defaultProfile, artifacts, activeProfilePath);
+  const live = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: (_title, message) => { liveConfirmation = message; return true; }, piCommand: fakePi, runId: "live", workerTimeoutMs: 10_000, validationTimeoutMs: 10_000 });
   assert(live.status === "succeeded" && existsSync(join(repo, "x.ts")) && readFileSync(join(repo, "x.ts"), "utf8") === "export const x = 1;\n", `public executeFanout live seam did not apply the accepted patch: ${JSON.stringify({ status: live.status, error: live.error, snapshot: live.snapshot })}`);
   assert(live.snapshot.acceptedLedger.length === 1 && live.snapshot.finalValidation.disposition === "passed" && live.snapshot.totals.totalTokens === 12 && live.snapshot.totals.attemptKinds.retry === 1 && live.snapshot.totals.attemptKinds["validation-repair"] === 1, "live projection lost retry success, repair, accepted transition, final validation, or metrics");
   assert(live.snapshot.preflightEvidence.worker.launcher.resolvedExecutable && live.snapshot.preflightEvidence.worker.extension.resolved, "live projection did not preserve resolved worker evidence");
   assert(live.snapshot.preflightEvidence.validationCommands.some((entry) => entry.nodeId === "x" && entry.manifest.args.join("\0") === command.args.join("\0") && entry.resolution.status === "available"), "live projection did not preserve resolved validation argv evidence");
-  assert(liveConfirmation.includes("Shared worktree paths: .preinstalled"), "live confirmation omitted explicit worktree preparation input");
+  assert(liveConfirmation.includes("Preparation commands: 1") && liveConfirmation.includes("Project Execution Profile: default"), "live confirmation omitted isolated Project Execution Profile preparation");
   const liveEvents = readFileSync(live.paths.eventsPath, "utf8").trim().split("\n").map(JSON.parse);
   assert(liveEvents.length === 13 && liveEvents.every((event, index) => event.sequence === index + 1), "live executeFanout retry/repair seam did not produce a gapless causal lifecycle");
   const projectionBytes = readFileSync(live.paths.snapshotPath, "utf8");
@@ -500,8 +717,22 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   let rejected = false; try { await executeFanout({ cwd: repo, activePointerPath: legacyPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", dryRun: true, runId: "legacy" }); } catch (error) { rejected = /rerun \/fanout-plan/.test(String(error)); }
   assert(rejected, "A18 legacy pointer did not get replan guidance");
   assert(readFileSync(legacyPath, "utf8") === legacy && git(repo, ["status", "--porcelain=v1"]) === before && !existsSync(join(repo, ".git", "fanout-execution.lock")), "A18 rejection mutated history, repository, or lock");
-  console.log("fanout execute cutover smoke passed (live public seam/event v3/projection v4/A18)");
+  console.log("fanout execute cutover smoke passed (live public seam/event v4/projection v5/A18)");
 } finally { rmSync(root, { recursive: true, force: true }); }
 
 function git(cwd, args) { return execFileSync("git", ["-c", "core.fsmonitor=false", ...args], { cwd, encoding: "utf8" }).trim(); }
 async function waitForFile(path) { const deadline = Date.now() + 5000; while (!existsSync(path)) { if (Date.now() >= deadline) throw new Error(`timed out waiting for ${path}`); await new Promise((resolve) => setTimeout(resolve, 10)); } }
+
+function profile(profileId, normalizers = [], finalGates = []) {
+  const declaration = (command, purpose, expectedMutations = "none") => ({ command, purpose, expectedMutations, networkAccess: false, lifecycleScripts: false });
+  return {
+    schema: "fanout.project-execution-profile",
+    version: 1,
+    profileId,
+    createdAt: new Date(0).toISOString(),
+    preparation: [declaration({ executable: process.execPath, args: ["-e", "const fs=require('node:fs');fs.mkdirSync('.preinstalled',{recursive:true});fs.writeFileSync('.preinstalled/ready','ready\\n')"] }, "Prepare isolated ignored dependencies", "ignored-only")],
+    readiness: [declaration({ executable: process.execPath, args: ["-e", "if(require('node:fs').readFileSync('.preinstalled/ready','utf8')!=='ready\\n')process.exit(1)"] }, "Verify isolated dependencies")],
+    candidateNormalization: normalizers.map((command) => declaration(command, "Normalize candidate", "candidate-owned")),
+    requiredFinalGates: finalGates.map((command) => declaration(command, "Run required final gate")),
+  };
+}

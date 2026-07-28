@@ -14,7 +14,7 @@ import { FIXED_WORKER_CAPABILITIES } from "./work-contract.ts";
 import { FINAL_VALIDATION_NODE_ID } from "./work-contract-graph.ts";
 
 export const EXECUTION_EVENT_SCHEMA = "fanout.execution-event";
-export const EXECUTION_EVENT_VERSION = 3;
+export const EXECUTION_EVENT_VERSION = 4;
 export const EXECUTION_EVENT_NAMES = ["run-started", "preflight-completed", "confirmation-decided", "attempt-allocated", "attempt-completed", "node-completed", "final-validation-started", "final-validation-completed", "run-finished"] as const;
 
 export type ExecutionEventName = (typeof EXECUTION_EVENT_NAMES)[number];
@@ -23,7 +23,7 @@ export type RunOutcome = "completed" | "dry-run-completed" | "failed" | "aborted
 export type ExecutionPhase = "preflight" | "confirmation" | "attempts" | "final-validation" | "finished";
 export type PreflightIssueCode = "planning-base-mismatch" | "repository-tree-mismatch" | "platform-mismatch" | "executable-unavailable" | "artifact-invalid" | "capability-unavailable" | "controller-failure";
 export type RunEventCauseCode = "preflight-failed" | "confirmation-declined" | "node-failed" | "dependency-failed" | "final-validation-failed" | "dry-run" | "final-validation-passed" | "user-abort";
-export type ControllerRunStage = Exclude<ExecutionPhase, "finished">;
+export type ControllerRunStage = Exclude<ExecutionPhase, "finished"> | "cleanup";
 
 export interface RunPolicy {
 	maxConcurrency: number;
@@ -62,6 +62,8 @@ export interface PreflightEvidence {
 export interface RunStartedPayload {
 	mode: RunMode;
 	packet: ArtifactIdentity;
+	profile: ArtifactIdentity;
+	profileValidation: ArtifactIdentity;
 	planningBaseTree: GitTreeId;
 	nodeIds: string[];
 	policy: RunPolicy;
@@ -99,6 +101,13 @@ export type RunFinishCause =
 	| { kind: "event"; eventSequence: number; code: RunEventCauseCode; nodeId?: string; attemptId?: string }
 	| { kind: "controller"; stage: ControllerRunStage; code: "internal-failure" | "publication-failure"; detail: string };
 
+export interface RunFinishedPayload {
+	outcome: RunOutcome;
+	durationMs: number;
+	cleanupDurationMs: number;
+	cause: RunFinishCause;
+}
+
 export interface ExecutionEvent {
 	schema: typeof EXECUTION_EVENT_SCHEMA;
 	version: typeof EXECUTION_EVENT_VERSION;
@@ -123,7 +132,7 @@ export function parseExecutionEvent(value: unknown): ExecutionEvent {
 
 function parsePayload(name: ExecutionEventName, value: unknown): Record<string, unknown> {
 	if (name === "run-started") {
-		const item = exactRecord(value, ["mode", "packet", "planningBaseTree", "nodeIds", "policy", "preflightEvidence"], [], name);
+		const item = exactRecord(value, ["mode", "packet", "profile", "profileValidation", "planningBaseTree", "nodeIds", "policy", "preflightEvidence"], [], name);
 		if (item.mode !== "live" && item.mode !== "dry-run") throw new TypeError("run mode must be live or dry-run");
 		const policy = exactRecord(item.policy, ["maxConcurrency", "failFast", "fallbackAllowed"], [], "run policy");
 		const nodeIds = identities(item.nodeIds, "nodeIds");
@@ -132,7 +141,7 @@ function parsePayload(name: ExecutionEventName, value: unknown): Record<string, 
 		const preflightEvidence = parsePreflightEvidence(item.preflightEvidence);
 		if (preflightEvidence.repositoryTree.expected !== planningBaseTree) throw new TypeError("preflight repository-tree expectation must match the run planning base");
 		assertPacketOrderedCommandNodes(preflightEvidence, nodeIds);
-		return { mode: item.mode, packet: parseArtifactIdentity(item.packet), planningBaseTree, nodeIds, policy: { maxConcurrency: positiveInteger(policy.maxConcurrency, "maxConcurrency"), failFast: boolean(policy.failFast, "failFast"), fallbackAllowed: boolean(policy.fallbackAllowed, "fallbackAllowed") }, preflightEvidence };
+		return { mode: item.mode, packet: parseArtifactIdentity(item.packet), profile: parseArtifactIdentity(item.profile), profileValidation: parseArtifactIdentity(item.profileValidation), planningBaseTree, nodeIds, policy: { maxConcurrency: positiveInteger(policy.maxConcurrency, "maxConcurrency"), failFast: boolean(policy.failFast, "failFast"), fallbackAllowed: boolean(policy.fallbackAllowed, "fallbackAllowed") }, preflightEvidence };
 	}
 	if (name === "preflight-completed") {
 		const item = exactRecord(value, ["status", "planningBaseTree", "repositoryTree", "issues"], [], name);
@@ -174,7 +183,7 @@ function parsePayload(name: ExecutionEventName, value: unknown): Record<string, 
 		if (item.status !== "passed" && item.status !== "failed") throw new TypeError("final-validation status is invalid");
 		return { status: item.status, commandCount: nonNegativeInteger(item.commandCount, "commandCount"), durationMs: nonNegativeNumber(item.durationMs, "durationMs"), evidence: parseArtifactIdentity(item.evidence), expectedTree: parseGitTreeId(item.expectedTree), beforeTree: parseGitTreeId(item.beforeTree), afterTree: parseGitTreeId(item.afterTree) };
 	}
-	const item = exactRecord(value, ["outcome", "durationMs", "cause"], [], name);
+	const item = exactRecord(value, ["outcome", "durationMs", "cleanupDurationMs", "cause"], [], name);
 	if (!["completed", "dry-run-completed", "failed", "aborted"].includes(String(item.outcome))) throw new TypeError("run outcome is invalid");
 	const causeValue = record(item.cause) ? item.cause : {};
 	let cause: RunFinishCause;
@@ -185,10 +194,10 @@ function parsePayload(name: ExecutionEventName, value: unknown): Record<string, 
 		cause = { kind: "event", eventSequence: positiveInteger(parsed.eventSequence, "cause.eventSequence"), code, ...(parsed.nodeId === undefined ? {} : { nodeId: identity(parsed.nodeId, "cause.nodeId") }), ...(parsed.attemptId === undefined ? {} : { attemptId: identity(parsed.attemptId, "cause.attemptId") }) };
 	} else {
 		const parsed = exactRecord(item.cause, ["kind", "stage", "code", "detail"], [], "run finish cause");
-		if (parsed.kind !== "controller" || !["preflight", "confirmation", "attempts", "final-validation"].includes(String(parsed.stage)) || !["internal-failure", "publication-failure"].includes(String(parsed.code))) throw new TypeError("controller run finish cause is invalid");
+		if (parsed.kind !== "controller" || !["preflight", "confirmation", "attempts", "final-validation", "cleanup"].includes(String(parsed.stage)) || !["internal-failure", "publication-failure"].includes(String(parsed.code))) throw new TypeError("controller run finish cause is invalid");
 		cause = { kind: "controller", stage: parsed.stage as ControllerRunStage, code: parsed.code as "internal-failure" | "publication-failure", detail: string(parsed.detail, "cause.detail") };
 	}
-	return { outcome: item.outcome, durationMs: nonNegativeNumber(item.durationMs, "durationMs"), cause };
+	return { outcome: item.outcome, durationMs: nonNegativeNumber(item.durationMs, "durationMs"), cleanupDurationMs: nonNegativeNumber(item.cleanupDurationMs, "cleanupDurationMs"), cause };
 }
 
 function parsePreflightEvidence(value: unknown): PreflightEvidence {

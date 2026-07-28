@@ -3,7 +3,7 @@ import { validateWorkContractNodes, type WorkContractGraph } from "./work-contra
 import { type WorkContract, type WorkContractIssue } from "./work-contract.ts";
 
 export const EXECUTION_PACKET_SCHEMA = "fanout.execution-packet";
-export const EXECUTION_PACKET_VERSION = 6;
+export const EXECUTION_PACKET_VERSION = 7;
 export const ACTIVE_PACKET_SCHEMA = "fanout.active-packet";
 
 export type TierName = "tier1" | "tier2";
@@ -57,6 +57,7 @@ export interface FanoutExecutionPacket {
 	version: typeof EXECUTION_PACKET_VERSION;
 	createdAt: string;
 	sourceArtifacts: { plan: ArtifactIdentity; details: ArtifactIdentity };
+	profile: ArtifactIdentity;
 	planningHost: { platform: NodeJS.Platform };
 	planningBase: { headCommit: GitCommitId; tree: GitTreeId };
 	objective: string;
@@ -91,7 +92,7 @@ export function derivePreferredTier(kind: WorkUnitKind): TierName {
 	return kind === "final-validation" ? "tier1" : "tier2";
 }
 
-const PACKET_FIELDS = new Set(["schema", "version", "createdAt", "sourceArtifacts", "planningHost", "planningBase", "objective", "userContext", "discoveredRepoFacts", "assumptions", "tierPlan", "runtimePolicy", "nodes"]);
+const PACKET_FIELDS = new Set(["schema", "version", "createdAt", "sourceArtifacts", "profile", "planningHost", "planningBase", "objective", "userContext", "discoveredRepoFacts", "assumptions", "tierPlan", "runtimePolicy", "nodes"]);
 const NODE_FIELDS = new Set(["id", "kind", "tier", "active", "workContract"]);
 const SUMMARY_FIELDS = new Set(["provider", "model", "thinking", "source", "status", "reason", "fallback"]);
 const ASSIGNMENT_FIELDS = new Set(["preferred", "assigned", "fallback", "provider", "model", "thinking", "reason"]);
@@ -109,6 +110,9 @@ export function validateExecutionPacket(value: unknown): PacketValidationResult 
 		if (!exact(value.sourceArtifacts, ["plan", "details"])) throw new TypeError("sourceArtifacts must contain plan and details only");
 		sourceArtifacts = { plan: parseArtifactIdentity(value.sourceArtifacts.plan), details: parseArtifactIdentity(value.sourceArtifacts.details) };
 	} catch (error) { add(errors, "invalid-source-identity", message(error), "sourceArtifacts"); }
+	let profile: ArtifactIdentity | undefined;
+	try { profile = parseArtifactIdentity(value.profile); }
+	catch (error) { add(errors, "invalid-profile-identity", message(error), "profile"); }
 	let planningHost: FanoutExecutionPacket["planningHost"] | undefined;
 	if (!exact(value.planningHost, ["platform"]) || !platform(value.planningHost.platform)) add(errors, "invalid-planning-host", "planningHost must contain a supported platform", "planningHost");
 	else planningHost = { platform: value.planningHost.platform };
@@ -127,10 +131,9 @@ export function validateExecutionPacket(value: unknown): PacketValidationResult 
 	if (tierPlan) validateTierAssignments(nodes, tierPlan, errors);
 	const validated = validateWorkContractNodes(nodes.map(({ id, kind, workContract }) => ({ id, kind, workContract })));
 	errors.push(...validated.errors);
-	if (validated.nodes) validateCandidateNormalizationManifest(validated.nodes, errors);
 	if (nodes.filter((node) => node.kind === "final-validation").length !== 1) add(errors, "final-validation-count", "exactly one final-validation node is required", "nodes");
-	if (errors.length || !sourceArtifacts || !planningHost || !planningBase || !tierPlan || !runtimePolicy || !validated.graph) return { ok: false, executable: false, errors, warnings: [] };
-	const packet: FanoutExecutionPacket = { schema: EXECUTION_PACKET_SCHEMA, version: EXECUTION_PACKET_VERSION, createdAt: value.createdAt as string, sourceArtifacts, planningHost, planningBase, objective, userContext, discoveredRepoFacts, assumptions, tierPlan, runtimePolicy, nodes };
+	if (errors.length || !sourceArtifacts || !profile || !planningHost || !planningBase || !tierPlan || !runtimePolicy || !validated.graph) return { ok: false, executable: false, errors, warnings: [] };
+	const packet: FanoutExecutionPacket = { schema: EXECUTION_PACKET_SCHEMA, version: EXECUTION_PACKET_VERSION, createdAt: value.createdAt as string, sourceArtifacts, profile, planningHost, planningBase, objective, userContext, discoveredRepoFacts, assumptions, tierPlan, runtimePolicy, nodes };
 	return { ok: true, executable: true, errors: [], warnings: [], packet, graph: validated.graph };
 }
 
@@ -203,31 +206,6 @@ function validateTierAssignments(nodes: readonly FanoutPacketNode[], plan: Fanou
 		const expectedActive: WorkActiveState = expected.assigned === "tier2" ? "background" : "active";
 		if (node.active !== expectedActive) add(errors, "tier-active-mismatch", `node active state must be ${expectedActive} for ${expected.assigned}`, `${path}.active`);
 	}
-}
-
-function validateCandidateNormalizationManifest(nodes: readonly Pick<FanoutPacketNode, "workContract">[], errors: WorkContractIssue[]): void {
-	const expected = nodes[0]?.workContract.candidateNormalizationCommands;
-	if (!expected) return;
-	for (const [index, node] of nodes.entries()) if (!sameCommands(node.workContract.candidateNormalizationCommands, expected)) {
-		add(errors, "candidate-normalization-manifest-mismatch", "every work contract must carry the same ordered candidateNormalizationCommands manifest", `nodes[${index}].workContract.candidateNormalizationCommands`);
-	}
-}
-
-function sameCommands(left: FanoutPacketNode["workContract"]["candidateNormalizationCommands"], right: FanoutPacketNode["workContract"]["candidateNormalizationCommands"]): boolean {
-	return left.length === right.length && left.every((command, index) => {
-		const expected = right[index];
-		return command.executable === expected.executable
-			&& command.cwd === expected.cwd
-			&& command.args.length === expected.args.length
-			&& command.args.every((arg, argIndex) => arg === expected.args[argIndex])
-			&& sameEnvironment(command.env, expected.env);
-	});
-}
-
-function sameEnvironment(left: Record<string, string> | undefined, right: Record<string, string> | undefined): boolean {
-	if (left === undefined || right === undefined) return left === right;
-	const names = Object.keys(left);
-	return names.length === Object.keys(right).length && names.every((name) => left[name] === right[name]);
 }
 
 function strings(value: unknown, path: string, errors: WorkContractIssue[]): string[] { if (!Array.isArray(value)) { add(errors, "invalid-string-list", `${path} must be an array`, path); return []; } return value.map((item, index) => text(item, `${path}[${index}]`, errors)); }

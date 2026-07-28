@@ -1,17 +1,16 @@
 # Fanout speed and reliability investigation
 
-Status: design alignment complete; implementation planning pending
+Status: approved prerequisite and Points 1–4 implemented; controlled Point 5 attempted but release gate not met
 
 Date: 2026-07-27
 
 ## Purpose
 
-Capture evidence, aligned decisions, proposed changes to existing decisions,
-open questions, and eventual implementation requirements for improving Fanout
-speed and reliability.
+Capture evidence, aligned decisions, approved implementation requirements,
+and controlled validation for improving Fanout speed and reliability.
 
-This document is not yet authoritative. Approved changes must later be
-reflected in:
+The prerequisite and Points 1–5 are the approved design baseline. Implemented
+decisions are synchronized with:
 
 - `docs/DESIGN_DECISIONS.md`
 - `docs/ROADMAP.md`
@@ -1259,4 +1258,39 @@ derived from the current authoritative artifacts.
 - Fuzzy failure matching, repair-cycle detection, and best-of-N repair.
 - Fuzzy context matching, branch/join fusion, and runtime fusion.
 - General reliability-rate or universal SLO claims from the small canary set.
-- Implementation until the main chat approves a repository-grounded plan.
+- New orchestrator, profiler feature, benchmark framework, migration, or
+  deferred compatibility behavior.
+
+## Implementation record — 2026-07-27
+
+The approved prerequisite and Points 1–4 are implemented as one coordinated
+generation: profile v1, plan v3, details v5, work contract v3, packet v7,
+Attempt Outcome v4, final evidence v2, Event v4, and Projection v5.
+
+Focused regression coverage now proves:
+
+- cumulative exact final-repair seeds and invalid-seed prelaunch failure;
+- validated isolated profile preparation with exact packet/profile binding;
+- exact path-disjoint reconciliation and overlap fallback;
+- exact repair-state no-progress termination with unused budget;
+- deterministic compiler-owned vertical serial-chain fusion;
+- profile-aware profiler receipts, cohorts, comparisons, alignment, and
+  existing-field disposition rendering;
+- cleanup before the terminal event with recorded cleanup duration.
+
+The controlled Point 5 sequence ran with one canary and three byte-identical
+repetitions. The canary and repetitions 1–2 completed; repetition 3 stopped
+after the fused runtime/test worker exhausted its fixed two validation repairs.
+This is useful diagnostic evidence but does not satisfy the all-successful
+release-confidence gate and does not support a reliability-rate or universal
+SLO claim.
+
+Post-run inspection also found and fixed a profiler compatibility invariant:
+total run duration includes profile validation performed before `run-started`,
+so a valid duration may exceed the Event-log timestamp span. The profiler still
+rejects any total duration shorter than that span and derives scenarios from
+the post-confirmation Event boundary. Because this source change followed the
+controlled runs, any next sequence restarts from a fresh canary. Exact run,
+profile, packet, pane, phase, critical-path, overlap, cost, token, repair, tree,
+cleanup, and failure evidence is recorded in
+[`p-map-abort-signal-canary-tracker.md`](p-map-abort-signal-canary-tracker.md).

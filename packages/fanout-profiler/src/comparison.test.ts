@@ -5,9 +5,11 @@ import { queryComparison } from "./comparison";
 
 const packet = { path: "packet/execution-packet.json", sha256: "a".repeat(64), byteLength: 10 };
 const otherPacket = { path: "other/execution-packet.json", sha256: "b".repeat(64), byteLength: 10 };
+const profile = { path: "profiles/default.json", sha256: "c".repeat(64), byteLength: 10 };
+const otherProfile = { path: "profiles/other.json", sha256: "d".repeat(64), byteLength: 10 };
 const packetSource: SourceReference = { id: "packet-source", path: packet.path, kind: "planning", byteLength: 10, modifiedAtMs: 1 };
 const base = { headCommit: "1".repeat(40), tree: "2".repeat(40) };
-const contract = { schema: "fanout.work-contract", version: 2, goals: [{ sourcePlanId: "goal", statement: "Do exact work" }], changes: [], readDependencies: [], forbiddenWrites: [], candidateNormalizationCommands: [], validationCommands: [], capabilities: { modelCallableTools: ["read", "grep", "find", "ls", "edit", "write"], validationExecution: "controller-only", shell: "unavailable", extensionTools: "unavailable" }, semanticReviewCriteria: [{ sourcePlanId: "criterion", statement: "It works" }], advisoryNotes: [] };
+const contract = { schema: "fanout.work-contract", version: 3, goals: [{ sourcePlanId: "goal", statement: "Do exact work" }], changes: [], readDependencies: [], forbiddenWrites: [], validationCommands: [], capabilities: { modelCallableTools: ["read", "grep", "find", "ls", "edit", "write"], validationExecution: "controller-only", shell: "unavailable", extensionTools: "unavailable" }, semanticReviewCriteria: [{ sourcePlanId: "criterion", statement: "It works" }], advisoryNotes: [] };
 
 function totals(runDurationMs: number, totalTokens: number, estimatedCostUsd: number): ExecutionTotals {
 	return {
@@ -30,6 +32,7 @@ function run(
 		cost?: number;
 		complete?: boolean;
 		packet?: typeof packet;
+		profile?: typeof profile;
 		admission?: CatalogExecutionRun["admission"];
 		nodeId?: string;
 	} = {},
@@ -47,9 +50,10 @@ function run(
 		mode: options.mode ?? "live",
 		terminalOutcome: outcome,
 		packet: options.packet ?? packet,
+		profile: options.profile ?? profile,
 		totals: totals(options.duration ?? 100, options.tokens ?? 10, options.cost ?? 1),
 		nodes: [{ id: nodeId, status: outcome?.outcome === "completed" ? "succeeded" : "failed", causalAttemptId: attemptId, causalUpstreamNodeId: null }],
-		attempts: [{ allocation: { attemptId, nodeId, kind: "original", assignment: { tier: "tier1", provider: "provider", model: "model" } }, outcome: { durationMs: 20, action: outcome?.outcome === "completed" ? "accept" : "fail", terminalFact: { stage: "apply", code: outcome?.outcome === "completed" ? "applied" : "apply-failure" }, metrics } }],
+		attempts: [{ allocation: { attemptId, nodeId, kind: "original", assignment: { tier: "tier1", provider: "provider", model: "model" } }, outcome: { durationMs: 20, action: outcome?.outcome === "completed" ? "accept" : "fail", disposition: "ordinary", terminalFact: { stage: "apply", code: outcome?.outcome === "completed" ? "applied" : "apply-failure" }, metrics } }],
 		acceptedLedger: outcome?.outcome === "completed" ? [{ eventSequence: 5, attemptId, transition: { patch: { baseTree: "1".repeat(40), resultTree: "2".repeat(40), changedPaths: ["file.ts"], stats: { filesChanged: 1, insertions: 2, deletions: 0 } } } }] : [],
 		finalValidation: outcome?.outcome === "completed" ? { disposition: "passed", durationMs: 10 } : { disposition: "not-run" },
 	} as unknown as ExecutionRunProjection;
@@ -66,8 +70,8 @@ function run(
 	};
 }
 
-function packetView(nodes: Array<{ id: string; workContract: unknown }>, planningBase = base): any {
-	return { planningBase, nodes: nodes.map((node) => ({ ...node, kind: "implement" })) };
+function packetView(nodes: Array<{ id: string; workContract: unknown }>, planningBase = base, profileIdentity = profile): any {
+	return { planningBase, profile: profileIdentity, nodes: nodes.map((node) => ({ ...node, kind: "implement" })) };
 }
 
 function snapshot(runs: CatalogExecutionRun[]): CatalogSnapshot {
@@ -126,6 +130,7 @@ test("pairwise deltas are suppressed unless exact packet, completed live state, 
 		[run("open"), "completed live"],
 		[run("partial", { outcome: "completed", complete: false }), "complete compared scope"],
 		[run("other", { outcome: "completed", packet: otherPacket }), "exact same Execution Packet"],
+		[run("other-profile", { outcome: "completed", profile: otherProfile }), "exact same Project Execution Profile"],
 	] as const) {
 		const pair = queryComparison(snapshot([a, candidate]), { runAId: a.selectionId, runBId: candidate.selectionId }).pair;
 		expect(pair).toMatchObject({ status: "unavailable", deltas: [] });
@@ -176,7 +181,8 @@ test("cross-packet Nodes align only by identical Planning Base and a unique cano
 	expect(result.nodePair.deltas.every(({ receipt }) => receipt.evidenceClass === "Derived")).toBe(true);
 	expect(result.nodePair.receipt.derivation).toContain("unique one-to-one");
 	expect(result.nodePair.receipt.limitations).toContain("The transient SHA-256 comparison key is not an Artifact Identity");
-	expect(JSON.stringify(result.nodePair)).not.toContain('"sha256"');
+	expect(result.nodePair.receipt.profileIdentity).toEqual(profile);
+	expect(result.nodePair.deltas.every(({ receipt }) => JSON.stringify(receipt.profileIdentity) === JSON.stringify(profile))).toBe(true);
 });
 
 test("ambiguous and different-work Node selections stay heterogeneous with raw totals and no deltas", () => {
@@ -186,6 +192,7 @@ test("ambiguous and different-work Node selections stay heterogeneous with raw t
 		[packetView([{ id: "alpha", workContract: contract }]), packetView([{ id: "beta", workContract: contract }, { id: "duplicate", workContract: structuredClone(contract) }]), "not unique"],
 		[packetView([{ id: "alpha", workContract: contract }]), packetView([{ id: "beta", workContract: { ...contract, goals: [{ sourcePlanId: "goal", statement: "Approximately the same work" }] } }]), "not exactly equal"],
 		[packetView([{ id: "alpha", workContract: contract }]), packetView([{ id: "beta", workContract: contract }], { ...base, tree: "3".repeat(40) }), "Planning Base"],
+		[packetView([{ id: "alpha", workContract: contract }]), packetView([{ id: "beta", workContract: contract }], base, otherProfile), "Project Execution Profile"],
 	] as const) {
 		const state = snapshot([a, b]);
 		(state.lineages[0] as any).packet = packetA;

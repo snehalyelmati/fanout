@@ -3,6 +3,8 @@ import type { ExecutionRunProjection } from "./execution-projection.ts";
 export function renderExecutionReport(projection: ExecutionRunProjection): string {
 	const outcome = projection.terminalOutcome?.outcome ?? "none";
 	const final = projection.finalValidation;
+	const dispositions = projection.attempts.map((attempt) => attempt.outcome?.disposition);
+	const unusedRepairBudget = Object.values(projection.budgets).reduce((total, budget) => total + (2 - budget.validationRepair) + (2 - budget.integrationRepair), 0);
 	const lines = [
 		"# Fanout Execution Report",
 		"",
@@ -27,6 +29,14 @@ export function renderExecutionReport(projection: ExecutionRunProjection): strin
 		`- Worker/tool/poll time: ${number(projection.totals.workerDurationMs)} / ${number(projection.totals.toolDurationMs)} / ${number(projection.totals.pollDurationMs)} ms`,
 		`- Accepted patch: ${projection.totals.filesChanged} files, +${projection.totals.insertions}/-${projection.totals.deletions}`,
 		`- Run duration: ${number(projection.totals.runDurationMs)} ms`,
+		`- Cleanup duration: ${number(projection.terminalOutcome?.cleanupDurationMs ?? 0)} ms`,
+		"",
+		"## Repair control",
+		"",
+		`- Exact no-progress terminations: ${dispositions.filter((value) => value === "exact-no-progress").length}`,
+		`- Budget-exhausted terminations: ${dispositions.filter((value) => value === "budget-exhausted").length}`,
+		`- Changed repair states: ${dispositions.filter((value) => value === "changed").length}`,
+		`- Unused repair attempts: ${unusedRepairBudget}`,
 		"",
 		"## Accepted ledger",
 		"",

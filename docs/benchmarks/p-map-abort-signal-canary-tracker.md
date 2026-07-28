@@ -1,8 +1,89 @@
 # p-map AbortSignal canary tracker
 
-Date: 2026-07-14
+Date: 2026-07-14; optimization-candidate run: 2026-07-27
 
-Status: Candidate `c75ff9a` completed the full p-map E2E canary in Attempt 14. The packet-declared normalizer ran once for every candidate, all four work nodes were accepted, final `npm test` passed 56 tests, event/projection replay was exact, and cleanup was clean. Post-run two-axis review found two p-map edge cases; both were fixed in the active checkout and the independent full suite now passes 59 tests. Repository-owner approval of the exact Fanout candidate remains the only unchecked release gate.
+Status: Candidate `c75ff9a` and Attempt 14 remain historical successful evidence. The 2026-07-27 profile-bound sequence completed the canary and repetitions 1–2, then stopped when repetition 3 exhausted the fused runtime/test node's fixed validation-repair budget. The release-confidence gate is not satisfied. A post-run profiler compatibility fix changed source afterward, so any further live sequence must restart at the canary.
+
+## 2026-07-27 controlled sequence
+
+Fixed controls:
+
+- Fanout source: branch `feature/fanout-optimization`, HEAD `0310527a552d98df666471f675f2d3db171bdb53`, tracked-diff SHA-256 `a1389d18861a7357d7276af93559d942b0e6d6d713d2af89a67ccce5f75b0fff`, plus the seven recorded untracked source artifacts. This exact state was unchanged through all four runs.
+- Profile v1, plan v3, details v5, work contract v3, packet v7, pointer v2, Attempt Outcome v4, final evidence v2, Event v4, Projection v5.
+- Clean independent p-map worktree per run at baseline `c3c261e2189f94d1a09724e8f03d5345af518017`.
+- Fresh tmux pane per run in `doubleword:fanout-canary`; completed panes were closed after durable evidence capture at the user's direction, while the failed repetition pane remains visible.
+- No `FANOUT_WORKTREE_SHARED_PATHS`.
+- Identical packet/profile bytes, routing, concurrency, and platform for all repetitions.
+- Packet SHA-256 `ffb4d3915eb3464824e3a4b030a419e717c631c2527264553c2d3d44643b6e0b`; profile SHA-256 `1fba48e8caf34ea2d81299ab57052d63ba69f61b198c0456601169669267dcd0`.
+
+The seven untracked source files present throughout the cohort had these
+SHA-256 identities: `project-execution-profile.ts` (core)
+`15dde81f667dced69ef7ccfaf39bba5897c8adfebbb5fb9c5c09af5c8eed7e58`,
+`repair-state.ts`
+`6b295a2e69769a040e24344e97f80cbcb9083999adcad36755ea07dea1b3282d`,
+`vertical-chain-fusion.ts`
+`f34c9d3ee105fba57def8ceff0f2bda23017730d3238590ef9dda250711cd402`,
+`fanout-execution-profile.md`
+`a4f886151b06b3dd3e0aebb6ec81b0febaee4840d51babe82d70426422edd81a`,
+`candidate-reconciliation.ts`
+`c6b1dbd16852e86a418146104ff81b57207bb8f9ad0927acab3eb4274dfe884e`,
+`final-validation-adapter.ts`
+`250f8523bf1591c070b1defaab94c15ca3dbe68bc931899da6e79bf0f164b37a`,
+and `project-execution-profile.ts` (Pi)
+`87cc6b246c3510f99ef0a688a2c842691a446a825fefac053c505f34bc75a5ff`.
+
+| Run | Pane | Worktree | Packet/profile identity | Outcome | Independent tests | Cleanup | Wall/cost/range evidence |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Canary | `%246` (closed after capture) | `controlled-20260727-r2/canary` | exact shared packet/profile | completed; final tree `441aa84953ba7338a8a3157a2f5fc9e8b75357b3` | 55 passed; five allowed files | 7.716s; no current-run worker/worktree/lock leak | 408.114s; 617,895 tokens; `$0.843834`; 5 attempts |
+| Repetition 1 | `%247` (closed after capture) | `controlled-20260727-r2/rep-1` | exact shared packet/profile | completed; final tree `3a727fdb8494391633afea5f3cb883e2bda95d14` | 56 passed; five allowed files | 5.800s; no current-run worker/worktree/lock leak | 306.291s; 502,710 tokens; `$0.547498`; 4 attempts |
+| Repetition 2 | `%248` (closed after capture) | `controlled-20260727-r2/rep-2` | exact shared packet/profile | completed; final tree `962a454736ab808771f41d5d5abde52edd349bf8` | 53 passed; five allowed files | 7.792s; no current-run worker/worktree/lock leak | 278.563s; 348,095 tokens; `$0.624695`; 5 attempts |
+| Repetition 3 | `%249` (retained) | `controlled-20260727-r2/rep-3` | exact shared packet/profile | failed; fused node exhausted 2/2 validation repairs; final validation not run | 51 baseline tests passed on the accepted partial types/docs tree | 7.815s; no current-run worker/worktree/lock leak | 285.959s; 436,509 tokens; `$0.681089`; 5 attempts |
+
+Stop on the first failure or configuration/artifact change. Any code, packet,
+profile, or configuration change restarts the table at Canary. Report medians
+and full ranges only; do not infer a reliability rate or universal SLO.
+
+Successful-run measurements:
+
+| Metric | Median | Full range |
+| --- | ---: | ---: |
+| Total wall time | 306.291s | 278.563–408.114s |
+| Post-confirmation observed boundary | 275.517s | 250.213–375.268s |
+| Profiler-derived completion-chain boundary | 269.715s | 242.419–367.549s |
+| Measured parallel node overlap | 45.523s | 42.835–57.857s |
+| Total tokens | 502,710 | 348,095–617,895 |
+| Estimated cost | `$0.624695` | `$0.547498`–`$0.843834` |
+| Aggregate recorded turn TTFT | 43s | 42–56s |
+| Aggregate recorded turn generation | 194s | 151–270s |
+| Profile preparation | 4.512s | 4.511–13.880s |
+| Profile readiness | 0.295s | 0.265–0.296s |
+| Profile normalization probe | 2.392s | 2.359–2.582s |
+| Candidate normalization | 13.362s | 10.747–13.701s |
+| Final-validation command time | 15.066s | 14.682–15.311s |
+| Cleanup | 7.716s | 5.800–7.792s |
+
+All four packets contained one compiler-fused vertical node. No run recorded a
+deterministic reconciliation or exact-no-progress stop. The canary exercised
+cumulative node-validation repair continuity live: its second repair started
+from the immediately preceding rejected candidate and the accepted ledger did
+not advance until validation passed. Final-validation repair continuity remains
+offline regression evidence because every completed run passed its initial
+final-validation round.
+
+Repetition 3 is a bounded worker semantic miss, not a Fanout authority or
+accounting failure. The original fused candidate failed XO
+`no-inner-declarations`; both repairs then left the same two generated AVA
+abort tests invalid. Every allocation received one terminal outcome, the
+accepted ledger retained only the successful types/docs transitions, cleanup
+completed, and final validation correctly remained `not-run
+(upstream-failure)`.
+
+Post-run profiler inspection initially rejected the valid canary because total
+run duration includes profile validation before `run-started`. The profiler now
+accepts a total duration greater than or equal to the Event-log span, still
+rejects an impossible shorter duration, and derives scheduling from the
+post-confirmation Event boundary. This source change occurred after the live
+sequence and therefore requires a new canary before any further repetitions.
 
 ## Fixed candidate
 
@@ -26,7 +107,7 @@ Status: Candidate `c75ff9a` completed the full p-map E2E canary in Attempt 14. T
 
 Pi was launched with extension auto-discovery disabled and `DOUBLEWORD_API_KEY` removed from the process environment. No Doubleword provider call was made.
 
-The next restart will explicitly set `FANOUT_WORKTREE_SHARED_PATHS='["node_modules"]'`. The Fanout mechanism itself accepts generic top-level, repository-relative, Git-ignored paths; it contains no language- or package-manager-specific default.
+Historical Attempt 14 used `FANOUT_WORKTREE_SHARED_PATHS`. The current generation rejects that configuration and instead runs independently approved profile preparation/readiness in every disposable worktree.
 
 ## Gate tracker
 

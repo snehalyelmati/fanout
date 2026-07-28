@@ -1,6 +1,6 @@
 # p-map AbortSignal manual Fanout E2E
 
-Status: hardened packet planning and dry-run passed; live execution attempts are retained in the canary tracker, but no full E2E result has completed yet.
+Status: the profile-v1/packet-v7 sequence ran on 2026-07-27. The canary and repetitions 1–2 completed; repetition 3 stopped on bounded fused-node validation-repair exhaustion. A post-run profiler compatibility fix means the next live sequence must restart at the canary. Exact evidence is retained in the tracker.
 
 ## Objective
 
@@ -33,7 +33,8 @@ The benchmark lives outside the Fanout repository, and the nested p-map reposito
 - Preserve outer-repository work.
 - Do not commit benchmark or Fanout changes unless explicitly requested.
 - Keep failed and interrupted run artifacts for diagnosis.
-- Do not build an automated harness or run experimental variations yet.
+- Do not build an automated harness or run experimental variations.
+- Hold Fanout commit, packet/profile bytes, routing, concurrency, platform, and clean independent worktrees constant across the canary and repetitions.
 
 ## 1. Preflight
 
@@ -61,16 +62,23 @@ Required state:
 
 The nested branch being one commit ahead of upstream is expected because the reproducible baseline adds `package-lock.json`. Untracked `runs/` inside the nested repository is not expected; archive it outside `repo/` before continuing.
 
-## 2. Launch Pi
+## 2. Launch Pi in a fresh visible pane
 
-From the nested repository:
+Confirm the existing visible target:
 
 ```bash
-rtk env -u DOUBLEWORD_API_KEY FANOUT_WORKTREE_SHARED_PATHS='["node_modules"]' pi --approve --no-extensions --thinking medium \
-  -e /Users/snehalyelmati/Documents/doubleword-pi/packages/fanout-pi/src/index.ts
+rtk tmux has-session -t doubleword
+rtk tmux list-windows -t doubleword
 ```
 
-This loads only the local Fanout implementation, removes the live Doubleword credential, and explicitly shares the repository's already-installed, Git-ignored dependency directory into disposable worktrees. Fanout's preparation boundary accepts generic top-level repository paths and has no Node-specific default. Starting Pi does not authorize the monitoring assistant to initiate later provider calls.
+For every canary or repetition, create a new pane rooted at that run's absolute clean p-map worktree, record the returned pane ID, then select it:
+
+```bash
+rtk tmux split-window -t doubleword:fanout-canary -c <absolute-run-worktree> -P -F '#{pane_id}' -- env -u DOUBLEWORD_API_KEY pi -e /Users/snehalyelmati/Documents/doubleword-pi/packages/fanout-pi/src/index.ts
+rtk tmux select-pane -t <pane-id>
+```
+
+Do not set `FANOUT_WORKTREE_SHARED_PATHS`; current execution rejects it. Do not automatically kill the pane after completion. Visible output remains benchmark evidence, and pane cleanup is manual after evidence collection.
 
 ## 3. Inspect routing configuration
 
@@ -92,19 +100,20 @@ Evaluate whether role descriptions, multiline rendering, arrow and `j`/`k` navig
 
 ## 4. Prepare the execution packet
 
-Provider-cost gate: the user must explicitly choose to run this command.
+For the canary, publish or refresh the approved Project Execution Profile before planning:
 
 ```text
-/fanout-plan Read ../TASK.md and implement that benchmark task exactly.
+/fanout-plan --refresh-profile Read ../TASK.md and implement that benchmark task exactly.
 ```
+
+The profile uses isolated direct-argv preparation/readiness with explicit purpose, mutation, network, and lifecycle disclosures, declares `npx xo --fix` candidate normalization, and includes the repository-wide required final gate. It must not share or link `node_modules`. Repetitions reuse the exact validated profile and packet bytes.
 
 Expected flow:
 
 1. Phase A reads `../TASK.md`, explores p-map, and writes an implementation plan with the resolved objective.
-2. Phase B binds the exact accepted plan identity and grounds each item in files, anchors, edit intent, validation commands, and one repository-level candidate-normalization manifest; details v4 does not repeat the objective.
-3. For this canary, the candidate-normalization manifest must contain the repository-provided direct argv `npx xo --fix`. This is explicit packet authority, not a Fanout-inferred Node or XO behavior.
-4. The deterministic compiler emits plan v2, details v4, and packet v6 with embedded work-contract v2 nodes and concrete Tier 1, Tier 2, and Tier 2 fallback summaries.
-5. Planning writes immutable artifacts under Pi-owned storage, derives the human views from packet v6, and publishes pointer v2 last without modifying p-map.
+2. Phase B binds the exact accepted plan identity and grounds task-specific files, anchors, edit intent, and validation commands; it does not own profile commands.
+3. The deterministic compiler emits plan v3, details v5, and profile-bound packet v7 with embedded work-contract v3 nodes and any eligible vertical fusion.
+4. Planning writes immutable artifacts under Pi-owned storage, derives human views from packet v7, and publishes pointer v2 last without modifying p-map.
 
 The task brief is decision-complete. A clarification question is acceptable only if repository evidence exposes a real unresolved choice.
 
@@ -129,7 +138,7 @@ Expected ownership and validation:
 | `runtime-tests` | `test.js` | `runtime-abort` | `npx ava` |
 | final validation | none | all workers | `npm test` |
 
-The details artifact must also declare the single ordered repository-level candidate normalizer `npx xo --fix`. The compiler copies it unchanged into every node contract, including final repair authority. It runs once after a successful worker edit and before patch capture; the original node validation commands and final `npm test` remain authoritative.
+The active profile, not details or the packet, declares `npx xo --fix`. Packet final commands execute before profile-required final gates.
 
 Evaluate this contract semantically rather than by textual equality with the table. Safe, non-mutating validation commands may be added when they are traceable to task requirements and preserve the authoritative final validation. Command wrappers such as `rtk` are operational conveniences, not packet-correctness requirements. Record harmless presentation differences separately; reject only behavior that changes ownership, dependencies, safety boundaries, required behavior, or authoritative validation. Generated summaries must either agree with the authoritative packet or clearly label omitted detail.
 
@@ -151,7 +160,8 @@ Also check:
 - concurrency and expected cost information are visible;
 - artifact paths and the next action are obvious.
 - the pointer is schema/version `fanout.active-packet`/2 and binds the exact packet digest, byte length, and artifact-relative path;
-- the packet is schema/version `fanout.execution-packet`/6, binds plan v2/details v4 source identities plus the exact planning commit/tree/platform, embeds work-contract v2 nodes, and contains no flattened legacy ownership/dependency/normalization/validation fields.
+- the packet-bound profile is v1 and its exact path/digest/length verify; the active profile pointer may have advanced independently;
+- the packet is `fanout.execution-packet` v7, binds plan v3/details v5 plus planning identity/platform, embeds work-contract v3 nodes, and contains no copied profile commands or flattened legacy authority.
 
 If the packet is wrong, stop. Classify and diagnose the planning, routing, benchmark-task, or repository-grounding issue before editing anything.
 
@@ -163,7 +173,7 @@ If the packet is wrong, stop. Classify and diagnose the planning, routing, bench
 
 Expected behavior:
 
-- exact pointer-v2/packet-v6 identity, planning commit/tree/platform, paths, derived DAG, direct normalization and validation executables, worker capability, and execution lock checks pass;
+- exact pointer-v2/packet-v7/profile-v1 identity, isolated profile validation, planning commit/tree/platform, derived DAG, executable commands, worker capability, and lock checks pass;
 - no workers or provider calls launch;
 - no p-map files change;
 - an execution audit is written;
@@ -185,6 +195,8 @@ Provider-cost and mutation gate: the user must explicitly choose to run this com
 /fanout-execute
 ```
 
+Run one canary first. If it and all post-run checks pass, run three additional repetitions from fresh independent clean worktrees and fresh tmux panes with identical Fanout commit, packet/profile bytes, routing, concurrency, and platform. Stop on any failure or artifact/configuration change; after any code, packet, profile, or configuration change, restart at the canary.
+
 During execution, capture or note:
 
 - start and finish timestamps;
@@ -193,6 +205,7 @@ During execution, capture or note:
 - provider/model/tier per attempt;
 - progress messages and unexplained quiet periods;
 - retries, realtime fallback attempts, validation repairs, and integration repairs;
+- deterministic reconciliations, exact-no-progress stops, and fused-node count;
 - errors, recovery instructions, and user interventions.
 
 Do not manually edit p-map while execution is active.
@@ -206,6 +219,9 @@ rtk git status --short
 rtk git diff --name-only
 rtk git diff --check
 rtk npm test
+rtk git worktree list --porcelain
+rtk ps -axo pid,etime,command
+rtk tmux list-panes -t doubleword:fanout-canary -F '#{pane_id} #{pane_current_path} #{pane_dead} #{pane_current_command}'
 ```
 
 Verify:
@@ -240,6 +256,7 @@ Track:
 - worker and validation failures;
 - changed files and patch statistics;
 - discrepancies between events, summary, final validation, and Git.
+- exact profile identity, phase timings, cleanup duration, tmux pane ID, and pane worktree.
 
 ## 10. Failure and interruption protocol
 
@@ -262,7 +279,9 @@ Maintain this table during the session:
 
 | ID | Step | Classification | Symptom/reproduction | Owner/files | Severity | Decision/fix | Validation/status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| P2-OBS-1 | Dry-run gate | observability gap | Historical dry run `2026-07-10T19-53-13-301Z-675e78e1` used a generic execution title and could be mistaken for a completed live run. | `packages/fanout-core/src/execution-report.ts`, `packages/fanout-pi/src/fanout-execute.ts` | medium | Projection v3 renders an explicit dry-run outcome and states that workers/final validation did not run. | Full keyless checks pass; hardened pointer-v2/packet-v6 dry run remains part of the external canary. |
+| P2-OBS-1 | Dry-run gate | observability gap | Historical dry run `2026-07-10T19-53-13-301Z-675e78e1` used a generic execution title and could be mistaken for a completed live run. | `packages/fanout-core/src/execution-report.ts`, `packages/fanout-pi/src/fanout-execute.ts` | medium | Current projection v5 renders an explicit dry-run outcome and states that workers/final validation did not run. | Profile-v1/packet-v7 dry run remains part of the new canary. |
+| P2-WORKER-2 | Repetition 3 | provider/runtime problem | The fused runtime/test candidate first failed XO `no-inner-declarations`; both bounded repairs then left the same two generated AVA abort tests invalid, exhausting 2/2 validation repairs. | Terra worker output; no Fanout source owner | medium | Preserve the failed artifacts and stop the sequence. Do not expand budgets or alter the benchmark to force a pass. | All 5 allocations have terminal outcomes; accepted ledger contains only types/docs; cleanup passed; independent baseline tests pass; final validation correctly did not run. |
+| P2-PROF-2 | Post-run inspection | correctness bug | The current profiler rejected a valid canary because total run duration begins before profile validation while `run-started` is emitted after that phase. | `packages/fanout-profiler/src/scenario.ts`, `scenario.test.ts` | medium | Admit total duration greater than the Event-log span while still rejecting a shorter impossible duration; continue deriving schedules from Event timestamps. | Focused regression passes and the original canary scenario now loads with exact profile identity and observed schedule evidence. Any new live sequence restarts at canary because source changed. |
 
 Allowed classifications:
 
@@ -284,7 +303,7 @@ For every pasted error, screenshot, output, or observation:
 
 ## 12. End-of-run report
 
-Produce:
+Produce medians and the full observed range across the identical successful runs, without inferring a reliability rate or universal SLO:
 
 1. a concise narrative of the E2E path;
 2. ranked correctness bugs with reproduction steps;

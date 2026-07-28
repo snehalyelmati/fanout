@@ -5,11 +5,12 @@ import { compileWorkContracts, type GroundedWorkInput, type PlannedWorkSource } 
 import { derivePreferredTier, deriveTierAssignment, validateExecutionPacket, EXECUTION_PACKET_SCHEMA, EXECUTION_PACKET_VERSION, type FanoutExecutionPacket, type FanoutRuntimePolicy, type FanoutTierPlan, type FanoutPacketNode, type WorkUnitKind } from "./execution-packet.ts";
 import { FIXED_WORKER_CAPABILITIES, WORK_CONTRACT_SCHEMA, WORK_CONTRACT_VERSION, validateWorkContract, type AdvisoryNote, type ChangeIntent, type ForbiddenWrite, type WorkContractIssue, type WorkReadDependency } from "./work-contract.ts";
 import { FINAL_VALIDATION_NODE_ID } from "./work-contract-graph.ts";
+import { fuseVerticalSerialChains } from "./vertical-chain-fusion.ts";
 
 export const IMPLEMENTATION_PLAN_SCHEMA = "fanout.implementation-plan";
-export const IMPLEMENTATION_PLAN_VERSION = 2;
+export const IMPLEMENTATION_PLAN_VERSION = 3;
 export const IMPLEMENTATION_DETAILS_SCHEMA = "fanout.implementation-details";
-export const IMPLEMENTATION_DETAILS_VERSION = 4;
+export const IMPLEMENTATION_DETAILS_VERSION = 5;
 
 export interface ImplementationPlan {
 	schema: typeof IMPLEMENTATION_PLAN_SCHEMA;
@@ -18,6 +19,7 @@ export interface ImplementationPlan {
 	createdAt: string;
 	planningHost: { platform: NodeJS.Platform };
 	planningBase: { headCommit: string; tree: string };
+	profile: ArtifactIdentity;
 	objective: string;
 	userContext: string[];
 	discoveredRepoFacts: string[];
@@ -31,7 +33,6 @@ export interface ImplementationDetails {
 	detailsId: string;
 	createdAt: string;
 	plan: ArtifactIdentity;
-	candidateNormalizationCommands: ReturnType<typeof parseValidationCommands>;
 	items: GroundedWorkInput[];
 	finalValidationCommands: ReturnType<typeof parseValidationCommands>;
 }
@@ -56,9 +57,9 @@ export interface CompileExecutionPacketInput {
 
 export interface CompileExecutionPacketResult { ok: boolean; errors: string[]; warnings: string[]; issues: WorkContractIssue[]; warningIssues: WorkContractIssue[]; packet?: FanoutExecutionPacket; }
 
-const PLAN_FIELDS = new Set(["schema", "version", "planId", "createdAt", "planningHost", "planningBase", "objective", "userContext", "discoveredRepoFacts", "assumptions", "implementationItems"]);
+const PLAN_FIELDS = new Set(["schema", "version", "planId", "createdAt", "planningHost", "planningBase", "profile", "objective", "userContext", "discoveredRepoFacts", "assumptions", "implementationItems"]);
 const PLAN_ITEM_FIELDS = new Set(["id", "goals", "writeResources", "readResources", "forbiddenWrites", "semanticReviewCriteria", "advisoryNotes"]);
-const DETAILS_FIELDS = new Set(["schema", "version", "detailsId", "createdAt", "plan", "candidateNormalizationCommands", "items", "finalValidationCommands"]);
+const DETAILS_FIELDS = new Set(["schema", "version", "detailsId", "createdAt", "plan", "items", "finalValidationCommands"]);
 const DETAIL_ITEM_FIELDS = new Set(["id", "kind", "changes", "readDependencies", "forbiddenWrites", "validationCommands", "advisoryNotes"]);
 export function validateImplementationPlan(value: unknown): { ok: boolean; errors: string[]; itemCount: number; plan?: ImplementationPlan } {
 	const errors: string[] = [];
@@ -94,17 +95,19 @@ export function compileExecutionPacket(input: CompileExecutionPacketInput): Comp
 	const detailsResult = validateImplementationDetailsArtifact(input.implementationDetails, { planIdentity: input.planIdentity, plan: planResult.plan });
 	const errors = [...planResult.errors, ...detailsResult.errors];
 	if (!planResult.plan || !detailsResult.details || errors.length) return { ok: false, errors, warnings: [], issues: errors.map((message) => ({ code: "artifact-admission", message })), warningIssues: [] };
-	const compiled = compileWorkContracts(planResult.plan.implementationItems, detailsResult.details.items, detailsResult.details.finalValidationCommands, { sequentialReadFallback: input.sequentialReadFallback, candidateNormalizationCommands: detailsResult.details.candidateNormalizationCommands });
+	const compiled = compileWorkContracts(planResult.plan.implementationItems, detailsResult.details.items, detailsResult.details.finalValidationCommands, { sequentialReadFallback: input.sequentialReadFallback });
 	if (!compiled.ok) return { ok: false, errors: compiled.errors.map(showIssue), warnings: compiled.warnings.map(showIssue), issues: compiled.errors, warningIssues: compiled.warnings };
-	const nodes: FanoutPacketNode[] = compiled.nodes.map((node) => {
+	const initialNodes: FanoutPacketNode[] = compiled.nodes.map((node) => {
 		const tier = deriveTierAssignment(derivePreferredTier(node.kind as WorkUnitKind), input.tierPlan);
 		return { id: node.id, kind: node.kind as WorkUnitKind, tier, active: tier.assigned === "tier2" ? "background" : "active", workContract: node.workContract };
 	});
+	const nodes = fuseVerticalSerialChains(initialNodes, compiled.graph!);
 	const packetValue = {
 		schema: EXECUTION_PACKET_SCHEMA,
 		version: EXECUTION_PACKET_VERSION,
 		createdAt: createdAt(input.createdAt),
 		sourceArtifacts: { plan: input.planIdentity, details: input.detailsIdentity },
+		profile: planResult.plan.profile,
 		planningHost: planResult.plan.planningHost,
 		planningBase: planResult.plan.planningBase,
 		objective: planResult.plan.objective,
@@ -127,6 +130,8 @@ function parsePlan(value: unknown, errors: string[]): ImplementationPlan | undef
 	const created = iso(value.createdAt, "createdAt", errors);
 	const planningHost = host(value.planningHost, errors);
 	const planningBase = base(value.planningBase, errors);
+	let profile: ArtifactIdentity | undefined;
+	try { profile = parseArtifactIdentity(value.profile); } catch (error) { errors.push(`invalid project execution profile identity: ${message(error)}`); }
 	const objective = semantic(value.objective, "objective", errors);
 	const userContext = strings(value.userContext, "userContext", errors);
 	const discoveredRepoFacts = strings(value.discoveredRepoFacts, "discoveredRepoFacts", errors);
@@ -139,7 +144,7 @@ function parsePlan(value: unknown, errors: string[]): ImplementationPlan | undef
 			errors.push(`implementationItems[${itemIndex}].forbiddenWrites[${forbiddenIndex}] overlaps planned write authority; forbiddenWrites are packet-global and worker ownership is already defined by writeResources`);
 		}
 	}
-	return planningHost && planningBase ? { schema: IMPLEMENTATION_PLAN_SCHEMA, version: IMPLEMENTATION_PLAN_VERSION, planId, createdAt: created, planningHost, planningBase, objective, userContext, discoveredRepoFacts, assumptions, implementationItems } : undefined;
+	return planningHost && planningBase && profile ? { schema: IMPLEMENTATION_PLAN_SCHEMA, version: IMPLEMENTATION_PLAN_VERSION, planId, createdAt: created, planningHost, planningBase, profile, objective, userContext, discoveredRepoFacts, assumptions, implementationItems } : undefined;
 }
 
 function planItem(value: unknown, index: number, errors: string[]): PlannedWorkSource[] {
@@ -171,13 +176,11 @@ function parseDetails(value: unknown, expected: { planIdentity?: ArtifactIdentit
 	try { plan = parseArtifactIdentity(value.plan); } catch (error) { errors.push(`invalid plan identity: ${message(error)}`); }
 	if (plan && expected.planIdentity && JSON.stringify(plan) !== JSON.stringify(expected.planIdentity)) errors.push("implementation details plan identity does not match the accepted plan bytes; rerun /fanout-plan");
 	const planIds = new Set(expected.planIds ?? []);
-	let candidateNormalizationCommands: ReturnType<typeof parseValidationCommands> = [];
-	try { candidateNormalizationCommands = parseValidationCommands(value.candidateNormalizationCommands); } catch (error) { errors.push(`invalid candidate normalization commands: ${message(error)}`); }
 	const items = Array.isArray(value.items) ? value.items.flatMap((item, index) => detailItem(item, index, planIds, errors)) : (errors.push("items must be an array"), []);
 	let finalValidationCommands: ReturnType<typeof parseValidationCommands> = [];
 	try { finalValidationCommands = parseValidationCommands(value.finalValidationCommands); } catch (error) { errors.push(`invalid final validation commands: ${message(error)}`); }
 	if (!items.length || !finalValidationCommands.length) errors.push("details need grounded items and finalValidationCommands");
-	return plan ? { schema: IMPLEMENTATION_DETAILS_SCHEMA, version: IMPLEMENTATION_DETAILS_VERSION, detailsId, createdAt: created, plan, candidateNormalizationCommands, items, finalValidationCommands } : undefined;
+	return plan ? { schema: IMPLEMENTATION_DETAILS_SCHEMA, version: IMPLEMENTATION_DETAILS_VERSION, detailsId, createdAt: created, plan, items, finalValidationCommands } : undefined;
 }
 
 function detailItem(value: unknown, index: number, planIds: Set<string>, errors: string[]): GroundedWorkInput[] {
@@ -198,7 +201,6 @@ function detailItem(value: unknown, index: number, planIds: Set<string>, errors:
 		changes: value.changes,
 		readDependencies: value.readDependencies,
 		forbiddenWrites: value.forbiddenWrites,
-		candidateNormalizationCommands: [],
 		validationCommands: value.validationCommands,
 		capabilities: FIXED_WORKER_CAPABILITIES,
 		semanticReviewCriteria: [{ sourcePlanId: "details-admission", statement: "Grounded detail fields are strict." }],

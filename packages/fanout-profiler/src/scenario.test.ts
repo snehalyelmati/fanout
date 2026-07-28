@@ -52,9 +52,11 @@ function fixture(): CatalogSnapshot {
 	];
 	const packetSource = source("packet", "planning/execution-packet.json", "planning");
 	const eventSource = source("events", "planning/executions/run/events.jsonl", "execution");
+	const profile = { path: "profiles/default.json", sha256: "a".repeat(64), byteLength: 10 };
 	const projection = {
 		runId: "run", lastEventSequence: 17, mode: "live", startedAt: at(-40), updatedAt: at(160), finishedAt: at(160), policy: { maxConcurrency: 2 }, confirmation: "accepted", confirmationEventSequence: 3,
-		terminalOutcome: { outcome: "completed", durationMs: 200 },
+		profile,
+		terminalOutcome: { outcome: "completed", durationMs: 200, cleanupDurationMs: 0 },
 		nodes: [
 			{ id: "a", status: "succeeded", completionSequence: 7, attemptIds: ["a:1"] },
 			{ id: "b", status: "succeeded", completionSequence: 9, attemptIds: ["b:1"] },
@@ -69,7 +71,7 @@ function fixture(): CatalogSnapshot {
 		finalValidation: { disposition: "passed", durationMs: 15 }, totals: { estimatedCostUsd: 0.3 },
 	};
 	const run = { id: "run", selectionId: "planning/executions/run", planningRunId: "planning", admission: "Current", label: "completed", reason: "fixture", createdAt: at(-40), updatedAt: at(160), projection, events, sources: [eventSource] };
-	const packet = { runtimePolicy: { maxConcurrency: 2 }, nodes: ["a", "b", "c"].map((id) => ({ id, kind: "implement" })), planningBase: { tree: "0" } };
+	const packet = { runtimePolicy: { maxConcurrency: 2 }, profile, nodes: ["a", "b", "c"].map((id) => ({ id, kind: "implement" })), planningBase: { tree: "0" } };
 	return {
 		generation: 1, refreshedAt: at(200), selectedExecutionRunId: run.selectionId,
 		planningRuns: [], executionRuns: [run], supportingEvidence: [], activePointer: null,
@@ -82,7 +84,7 @@ test("fixed-behavior scenarios preserve evidence while varying only bounded Fano
 	const observed = queryScenario(state, { concurrency: { mode: "observed" } });
 	expect(observed).toMatchObject({ status: "available", configuration: { mode: "observed", limit: 2 }, observedBoundaryMs: 160, scenarioBoundaryMs: 160, deltaMs: 0, statement: expect.stringContaining("fixed recorded behavior") });
 	expect(observed.schedule.nodes).toContainEqual(expect.objectContaining({ nodeId: "b", executionEndMs: 50, completedMs: 100, acceptanceGateWaitMs: 50 }));
-	expect(observed.receipt).toMatchObject({ evidenceClass: "Scenario", artifactGeneration: "Event v3 / Projection v4", sourceReferences: expect.arrayContaining([expect.objectContaining({ id: "packet" }), expect.objectContaining({ id: "events" })]) });
+	expect(observed.receipt).toMatchObject({ evidenceClass: "Scenario", artifactGeneration: "Event v4 / Projection v5", profileIdentity: { path: "profiles/default.json" }, sourceReferences: expect.arrayContaining([expect.objectContaining({ id: "packet" }), expect.objectContaining({ id: "events" })]) });
 
 	const sequential = queryScenario(state, { concurrency: { mode: "sequential" } });
 	expect(sequential).toMatchObject({ status: "available", observedBoundaryMs: 160, scenarioBoundaryMs: 210, deltaMs: 50, configuration: { mode: "sequential", limit: 1 } });
@@ -109,9 +111,12 @@ test("fixed-behavior scenarios preserve evidence while varying only bounded Fano
 });
 
 test("baseline mismatches reject alternatives, while incomplete and dry evidence stay bounded", () => {
-	const mismatched = fixture();
-	(mismatched.executionRuns[0]!.projection!.terminalOutcome as any).durationMs = 201;
-	expect(() => queryScenario(mismatched, { concurrency: { mode: "sequential" } })).toThrow("observed baseline");
+	const includesPreEventProfileValidation = fixture();
+	(includesPreEventProfileValidation.executionRuns[0]!.projection!.terminalOutcome as any).durationMs = 240;
+	expect(queryScenario(includesPreEventProfileValidation, { concurrency: { mode: "observed" } }).observedBoundaryMs).toBe(160);
+	const impossibleDuration = fixture();
+	(impossibleDuration.executionRuns[0]!.projection!.terminalOutcome as any).durationMs = 199;
+	expect(() => queryScenario(impossibleDuration, { concurrency: { mode: "sequential" } })).toThrow("observed baseline");
 	const dependencyMismatch = fixture();
 	(dependencyMismatch.executionRuns[0]!.events.find(({ sequence }) => sequence === 10) as any).occurredAt = at(90);
 	expect(() => queryScenario(dependencyMismatch, { concurrency: { mode: "observed" } })).toThrow("recorded packet dependencies");

@@ -3,6 +3,11 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { artifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
 import {
+	PROJECT_EXECUTION_PROFILE_SCHEMA,
+	PROJECT_EXECUTION_PROFILE_VERSION,
+	parseProjectExecutionProfile,
+} from "../../fanout-core/src/project-execution-profile.ts";
+import {
 	IMPLEMENTATION_DETAILS_SCHEMA,
 	IMPLEMENTATION_DETAILS_VERSION,
 	IMPLEMENTATION_PLAN_SCHEMA,
@@ -33,11 +38,13 @@ export function planningToolBlockReason(toolName: string, active: boolean): stri
 
 export function submitPlanningArtifact(state: FanoutPhaseState, artifact: unknown, cwd: string): { path: string; phase: FanoutPhaseState["phase"]; identity: ReturnType<typeof artifactIdentity> } {
 	const root = stringField(state.context.projectArtifactRoot);
-	const destination = state.phase === "implementation" ? state.implementationPlanPath : state.implementationDetailsPath;
+	const destination = state.phase === "profile" ? state.projectExecutionProfilePath : state.phase === "implementation" ? state.implementationPlanPath : state.implementationDetailsPath;
 	assertControllerDestination(root, destination, cwd);
 	const planIdentity = state.phase === "details" ? acceptedPlanIdentity(state) : undefined;
 	const submitted = controllerEnvelope(state, artifact, planIdentity);
-	const validation = state.phase === "implementation"
+	const validation = state.phase === "profile"
+		? profileValidation(submitted)
+		: state.phase === "implementation"
 		? validateImplementationPlan(submitted)
 		: validateImplementationDetailsArtifact(submitted, { planIdentity, plan: acceptedPlan(state) });
 	if (!validation.ok) throw new Error(validation.errors.join("; "));
@@ -54,6 +61,19 @@ export function readAcceptedImplementationPlan(path: string, expected: ReturnTyp
 
 function controllerEnvelope(state: FanoutPhaseState, body: unknown, planIdentity?: ReturnType<typeof artifactIdentity>): unknown {
 	if (!isRecord(body)) throw new TypeError("planning submission body must be an object");
+	if (state.phase === "profile") {
+		exactBody(body, ["preparation", "readiness", "candidateNormalization", "requiredFinalGates"]);
+		return {
+			schema: PROJECT_EXECUTION_PROFILE_SCHEMA,
+			version: PROJECT_EXECUTION_PROFILE_VERSION,
+			profileId: state.runId,
+			createdAt: new Date().toISOString(),
+			preparation: body.preparation,
+			readiness: body.readiness,
+			candidateNormalization: body.candidateNormalization,
+			requiredFinalGates: body.requiredFinalGates,
+		};
+	}
 	if (state.phase === "implementation") {
 		exactBody(body, ["objective", "userContext", "discoveredRepoFacts", "assumptions", "implementationItems"]);
 		const planningBase = isRecord(state.context.planningBase) ? state.context.planningBase : {};
@@ -64,6 +84,7 @@ function controllerEnvelope(state: FanoutPhaseState, body: unknown, planIdentity
 			createdAt: new Date().toISOString(),
 			planningHost: { platform: process.platform },
 			planningBase: { headCommit: planningBase.headCommit, tree: planningBase.tree },
+			profile: state.profileIdentity,
 			objective: body.objective,
 			userContext: body.userContext,
 			discoveredRepoFacts: body.discoveredRepoFacts,
@@ -71,7 +92,7 @@ function controllerEnvelope(state: FanoutPhaseState, body: unknown, planIdentity
 			implementationItems: body.implementationItems,
 		};
 	}
-	exactBody(body, ["items", "candidateNormalizationCommands", "finalValidationCommands"]);
+	exactBody(body, ["items", "finalValidationCommands"]);
 	return {
 		schema: IMPLEMENTATION_DETAILS_SCHEMA,
 		version: IMPLEMENTATION_DETAILS_VERSION,
@@ -79,9 +100,13 @@ function controllerEnvelope(state: FanoutPhaseState, body: unknown, planIdentity
 		createdAt: new Date().toISOString(),
 		plan: planIdentity,
 		items: body.items,
-		candidateNormalizationCommands: body.candidateNormalizationCommands,
 		finalValidationCommands: body.finalValidationCommands,
 	};
+}
+
+function profileValidation(value: unknown): { ok: boolean; errors: string[] } {
+	try { parseProjectExecutionProfile(value); return { ok: true, errors: [] }; }
+	catch (error) { return { ok: false, errors: [error instanceof Error ? error.message : String(error)] }; }
 }
 
 function acceptedPlanIdentity(state: FanoutPhaseState) {

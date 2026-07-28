@@ -2,7 +2,7 @@ import { parseResource, resourcesOverlap, type Resource } from "./repository-res
 import { parseValidationCommands, type ValidationCommand } from "./validation-command.ts";
 
 export const WORK_CONTRACT_SCHEMA = "fanout.work-contract";
-export const WORK_CONTRACT_VERSION = 2;
+export const WORK_CONTRACT_VERSION = 3;
 
 export type WorkAnchor =
 	| { kind: "symbol"; symbol: string }
@@ -62,7 +62,6 @@ export interface WorkContract {
 	changes: ChangeIntent[];
 	readDependencies: WorkReadDependency[];
 	forbiddenWrites: ForbiddenWrite[];
-	candidateNormalizationCommands: ValidationCommand[];
 	validationCommands: ValidationCommand[];
 	capabilities: typeof FIXED_WORKER_CAPABILITIES;
 	semanticReviewCriteria: SourceLinkedStatement[];
@@ -81,7 +80,7 @@ export interface WorkContractIssue {
 	path?: string;
 }
 
-const CONTRACT_FIELDS = new Set(["schema", "version", "goals", "changes", "readDependencies", "forbiddenWrites", "candidateNormalizationCommands", "validationCommands", "capabilities", "semanticReviewCriteria", "advisoryNotes"]);
+const CONTRACT_FIELDS = new Set(["schema", "version", "goals", "changes", "readDependencies", "forbiddenWrites", "validationCommands", "capabilities", "semanticReviewCriteria", "advisoryNotes"]);
 const CAPABILITY_FIELDS = new Set(["modelCallableTools", "validationExecution", "shell", "extensionTools"]);
 const CAPABILITY_TOOLS = [...FIXED_WORKER_CAPABILITIES.modelCallableTools];
 const NOTE_KINDS = new Set(["rationale", "risk", "validation-intent", "constraint", "context"]);
@@ -102,9 +101,6 @@ export function validateWorkContract(value: unknown, options: { finalValidation?
 	const changes = changeIntents(value.changes, "changes", errors);
 	const readDependencies = reads(value.readDependencies, "readDependencies", errors);
 	const forbiddenWrites = forbiddens(value.forbiddenWrites, "forbiddenWrites", errors);
-	let candidateNormalizationCommands: ValidationCommand[] = [];
-	try { candidateNormalizationCommands = parseValidationCommands(value.candidateNormalizationCommands); }
-	catch (error) { add(errors, "invalid-candidate-normalization-command", errorMessage(error), "candidateNormalizationCommands"); }
 	let validationCommands: ValidationCommand[] = [];
 	try { validationCommands = parseValidationCommands(value.validationCommands); }
 	catch (error) { add(errors, "invalid-validation-command", errorMessage(error), "validationCommands"); }
@@ -125,7 +121,7 @@ export function validateWorkContract(value: unknown, options: { finalValidation?
 		add(errors, "write-forbidden-overlap", `${show(forbidden.resource)} overlaps a typed change endpoint`, `forbiddenWrites[${index}]`);
 	}
 	if (errors.length) return { ok: false, errors };
-	return { ok: true, errors, contract: { schema: WORK_CONTRACT_SCHEMA, version: WORK_CONTRACT_VERSION, goals, changes, readDependencies, forbiddenWrites, candidateNormalizationCommands, validationCommands, capabilities: FIXED_WORKER_CAPABILITIES, semanticReviewCriteria, advisoryNotes } };
+	return { ok: true, errors, contract: { schema: WORK_CONTRACT_SCHEMA, version: WORK_CONTRACT_VERSION, goals, changes, readDependencies, forbiddenWrites, validationCommands, capabilities: FIXED_WORKER_CAPABILITIES, semanticReviewCriteria, advisoryNotes } };
 }
 
 export function changeWriteResources(changes: readonly ChangeIntent[]): Resource[] {

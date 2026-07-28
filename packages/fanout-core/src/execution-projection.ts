@@ -12,15 +12,17 @@ import {
 	type PreflightCompletedPayload,
 	type PreflightEvidence,
 	type RunFinishCause,
+	type RunFinishedPayload,
 	type RunMode,
 	type RunOutcome,
 	type RunPolicy,
 	type RunStartedPayload,
 } from "./execution-event.ts";
+import { repairStateDigest } from "./repair-state.ts";
 import { FINAL_VALIDATION_NODE_ID } from "./work-contract-graph.ts";
 
 export const EXECUTION_PROJECTION_SCHEMA = "fanout.execution-run";
-export const EXECUTION_PROJECTION_VERSION = 4;
+export const EXECUTION_PROJECTION_VERSION = 5;
 
 export interface AttemptProjection {
 	allocationSequence: number;
@@ -78,8 +80,10 @@ export interface ExecutionRunProjection {
 	lastEventSequence: number;
 	mode: RunMode;
 	phase: ExecutionPhase;
-	terminalOutcome: { outcome: RunOutcome; durationMs: number; cause: RunFinishCause } | null;
+	terminalOutcome: RunFinishedPayload | null;
 	packet: ArtifactIdentity;
+	profile: ArtifactIdentity;
+	profileValidation: ArtifactIdentity;
 	planningBaseTree: GitTreeId;
 	policy: RunPolicy;
 	preflightEvidence: PreflightEvidence;
@@ -158,7 +162,7 @@ export function reduceExecutionEvent(previous: ExecutionRunProjection | undefine
 		const payload = event.payload as unknown as RunStartedPayload;
 		return finalize({
 			schema: EXECUTION_PROJECTION_SCHEMA, version: EXECUTION_PROJECTION_VERSION, runId: event.runId, lastEventSequence: 1,
-			mode: payload.mode, phase: "preflight", terminalOutcome: null, packet: payload.packet, planningBaseTree: payload.planningBaseTree, policy: payload.policy, preflightEvidence: payload.preflightEvidence,
+			mode: payload.mode, phase: "preflight", terminalOutcome: null, packet: payload.packet, profile: payload.profile, profileValidation: payload.profileValidation, planningBaseTree: payload.planningBaseTree, policy: payload.policy, preflightEvidence: payload.preflightEvidence,
 			startedAt: event.occurredAt, updatedAt: event.occurredAt, finishedAt: null, preflight: null,
 			confirmation: payload.mode === "live" ? "pending" : "not-required", confirmationEventSequence: null,
 			nodes: payload.nodeIds.map((id) => ({ id, status: "pending", completionSequence: null, attemptIds: [], causalAttemptId: null, causalUpstreamNodeId: null })),
@@ -254,7 +258,24 @@ function applyCompletion(state: ExecutionRunProjection, sequence: number, payloa
 	for (const field of ["runId", "nodeId", "attemptId", "attemptNumber", "kind"] as const) if (outcome[field] !== allocation[field]) throw new Error(`attempt outcome ${field} does not match its allocation`);
 	if (!sameAssignment(allocation, outcome) || JSON.stringify(outcome.budgetTransition) !== JSON.stringify(allocation.budgetTransition) || outcome.sourceAttemptId !== allocation.sourceAttemptId || JSON.stringify(outcome.sourceFinalValidationEvidence) !== JSON.stringify(allocation.sourceFinalValidationEvidence)) throw new Error("attempt outcome repeats contradictory allocation authority");
 	const expected = routeAttempt(outcome.terminalFact, { kind: allocation.kind, assignment: allocation.assignment, fallbackAllowed: state.policy.fallbackAllowed, remaining: remainingBudgets(state.budgets[allocation.nodeId]) });
-	if (outcome.action !== expected) throw new Error("attempt controller action contradicts its typed fact and fixed budgets");
+	const repairFailure = (allocation.kind === "validation-repair" || allocation.kind === "integration-repair")
+		&& (outcome.terminalFact.stage === "validation" && ["program-failure", "timeout", "signal"].includes(outcome.terminalFact.code)
+			|| outcome.terminalFact.stage === "apply" && ["check-conflict", "apply-failure", "post-tree-mismatch"].includes(outcome.terminalFact.code));
+	if (repairFailure && !outcome.repairProgress) throw new Error("failed repair completion omitted exact progress evidence");
+	if (outcome.disposition === "exact-no-progress") {
+		if (outcome.action !== "fail" || outcome.repairProgress?.progressed !== false || expected !== "validation-repair" && expected !== "integration-repair") throw new Error("exact no-progress outcome contradicts its typed repair route");
+	} else if (outcome.action !== expected) throw new Error("attempt controller action contradicts its typed fact and fixed budgets");
+	if (outcome.repairProgress && allocation.sourceAttemptId) {
+		const source = completedAttempt(state, allocation.sourceAttemptId).outcome;
+		if (!source?.repairState || JSON.stringify(source.repairState) !== JSON.stringify(outcome.repairProgress.source)) throw new Error("repair progress source does not match the exact causal attempt state");
+	}
+	if (outcome.repairProgress && allocation.sourceFinalValidationEvidence) {
+		if (outcome.repairSource?.kind !== "final-validation"
+			|| JSON.stringify(outcome.repairSource.sourceFinalValidationEvidence) !== JSON.stringify(allocation.sourceFinalValidationEvidence)
+			|| JSON.stringify(repairStateDigest(outcome.repairSource)) !== JSON.stringify(outcome.repairProgress.source)) {
+			throw new Error("repair progress source does not match the exact final-validation evidence");
+		}
+	}
 	if ((outcome.action === "accept") !== Boolean(payload.acceptedTransition)) throw new Error("only an accepted attempt may append one accepted-state transition");
 	if (payload.acceptedTransition) {
 		const currentTree = state.acceptedLedger.at(-1)?.transition.patch.resultTree ?? state.planningBaseTree;
@@ -306,9 +327,10 @@ function applyFinalValidationCompletion(state: ExecutionRunProjection, sequence:
 function applyRunFinished(state: ExecutionRunProjection, payload: Record<string, unknown>, occurredAt: string): void {
 	const outcome = payload.outcome as RunOutcome;
 	const cause = payload.cause as RunFinishCause;
+	const cleanupFailure = outcome === "failed" && cause.kind === "controller" && cause.stage === "cleanup";
 	if (state.attempts.some((attempt) => !attempt.outcome)) throw new Error("run-finished requires one terminal outcome for every allocated attempt");
 	if (cause.kind === "event" && (cause.eventSequence >= state.lastEventSequence || cause.eventSequence < 1)) throw new Error("run outcome cause must reference an earlier committed event");
-	if (cause.kind === "controller" && cause.stage !== state.phase) throw new Error("controller failure stage does not match the current run phase");
+	if (cause.kind === "controller" && cause.stage !== "cleanup" && cause.stage !== state.phase) throw new Error("controller failure stage does not match the current run phase");
 	if (outcome === "completed" && (state.mode !== "live" || state.nodes.some((node) => node.status !== "succeeded") || state.finalValidation.disposition !== "passed")) throw new Error("completed requires successful nodes and final validation");
 	if (outcome === "dry-run-completed" && (state.mode !== "dry-run" || state.preflight?.status !== "passed" || state.attempts.length || state.finalValidation.disposition !== "not-started")) throw new Error("dry-run-completed requires passed preflight without execution");
 	if (outcome === "aborted" && state.confirmation !== "declined" && !state.attempts.some((attempt) => attempt.outcome?.action === "abort")) throw new Error("aborted requires declined confirmation or an aborting attempt");
@@ -318,9 +340,9 @@ function applyRunFinished(state: ExecutionRunProjection, payload: Record<string,
 		: state.confirmation === "declined" || state.attempts.some((attempt) => attempt.outcome?.action === "abort") ? "aborted"
 		: state.finalValidation.disposition === "passed" ? "completed"
 		: undefined;
-	if (determinedOutcome && outcome !== determinedOutcome) throw new Error(`run outcome must preserve the earlier authoritative ${determinedOutcome} fact`);
+	if (determinedOutcome && outcome !== determinedOutcome && !cleanupFailure) throw new Error(`run outcome must preserve the earlier authoritative ${determinedOutcome} fact`);
 	if (outcome === "failed" && !priorFailure && cause.kind !== "controller") throw new Error("failed requires a prior typed failure or controller cause");
-	if (outcome === "failed" && priorFailure && cause.kind !== "event") throw new Error("failed must cite its earlier domain failure");
+	if (outcome === "failed" && priorFailure && cause.kind !== "event" && !cleanupFailure) throw new Error("failed must cite its earlier domain failure");
 	if ((outcome === "completed" || outcome === "dry-run-completed" || outcome === "aborted") && cause.kind !== "event") throw new Error(`${outcome} requires an earlier domain-event cause`);
 	if (outcome === "completed" && cause.kind === "event" && (cause.eventSequence !== (state.finalValidation.disposition === "passed" ? state.finalValidation.completionSequence : -1) || cause.code !== "final-validation-passed" || cause.nodeId || cause.attemptId)) throw new Error("completed cause must reference only passed final validation");
 	if (outcome === "dry-run-completed" && cause.kind === "event" && (cause.eventSequence !== state.preflight?.eventSequence || cause.code !== "dry-run" || cause.nodeId || cause.attemptId)) throw new Error("dry-run cause must reference only passed preflight");
@@ -337,7 +359,7 @@ function applyRunFinished(state: ExecutionRunProjection, payload: Record<string,
 		if (!valid) throw new Error("failed cause does not identify its causal event");
 	}
 	if (state.finalValidation.disposition === "not-started") state.finalValidation = { disposition: "not-run", reason: outcome === "dry-run-completed" ? "dry-run" : outcome === "aborted" ? "aborted" : "upstream-failure" };
-	state.terminalOutcome = { outcome, durationMs: payload.durationMs as number, cause };
+	state.terminalOutcome = { outcome, durationMs: payload.durationMs as number, cleanupDurationMs: payload.cleanupDurationMs as number, cause };
 	state.finishedAt = occurredAt;
 	state.phase = "finished";
 }
