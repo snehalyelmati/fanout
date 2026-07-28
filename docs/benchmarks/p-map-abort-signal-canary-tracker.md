@@ -2,28 +2,35 @@
 
 Date: 2026-07-14; optimization-candidate runs: 2026-07-27 and 2026-07-28
 
-Status: Candidate `c75ff9a` and Attempt 14 remain historical successful evidence. The 2026-07-27 profile-bound sequence completed the canary and repetitions 1–2, then stopped when repetition 3 exhausted the fused runtime/test node's fixed validation-repair budget. The reviewed 2026-07-28 Worker-summary candidate passed a fresh dry-run, then stopped before worker launch because the live confirmation mislabeled the details digest as the packet identity. The release-confidence gate is not satisfied; a corrected source revision must restart at the canary.
+Status: Candidate `c75ff9a` and Attempt 14 remain historical successful evidence. The 2026-07-27 profile-bound sequence completed the canary and repetitions 1–2, then stopped when repetition 3 exhausted the fused runtime/test node's fixed validation-repair budget. The reviewed 2026-07-28 Worker-summary candidate first stopped before worker launch on a confirmation-label defect. Commit `3fef090` fixed that defect and passed both review axes. Its restarted canary completed, then repetition 1 stopped on bounded runtime-test validation-repair exhaustion. Repetitions 2–3 were not run. The release-confidence gate remains open.
 
 ## 2026-07-28 Worker-summary sequence
 
 Fixed controls:
 
-- Fanout source: clean branch `feature/fanout-optimization`, frozen reviewed commit `a06755bf3bbfab06e64a3915cfed1cdbb0647409`.
+- Worker-summary implementation: reviewed commit `a06755bf3bbfab06e64a3915cfed1cdbb0647409`.
+- Confirmation fix and frozen execution source: commit `3fef09013dde4ad32e1446bd76201d8f2f161e49`; focused red/green confirmation regression, full `npm run check`, Doubleword-provider tests, and diff check passed. Review of `3c3e6e7...3fef090` returned zero Standards findings and zero Spec findings.
 - Clean detached p-map worktrees `controlled-20260728-worker-summary/{canary,rep-1,rep-2,rep-3}` at baseline `c3c261e2189f94d1a09724e8f03d5345af518017`; isolated `npm ci --ignore-scripts` preparation and all four independent 51-test baselines passed.
-- Pane `%251` in `doubleword:fanout-canary`, rooted at the canary worktree. Historical pane `%249` was closed only after `%251` was confirmed alive; `%251` remains for inspection.
+- Fresh panes in `doubleword:fanout-canary`: corrected canary `%252` was closed after evidence capture and repetition pane `%253` was confirmed alive; failed repetition pane `%253` remains for inspection. Initial stopped pane `%251` was closed only after `%252` was alive.
 - Tier 1 `openai-codex/gpt-5.6-sol` medium; async Tier 2 disabled; Tier 2 fallback `openai-codex/gpt-5.6-terra` medium; maximum concurrency 2; no `FANOUT_WORKTREE_SHARED_PATHS`.
-- Packet SHA-256 `d2a0e3726b78abfdba02709ba86798e91d0f2975cbc97e737c66ed0fb4cd76ea`, 38,661 bytes; profile SHA-256 `77573f46e3b2f8dbbb975a3e6ca73ee583ad37ca454d6ff6842edd3c1172c6c0`, 2,230 bytes; planning base commit/tree `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`.
+- Active packet pointer SHA-256 `b7b733e141c705d462ab4906bc66cce04f895ff3bf243918a6c3439c8601f6b4`, 322 bytes; active profile pointer SHA-256 `0e9958891ad5fceaa942a23c2aa55794dd2480c753ba4c32df41f963cf5b69e3`, 333 bytes.
+- Packet SHA-256 `d2a0e3726b78abfdba02709ba86798e91d0f2975cbc97e737c66ed0fb4cd76ea`, 38,661 bytes; profile SHA-256 `77573f46e3b2f8dbbb975a3e6ca73ee583ad37ca454d6ff6842edd3c1172c6c0`, 2,230 bytes; planning base commit/tree `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`. Pointer and artifact bytes matched exactly in repetition 1.
 
-| Gate | Outcome | Evidence |
-| --- | --- | --- |
-| Planning/profile | passed | Profile validation completed in an isolated clean worktree; packet v7 owns exactly the five task files and binds profile v1. |
-| Dry-run | passed | `2026-07-28T10-24-22-168Z-8dab93a2`; 9.986s, zero attempts/tokens/cost/patches, cleanup 0.002ms. |
-| Live confirmation | declined; sequence stopped | Confirmation rendered `Packet: f0264cb025eb`, the implementation-details SHA `f0264cb025eb3784a25615db8b983cd947499cd3fe95416240ab8a808a006b14`, instead of the authoritative packet SHA. |
-| Live audit | aborted before workers | `2026-07-28T10-24-49-234Z-12637a82`; Event v4 sequences record start, passed preflight, declined confirmation, and finish. Projection v5 reports 95.669s, zero attempts/tokens/cost/accepted patch, final validation not run, and 0.003ms cleanup. |
-| Independent post-run checks | passed | Canary worktree remained clean at the baseline; `npm test` passed all 51 tests; no current-run worker, worktree, or lock leaked. |
-| Repetitions 1–3 | not run | The controlled sequence stops on the first failure or identity discrepancy. |
+| Run | Pane/worktree | Outcome and final tree | Independent validation/cleanup | Timing, tokens, and cost |
+| --- | --- | --- | --- | --- |
+| Corrected canary | `%252` (closed); `controlled-20260728-worker-summary/canary` | Completed; final validation passed; final tree `73e501a361dbb433faae3bc4ef6c013021076584`; five allowed files, +307/-51 | 55 tests passed; cleanup 11.355s; no current-run worker, worktree, or lock leak | 420.728s wall; 401.893s post-confirmation; 390.535s profiler completion chain; 44.818s node overlap; 486,170 tokens; `$0.8393655`; 7 attempts |
+| Repetition 1 | `%253` (retained); `controlled-20260728-worker-summary/rep-1` | Failed after `runtime-tests` exhausted 2/2 validation repairs; final validation not run; accepted partial tree `f1863b2c735f9d82ece8d31664ea1dde5490d52c`; four accepted files, +120/-51 | Original 51-test suite passed on the accepted partial tree; diff check passed; cleanup 10.510s; no current-run worker, worktree, or lock leak | 396.535s wall; 377.800s post-confirmation; 367.282s recorded profiler prefix; 47.050s node overlap; 529,343 tokens; `$1.0167785`; 7 attempts |
+| Repetitions 2–3 | prepared but not run | Mandatory stop after repetition 1 failure | No execution artifacts created | No measurements |
 
-The mismatch is a presentation defect in `confirmationSummary`: it labels `packet.sourceArtifacts.details.sha256` as `Packet`. Authoritative pointer, run-started event, and projection identities all agree on `d2a0e372…`; no artifact mutation occurred. No Worker-summary handoff was exercised because no worker launched. Do not calculate a median, range, reliability rate, or SLO from this stopped canary.
+Canary profile preparation/readiness/normalization-probe timings were 4.658s/0.376s/2.104s; repetition 1 recorded 4.316s/0.270s/2.008s. Neither run recorded reconciliation or exact no-progress termination. Both used three validation-repair launches. The canary used 121,988 input, 17,046 output, and 347,136 cache-read tokens; repetition 1 used 152,175 input, 17,232 output, and 359,936 cache-read tokens.
+
+The live canary exercised the advisory handoff end to end. Each original validation repair received its immediate predecessor's extracted summary, and `runtime-tests` repair 2 received repair 1's summary rather than falling back to the original. The optional summaries were present in attempt `result.json` artifacts and absent from Attempt Outcomes, Event v4, and Projection v5 authority.
+
+Repetition 1's last worker summary accurately localized the failure: 57 AVA tests passed and the deterministic pending-abort test failed because `index.js` destructures the `undefined` result returned by the abort side of `Promise.race`. The test-only repair node could not modify `index.js`, so it preserved its valid coverage and Fanout correctly terminated at the fixed budget. This is a worker/ownership decomposition miss, not evidence that summaries gained authority. With only one completed run, no completed-run median or range is reported, and no reliability rate or universal SLO is inferred.
+
+### Initial confirmation stop
+
+The same packet/profile first ran from reviewed Worker-summary commit `a06755b` in pane `%251`. Dry-run `2026-07-28T10-24-22-168Z-8dab93a2` passed. Live run `2026-07-28T10-24-49-234Z-12637a82` was declined before workers because confirmation rendered implementation-details SHA `f0264cb025eb…` under the `Packet` label. It ended with zero attempts, tokens, cost, or accepted changes. This historical stop is not part of the corrected cohort.
 
 ## 2026-07-27 controlled sequence
 
@@ -204,8 +211,12 @@ Do not treat the displayed cost as a provider comparison or a completed-canary b
 
 - Runbook: `docs/benchmarks/p-map-abort-signal-manual-e2e.md`
 - 2026-07-28 Worker-summary planning artifacts: `/Users/snehalyelmati/.pi/agent/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar`
-- 2026-07-28 Worker-summary dry-run: `/Users/snehalyelmati/.pi/agent/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-24-22-168Z-8dab93a2`
-- 2026-07-28 Worker-summary stopped live run: `/Users/snehalyelmati/.pi/agent/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-24-49-234Z-12637a82`
+- 2026-07-28 initial Worker-summary dry-run: `/Users/snehalyelmati/.pi/agent/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-24-22-168Z-8dab93a2`
+- 2026-07-28 initial stopped live run: `/Users/snehalyelmati/.pi/agent/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-24-49-234Z-12637a82`
+- 2026-07-28 corrected canary dry-run: `/Users/snehalyelmati/.pi/agent/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-58-27-522Z-6667ab27`
+- 2026-07-28 corrected canary live run: `/Users/snehalyelmati/.pi/agent/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-59-03-363Z-f88ca6ff`
+- 2026-07-28 repetition 1 dry-run: `/Users/snehalyelmati/.pi/agent/fanout/rep-1-b59f00098cff/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T11-10-26-097Z-f2a54d08`
+- 2026-07-28 stopped repetition 1 live run: `/Users/snehalyelmati/.pi/agent/fanout/rep-1-b59f00098cff/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T11-11-03-020Z-81129b36`
 - Accepted Phase A plan: `/Users/snehalyelmati/.pi/agent/fanout/repo-f3c0f3a183c0/20260714-062207785-read-task-md-and-implement-that-benchmar/implementation-plan.json`
 - Planning observability: `/Users/snehalyelmati/.pi/agent/fanout/repo-f3c0f3a183c0/observability/2026-07-14T06-18-43-347Z-33114/observability.jsonl`
 - Attempt 5 accepted plan: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-070403903-read-task-md-and-implement-that-benchmar/implementation-plan.json`
@@ -227,4 +238,4 @@ Do not treat the displayed cost as a provider comparison or a completed-canary b
 
 ## Next decision
 
-Preserve reviewed Worker-summary commit `a06755b` and this stopped-canary evidence unchanged. Correct the confirmation to display the authoritative active-packet identity, add a focused regression, review and commit that fix separately, then restart the controlled sequence at a fresh canary. Do not run repetitions from the stopped packet confirmation.
+Preserve reviewed Worker-summary commit `a06755b`, confirmation fix `3fef090`, and the stopped cohort unchanged. Diagnose the ownership/decomposition miss outside the frozen cohort before any new code or planning change. Any change must start a new controlled sequence at a fresh canary; repetitions 2–3 from this cohort must not run.
