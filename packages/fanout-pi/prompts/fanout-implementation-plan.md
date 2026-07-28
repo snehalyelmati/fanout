@@ -29,6 +29,8 @@ Submit only these fields:
 
 Resources are explicit file/directory objects and must use literal canonical repository-relative paths. Phase A defines maximum authority. Semantic dependencies that are not typed reads belong in advisory notes. Do not submit status, paths, timestamps, graph fields, commands, anchors, routing, or packet fields. Do not mutate the repository.
 
+Choose implementation-item boundaries by independent acceptability and repairability, not file category. When behavioral tests exist solely to validate a production change and cannot be accepted or repaired independently, put the production and test writes in one implementation item. Split items only when each is independently acceptable and repairable. If split items genuinely share context, declare their exact typed reads honestly; never add reads merely to make compiler fusion eligible.
+
 Do not add a `final-validation` implementation item. Phase B `finalValidationCommands` are the sole input for the compiler-owned final-validation node.
 
 `forbiddenWrites` are monotonic packet-global bans. Do not use them to express worker ownership or to forbid any resource named by an implementation item's `writeResources`; typed write resources already define worker ownership. List only resources that no worker may change.

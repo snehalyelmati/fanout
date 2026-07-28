@@ -22,7 +22,7 @@ These versions are a closed generation. Producers emit only these versions and c
 ## Authority flow
 
 1. The controller resolves the exact active profile identity, planning commit, full Git-visible tree, platform, and plan run identity before Phase A. `/fanout-plan --refresh-profile` gathers and validates a replacement in a disposable clean worktree before atomically publishing it; failure preserves the previous profile.
-2. Phase A's model submits only the plan body. The controller supplies schema, version, ID, timestamp, planning host, and planning base.
+2. Phase A's model submits only the plan body. The controller supplies schema, version, ID, timestamp, planning host, and planning base. Item boundaries follow independent acceptability and repairability rather than file categories: inseparable production and behavioral-test writes share one item, while split items declare only genuine typed reads and never pad reads for fusion.
 3. Phase B's model submits only grounded details. The controller supplies schema, version, ID, timestamp, and the exact digest/length/path identity of the once-read Phase A bytes.
 4. Details use typed `create`, `modify`, `delete`, and `move` intents; typed repository resources; classified reads; typed forbidden resources; and direct executable/argv task-validation manifests. The profile separately owns preparation, readiness, normalization, and required final gates.
 5. `fanout-core` validates both envelopes, assigns tiers, derives dependencies, fuses eligible unique vertical serial chains, appends final validation, and produces packet v7 bound to the exact profile identity.
