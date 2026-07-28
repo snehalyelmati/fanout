@@ -1,8 +1,29 @@
 # p-map AbortSignal canary tracker
 
-Date: 2026-07-14; optimization-candidate run: 2026-07-27
+Date: 2026-07-14; optimization-candidate runs: 2026-07-27 and 2026-07-28
 
-Status: Candidate `c75ff9a` and Attempt 14 remain historical successful evidence. The 2026-07-27 profile-bound sequence completed the canary and repetitions 1–2, then stopped when repetition 3 exhausted the fused runtime/test node's fixed validation-repair budget. The release-confidence gate is not satisfied. A post-run profiler compatibility fix changed source afterward, so any further live sequence must restart at the canary.
+Status: Candidate `c75ff9a` and Attempt 14 remain historical successful evidence. The 2026-07-27 profile-bound sequence completed the canary and repetitions 1–2, then stopped when repetition 3 exhausted the fused runtime/test node's fixed validation-repair budget. The reviewed 2026-07-28 Worker-summary candidate passed a fresh dry-run, then stopped before worker launch because the live confirmation mislabeled the details digest as the packet identity. The release-confidence gate is not satisfied; a corrected source revision must restart at the canary.
+
+## 2026-07-28 Worker-summary sequence
+
+Fixed controls:
+
+- Fanout source: clean branch `feature/fanout-optimization`, frozen reviewed commit `a06755bf3bbfab06e64a3915cfed1cdbb0647409`.
+- Clean detached p-map worktrees `controlled-20260728-worker-summary/{canary,rep-1,rep-2,rep-3}` at baseline `c3c261e2189f94d1a09724e8f03d5345af518017`; isolated `npm ci --ignore-scripts` preparation and all four independent 51-test baselines passed.
+- Pane `%251` in `doubleword:fanout-canary`, rooted at the canary worktree. Historical pane `%249` was closed only after `%251` was confirmed alive; `%251` remains for inspection.
+- Tier 1 `openai-codex/gpt-5.6-sol` medium; async Tier 2 disabled; Tier 2 fallback `openai-codex/gpt-5.6-terra` medium; maximum concurrency 2; no `FANOUT_WORKTREE_SHARED_PATHS`.
+- Packet SHA-256 `d2a0e3726b78abfdba02709ba86798e91d0f2975cbc97e737c66ed0fb4cd76ea`, 38,661 bytes; profile SHA-256 `77573f46e3b2f8dbbb975a3e6ca73ee583ad37ca454d6ff6842edd3c1172c6c0`, 2,230 bytes; planning base commit/tree `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`.
+
+| Gate | Outcome | Evidence |
+| --- | --- | --- |
+| Planning/profile | passed | Profile validation completed in an isolated clean worktree; packet v7 owns exactly the five task files and binds profile v1. |
+| Dry-run | passed | `2026-07-28T10-24-22-168Z-8dab93a2`; 9.986s, zero attempts/tokens/cost/patches, cleanup 0.002ms. |
+| Live confirmation | declined; sequence stopped | Confirmation rendered `Packet: f0264cb025eb`, the implementation-details SHA `f0264cb025eb3784a25615db8b983cd947499cd3fe95416240ab8a808a006b14`, instead of the authoritative packet SHA. |
+| Live audit | aborted before workers | `2026-07-28T10-24-49-234Z-12637a82`; Event v4 sequences record start, passed preflight, declined confirmation, and finish. Projection v5 reports 95.669s, zero attempts/tokens/cost/accepted patch, final validation not run, and 0.003ms cleanup. |
+| Independent post-run checks | passed | Canary worktree remained clean at the baseline; `npm test` passed all 51 tests; no current-run worker, worktree, or lock leaked. |
+| Repetitions 1–3 | not run | The controlled sequence stops on the first failure or identity discrepancy. |
+
+The mismatch is a presentation defect in `confirmationSummary`: it labels `packet.sourceArtifacts.details.sha256` as `Packet`. Authoritative pointer, run-started event, and projection identities all agree on `d2a0e372…`; no artifact mutation occurred. No Worker-summary handoff was exercised because no worker launched. Do not calculate a median, range, reliability rate, or SLO from this stopped canary.
 
 ## 2026-07-27 controlled sequence
 
@@ -182,6 +203,9 @@ Do not treat the displayed cost as a provider comparison or a completed-canary b
 ## Evidence paths
 
 - Runbook: `docs/benchmarks/p-map-abort-signal-manual-e2e.md`
+- 2026-07-28 Worker-summary planning artifacts: `/Users/snehalyelmati/.pi/agent/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar`
+- 2026-07-28 Worker-summary dry-run: `/Users/snehalyelmati/.pi/agent/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-24-22-168Z-8dab93a2`
+- 2026-07-28 Worker-summary stopped live run: `/Users/snehalyelmati/.pi/agent/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-24-49-234Z-12637a82`
 - Accepted Phase A plan: `/Users/snehalyelmati/.pi/agent/fanout/repo-f3c0f3a183c0/20260714-062207785-read-task-md-and-implement-that-benchmar/implementation-plan.json`
 - Planning observability: `/Users/snehalyelmati/.pi/agent/fanout/repo-f3c0f3a183c0/observability/2026-07-14T06-18-43-347Z-33114/observability.jsonl`
 - Attempt 5 accepted plan: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-070403903-read-task-md-and-implement-that-benchmar/implementation-plan.json`
@@ -203,4 +227,4 @@ Do not treat the displayed cost as a provider comparison or a completed-canary b
 
 ## Next decision
 
-The full E2E execution gate is satisfied. Preserve candidate `c75ff9a` and its successful Attempt 14 evidence unchanged while awaiting repository-owner approval. Treat the post-E2E p-map review fixes as an independently validated follow-up diff unless the repository owner requests another clean-base canary run.
+Preserve reviewed Worker-summary commit `a06755b` and this stopped-canary evidence unchanged. Correct the confirmation to display the authoritative active-packet identity, add a focused regression, review and commit that fix separately, then restart the controlled sequence at a fresh canary. Do not run repetitions from the stopped packet confirmation.
