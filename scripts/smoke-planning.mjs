@@ -11,6 +11,7 @@ for (const text of [profile, phaseA, phaseB]) {
   assert(!/status.{0,8}ready|artifactDir|sourcePlanPath|ownedResources|forbiddenChanges|shell command|string\[\] of literal/i.test(text), "phase prompt retains legacy executable authority");
 }
 assert(phaseA.includes("writeResources") && phaseA.includes('"kind":"file"'), "Phase A omitted typed resources");
+assert(phaseA.includes("independent acceptability and repairability") && phaseA.includes("production and test writes in one implementation item") && phaseA.includes("never add reads merely to make compiler fusion eligible"), "Phase A does not preserve independently repairable production/test boundaries");
 assert(phaseA.includes("Do not add a `final-validation` implementation item") && phaseA.includes("compiler-owned final-validation node"), "Phase A permits duplicate final-validation authority");
 assert(phaseA.includes("packet-global") && phaseA.includes("worker ownership"), "Phase A does not explain monotonic forbidden-write scope");
 assert(phaseB.includes('"changes"') && phaseB.includes('"executable"') && phaseB.includes('"args"'), "Phase B omitted typed changes/direct argv");

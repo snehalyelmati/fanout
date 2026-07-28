@@ -524,9 +524,9 @@ Reason: Implementation planning, repo grounding, and execution compilation are d
 
 ### Compiler owns execution DAG construction
 
-Decision: Phase A decides what/why and maximum typed scope; Phase B supplies typed changes, anchors, reads, forbidden writes, and direct-argv validation; the compiler owns grouping, DAG derivation, and tier assignment. Every Phase A write remains covered by same-source Phase B changes. A cross-node Phase A read must receive typed Phase B timing; after one unsuccessful Phase B repair, the compiler may insert a typed `post-change-required` read with `timingSource: "sequential-fallback"`, which derives both the conservative edge and its warning. No prose, formatted diagnostic, persisted graph, or worker handoff copy controls scheduling.
+Decision: Phase A decides what/why and maximum typed scope; Phase B supplies typed changes, anchors, reads, forbidden writes, and direct-argv validation; the compiler owns grouping, DAG derivation, and tier assignment. Phase A boundaries follow independent acceptability and repairability rather than file categories: production and behavioral-test writes that cannot be accepted or repaired independently belong to one item. Split items declare genuine typed reads honestly and never pad reads to trigger fusion. Every Phase A write remains covered by same-source Phase B changes. A cross-node Phase A read must receive typed Phase B timing; after one unsuccessful Phase B repair, the compiler may insert a typed `post-change-required` read with `timingSource: "sequential-fallback"`, which derives both the conservative edge and its warning. No prose, formatted diagnostic, persisted graph, or worker handoff copy controls scheduling.
 
-Reason: Prompted DAG construction was too easy to overfit or over-serialize. Deterministic grouping and read-dependency rules are smaller, safer, and easier to smoke-test before `/fanout-execute` exists.
+Reason: Prompted DAG construction was too easy to overfit or over-serialize. File-category splitting also produced a test-only repair boundary that could detect but not repair its production defect. Independent repairability plus deterministic grouping and read-dependency rules keeps authority honest without weakening compiler fusion predicates.
 
 ### Advance `/fanout-plan` from artifacts, not prompt markers
 

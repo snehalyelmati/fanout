@@ -77,6 +77,7 @@ Build the smallest useful packet first:
    - Do not edit project files, patch, migrate, codegen, or run destructive commands; writes are limited to Fanout artifact storage.
 3. **Prepare implementation-plan artifact**
    - Define implementation items, behavior/contracts, likely writable files/resources, read-only context, semantic dependencies, validation intent, acceptance criteria, risks, and forbidden scope.
+   - Draw item boundaries around independently acceptable and repairable changes, keeping inseparable production behavior and its behavioral tests in one item; declare genuine shared reads without padding for fusion.
    - Do not choose anchors, worker ownership, parallelism, execution dependencies, or tiers in this phase; semantic dependencies are traceability/planning context, not DAG edges.
 4. **Prepare implementation-details artifact**
    - Ground Phase A items in exact files/resources, stable anchors, edit intent, new-file content shape, read-dependency classification, forbidden changes, and task-specific validation commands.
