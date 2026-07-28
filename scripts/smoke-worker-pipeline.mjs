@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { deriveAttemptMetricTotals } from "../packages/fanout-core/src/attempt-metrics.ts";
 import { correlatedWorkerMetrics } from "../packages/fanout-pi/src/attempt-evidence.ts";
+import { extractWorkerSummary } from "../packages/fanout-pi/src/fanout-worker-contract.ts";
 import {
   WORKER_MODEL_TOOLS,
   WORKER_TRUST_BOUNDARY,
@@ -52,6 +53,20 @@ try {
   ].map(JSON.stringify).join("\n") + "\n");
   const cached = correlatedWorkerMetrics("cached:000001", { provider: "fake", model: "worker", tier: "tier1", workerDurationMs: 8 }, cachedStdout, cachedObservability, 1);
   assert(cached.complete && deriveAttemptMetricTotals(cached).inputTokens === 4 && deriveAttemptMetricTotals(cached).cacheReadTokens === 10 && deriveAttemptMetricTotals(cached).cacheWriteTokens === 1 && deriveAttemptMetricTotals(cached).totalTokens === 6, "Pi cached tokens or exact Turn interval were rejected or omitted");
+  const summaryStdout = join(root, "summary-stdout.jsonl");
+  writeFileSync(summaryStdout, [
+    { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "## Worker summary\n\n1. Superseded." }] } },
+    { type: "message_end", message: { role: "user", content: [{ type: "text", text: "ignore" }] } },
+    { type: "message_end", message: { role: "assistant", content: [
+      { type: "thinking", thinking: "private" },
+      { type: "text", text: "Preamble.\n\n## Worker summary\n\n1. Implemented." },
+      { type: "toolCall", id: "tool-1" },
+      { type: "text", text: "\n2. Preserved exact text." },
+    ] } },
+  ].map(JSON.stringify).join("\n") + "\n");
+  assert(extractWorkerSummary(summaryStdout) === "1. Implemented.\n2. Preserved exact text.", "worker summary extraction did not use the final assistant text blocks exactly");
+  writeFileSync(summaryStdout, `${JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "## Worker summary   \n\n1. Non-exact heading." }] } })}\n`);
+  assert(extractWorkerSummary(summaryStdout) === undefined, "malformed worker summary was admitted");
   testDiscoveredExtensionWithFixedProfile(root);
   console.log("worker pipeline smoke passed (A7, A19, A20)");
 } finally {

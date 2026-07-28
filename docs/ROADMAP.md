@@ -40,7 +40,7 @@ Fanout should preserve developer velocity by using slower tiers only where laten
 
 ### End-to-end hardening
 
-Status: The current closed generation is Project Execution Profile v1, plan v3, details v5, packet v7, pointer v2, work contract v3, Attempt Outcome v4, final evidence v2, Event v4, Projection v5, and presentation entry v1. It adds isolated profile preparation, cumulative final-repair seeds, exact path-disjoint reconciliation, exact no-progress termination, compiler-owned vertical fusion, and profile-aware profiler comparisons. Older planning authority requires replanning; older execution evidence remains descriptive Legacy data.
+Status: The current closed generation is Project Execution Profile v1, plan v3, details v5, packet v7, pointer v2, work contract v3, Attempt Outcome v4, final evidence v2, Event v4, Projection v5, and presentation entry v1. It adds isolated profile preparation, cumulative final-repair seeds, exact path-disjoint reconciliation, exact no-progress termination, compiler-owned vertical fusion, profile-aware profiler comparisons, and optional advisory Worker summaries for node validation repair without a schema cutover. Older planning authority requires replanning; older execution evidence remains descriptive Legacy data.
 
 Live `/fanout-execute` remains blocked from release until the explicitly authorized macOS p-map canary, fresh review, and repository-owner approval pass for the same immutable commit. Offline readiness does not satisfy those external gates.
 
@@ -139,6 +139,7 @@ Implemented order:
 4. **Worker management**
    - Run approved work units in independently profile-prepared git worktrees through curated non-interactive Pi subprocess workers.
    - Use `--no-context-files` and explicitly inject only applicable repo-local `AGENTS.md`/`CLAUDE.md` instructions into the curated prompt, while leaving automatic Pi extension discovery enabled under `--approve`; enabled extensions are a separate trusted runtime boundary.
+   - Capture the final numbered `Worker summary` from the existing model response and pass it only to the immediately following node validation-repair prompt; keep it outside routing, recovery, validation, budgets, acceptance, and replay.
    - Rebuild previously accepted integration state in each fresh downstream worktree by replaying the ordered ledger's digest/length-bound `patch.bin` transitions with exact base/result-tree, changed-path, and patch-stat verification; create no baseline commits or snapshot authority.
 5. **Patch, validation, and apply gates**
    - After a successful worker edit, run every profile-declared candidate normalizer once, audit identities, capture the patch, enforce authority, run packet task validation, and apply only accepted whole-node patches.

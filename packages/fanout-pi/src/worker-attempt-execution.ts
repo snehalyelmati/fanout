@@ -12,7 +12,7 @@ import { correlatedWorkerMetrics, emptyAttemptMetrics, processStageFact, retryab
 import { writeArtifactAtomically } from "./artifact-store.ts";
 import { normalizeCandidate, type CandidateNormalizationEvidence, type CandidateNormalizationFailure } from "./candidate-normalization.ts";
 import { artifactSegment, normalizeRepoPath, runProcess, writeJson } from "./fanout-git.ts";
-import { buildCanonicalWorkerPrompt, importWorkerMetrics, type SourceTaggedRepositoryInstruction } from "./fanout-worker-contract.ts";
+import { buildCanonicalWorkerPrompt, extractWorkerSummary, importWorkerMetrics, type SourceTaggedRepositoryInstruction } from "./fanout-worker-contract.ts";
 import {
 	applyRepairSeedOverlay,
 	capturePatchCandidate,
@@ -50,6 +50,7 @@ export interface WorkerAttempt {
 	terminalFact?: StageFact;
 	recovery?: AttemptRecoveryContext;
 	repairSource?: AttemptRecoveryContext;
+	workerSummary?: string;
 	excludedEvidenceRefs?: readonly string[];
 	fallbackAllowed: boolean;
 }
@@ -77,6 +78,7 @@ export interface WorkerAttemptExecutionOptions {
 	startedAt: string;
 	fallbackAllowed: boolean;
 	recovery?: AttemptRecoveryContext;
+	precedingWorkerSummary?: string;
 	seedPatch?: AcceptedStateTransition;
 	signal?: AbortSignal;
 	beforeNormalizationAuditRewrite?: () => void;
@@ -118,6 +120,7 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 			{ id: unit.id, kind: unit.kind, workContract: contract },
 			collectRepositoryInstructions(worktreePath, unit),
 			options.recovery,
+			options.precedingWorkerSummary,
 		), "utf8");
 		writeFileSync(observabilityPath, "", { encoding: "utf8", flag: "wx" });
 		mkdirSync(sessionDir);
@@ -160,6 +163,7 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 		signal?.throwIfAborted();
 		writeFileSync(stdoutPath, processResult.stdout, "utf8");
 		writeFileSync(stderrPath, processResult.stderr, "utf8");
+		base.workerSummary = extractWorkerSummary(stdoutPath);
 
 		const imported = importWorkerMetrics({
 			stdoutPath,
@@ -198,6 +202,7 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 			metricsComplete: imported.ok,
 			correlatedMetrics: base.correlatedMetrics,
 			metricErrors: imported.errors,
+			workerSummary: base.workerSummary,
 			patch: patch ? { artifact: patch.artifact, changedFiles: patch.changedPaths, stats: patch.stats, baseTree: patch.baseTree, resultTree: patch.resultTree } : undefined,
 			patchError,
 		});

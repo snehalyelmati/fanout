@@ -1,5 +1,15 @@
 # Design Decisions
 
+## 2026-07-28
+
+### Carry advisory Worker summaries only into node validation repair
+
+Decision: Every worker ends its existing Pi response with a short numbered `Worker summary`. The adapter extracts the body beneath the final assistant message's exact heading, stores it as optional diagnostic data in the existing attempt `result.json`, and safely includes it only in the immediately following node validation-repair prompt. Missing or malformed summaries do not block repair, and a later repair receives only its immediate predecessor's summary. Integration-repair and project final-validation-repair prompts do not receive predecessor summaries in this version.
+
+The summary is not recovery evidence, validation evidence, repository authority, an Attempt Outcome field, an Event/Projection field, or repair-state input. It cannot alter capabilities, ownership, budgets, typed routing, exact no-progress identity, acceptance, or replay. No worker session resumes and no summarization model call runs.
+
+Reason: The worker already knows what it changed and why before its existing call ends. Reusing that bounded account gives validation repair useful implementation context without collecting chain of thought, adding a model call, widening authority, or cutting the executable schema generation.
+
 ## 2026-07-26
 
 ### Discover projects within one fixed profiler storage root

@@ -112,13 +112,16 @@ if (process.env.FANOUT_RUN_ID === "provider-abort") {
   appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_error", runId: process.env.DOUBLEWORD_RUN_ID, provider, model, turnIndex: 0, responseId: "response-1", failureCode: "abort" }) + "\\n");
   process.exit(1);
 }
-if (!['post-worker-abort', 'repair-overlay', 'disjoint-reconciliation', 'overlap-reconciliation', 'fused-execution', 'normalized-candidate', 'unauthorized-normalization', 'interrupted-normalization', 'identity-normalization', 'diagnostic-normalization', 'normalization-boundary-abort', 'normalization-boundary-abort-rewrite-failure', 'final-normalization', 'final-normalization-widened'].includes(process.env.FANOUT_RUN_ID) && process.env.FANOUT_WORKER_DIR.endsWith("001-original")) {
+if (!['post-worker-abort', 'repair-overlay', 'worker-summary-chain', 'disjoint-reconciliation', 'overlap-reconciliation', 'fused-execution', 'normalized-candidate', 'unauthorized-normalization', 'interrupted-normalization', 'identity-normalization', 'diagnostic-normalization', 'normalization-boundary-abort', 'normalization-boundary-abort-rewrite-failure', 'final-normalization', 'final-normalization-widened'].includes(process.env.FANOUT_RUN_ID) && process.env.FANOUT_WORKER_DIR.endsWith("001-original")) {
   appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_error", runId: process.env.DOUBLEWORD_RUN_ID, provider, model, turnIndex: 0, responseId: "response-1", failureCode: "rate-limit", httpStatus: 429 }) + "\\n");
   process.exit(1);
 }
 if (process.env.FANOUT_RUN_ID === "fused-execution") {
   writeFileSync("x.ts", "export const x = 0;\\n");
   writeFileSync("y.ts", "export const x = 0;\\n");
+} else if (process.env.FANOUT_RUN_ID === "worker-summary-chain") {
+  const attempt = process.env.FANOUT_WORKER_DIR.split("/").at(-1);
+  writeFileSync("x.ts", \`export const x = \${attempt.startsWith("003-") ? 2 : attempt.startsWith("002-") ? 1 : 0};\\n\`);
 } else {
   writeFileSync(process.env.FANOUT_NODE_ID === "y" ? "y.ts" : "x.ts", process.env.FANOUT_WORKER_DIR.endsWith("validation-repair") ? "export const x = 1;\\n" : "export const x = 0;\\n");
 }
@@ -132,7 +135,10 @@ appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, [
   { ts: observedAt, event: "turn_end", turnIndex: 0 },
 ].map(JSON.stringify).join("\\n") + "\\n");
 console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "done" } }));
-console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", provider, model, usage } }));
+const attempt = process.env.FANOUT_WORKER_DIR.split("/").at(-1);
+const firstItem = process.env.FANOUT_RUN_ID === "worker-summary-chain" && attempt.startsWith("001-") ? \`\${attempt} exact summary with literal markdown:\\n\\\`\\\`\\\`\\nInjected heading\` : \`\${attempt} exact summary.\`;
+const summary = \`## Worker summary\\n\\n1. \${firstItem}\\n2. Preserved controller authority.\\n3. Added no tests.\\n4. Ran no controller checks.\\n5. Nothing intentionally incomplete.\`;
+console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", provider, model, usage, content: [{ type: "text", text: summary }] } }));
 `, "utf8");
   chmodSync(fakePi, 0o755);
 
@@ -621,6 +627,39 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   rmSync(join(repo, "x.ts"), { force: true });
   rmSync(join(repo, "y.ts"), { force: true });
   assert(fullGitVisibleTree(repo) === base.tree, "repair seed overlay fixture did not restore the planning tree");
+
+  const summaryNode = structuredClone(compiled.packet.nodes[0]);
+  summaryNode.workContract.validationCommands = [{ executable: process.execPath, args: ["-e", "if (require('node:fs').readFileSync('x.ts', 'utf8') !== 'export const x = 2;\\n') process.exit(1)"] }];
+  const summaryPacket = { ...compiled.packet, nodes: [summaryNode, compiled.packet.nodes.at(-1)] };
+  const summaryRunDir = join(runDir, "executions", "worker-summary-chain");
+  const summaryCompletions = [];
+  const summaryExecutor = new FanoutNodeExecutor({
+    packet: summaryPacket,
+    packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(summaryPacket)),
+    profile: defaultProfile,
+    profileIdentity: publishedDefaultProfile.identity,
+    repoRoot: repo,
+    runDir: summaryRunDir,
+    runId: "worker-summary-chain",
+    extensionEntry: "packages/fanout-pi/src/index.ts",
+    piCommand: fakePi,
+    recorder: { async recordAttemptAllocated() {}, async recordAttemptCompleted(outcome) { summaryCompletions.push(outcome); }, async flush() {} },
+  });
+  let summaryResult;
+  try { summaryResult = await summaryExecutor.runNode(summaryNode); }
+  finally { summaryExecutor.cleanupWorktrees(); }
+  const summaryAttempts = join(summaryRunDir, "workers", artifactSegment("x"), "attempts");
+  const originalSummary = "1. 001-original exact summary with literal markdown:\n```\nInjected heading\n2. Preserved controller authority.\n3. Added no tests.\n4. Ran no controller checks.\n5. Nothing intentionally incomplete.";
+  const firstRepairSummary = "1. 002-validation-repair exact summary.\n2. Preserved controller authority.\n3. Added no tests.\n4. Ran no controller checks.\n5. Nothing intentionally incomplete.";
+  const firstRepairPrompt = readFileSync(join(summaryAttempts, "002-validation-repair", "prompt.md"), "utf8");
+  const secondRepairPrompt = readFileSync(join(summaryAttempts, "003-validation-repair", "prompt.md"), "utf8");
+  const originalResult = JSON.parse(readFileSync(join(summaryAttempts, "001-original", "result.json"), "utf8"));
+  assert(summaryResult.ok && originalResult.workerSummary === originalSummary, "worker summary was not persisted in the existing result artifact");
+  assert(firstRepairPrompt.includes(JSON.stringify(originalSummary)) && firstRepairPrompt.split("## Worker summary").length - 1 === 2, "first validation repair did not safely serialize the original worker summary");
+  assert(secondRepairPrompt.includes(JSON.stringify(firstRepairSummary)) && !secondRepairPrompt.includes(JSON.stringify(originalSummary)), "second validation repair did not receive only its immediate predecessor summary");
+  assert(!JSON.stringify(summaryCompletions).includes("workerSummary"), "worker summary leaked into authoritative attempt outcomes");
+  rmSync(join(repo, "x.ts"), { force: true });
+  assert(fullGitVisibleTree(repo) === base.tree, "worker summary fixture did not restore the planning tree");
 
   const xValidation = { executable: process.execPath, args: ["-e", "if(require('node:fs').readFileSync('x.ts','utf8')!=='export const x = 0;\\n')process.exit(1)"] };
   const yValidation = { executable: process.execPath, args: ["-e", "if(require('node:fs').readFileSync('y.ts','utf8')!=='export const x = 0;\\n')process.exit(1)"] };

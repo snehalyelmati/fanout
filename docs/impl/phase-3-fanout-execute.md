@@ -20,7 +20,8 @@ Legacy, mixed, profile-mismatched, or shared-path configurations fail before mod
 6. Independently prepare every worker/repair worktree through the profile, run profile normalization after edits, then capture, enforce authority, run packet task validation, reverify, and exact-apply.
 7. Before integration repair, reconcile only exact path-disjoint stale candidates through latest-ledger reconstruction, overlay, normalization, recapture, ownership, validation, and compare-and-swap. Retry only after ledger advancement.
 8. Preserve the immediately preceding rejected repair candidate as the next exact seed. Stop a repair chain when exact candidate identity and typed failure state repeat, leaving unused budget untouched.
-9. Final validation runs packet final commands followed by profile-required final gates in an independently prepared worktree. Record event v4/projection v5; cleanup runs and is timed before the causal terminal event.
+9. Extract the final numbered `Worker summary` from the existing assistant output, store it in the attempt result, and include it only in the immediately following node validation-repair prompt. It remains optional diagnostic context outside routing, recovery, repair state, budgets, validation, acceptance, and replay.
+10. Final validation runs packet final commands followed by profile-required final gates in an independently prepared worktree. Record event v4/projection v5; cleanup runs and is timed before the causal terminal event.
 
 Residual host trust is explicit: installed extensions/providers, validation programs, ignored files, external paths, network, and processes execute with user permissions and are not a container boundary.
 
@@ -52,6 +53,7 @@ Residual host trust is explicit: installed extensions/providers, validation prog
 | A22 | `smoke-fanout-execute.mjs` | exact path-disjoint stale candidates reconcile without a model; overlap routes through integration repair |
 | A23 | `smoke-attempt-outcomes.mjs` | exact repeated candidate/failure state stops and cannot fabricate progress |
 | A24 | `smoke-fanout-compiler.mjs`, `smoke-fanout-execute.mjs` | eligible vertical chains fuse deterministically and execute through one cycle |
+| A25 | `smoke-worker-pipeline.mjs`, `smoke-work-contract.mjs`, `smoke-fanout-execute.mjs` | final assistant summary extraction is deterministic, repair prompts are safely serialized, and Repair 2 receives only Repair 1's summary without changing authoritative outcomes |
 
 All named scripts run through:
 
