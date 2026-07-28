@@ -1,6 +1,12 @@
 # p-map AbortSignal manual Fanout E2E
 
-Status: the profile-v1/packet-v7 sequence ran on 2026-07-27. The canary and repetitions 1–2 completed; repetition 3 stopped on bounded fused-node validation-repair exhaustion. A post-run profiler compatibility fix means the next live sequence must restart at the canary. Exact evidence is retained in the tracker.
+Status: the profile-v1/packet-v7 sequence ran on 2026-07-27. The canary and repetitions 1–2 completed; repetition 3 stopped on bounded fused-node validation-repair exhaustion. A fresh Worker-summary sequence started on 2026-07-28, passed profile validation and dry-run, and stopped before worker launch when the live confirmation mislabeled the details digest as the packet identity. Exact evidence is retained in the tracker; a corrected source revision must restart at the canary.
+
+## 2026-07-28 Worker-summary stopping result
+
+Reviewed Fanout commit `a06755bf3bbfab06e64a3915cfed1cdbb0647409` used pane `%251` in detached worktree `controlled-20260728-worker-summary/canary`. Tier 1 was `openai-codex/gpt-5.6-sol` medium, async Tier 2 was disabled, and the Tier 2 fallback was `openai-codex/gpt-5.6-terra` medium. The exact packet was SHA-256 `d2a0e3726b78abfdba02709ba86798e91d0f2975cbc97e737c66ed0fb4cd76ea`, 38,661 bytes; its profile was SHA-256 `77573f46e3b2f8dbbb975a3e6ca73ee583ad37ca454d6ff6842edd3c1172c6c0`, 2,230 bytes.
+
+Dry-run `2026-07-28T10-24-22-168Z-8dab93a2` passed with zero attempts. At the live confirmation, the renderer showed `Packet: f0264cb025eb`, which is the packet's source implementation-details SHA, not the authoritative active-packet SHA. The operator declined. Run `2026-07-28T10-24-49-234Z-12637a82` therefore ended `aborted` with zero worker attempts, tokens, cost, accepted patches, or final validation. Independent `npm test` still passed all 51 baseline tests and the detached p-map worktree remained clean. No repetition ran and no median, range, reliability rate, or SLO is reported.
 
 ## Objective
 
