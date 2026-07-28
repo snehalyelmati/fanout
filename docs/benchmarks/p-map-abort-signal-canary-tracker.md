@@ -2,7 +2,38 @@
 
 Date: 2026-07-14; optimization-candidate runs: 2026-07-27 and 2026-07-28
 
-Status: Candidate `c75ff9a` and Attempt 14 remain historical successful evidence. The 2026-07-27 profile-bound sequence completed the canary and repetitions 1–2, then stopped when repetition 3 exhausted the fused runtime/test node's fixed validation-repair budget. The reviewed 2026-07-28 Worker-summary candidate first stopped before worker launch on a confirmation-label defect. Commit `3fef090` fixed that defect and passed both review axes. Its restarted canary completed, then repetition 1 stopped on bounded runtime-test validation-repair exhaustion. Repetitions 2–3 were not run. The release-confidence gate remains open.
+Status: Candidate `c75ff9a` and Attempt 14 remain historical successful evidence. The 2026-07-27 profile-bound sequence completed the canary and repetitions 1–2, then stopped when repetition 3 exhausted the fused runtime/test node's fixed validation-repair budget. The reviewed 2026-07-28 Worker-summary candidate first stopped before worker launch on a confirmation-label defect. Commit `3fef090` fixed that defect and passed both review axes. Its restarted canary completed, then repetition 1 stopped on bounded runtime-test validation-repair exhaustion. The subsequent realistic-task canary proved that reviewed planning fix `0f008e1` naturally joins runtime implementation and behavioral tests in one repair boundary, then stopped when that joint node exhausted its two repairs. No repetition followed either stopping failure. The release-confidence gate remains open.
+
+## 2026-07-28 realistic-task repair-boundary canary
+
+Fixed controls:
+
+- Frozen Fanout source: reviewed commit `0f008e1a94b6abad78e188fbac6d74517d7b89b3`; focused planning smokes, full `npm run check`, Doubleword-provider tests, and diff check passed. Standards and Spec review against fixed point `404cf4d` returned zero findings.
+- Realistic issue-style task SHA-256 `fbce63dd802d73b83d7861c3981d7a4fd4f1b4bd79aff92c5e0e3175c737e585`, 3,636 bytes. It states product behavior and joint production/regression-test acceptance without prescribing Fanout nodes, ownership, fusion, or repair boundaries. This input is not byte-identical to prior benchmark-task cohorts.
+- Clean p-map `main` baseline commit/tree `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`; isolated `npm ci --ignore-scripts` and the 51-test baseline passed.
+- Pane `%259` in `doubleword:fanout-canary`, rooted at the baseline checkout and retained after failure. Tier 1 was `openai-codex/gpt-5.6-sol` medium, async Tier 2 was disabled, Tier 2 fallback was `openai-codex/gpt-5.6-terra` medium, maximum concurrency was 2, and no shared-path configuration was present.
+- Fresh profile SHA-256 `441847c95a17aa63dbb949556c7126809fbc7498e60a7972563d304e9a7908e6`, 2,054 bytes; active profile pointer SHA-256 `b44ef06a0dce8b3fe2be2d1d85a99f6416de53364271eebe701fd588da3a8d47`, 333 bytes.
+- Packet SHA-256 `d2f5aba9b5c91e3bea50b13025b875b56e34f1a9e8a62726706c7cb51a690c72`, 46,540 bytes; active packet pointer SHA-256 `c2a0049f15d115dda5b2b2ead180b96464de38f789474d69552a0f1b0e2f8559`, 322 bytes. All four identities were unchanged after execution.
+- Ordinary `/fanout-plan --refresh-profile Read ../TASK.md and implement that feature request exactly.` produced one runtime item owning and reading both `index.js` and `test.js`; no decomposition override or compiler fusion was required. Dry-run `2026-07-28T13-18-11-916Z-43f4ee83` passed with zero workers or tokens.
+
+| Run | Pane/checkout | Outcome and accepted tree | Independent validation/cleanup | Timing, tokens, and cost |
+| --- | --- | --- | --- | --- |
+| Canary | `%259` (retained); p-map `main` at fixed baseline | Failed after joint runtime/test node exhausted 2/2 validation repairs; types skipped; final validation not run. Documentation repair alone applied tree `01fe048ef351ae311607da711ae456b7c1e060e8`; only `readme.md`, +4/-4 | Independent 51-test suite passed; diff check passed; cleanup 8.086s; no current-run worker, worktree, process, or lock leak | 387.393s wall; 367.567s recorded profiler prefix; 71.500s parallel node overlap; 548,192 tokens; `$1.028695`; 5 attempts |
+| Repetitions 1–3 | not created | Mandatory stop after canary failure | No execution artifacts | No measurements |
+
+The original runtime/test candidate failed XO. Repair 1 passed XO but failed AVA, and repair 2 again passed XO while AVA's existing `pMapIterable - concurrency: 2` timing assertion observed 304.840 ms outside its 200–250 ms interval. The new pre-abort, pending-abort/source-cleanup, listener-cleanup, and controlled concurrency/backpressure tests passed in that terminal validation output. The evidence does not distinguish host-load flakiness from a candidate performance regression, so the frozen-cohort rule forbids an in-cohort code change or repetition.
+
+Worker-summary continuity held at every exercised edge: runtime repair 1 received the original summary, runtime repair 2 received repair 1's summary and not the original, and the documentation repair received its original summary. All five attempts persisted non-empty summaries in `result.json`; summaries remained absent from Attempt Outcomes and Event v4. No reconciliation or exact no-progress termination occurred. The profiler admitted the failed Current run as a recorded prefix with 29 Tier 1 calls, 55.856s aggregate TTFT, 302.814s aggregate generation, 29.340s capacity wait, and 2 ms acceptance-gate wait.
+
+Historical planning starts were preserved rather than rewritten:
+
+| Generation | Result |
+| --- | --- |
+| `20260728-124319810-read-task-md-and-implement-that-benchmar` | The earlier Fanout-specific task still split runtime and tests in Phase A; Phase B was interrupted. No packet, dry-run, or worker execution followed. |
+| Pane `%255` typed override | An explicit decomposition override was entered but never submitted after the user replaced that course. It produced no planning artifact. |
+| `20260728-130358478-read-task-md-and-implement-that-feature-` | The first realistic-task refresh proposed a new profile, which was declined under a superseded byte-identity assumption before Phase A or workers. Its historical profile artifact remains. |
+
+Only the current project's active profile pointer was cleared before the accepted fresh refresh; historical planning, profile, and execution artifacts remain intact.
 
 ## 2026-07-28 Worker-summary sequence
 
