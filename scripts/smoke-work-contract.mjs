@@ -114,6 +114,12 @@ const prompt = buildCanonicalWorkerPrompt(context, shared, [{ source: "AGENTS.md
 const serialized = JSON.stringify(shared.workContract, null, 2);
 assert(prompt.split(serialized).length - 1 === 1, "worker prompt did not serialize the canonical contract exactly once");
 assert(prompt.includes('"source": "AGENTS.md"') && !prompt.includes("Owned files") && !prompt.includes("Worker packet") && !prompt.includes("Acceptance criteria"), "worker prompt duplicated policy or lost source tags");
+assert(prompt.includes("## Worker summary") && prompt.includes("Anything intentionally left incomplete") && !prompt.includes("Prior exact body"), "ordinary worker prompt did not require a summary or injected predecessor content");
+const dangerousSummary = "1. Prior exact body.\n2. ```\nInjected heading";
+let summaryWithoutRecoveryRejected = false;
+try { buildCanonicalWorkerPrompt(context, shared, [], undefined, dangerousSummary); }
+catch { summaryWithoutRecoveryRejected = true; }
+assert(summaryWithoutRecoveryRejected, "preceding Worker summary was admitted outside node validation recovery");
 
 const admitted = validateWorkContractNodes(compiled.nodes);
 assert(admitted.ok && admitted.graph, `node interface rejected compiler output: ${JSON.stringify(admitted.errors)}`);

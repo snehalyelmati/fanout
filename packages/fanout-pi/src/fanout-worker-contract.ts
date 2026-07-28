@@ -25,11 +25,18 @@ export interface SourceTaggedRepositoryInstruction {
 	text: string;
 }
 
-export function buildCanonicalWorkerPrompt(context: CanonicalWorkerContext, node: WorkContractNode, repositoryInstructions: readonly SourceTaggedRepositoryInstruction[] = [], recovery?: AttemptRecoveryContext): string {
+export function buildCanonicalWorkerPrompt(
+	context: CanonicalWorkerContext,
+	node: WorkContractNode,
+	repositoryInstructions: readonly SourceTaggedRepositoryInstruction[] = [],
+	recovery?: AttemptRecoveryContext,
+	precedingWorkerSummary?: string,
+): string {
 	const validation = validateWorkContract(node.workContract, { finalValidation: node.kind === "final-validation" });
 	if (!validation.ok || !validation.contract) throw new Error(`invalid canonical work contract: ${validation.errors.map((issue) => issue.message).join("; ")}`);
 	const recoveryContext = recovery ? parseAttemptRecoveryContext(recovery) : undefined;
 	if (recoveryContext && JSON.stringify(recoveryContext.workContract) !== JSON.stringify(validation.contract)) throw new Error("canonical node and recovery work contracts do not match");
+	if (precedingWorkerSummary !== undefined && recoveryContext?.kind !== "validation") throw new Error("preceding Worker summary requires node validation recovery");
 	return `# Fanout worker subprocess
 
 The parent session approved this node. Do not ask for input, replan, broaden scope, commit, push, publish, or continue to another node. Controller validation is not a model-callable capability. If the approved scope cannot be completed safely, stop and report the blocker.
@@ -63,8 +70,45 @@ ${JSON.stringify(validation.contract, null, 2)}
 
 \`\`\`json
 ${JSON.stringify(recoveryContext, null, 2)}
+\`\`\`` : ""}${precedingWorkerSummary ? `
+
+## Worker summary
+
+The immediately preceding validation attempt ended with this exact summary:
+
+\`\`\`json
+${JSON.stringify(precedingWorkerSummary)}
 \`\`\`` : ""}
+
+## Required final response
+
+End this existing model call with a concise numbered section using this exact heading:
+
+## Worker summary
+
+1. What was implemented or changed.
+2. Important implementation decisions and concise rationale.
+3. Tests added or changed.
+4. Checks actually run and their results.
+5. Anything intentionally left incomplete.
 `;
+}
+
+export function extractWorkerSummary(stdoutPath: string): string | undefined {
+	const assistant = readJsonl(stdoutPath, "worker stdout").records
+		.filter((record) => record.type === "message_end" && isRecord(record.message) && record.message.role === "assistant")
+		.at(-1);
+	if (!assistant || !isRecord(assistant.message) || !Array.isArray(assistant.message.content)) return undefined;
+	const text = assistant.message.content
+		.filter((block): block is Record<string, unknown> => isRecord(block) && block.type === "text" && typeof block.text === "string")
+		.map((block) => block.text as string)
+		.join("");
+	const heading = [...text.matchAll(/^## Worker summary\r?\n/gm)].at(-1);
+	if (heading?.index === undefined) return undefined;
+	let summary = text.slice(heading.index + heading[0].length);
+	if (summary.startsWith("\r\n")) summary = summary.slice(2);
+	else if (summary.startsWith("\n")) summary = summary.slice(1);
+	return summary.trim() ? summary : undefined;
 }
 
 interface AssistantUsage {

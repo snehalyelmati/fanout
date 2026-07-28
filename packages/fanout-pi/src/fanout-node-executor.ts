@@ -68,6 +68,15 @@ interface ApplyConflict {
 	ledger: AcceptedLedgerProvenance[];
 }
 
+interface WorkerLaunchOptions {
+	recovery?: AttemptRecoveryContext;
+	seedPatch?: AcceptedStateTransition;
+	sourceAttemptId?: string;
+	sourceFinalValidationEvidence?: ArtifactIdentity;
+	signal?: AbortSignal;
+	precedingWorkerSummary?: string;
+}
+
 export interface FanoutNodeExecutorOptions {
 	packet: FanoutExecutionPacket;
 	packetIdentity: ArtifactIdentity;
@@ -162,7 +171,12 @@ export class FanoutNodeExecutor {
 			commands,
 			timeoutMs: this.#validationTimeoutMs,
 			repairAvailable: (nodeId) => (this.#attemptStates.get(nodeId)?.counts.validationRepair ?? 0) < 2,
-			launchRepair: async (unit, recovery, source, seed) => await this.#runWorkerAttempt(unit, tierOne(this.#packet), "validation-repair", recovery, seed ? { patch: seed.patch as AcceptedPatch } : undefined, source.attemptId, source.evidence),
+			launchRepair: async (unit, recovery, source, seed) => await this.#runWorkerAttempt(unit, tierOne(this.#packet), "validation-repair", {
+				recovery,
+				seedPatch: seed ? { patch: seed.patch as AcceptedPatch } : undefined,
+				sourceAttemptId: source.attemptId,
+				sourceFinalValidationEvidence: source.evidence,
+			}),
 			completeTerminal: async (attempt) => await this.#completeTerminalAttempt(attempt),
 			terminalOutcome: (attempt) => this.#terminalOutcome(attempt),
 			applyRepair: async (unit, attempt, result) => (await this.#apply(unit, { ...attempt, validation: { status: "passed", executedCount: result.commandCount, durationMs: result.durationMs, commands: [] } } as GatedAttempt)).ok,
@@ -198,7 +212,7 @@ export class FanoutNodeExecutor {
 		let outcome: WorkerAttempt | undefined;
 		for (let attempt = 1; attempt <= 2; attempt++) {
 			signal?.throwIfAborted();
-			outcome = await this.#runWorkerAttempt(unit, assigned, attempt === 1 ? "original" : "retry", undefined, undefined, outcome?.attemptId, undefined, signal);
+			outcome = await this.#runWorkerAttempt(unit, assigned, attempt === 1 ? "original" : "retry", { sourceAttemptId: outcome?.attemptId, signal });
 			if (outcome.ok) return outcome;
 			const action = this.#terminalOutcome(outcome).action;
 			if (action !== "retry") {
@@ -213,7 +227,7 @@ export class FanoutNodeExecutor {
 		}
 		const fallback = tierTwoFallback(this.#packet);
 		signal?.throwIfAborted();
-		const result = await this.#runWorkerAttempt(unit, fallback, "fallback", undefined, undefined, outcome.attemptId, undefined, signal);
+		const result = await this.#runWorkerAttempt(unit, fallback, "fallback", { sourceAttemptId: outcome.attemptId, signal });
 		return result;
 	}
 
@@ -221,12 +235,9 @@ export class FanoutNodeExecutor {
 		unit: FanoutWorkUnit,
 		tier: WorkerTier,
 		kind: AttemptKind,
-		recovery?: AttemptRecoveryContext,
-		seedPatch?: AcceptedStateTransition,
-		sourceAttemptId?: string,
-		sourceFinalValidationEvidence?: ArtifactIdentity,
-		signal?: AbortSignal,
+		launch: WorkerLaunchOptions = {},
 	): Promise<WorkerAttempt> {
+		const { recovery, seedPatch, sourceAttemptId, sourceFinalValidationEvidence, signal } = launch;
 		signal?.throwIfAborted();
 		if (sourceFinalValidationEvidence) {
 			if (recovery?.kind !== "final-validation") throw new Error("final validation repair launch requires typed failed-round recovery evidence");
@@ -285,6 +296,7 @@ export class FanoutNodeExecutor {
 			startedAt,
 			fallbackAllowed,
 			...(recovery ? { recovery } : {}),
+			...(launch.precedingWorkerSummary ? { precedingWorkerSummary: launch.precedingWorkerSummary } : {}),
 			...(seedPatch ? { seedPatch } : {}),
 			...(signal ? { signal } : {}),
 			...(this.#beforeNormalizationAuditRewrite ? { beforeNormalizationAuditRewrite: this.#beforeNormalizationAuditRewrite } : {}),
@@ -369,7 +381,13 @@ export class FanoutNodeExecutor {
 			signal?.throwIfAborted();
 			if (!seedPatch) break;
 			if (recoveryContext?.kind !== "validation") break;
-			const repair = await this.#runWorkerAttempt(unit, tierOne(this.#packet), "validation-repair", recoveryContext, { patch: seedPatch }, current.attemptId, undefined, signal);
+			const repair = await this.#runWorkerAttempt(unit, tierOne(this.#packet), "validation-repair", {
+				recovery: recoveryContext,
+				seedPatch: { patch: seedPatch },
+				sourceAttemptId: current.attemptId,
+				signal,
+				precedingWorkerSummary: current.workerSummary,
+			});
 			if (!repair.ok) {
 				if (this.#terminalOutcome(repair).action !== "validation-repair") return repair;
 				current = repair;
@@ -514,7 +532,7 @@ export class FanoutNodeExecutor {
 		while ((this.#attemptStates.get(unit.id)?.counts.integrationRepair ?? 0) < 2) {
 			signal?.throwIfAborted();
 			if (recoveryContext?.kind !== "integration") break;
-			const repair = await this.#runWorkerAttempt(unit, tierOne(this.#packet), "integration-repair", recoveryContext, undefined, sourceAttemptId, undefined, signal);
+			const repair = await this.#runWorkerAttempt(unit, tierOne(this.#packet), "integration-repair", { recovery: recoveryContext, sourceAttemptId, signal });
 			if (!repair.ok) {
 				lastRejected = repair;
 				if (this.#terminalOutcome(repair).action !== "integration-repair") return repair;
