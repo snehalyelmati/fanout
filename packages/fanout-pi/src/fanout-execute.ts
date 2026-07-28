@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { accessSync, constants, mkdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { loadActiveExecutionPacket } from "../../fanout-core/src/active-packet.ts";
+import type { ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
 import { runDag, type DagRunResult, type DagNodeState } from "../../fanout-core/src/dag-scheduler.ts";
 import type { FanoutExecutionPacket } from "../../fanout-core/src/execution-packet.ts";
 import type { PreflightCommandEvidence, PreflightComparison, PreflightEvidence, PreflightIssue } from "../../fanout-core/src/execution-event.ts";
@@ -82,7 +83,7 @@ export async function executeFanout(options: ExecuteFanoutOptions): Promise<Exec
 		if (preflight.issues.length) return await finish(recorder, executor, loaded, started, "failed", { kind: "event", eventSequence: projection.preflight!.eventSequence, code: "preflight-failed" }, { error: `Fanout preflight failed: ${preflight.issues.map((issue) => issue.detail).join("; ")}` });
 		if (options.dryRun) return await finish(recorder, executor, loaded, started, "dry-run-completed", { kind: "event", eventSequence: projection.preflight!.eventSequence, code: "dry-run" }, { dryRun: true });
 
-		const confirmed = options.confirm ? await options.confirm("Execute Fanout packet", confirmationSummary(loaded.packet, loadedProfile.profile, maxConcurrency, runDir)) : false;
+		const confirmed = options.confirm ? await options.confirm("Execute Fanout packet", confirmationSummary(loaded.packet, loaded.pointer.packet, loadedProfile.profile, maxConcurrency, runDir)) : false;
 		projection = await recorder.record("confirmation-decided", { decision: confirmed ? "accepted" : "declined" });
 		if (!confirmed) return await finish(recorder, executor, loaded, started, "aborted", { kind: "event", eventSequence: projection.confirmationEventSequence!, code: "confirmation-declined" });
 
@@ -283,10 +284,10 @@ function comparison(expected: string, actual: string | null): PreflightCompariso
 	return { expected, actual, status: actual === null ? "unavailable" : actual === expected ? "matched" : "mismatched" };
 }
 
-function confirmationSummary(packet: FanoutExecutionPacket, profile: ProjectExecutionProfile, maxConcurrency: number, runDir: string): string {
+function confirmationSummary(packet: FanoutExecutionPacket, packetIdentity: ArtifactIdentity, profile: ProjectExecutionProfile, maxConcurrency: number, runDir: string): string {
 	const writes = [...new Set(packet.nodes.flatMap((node) => contractWriteResources(node.workContract).map((resource) => `${resource.kind}:${resource.path}`)))];
 	const normalizers = profile.candidateNormalization.map((entry) => JSON.stringify(entry.command));
-	return [`Objective: ${packet.objective}`, `Packet: ${packet.sourceArtifacts.details.sha256.slice(0, 12)} / base ${packet.planningBase.tree}`, `Project Execution Profile: ${profile.profileId}`, `Work nodes: ${packet.nodes.length - 1}`, `Maximum concurrency: ${maxConcurrency}`, `Typed writes: ${writes.join(", ") || "none"}`, `Preparation commands: ${profile.preparation.length}`, `Readiness commands: ${profile.readiness.length}`, `Candidate normalization manifests: ${normalizers.join(", ") || "none"}`, `Validation manifests: ${packet.nodes.reduce((sum, node) => sum + node.workContract.validationCommands.length, 0) + profile.requiredFinalGates.length}`, WORKER_TRUST_BOUNDARY, `Audit artifacts: ${runDir}`].join("\n");
+	return [`Objective: ${packet.objective}`, `Packet: ${packetIdentity.sha256.slice(0, 12)} / base ${packet.planningBase.tree}`, `Project Execution Profile: ${profile.profileId}`, `Work nodes: ${packet.nodes.length - 1}`, `Maximum concurrency: ${maxConcurrency}`, `Typed writes: ${writes.join(", ") || "none"}`, `Preparation commands: ${profile.preparation.length}`, `Readiness commands: ${profile.readiness.length}`, `Candidate normalization manifests: ${normalizers.join(", ") || "none"}`, `Validation manifests: ${packet.nodes.reduce((sum, node) => sum + node.workContract.validationCommands.length, 0) + profile.requiredFinalGates.length}`, WORKER_TRUST_BOUNDARY, `Audit artifacts: ${runDir}`].join("\n");
 }
 
 function command(executable: string, args: string[], cwd: string) { const result = spawnSync(executable, executable === "git" ? ["-c", "core.fsmonitor=false", ...args] : args, { cwd, encoding: "utf8", timeout: 30_000 }); return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" }; }
