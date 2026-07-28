@@ -1,6 +1,16 @@
 # p-map AbortSignal manual Fanout E2E
 
-Status: the profile-v1/packet-v7 sequence ran on 2026-07-27. The canary and repetitions 1–2 completed; repetition 3 stopped on bounded fused-node validation-repair exhaustion. The 2026-07-28 Worker-summary sequence first exposed and stopped on a confirmation-label defect. After the reviewed `3fef090` fix, its restarted canary completed and repetition 1 stopped on bounded runtime-test validation-repair exhaustion. Repetitions 2–3 were not run. Exact evidence is retained in the tracker.
+Status: the profile-v1/packet-v7 sequence ran on 2026-07-27. The canary and repetitions 1–2 completed; repetition 3 stopped on bounded fused-node validation-repair exhaustion. The 2026-07-28 Worker-summary sequence first exposed and stopped on a confirmation-label defect. After the reviewed `3fef090` fix, its restarted canary completed and repetition 1 stopped on bounded runtime-test validation-repair exhaustion. The later realistic-task canary naturally joined runtime implementation and behavioral tests under reviewed planning fix `0f008e1`, then stopped when that joint node exhausted its two validation repairs. Repetitions 1–3 were not run. Exact evidence is retained in the tracker.
+
+## 2026-07-28 realistic-task stopping result
+
+Reviewed planning fix `0f008e1a94b6abad78e188fbac6d74517d7b89b3` ran from pane `%259` against realistic issue-style task SHA-256 `fbce63dd802d73b83d7861c3981d7a4fd4f1b4bd79aff92c5e0e3175c737e585`. Ordinary planning used no decomposition override and produced one runtime work contract owning and reading both `index.js` and `test.js`.
+
+The fresh profile was SHA-256 `441847c95a17aa63dbb949556c7126809fbc7498e60a7972563d304e9a7908e6`, 2,054 bytes; packet SHA-256 `d2f5aba9b5c91e3bea50b13025b875b56e34f1a9e8a62726706c7cb51a690c72`, 46,540 bytes. Their pointer and artifact bytes remained unchanged through dry-run and live execution.
+
+Dry-run `2026-07-28T13-18-11-916Z-43f4ee83` passed. Live canary `2026-07-28T13-19-03-879Z-2f6c81a7` stopped after the joint runtime/test node used both validation repairs. The terminal AVA output passed the new deterministic abort coverage but failed the existing timing-bound `pMapIterable - concurrency: 2` assertion at 304.840 ms. The documentation node's accepted tree `01fe048ef351ae311607da711ae456b7c1e060e8` passed the independent 51-test baseline. Cleanup removed current-run workers, worktrees, processes, and the lock; failed pane `%259` remains visible.
+
+The run took 387.393s, used 548,192 tokens, and cost `$1.028695`; the profiler recorded a 367.567s prefix and 71.500s parallel overlap. Immediate worker-summary continuity held through both runtime repairs and the documentation repair, while summaries remained outside outcomes and events. The stop rule prevented repetitions 1–3. This revised-task input is not byte-identical to prior cohorts, so no completed-run median, range, reliability rate, or SLO is reported.
 
 ## 2026-07-28 Worker-summary stopping result
 
@@ -111,10 +121,10 @@ Evaluate whether role descriptions, multiline rendering, arrow and `j`/`k` navig
 For the canary, publish or refresh the approved Project Execution Profile before planning:
 
 ```text
-/fanout-plan --refresh-profile Read ../TASK.md and implement that benchmark task exactly.
+/fanout-plan --refresh-profile Read ../TASK.md and implement that feature request exactly.
 ```
 
-The profile uses isolated direct-argv preparation/readiness with explicit purpose, mutation, network, and lifecycle disclosures, declares `npx xo --fix` candidate normalization, and includes the repository-wide required final gate. It must not share or link `node_modules`. Repetitions reuse the exact validated profile and packet bytes.
+The profile uses isolated direct-argv preparation/readiness with explicit purpose, mutation, network, and lifecycle disclosures, declares direct-argv offline XO candidate normalization, and includes the repository-wide required final gate. It must not share or link `node_modules`. Repetitions reuse the exact validated profile and packet bytes.
 
 Expected flow:
 
@@ -123,30 +133,41 @@ Expected flow:
 3. The deterministic compiler emits plan v3, details v5, and profile-bound packet v7 with embedded work-contract v3 nodes and any eligible vertical fusion.
 4. Planning writes immutable artifacts under Pi-owned storage, derives human views from packet v7, and publishes pointer v2 last without modifying p-map.
 
-The task brief is decision-complete. A clarification question is acceptable only if repository evidence exposes a real unresolved choice.
+The task brief is a realistic issue-style feature request. It states that the
+runtime implementation and behavioral regression tests must pass together,
+without prescribing nodes, ownership, fusion, or repair boundaries. A
+clarification question is acceptable only if repository evidence exposes a real
+unresolved choice.
 
 ## 5. Review gate
 
-Do not execute a materially incorrect packet. Confirm the generated plan is understandable and matches this intended DAG:
+Do not execute a materially incorrect packet. Confirm the generated plan is understandable and preserves these repair boundaries:
 
 ```text
-runtime-abort ──> runtime-tests ──┐
-types-abort ─────────────────────┤
-docs-abort ──────────────────────┤
-                                 └──> final validation
+runtime-and-behavioral-tests ──┐
+types ─────────────────────────┤
+docs ──────────────────────────┤
+                               └──> final validation
 ```
 
 Expected ownership and validation:
 
 | Node | Owns | Depends on | Validation |
 | --- | --- | --- | --- |
-| `runtime-abort` | `index.js` | none | `npx xo index.js && npx ava` |
+| `runtime-and-behavioral-tests` | `index.js`, `test.js` | none | `npx xo index.js test.js && npx ava test.js` |
 | `types-abort` | `index.d.ts`, `index.test-d.ts` | none | `npx tsd` |
 | `docs-abort` | `readme.md` | none | `git diff --check` |
-| `runtime-tests` | `test.js` | `runtime-abort` | `npx ava` |
 | final validation | none | all workers | `npm test` |
 
-The active profile, not details or the packet, declares `npx xo --fix`. Packet final commands execute before profile-required final gates.
+The runtime implementation and deterministic behavioral regression tests must
+share one independently acceptable and repairable boundary. Prefer one Phase A
+item; compiler fusion is acceptable only when the immutable packet proves the
+same union. Split items may declare shared reads only when they genuinely need
+that context; reads must never be padded merely to force fusion.
+
+The active profile, not details or the packet, declares candidate
+normalization. Packet final commands execute before profile-required final
+gates.
 
 Evaluate this contract semantically rather than by textual equality with the table. Safe, non-mutating validation commands may be added when they are traceable to task requirements and preserve the authoritative final validation. Command wrappers such as `rtk` are operational conveniences, not packet-correctness requirements. Record harmless presentation differences separately; reject only behavior that changes ownership, dependencies, safety boundaries, required behavior, or authoritative validation. Generated summaries must either agree with the authoritative packet or clearly label omitted detail.
 
