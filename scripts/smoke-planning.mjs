@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { BATCHING_DISCIPLINE, BATCHING_DISCIPLINE_MARKER } from "../packages/fanout-core/src/batching-discipline.ts";
+import { IMPLEMENTATION_DETAILS_SCHEMA, IMPLEMENTATION_DETAILS_VERSION, validateImplementationDetailsArtifact } from "../packages/fanout-core/src/fanout-compiler.ts";
 import { buildImplementationDetailsPrompt, buildImplementationDetailsRepairPrompt, buildImplementationPlanPrompt, buildProjectExecutionProfilePrompt, createFanoutPlanRun } from "../packages/fanout-pi/src/fanout-plan-orchestration.ts";
 
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
@@ -18,6 +19,7 @@ assert(BATCHING_DISCIPLINE_MARKER.includes("every independent tool call") && BAT
 assert(phaseA.includes("Do not create a `final-validation` item") && phaseA.includes("compiler-owned node"), "Phase A permits duplicate final-validation authority");
 assert(phaseA.includes("packet-global bans") && phaseA.includes("never overlap planned writes"), "Phase A does not explain monotonic forbidden-write scope");
 assert(phaseB.includes('"changes"') && phaseB.includes("direct argv") && phaseB.includes("argument order"), "Phase B omitted typed changes/direct argv");
+assert(phaseB.includes("line-range-hint") && phaseB.includes('"sourcePlanIds"') && phaseB.includes("Unknown fields are rejected"), "Phase B omitted strict nested schema guidance");
 assert(phaseB.includes("Use `baseline-context` whenever") && phaseB.includes("Use `post-change-required` only") && phaseB.includes("why the planning baseline is insufficient") && phaseB.includes("convenience, precautionary, redundant, and transitive dependencies") && phaseB.includes("concurrently ready"), "Phase B does not preserve baseline-authorable parallelism or reject false edges");
 assert(!phaseB.includes('"candidateNormalizationCommands"') && phaseB.includes("Project Execution Profile"), "Phase B retained profile-owned candidate-normalization authority");
 assert(profile.includes("`candidateNormalization`") && profile.includes("`requiredFinalGates`") && profile.includes("`networkAccess`") && profile.includes("`candidate-owned`") && profile.includes("grants no write authority"), "Project Execution Profile prompt omitted executable authority disclosures");
@@ -27,6 +29,17 @@ const context = { projectArtifactRoot: "/tmp/fanout" };
 const run = createFanoutPlanRun("Typed plan", context, new Date("2026-07-14T00:00:00.000Z"));
 const planIdentity = { path: "implementation-plan.json", sha256: "a".repeat(64), byteLength: 1 };
 const detailsIdentity = { path: "implementation-details.json", sha256: "b".repeat(64), byteLength: 1 };
+const detailsBodyMatch = /Submit exactly one body containing only:\s*```json\n([\s\S]*?)\n```/.exec(phaseB);
+assert(detailsBodyMatch, "Phase B omitted its JSON body example");
+const detailsExample = validateImplementationDetailsArtifact({
+  schema: IMPLEMENTATION_DETAILS_SCHEMA,
+  version: IMPLEMENTATION_DETAILS_VERSION,
+  detailsId: "details-example",
+  createdAt: new Date(0).toISOString(),
+  plan: planIdentity,
+  ...JSON.parse(detailsBodyMatch[1]),
+}, { planIdentity, planIds: ["stable-source-id"] });
+assert(detailsExample.ok, `Phase B JSON body example is invalid: ${detailsExample.errors.join("; ")}`);
 const acceptedPlan = { objective: "Typed plan", profile: { path: "project-execution-profile.json", sha256: "c".repeat(64), byteLength: 1 }, implementationItems: [] };
 const detailsRun = { ...run, planIdentity, acceptedPlan, acceptedSubmission: { runId: run.runId, phase: "details", path: run.implementationDetailsPath, identity: detailsIdentity } };
 const profilePrompt = buildProjectExecutionProfilePrompt("Typed plan", {}, run);
