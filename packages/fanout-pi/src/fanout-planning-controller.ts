@@ -112,14 +112,15 @@ export class FanoutPlanningController {
 				const phase = profileIdentity ? "implementation" as const : "profile" as const;
 				const state = { phase, invocation, objective: invocation, context, metrics: createPlanningMetrics(), profileIdentity, ...run };
 				this.#pending = { ...state, systemPrompt: profileIdentity ? buildImplementationPlanPrompt(invocation, context, state) : buildProjectExecutionProfilePrompt(invocation, context, state) };
+				const trigger = profileIdentity ? "Prepare and submit the Fanout implementation plan." : "Build and submit the Fanout Project Execution Profile.";
 				writeJsonl("fanout_plan_start", { planRunId: run.runId, invocation, phase, refreshProfile: parsedInvocation.refreshProfile, artifactRoot: context.artifactRoot, artifactDir: run.artifactDir, projectExecutionProfilePath: run.projectExecutionProfilePath, implementationPlanPath: run.implementationPlanPath, implementationDetailsPath: run.implementationDetailsPath, tierDefaults: context.tierDefaults }, ctx.cwd);
 				writeJsonl("fanout_plan_preflight", { planRunId: run.runId, phase, profileIdentity, tierPlan: context.resolvedTierPlan, tier2Availability: context.tier2Availability }, ctx.cwd);
 				if (!ctx.isIdle()) {
-					this.#pi.sendUserMessage(`Run Fanout planning for: ${invocation}`, { deliverAs: "followUp" });
+					this.#pi.sendUserMessage(trigger, { deliverAs: "followUp" });
 					ctx.ui.notify("Queued /fanout-plan after the current turn.", "info");
 					return;
 				}
-				this.#pi.sendUserMessage(`Run Fanout planning for: ${invocation}`);
+				this.#pi.sendUserMessage(trigger);
 			},
 		});
 	}
@@ -156,7 +157,7 @@ export class FanoutPlanningController {
 				const implementationState = { ...finished, phase: "implementation" as const, acceptedSubmission: undefined, profileIdentity: published.identity };
 				this.#pending = { ...implementationState, systemPrompt: buildImplementationPlanPrompt(finished.objective, finished.context, implementationState) };
 				ctx.ui.notify("Project Execution Profile approved; planning implementation.", "info");
-				this.#startTurn(this.#pending, `Continue Fanout implementation planning for: ${finished.objective}`);
+				this.#startTurn(this.#pending, "Prepare and submit the Fanout implementation plan.");
 				return;
 			} catch (error) {
 				return this.#fail(ctx, finished, "profile", [message(error)]);
@@ -180,7 +181,7 @@ export class FanoutPlanningController {
 			this.#pending = { ...detailsState, systemPrompt: buildImplementationDetailsPrompt(objective, finished.context, detailsState, requiredReadClassifications) };
 			writeJsonl("fanout_required_read_classifications", { planRunId: finished.runId, phase: "implementation", objective, artifactDir: finished.artifactDir, count: requiredReadClassifications.length, requiredReadClassifications }, ctx.cwd);
 			ctx.ui.notify("Implementation plan validated; grounding edit details.", "info");
-			this.#startTurn(this.#pending, `Continue Fanout planning details for: ${objective}`);
+			this.#startTurn(this.#pending, "Ground the accepted Phase A plan without changing the repository; submit implementation details with `fanout_submit_artifact`.");
 			return;
 		}
 		if (finished?.phase !== "details") return;
@@ -210,7 +211,7 @@ export class FanoutPlanningController {
 				this.#pending = { ...finished, systemPrompt: buildImplementationDetailsRepairPrompt(finished.objective, finished.context, finished, compiled.issues, finished.requiredReadClassifications ?? []), acceptedSubmission: undefined, repairAttempted: true };
 				writeJsonl("fanout_compiler_repair_requested", { planRunId: finished.runId, phase: "details", artifactDir: finished.artifactDir, issues: compiled.issues }, ctx.cwd);
 				ctx.ui.notify("Fanout compiler found ambiguous read overlaps; repairing implementation details.", "info");
-				this.#startTurn(this.#pending, `Repair Fanout planning details for: ${finished.objective}`);
+				this.#startTurn(this.#pending, "Repair read-classification failures in implementation-details.json.");
 				return;
 			}
 			if (!compiled.ok || !compiled.packet) return this.#fail(ctx, finished, "compiler", compiled.errors);

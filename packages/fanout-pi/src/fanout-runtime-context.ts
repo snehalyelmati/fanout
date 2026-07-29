@@ -8,7 +8,6 @@ import { setDoublewordObservabilityFile } from "../../doubleword-provider/src/in
 import type { FanoutTierPlan, TierModelSummary } from "../../fanout-core/src/execution-packet.ts";
 import { RUN_ID, setObservabilityCwd, setObservabilityFile } from "../../fanout-core/src/observability.ts";
 
-export const FANOUT_CONTEXT_MARKER = "## Fanout runtime context";
 const TIER2_DEFAULT = { provider: "doubleword", model: "zai-org/GLM-5.2-FP8", thinking: "medium" };
 const doublewordModelMetadata = new Map<string, Record<string, unknown>>();
 
@@ -46,11 +45,6 @@ export function augmentRegistryModels(models: Array<Record<string, unknown>>): A
 
 function modelKey(provider: string, model: string): string {
 	return `${provider}/${model}`;
-}
-
-export function fanoutRuntimePrompt(cwd: string, model: unknown, thinking: unknown, models?: unknown): string {
-	const context = fanoutRuntimeContext(cwd, model, thinking, models);
-	return `${FANOUT_CONTEXT_MARKER}\n\n- artifactRoot: ${context.artifactRoot}\n- projectArtifactRoot: ${context.projectArtifactRoot}\n- runtimeContextFile: ${context.runtimeContextFile}\n- activePointerPath: ${context.activePointerPath}\n- tier1: ${context.resolvedTierPlan.tier1.provider}/${context.resolvedTierPlan.tier1.model} (${context.resolvedTierPlan.tier1.thinking})\n- tier2: ${context.resolvedTierPlan.tier2.provider}/${context.resolvedTierPlan.tier2.model} (${context.resolvedTierPlan.tier2.status}; ${context.tier2Availability.reason})\n- tier2 fallback: ${context.resolvedTierPlan.tier2Fallback.provider}/${context.resolvedTierPlan.tier2Fallback.model} (${context.resolvedTierPlan.tier2Fallback.thinking})\n- question tool: ask_user_question is required for /fanout-plan clarification.\n`;
 }
 
 export function writeFanoutRuntimeContext(cwd: string, model: unknown, thinking: unknown, models?: unknown, prepared?: ReturnType<typeof fanoutRuntimeContext>): ReturnType<typeof fanoutRuntimeContext> {

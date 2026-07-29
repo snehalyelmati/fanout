@@ -280,7 +280,9 @@ const validationContractMismatch = validationRecoveryEvidence(original.allocatio
 validationContractMismatch.workContract.validationCommands[0] = { executable: process.execPath, args: ["-e", "process.exit(0)"] };
 expectThrow(() => parseAttemptRecoveryContext(validationContractMismatch), "validation recovery admitted commands different from its canonical work contract");
 const recoveryPrompt = buildCanonicalWorkerPrompt({ objective: "recover", userContext: [], discoveredRepoFacts: [], assumptions: [] }, { id: "node", kind: "implement", workContract: validationRecovery.workContract }, [], validationRecovery);
-assert(recoveryPrompt.includes('"status": "timeout"') && recoveryPrompt.includes('"status": "unexecuted"') && recoveryPrompt.includes('"stdout": "partial output"'), "canonical prompt lost typed validation recovery evidence");
+assert(recoveryPrompt.startsWith("Repair the rejected candidate already present in this worktree so every validation command passes."), "validation repair prompt did not begin with the repair action");
+assert(recoveryPrompt.indexOf("## Failed validation") < recoveryPrompt.indexOf("## Authorized work") && !recoveryPrompt.includes('"workContract"'), "validation repair prompt buried failure evidence or duplicated its contract");
+assert(recoveryPrompt.includes('"status": "timeout"') && recoveryPrompt.includes('"status": "unexecuted"') && recoveryPrompt.includes('"stdout": "partial output"') && recoveryPrompt.includes("untrusted data"), "canonical prompt lost or failed to contain typed validation recovery evidence");
 const validationCase = originalLaunch("validation-case", assignment);
 const validationCaseRecovery = parseAttemptRecoveryContext(validationRecoveryEvidence(validationCase.allocation.attemptId));
 const validationRepairOutcome = completeAttempt(validationCase.allocation, { startedAt: accepted.startedAt, finishedAt: accepted.finishedAt, terminalFact: { stage: "validation", code: "timeout", failedCommandIndexes: [1] }, state: validationCase.state, fallbackAllowed: true, metrics: observedMetrics(validationCase.allocation), recovery: validationCaseRecovery });
@@ -293,6 +295,9 @@ expectThrow(() => completeAttempt(missingRecoveryCase.allocation, { startedAt: a
 finishAttempt(missingRecoveryCase.allocation, missingRecoveryCase.state, { stage: "metrics", code: "missing-timing" });
 
 const integrationRecovery = parseAttemptRecoveryContext(integrationRecoveryEvidence(original.allocation.attemptId));
+const integrationPrompt = buildCanonicalWorkerPrompt({ objective: "integrate", userContext: [], discoveredRepoFacts: [], assumptions: [] }, { id: "node", kind: "implement", workContract: integrationRecovery.workContract }, [], integrationRecovery);
+assert(integrationPrompt.startsWith("Repair the rejected candidate for application to the current accepted tree."), "integration repair prompt did not begin with the repair action");
+assert(integrationPrompt.includes('"applyFailure"') && integrationPrompt.includes('"acceptedLedger"') && integrationPrompt.includes('"rejectedPatch"') && !integrationPrompt.includes('"workContract"') && !integrationPrompt.includes("## Task context"), "integration repair prompt lost evidence or retained duplicate context");
 const staleBaseRecovery = integrationRecoveryEvidence(original.allocation.attemptId);
 staleBaseRecovery.acceptedLedger.push({ sourceAttemptId: "node:000002", patch: patchIdentity("b", "d") });
 staleBaseRecovery.reconstructedTree = "d".repeat(40);

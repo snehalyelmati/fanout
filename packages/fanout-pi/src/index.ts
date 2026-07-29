@@ -12,9 +12,7 @@ import { executeFanout } from "./fanout-execute.ts";
 import {
 	augmentRegistryModels,
 	configureMainObservability,
-	FANOUT_CONTEXT_MARKER,
 	fanoutRuntimeContext,
-	fanoutRuntimePrompt,
 	globalSettingsPath,
 	isRecord,
 	rememberDoublewordModels,
@@ -132,12 +130,15 @@ export default async function (pi: ExtensionAPI) {
 		writeFanoutRuntimeContext(ctx.cwd, activeModel ?? ctx.model, activeThinking, ctx.modelRegistry?.getAll?.());
 	});
 
-	pi.on("before_agent_start", (event, ctx) => {
+	pi.on("before_agent_start", (event) => {
 		const batchingPrompt = event.systemPrompt.includes(BATCHING_DISCIPLINE_MARKER) ? event.systemPrompt : `${event.systemPrompt}\n\n${BATCHING_DISCIPLINE}`;
-		const runtimePrompt = batchingPrompt.includes(FANOUT_CONTEXT_MARKER) ? batchingPrompt : `${batchingPrompt}\n\n${fanoutRuntimePrompt(ctx.cwd, activeModel ?? ctx.model, activeThinking ?? pi.getThinkingLevel(), ctx.modelRegistry?.getAll?.())}`;
 		const phasePrompt = planning.beginTurn();
 		return {
-			systemPrompt: phasePrompt ? `${batchingPrompt}\n\n${phasePrompt}` : runtimePrompt,
+			systemPrompt: phasePrompt
+				? event.systemPrompt.includes(BATCHING_DISCIPLINE_MARKER)
+					? event.systemPrompt.replace(BATCHING_DISCIPLINE_MARKER, `${phasePrompt}\n\n${BATCHING_DISCIPLINE_MARKER}`)
+					: `${event.systemPrompt}\n\n${phasePrompt}\n\n${BATCHING_DISCIPLINE}`
+				: batchingPrompt,
 		};
 	});
 

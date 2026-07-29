@@ -9,7 +9,7 @@ export const ASYNC_SERVICE_TIER = "flex";
 export const DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
 export const DEFAULT_ASYNC_TIMEOUT_MS = 600_000;
 export const DEFAULT_CANCEL_TIMEOUT_MS = 10_000;
-export const BATCHING_DISCIPLINE_MARKER = "## Think-ahead batching";
+export const BATCHING_DISCIPLINE_MARKER = "Batch every independent read-only tool call needed for the next decision into one assistant turn.";
 
 export type ExecutionMode = "realtime" | "async";
 

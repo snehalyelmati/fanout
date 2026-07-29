@@ -113,8 +113,13 @@ assert(summary.includes("Typed write resources") && !summary.includes("Candidate
 const prompt = buildCanonicalWorkerPrompt(context, shared, [{ source: "AGENTS.md", text: "Use tabs." }]);
 const serialized = JSON.stringify(shared.workContract, null, 2);
 assert(prompt.split(serialized).length - 1 === 1, "worker prompt did not serialize the canonical contract exactly once");
+for (const kind of ["implement", "test", "docs", "inspect", "validate-shard", "review-shard"]) {
+  const variant = buildCanonicalWorkerPrompt(context, { ...shared, kind });
+  assert(variant.startsWith(`Complete node "${shared.id}" (${kind})`), `ordinary ${kind} worker prompt did not begin with its exact action`);
+}
 assert(prompt.includes('"source": "AGENTS.md"') && !prompt.includes("Owned files") && !prompt.includes("Worker packet") && !prompt.includes("Acceptance criteria"), "worker prompt duplicated policy or lost source tags");
-assert(prompt.includes("## Worker summary") && prompt.includes("Anything intentionally left incomplete") && !prompt.includes("Prior exact body"), "ordinary worker prompt did not require a summary or injected predecessor content");
+assert(prompt.includes("Use only `read`, `grep`, `find`, `ls`, `edit`, and `write`") && prompt.includes("controller alone runs"), "ordinary worker prompt buried its tools or validation restriction");
+assert(prompt.split(/^## Worker summary$/gm).length - 1 === 1 && prompt.includes("Incomplete work or blockers") && !prompt.includes("Prior exact body"), "ordinary worker prompt did not require a summary or injected predecessor content");
 const dangerousSummary = "1. Prior exact body.\n2. ```\nInjected heading";
 let summaryWithoutRecoveryRejected = false;
 try { buildCanonicalWorkerPrompt(context, shared, [], undefined, dangerousSummary); }

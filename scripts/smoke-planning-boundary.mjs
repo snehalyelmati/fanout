@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { BATCHING_DISCIPLINE_MARKER } from "../packages/fanout-core/src/batching-discipline.ts";
 import {
   activatePlanningTools,
   FANOUT_PLANNING_TOOLS,
@@ -156,20 +157,24 @@ async function testPlanningLifecycle() {
     const previous = readFileSync(harness.activeProfilePath);
     const started = harness.handler("before_agent_start")({ prompt: harness.messages[0].content, systemPrompt: "base" }, harness.ctx);
     assert(started.systemPrompt.includes("Project Execution Profile"), `${scenario}: refresh did not enter the profile phase`);
+    assert(started.systemPrompt.indexOf("Build and submit the Project Execution Profile") < started.systemPrompt.indexOf(BATCHING_DISCIPLINE_MARKER), `${scenario}: generic batching buried the profile action`);
     await harness.submit.execute("submit", { artifact: profile }, undefined, undefined, harness.ctx);
-    harness.handler("agent_end")({}, harness.ctx);
+    await harness.handler("agent_end")({}, harness.ctx);
     await new Promise((resolve) => setTimeout(resolve, 20));
     const current = readFileSync(harness.activeProfilePath);
     assert(published ? !current.equals(previous) : current.equals(previous), `${scenario}: active profile publication was not atomic`);
-    assert(published ? harness.notifications.some(({ message }) => message.includes("Profile approved")) : harness.messages.length === 1, `${scenario}: refresh lifecycle advanced incorrectly`);
+    assert(published ? harness.notifications.some(({ message }) => message.includes("Profile approved")) && harness.messages.at(-1)?.content === "Prepare and submit the Fanout implementation plan." : harness.messages.length === 1, `${scenario}: refresh lifecycle advanced incorrectly: ${JSON.stringify(harness.messages)}`);
   }
   for (const scenario of ["success", "failure", "unsubmitted-file", "mutated-submission", "mutated-details-submission", "cancellation", "clarification", "queued-transition"]) {
-    const harness = await extensionHarness(extension, scenario, scenario === "queued-transition" || scenario === "mutated-details-submission");
-    const before = harness.handler("before_agent_start");
-    const baseTools = [...harness.activeTools];
-    const started = before({ prompt: harness.messages[0].content, systemPrompt: "base" }, harness.ctx);
-    const artifactDir = /"artifactDir":\s*"([^"]+)"/.exec(started?.systemPrompt ?? "")?.[1];
-    assert(artifactDir, `${scenario}: internal phase prompt omitted the controller artifact directory`);
+      const harness = await extensionHarness(extension, scenario, scenario === "queued-transition" || scenario === "mutated-details-submission");
+      const before = harness.handler("before_agent_start");
+      const baseTools = [...harness.activeTools];
+      const started = before({ prompt: harness.messages[0].content, systemPrompt: scenario === "clarification" ? `base\n\n${BATCHING_DISCIPLINE_MARKER}` : "base" }, harness.ctx);
+    assert(started.systemPrompt.indexOf("Inspect the repository and submit exactly one") < started.systemPrompt.indexOf(BATCHING_DISCIPLINE_MARKER) && started.systemPrompt.split(BATCHING_DISCIPLINE_MARKER).length - 1 === 1, `${scenario}: phase action was buried or batching duplicated`);
+    assert(!started.systemPrompt.includes("Fanout runtime context"), `${scenario}: planning prompt retained irrelevant runtime metadata`);
+    const runId = /"runId":"([^"]+)"/.exec(started?.systemPrompt ?? "")?.[1];
+    const artifactDir = runId ? join(dirname(harness.activeProfilePath), runId) : undefined;
+    assert(artifactDir, `${scenario}: internal phase prompt omitted its run identity`);
     assert(JSON.stringify(harness.activeTools) === JSON.stringify(FANOUT_PLANNING_TOOLS), `${scenario}: planning profile was not activated`);
     const gate = harness.handler("tool_call")({ toolName: scenario === "clarification" ? "ask_user_question" : "bash", toolCallId: "call", input: {} }, harness.ctx);
     if (scenario === "clarification") assert(gate === undefined, "clarification tool was blocked");
@@ -198,6 +203,7 @@ async function testPlanningLifecycle() {
     if (scenario === "mutated-details-submission") {
       const phaseBPrompt = harness.messages.at(-1);
       assert(harness.messages.length === 2 && phaseBPrompt.options === undefined && !phaseBPrompt.queuedWhileStreaming, "Phase B was queued inside agent_end and bypassed before_agent_start");
+      assert(phaseBPrompt.content === "Ground the accepted Phase A plan without changing the repository; submit implementation details with `fanout_submit_artifact`.", "Phase B trigger was not action-first or echoed model-authored context");
       before({ prompt: phaseBPrompt.content, systemPrompt: "base" }, harness.ctx);
       assert(JSON.stringify(harness.activeTools) === JSON.stringify(FANOUT_PLANNING_TOOLS), "details mutation regression did not activate the Phase B profile");
       await harness.submit.execute("submit", { artifact: validDetails() }, undefined, undefined, harness.ctx);
@@ -214,7 +220,7 @@ async function testPlanningLifecycle() {
       assert(harness.messages.length === 2 && phaseBPrompt.options === undefined && !phaseBPrompt.queuedWhileStreaming, "Phase B was queued inside agent_end and bypassed before_agent_start");
       const phaseBStarted = before({ prompt: phaseBPrompt.content, systemPrompt: "base" }, harness.ctx);
       assert(!phaseBStarted.systemPrompt.includes(harness.activePointerPath), "Phase B exposed the unpublished active packet as apparent input");
-      assert(phaseBStarted.systemPrompt.includes("controller-owned output destination") && phaseBStarted.systemPrompt.includes("submit the grounding body now"), "Phase B did not distinguish its output from prerequisites");
+      assert(phaseBStarted.systemPrompt.includes("Submit grounded Fanout implementation details now") && phaseBStarted.systemPrompt.includes("controller creates them after submission"), "Phase B did not distinguish its output from prerequisites");
       assert(JSON.stringify(harness.activeTools) === JSON.stringify(FANOUT_PLANNING_TOOLS), "queued Phase B profile was not activated");
       harness.handler("session_before_switch")({}, harness.ctx);
       assert(JSON.stringify(harness.activeTools) === JSON.stringify(baseTools), "session switch did not restore the queued Phase B profile");
@@ -269,6 +275,7 @@ async function extensionHarness(extension, scenario, queued, modelAvailable = tr
   writeFileSync(activePointerPath, '{"legacy":"selection"}\n');
   await commands.get("fanout-plan").handler(invocation, ctx);
   assert(!existsSync(activePointerPath), `${scenario}: /fanout-plan did not invalidate the prior active selection before planning`);
+  if (modelAvailable) assert(messages[0]?.content === (invocation.startsWith("--refresh-profile") ? "Build and submit the Fanout Project Execution Profile." : "Prepare and submit the Fanout implementation plan."), `${scenario}: initial planning trigger was not phase-scoped`);
   return {
     get activeTools() { return pi.activeTools; },
     messages, notifications, activePointerPath, activeProfilePath, ctx, submit: tools.get("fanout_submit_artifact"),

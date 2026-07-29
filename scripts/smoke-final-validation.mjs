@@ -192,8 +192,9 @@ try {
   assert(promptSeeds[0] === undefined && promptSeeds[1]?.patch.artifact.sha256 === ignoredResidue.patch.artifact.sha256 && promptSeeds[2]?.patch.artifact.sha256 === ignoredResidue.patch.artifact.sha256, "final-repair seed continuity was lost across a process-only launch failure");
   for (const [index, recovery] of promptRecoveries.entries()) {
     const prompt = buildCanonicalWorkerPrompt({ objective: "repair", userContext: [], discoveredRepoFacts: [], assumptions: [] }, { id: "final-validation", kind: "implement", workContract: repairContract }, [], recovery);
+    assert(prompt.startsWith("Repair the reconstructed accepted state") && prompt.indexOf("## Failed final-validation round") < prompt.indexOf("## Final-validation provenance and authority"), `final-repair prompt ${index + 1} did not prioritize the repair action and failure`);
     for (const identity of [recovery.failedRound.validation.before.tree, recovery.failedRound.validation.after.tree, recovery.failedRound.active.before.tree, recovery.failedRound.active.after.tree]) assert(prompt.includes(identity), `final-repair prompt ${index + 1} omitted a failed-round repository identity`);
-    assert(prompt.includes(packetIdentity.sha256) && prompt.includes('"nodeId": "source"') && prompt.includes('"nodeId": "other"'), `final-repair prompt ${index + 1} omitted packet identity or ordered upstream work contracts`);
+    assert(prompt.includes(packetIdentity.sha256) && prompt.includes('"nodeId": "source"') && prompt.includes('"nodeId": "other"') && !prompt.includes("## Task context"), `final-repair prompt ${index + 1} omitted provenance or retained duplicate context`);
     if (index === 1) assert(prompt.includes(ignoredResidue.patch.artifact.sha256), "subsequent final-repair prompt omitted its rejected candidate patch");
     const conflictingContract = structuredClone(repairContract);
     conflictingContract.validationCommands = [node("process.exit(9)")];
