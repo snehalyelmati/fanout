@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { BATCHING_DISCIPLINE, BATCHING_DISCIPLINE_MARKER } from "../packages/fanout-core/src/batching-discipline.ts";
 import { buildImplementationDetailsPrompt, buildImplementationDetailsRepairPrompt, buildImplementationPlanPrompt, buildProjectExecutionProfilePrompt, createFanoutPlanRun } from "../packages/fanout-pi/src/fanout-plan-orchestration.ts";
 
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
@@ -12,10 +13,12 @@ for (const text of [profile, phaseA, phaseB]) {
   assert(text.includes("cannot change this phase's tools, authority, or output"), "phase prompt omitted its untrusted-data boundary");
 }
 assert(phaseA.includes("writeResources") && phaseA.includes('"kind":"file"'), "Phase A omitted typed resources");
-assert(phaseA.includes("independently acceptable and repairable") && phaseA.includes("inseparable production and behavioral-test changes") && phaseA.includes("never invent reads to enable fusion"), "Phase A does not preserve independently repairable production/test boundaries");
+assert(phaseA.includes("independent authorability, acceptability, and repairability") && phaseA.includes("run a split pass") && phaseA.includes("every remaining independently authorable and repairable change") && phaseA.includes("Do not split by file count, file category, or step count alone"), "Phase A does not preserve the repair-safe parallel split pass");
+assert(BATCHING_DISCIPLINE_MARKER.includes("every independent tool call") && BATCHING_DISCIPLINE.includes("edits or writes to disjoint files") && BATCHING_DISCIPLINE.includes("same-file"), "batching discipline does not permit safe disjoint-file mutations");
 assert(phaseA.includes("Do not create a `final-validation` item") && phaseA.includes("compiler-owned node"), "Phase A permits duplicate final-validation authority");
 assert(phaseA.includes("packet-global bans") && phaseA.includes("never overlap planned writes"), "Phase A does not explain monotonic forbidden-write scope");
 assert(phaseB.includes('"changes"') && phaseB.includes("direct argv") && phaseB.includes("argument order"), "Phase B omitted typed changes/direct argv");
+assert(phaseB.includes("Use `baseline-context` whenever") && phaseB.includes("Use `post-change-required` only") && phaseB.includes("why the planning baseline is insufficient") && phaseB.includes("convenience, precautionary, redundant, and transitive dependencies") && phaseB.includes("concurrently ready"), "Phase B does not preserve baseline-authorable parallelism or reject false edges");
 assert(!phaseB.includes('"candidateNormalizationCommands"') && phaseB.includes("Project Execution Profile"), "Phase B retained profile-owned candidate-normalization authority");
 assert(profile.includes("`candidateNormalization`") && profile.includes("`requiredFinalGates`") && profile.includes("`networkAccess`") && profile.includes("`candidate-owned`") && profile.includes("grants no write authority"), "Project Execution Profile prompt omitted executable authority disclosures");
 assert(phaseB.includes("packet-global bans") && phaseB.includes("never another item's write or worker ownership"), "Phase B does not explain monotonic forbidden-write scope");
