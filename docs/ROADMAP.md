@@ -120,6 +120,8 @@ Phase 2 acceptance criteria:
 
 Status: The profile-bound runtime cutover is implemented. Focused gates cover isolated preparation, deterministic reconciliation, exact no-progress, fusion, cleanup-before-terminal timing, replay, and profiler compatibility. The controlled p-map canary plus three identical repetitions and repository-owner approval remain release gates.
 
+The next transfer/complexity benchmark is prepared against Execa's asynchronous Web Stream conversion surface at a fixed reproducible baseline. It follows the p-map release gate rather than replacing it; no Execa execution, cost, latency, or reliability claim exists yet. See [`docs/benchmarks/execa-web-streams-manual-e2e.md`](benchmarks/execa-web-streams-manual-e2e.md).
+
 Goal: execute the active accepted packet, manage workers, validate outputs, run authoritative final validation, and return control with summary plus metrics.
 
 Implemented order:
