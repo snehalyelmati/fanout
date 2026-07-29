@@ -26,7 +26,7 @@ Submit exactly one body containing only:
 }
 ```
 
-The controller supplies schema/version, details identity/time, exact plan identity, and destination. Ground every Phase A write with same-source typed changes. Use only:
+The controller supplies schema/version, details identity/time, exact plan identity, and destination. Ground the accepted Phase A items without changing their repair boundaries, and ground every Phase A write with same-source typed changes. Use only:
 
 - `modify`: target, exact intent, and a stable `symbol`, `section`, or `stable-text` anchor
 - `create`: target and `contentIntent`, with optional intended sections/shape
@@ -34,6 +34,10 @@ The controller supplies schema/version, details identity/time, exact plan identi
 - `move`: exact `from`, `to`, and intent
 
 Endpoints contain a literal repository-relative file/directory resource and accepted `sourcePlanIds`. For every required-read row, add a reader-linked dependency with its resource, `timing` (`baseline-context` or `post-change-required`), `timingSource: "phase-b"`, source plan IDs, and reason. Only post-change reads create edges.
+
+Use `baseline-context` whenever the reader can be authored safely from planning-base contents. Use `post-change-required` only when the reader cannot be authored safely without a specific accepted change from another item. Its reason must name that change and explain why the planning baseline is insufficient.
+
+Reject convenience, precautionary, redundant, and transitive dependencies. Aim to leave every baseline-authorable item concurrently ready. Do not serialize tests, documentation, types, fixtures, or wiring behind implementation when their required contract is already fixed by the accepted plan and planning baseline.
 
 Commands are direct argv (`executable`, `args`, optional `cwd`/`env`). Preserve exact executable, argument order, duplicates, cwd, environment names, and literal values; never use shell strings. Explicit shells/interpreters remain trusted executables.
 

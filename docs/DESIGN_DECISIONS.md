@@ -264,7 +264,7 @@ Reason: Prompt templates were Pi-native and cheap to test. The prompt proved use
 
 Decision: Inject a lightweight think-ahead batching instruction with `before_agent_start` for every normal Pi run.
 
-Reason: This keeps the normal Pi loop while nudging each turn to batch independent reads, greps, inspections, and checks before adding any custom orchestration.
+Reason: This keeps the normal Pi loop while nudging each turn to batch independent reads, greps, inspections, checks, and disjoint-file edits or writes. Dependent, overlapping, and same-file mutations remain separate.
 
 ### Turn count and tool batch size are logged now
 
@@ -524,7 +524,7 @@ Reason: Implementation planning, repo grounding, and execution compilation are d
 
 ### Compiler owns execution DAG construction
 
-Decision: Phase A decides what/why and maximum typed scope; Phase B supplies typed changes, anchors, reads, forbidden writes, and direct-argv validation; the compiler owns grouping, DAG derivation, and tier assignment. Phase A boundaries follow independent acceptability and repairability rather than file categories: production and behavioral-test writes that cannot be accepted or repaired independently belong to one item. Split items declare genuine typed reads honestly and never pad reads to trigger fusion. Every Phase A write remains covered by same-source Phase B changes. A cross-node Phase A read must receive typed Phase B timing; after one unsuccessful Phase B repair, the compiler may insert a typed `post-change-required` read with `timingSource: "sequential-fallback"`, which derives both the conservative edge and its warning. No prose, formatted diagnostic, persisted graph, or worker handoff copy controls scheduling.
+Decision: Phase A decides what/why and maximum typed scope; Phase B supplies typed changes, anchors, reads, forbidden writes, and direct-argv validation; the compiler owns grouping, DAG derivation, and tier assignment. Phase A boundaries follow independent authorability, acceptability, and repairability rather than file categories: production and behavioral-test writes that cannot be accepted or repaired independently belong to one item, then a split pass separates every remaining independently authorable and repairable change. Split items declare genuine typed reads honestly and never pad reads to trigger fusion. Phase B uses `baseline-context` whenever planning-base contents are sufficient and reserves `post-change-required` for a specific accepted upstream change whose reason explains why the baseline is insufficient; convenience, precautionary, redundant, and transitive dependencies are rejected. Every Phase A write remains covered by same-source Phase B changes. A cross-node Phase A read must receive typed Phase B timing; after one unsuccessful Phase B repair, the compiler may insert a typed `post-change-required` read with `timingSource: "sequential-fallback"`, which derives both the conservative edge and its warning. No prose, formatted diagnostic, persisted graph, or worker handoff copy controls scheduling.
 
 Reason: Prompted DAG construction was too easy to overfit or over-serialize. File-category splitting also produced a test-only repair boundary that could detect but not repair its production defect. Independent repairability plus deterministic grouping and read-dependency rules keeps authority honest without weakening compiler fusion predicates.
 

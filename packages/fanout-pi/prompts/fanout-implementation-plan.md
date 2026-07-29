@@ -29,6 +29,10 @@ Submit this body once with `fanout_submit_artifact`; output no envelope fields o
 
 Use literal canonical repository-relative file/directory paths. `writeResources` define maximum authority; declare only genuine typed reads. Put other dependencies in advisory notes (`rationale`, `risk`, `validation-intent`, `constraint`, or `context`).
 
-Group changes that must be accepted or repaired together, including inseparable production and behavioral-test changes. Split only independently acceptable and repairable work; never invent reads to enable fusion.
+Choose implementation-item boundaries by independent authorability, acceptability, and repairability. First keep together changes that must be accepted or repaired together: when production and behavioral tests cannot be accepted or repaired independently, keep them in one item.
+
+After preserving those boundaries, run a split pass. Give every remaining independently authorable and repairable change its own item so it can execute in parallel. Keep changes together when splitting would overlap write authority, when one side cannot be accepted or repaired independently, or when required behavior is not fixed by the accepted plan and planning baseline.
+
+Do not split by file count, file category, or step count alone. Do not invent reads or dependencies to force fusion or serialization.
 
 `forbiddenWrites` are packet-global bans: use them only for resources no worker may change, and never overlap planned writes. Do not create a `final-validation` item; Phase B commands create the compiler-owned node. Omit artifact paths, timestamps, status, graph, command, anchor, routing, and packet fields.
