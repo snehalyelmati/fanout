@@ -16,13 +16,31 @@ Submit exactly one body containing only:
   "items": [{
     "id": "grounded-id",
     "kind": "implement",
-    "changes": [],
-    "readDependencies": [],
-    "forbiddenWrites": [],
-    "validationCommands": [],
-    "advisoryNotes": []
+    "changes": [{
+      "kind": "modify",
+      "target": {
+        "resource": {"kind": "file", "path": "src/example.ts"},
+        "sourcePlanIds": ["stable-source-id"]
+      },
+      "intent": "exact edit intent",
+      "anchors": [{"kind": "symbol", "symbol": "example"}]
+    }],
+    "readDependencies": [{
+      "resource": {"kind": "file", "path": "package.json"},
+      "timing": "baseline-context",
+      "timingSource": "phase-b",
+      "sourcePlanIds": ["stable-source-id"],
+      "reason": "needed baseline configuration"
+    }],
+    "forbiddenWrites": [{
+      "resource": {"kind": "directory", "path": "generated"},
+      "sourcePlanIds": ["stable-source-id"],
+      "reason": "generated output is not authoritative"
+    }],
+    "validationCommands": [{"executable": "rtk", "args": ["npm", "run", "check"]}],
+    "advisoryNotes": [{"kind": "context", "reference": "grounded-id", "text": "necessary grounding context"}]
   }],
-  "finalValidationCommands": []
+  "finalValidationCommands": [{"executable": "rtk", "args": ["npm", "run", "check"]}]
 }
 ```
 
@@ -33,7 +51,23 @@ The controller supplies schema/version, details identity/time, exact plan identi
 - `delete`: target and reason
 - `move`: exact `from`, `to`, and intent
 
-Endpoints contain a literal repository-relative file/directory resource and accepted `sourcePlanIds`. For every required-read row, add a reader-linked dependency with its resource, `timing` (`baseline-context` or `post-change-required`), `timingSource: "phase-b"`, source plan IDs, and reason. Only post-change reads create edges.
+Use these exact nested shapes:
+
+- resource: `{"kind":"file"|"directory","path":"literal/repository-relative/path"}`
+- endpoint: `{"resource":<resource>,"sourcePlanIds":["accepted-plan-id"]}`
+- modify: `{"kind":"modify","target":<endpoint>,"intent":"...","anchors":[<anchor>]}`
+- create: `{"kind":"create","target":<endpoint>,"contentIntent":"...","intendedSections":["..."],"intendedShape":"..."}`; the last two fields are optional
+- delete: `{"kind":"delete","target":<endpoint>,"reason":"..."}`
+- move: `{"kind":"move","from":<endpoint>,"to":<endpoint>,"intent":"..."}`
+- anchors: `{"kind":"symbol","symbol":"..."}`, `{"kind":"section","section":"..."}`, `{"kind":"stable-text","text":"..."}`, or `{"kind":"line-range-hint","start":1,"end":2}`; a file modification needs at least one non-line stable anchor
+- read dependency: `{"resource":<resource>,"timing":"baseline-context"|"post-change-required","timingSource":"phase-b","sourcePlanIds":["accepted-plan-id"],"reason":"..."}`
+- forbidden write: `{"resource":<resource>,"sourcePlanIds":["accepted-plan-id"],"reason":"..."}`
+- command: `{"executable":"...","args":["..."],"cwd":"optional/repo/path","env":{"NAME":"literal value"}}`; `cwd` and `env` are optional
+- advisory note: `{"kind":"rationale"|"risk"|"validation-intent"|"constraint"|"context","reference":"...","text":"..."}`
+
+Every `sourcePlanIds` array must be non-empty, unique, and contain accepted Phase A IDs. Every grounded item needs at least one validation command, and `finalValidationCommands` must be non-empty. Unknown fields are rejected.
+
+For every required-read row, add a reader-linked dependency with the exact read-dependency shape above. Only post-change reads create edges.
 
 Use `baseline-context` whenever the reader can be authored safely from planning-base contents. Use `post-change-required` only when the reader cannot be authored safely without a specific accepted change from another item. Its reason must name that change and explain why the planning baseline is insufficient.
 
