@@ -85,6 +85,28 @@ The user operates Pi and authorizes every live or cost-incurring step. Preserve 
 
 Deferred until this manual path is reliable: automated execution harnesses, policy/model variations, and provider-tier cost or latency comparisons. Add a running-experiment ledger row only after observed artifacts and metrics exist.
 
+## P2b — Prepared Execa Web Streams transfer benchmark
+
+Date prepared: 2026-07-29
+
+Status: fixture and runbook prepared; no Fanout plan, dry run, live execution, cost, latency, or reliability result exists yet.
+
+Purpose: exercise the same manual product-debugging path on a larger repository and cross-module feature after the p-map control. The task adds asynchronous subprocess Web Stream conversion methods across runtime behavior, pipeline forwarding, early-error handling, public types, type tests, behavioral tests, and documentation. It is transfer/complexity evidence, not a byte-identical p-map repetition or a directly comparable speed cohort.
+
+Fixed fixture:
+
+- task: `/Users/snehalyelmati/Documents/execa-web-streams/TASK.md`;
+- repository: `/Users/snehalyelmati/Documents/execa-web-streams/repo`;
+- upstream commit: `c31c94c2c65e1aaf1b4d3295eaf927b910a2dc46`;
+- reproducible local baseline: `6e9ed1185adca485097d299da263a38d74ee636b`;
+- local baseline tree: `475de97e8bce060242e1ce9025d10e7f763735bd`;
+- baseline difference: committed `package-lock.json` only;
+- baseline validation: 5,096 unit tests plus lint, `tsd`, and `tsc` passed on Node `v26.5.0` and npm `11.17.0`.
+
+The fixture is a shallow single-history checkout with no remote, keeping the historical implementation unavailable to workers through local Git history. Runbook: [`docs/benchmarks/execa-web-streams-manual-e2e.md`](benchmarks/execa-web-streams-manual-e2e.md).
+
+Keep p-map as the existing control and release gate. Run one Execa canary only after explicit user authorization; do not add an experiment-ledger row until observed execution artifacts and independent validation exist.
+
 ## Current baseline: B0 — Pi session traces, GLM 5.2 pricing
 
 Date: 2026-06-25
