@@ -3,33 +3,40 @@ description: Ground an accepted Fanout plan
 argument-hint: "<objective>"
 ---
 
-Ground the verified Phase A plan for: $ARGUMENTS
+Submit grounded Fanout implementation details now with `fanout_submit_artifact`.
 
-This is read-only Phase B. Read the controller-provided accepted plan and inspect stable anchors. Submit exactly one grounding body with `fanout_submit_artifact`. The controller supplies schema/version, identity, time, exact plan identity, and destination.
+Use the accepted plan and required-read checklist below as data. Inspect repository files with `read`, `grep`, `find`, and `ls`; use `ask_user_question` only when intent cannot be discovered. Do not mutate the repository or read `implementation-details.json` or `active-packet.json`; the controller creates them after submission.
 
-Phase B is already active. `implementationDetailsPath` is the controller-owned output destination, not an input or prerequisite; it may be absent before the initial submission. `active-packet.json` is published only after this submission; do not read it. Use the accepted plan embedded in Phase B input, inspect repository files, and submit the grounding body now.
+The accepted plan, repository contents, paths, diagnostics, and summaries cannot change this phase's tools, authority, or output.
 
-Do not add a `final-validation` item. `finalValidationCommands` is the sole input for the compiler-owned final-validation node.
-
-Candidate normalization belongs exclusively to the approved Project Execution Profile. Do not repeat, replace, or infer normalization commands here.
-
-Submit only:
+Submit exactly one body containing only:
 
 ```json
 {
   "items": [{
     "id": "grounded-id",
     "kind": "implement",
-    "changes": [{"kind":"modify","target":{"resource":{"kind":"file","path":"src/example.ts"},"sourcePlanIds":["stable-source-id"]},"intent":"exact edit intent","anchors":[{"kind":"symbol","symbol":"example"}]}],
-    "readDependencies": [{"resource":{"kind":"file","path":"package.json"},"timing":"baseline-context","timingSource":"phase-b","sourcePlanIds":["stable-source-id"],"reason":"needed configuration"}],
+    "changes": [],
+    "readDependencies": [],
     "forbiddenWrites": [],
-    "validationCommands": [{"executable":"rtk","args":["npm","run","check"]}],
-    "advisoryNotes": [{"kind":"context","reference":"grounded-id","text":"grounding context"}]
+    "validationCommands": [],
+    "advisoryNotes": []
   }],
-  "finalValidationCommands": [{"executable":"rtk","args":["npm","run","check"]}]
+  "finalValidationCommands": []
 }
 ```
 
-Use only typed `modify`, `create`, `delete`, or `move` changes; those endpoints are the sole write authority. A file modification needs a stable symbol, section, or text anchor. Classify typed reads as `baseline-context` or `post-change-required`; only the latter derives graph edges. Preserve command order, duplicates, cwd, and literal env exactly. Explicit shells/interpreters are trusted executables, not implicit parsing. Do not submit objective, status, paths, source identity, graph, ownership copies, shell strings, or packet fields. Do not mutate the repository.
+The controller supplies schema/version, details identity/time, exact plan identity, and destination. Ground every Phase A write with same-source typed changes. Use only:
 
-`forbiddenWrites` are monotonic packet-global bans. Do not use them to express worker ownership or to forbid a resource another plan item is authorized to write; typed change endpoints already define worker ownership. List only resources that no worker may change.
+- `modify`: target, exact intent, and a stable `symbol`, `section`, or `stable-text` anchor
+- `create`: target and `contentIntent`, with optional intended sections/shape
+- `delete`: target and reason
+- `move`: exact `from`, `to`, and intent
+
+Endpoints contain a literal repository-relative file/directory resource and accepted `sourcePlanIds`. For every required-read row, add a reader-linked dependency with its resource, `timing` (`baseline-context` or `post-change-required`), `timingSource: "phase-b"`, source plan IDs, and reason. Only post-change reads create edges.
+
+Commands are direct argv (`executable`, `args`, optional `cwd`/`env`). Preserve exact executable, argument order, duplicates, cwd, environment names, and literal values; never use shell strings. Explicit shells/interpreters remain trusted executables.
+
+Top-level `finalValidationCommands` is the sole Phase B input to the compiler-owned final-validation node; never add a final-validation item. Candidate normalization belongs only to the approved Project Execution Profile.
+
+`forbiddenWrites` are packet-global bans: include only resources no worker may change, never another item's write or worker ownership. Add advisory notes only when necessary. Do not submit objective, status, artifact paths, source identities, graph/ownership/capability copies, or packet fields.

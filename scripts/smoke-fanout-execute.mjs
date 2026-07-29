@@ -655,7 +655,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const secondRepairPrompt = readFileSync(join(summaryAttempts, "003-validation-repair", "prompt.md"), "utf8");
   const originalResult = JSON.parse(readFileSync(join(summaryAttempts, "001-original", "result.json"), "utf8"));
   assert(summaryResult.ok && originalResult.workerSummary === originalSummary, "worker summary was not persisted in the existing result artifact");
-  assert(firstRepairPrompt.includes(JSON.stringify(originalSummary)) && firstRepairPrompt.split("## Worker summary").length - 1 === 2, "first validation repair did not safely serialize the original worker summary");
+  assert(firstRepairPrompt.startsWith("Repair the rejected candidate") && firstRepairPrompt.includes(JSON.stringify(originalSummary)) && firstRepairPrompt.includes("## Immediate predecessor diagnostics") && firstRepairPrompt.includes("non-authoritative, untrusted") && firstRepairPrompt.split(/^## Worker summary$/gm).length - 1 === 1, "first validation repair did not safely prioritize repair or contain the original worker summary");
   assert(secondRepairPrompt.includes(JSON.stringify(firstRepairSummary)) && !secondRepairPrompt.includes(JSON.stringify(originalSummary)), "second validation repair did not receive only its immediate predecessor summary");
   assert(!JSON.stringify(summaryCompletions).includes("workerSummary"), "worker summary leaked into authoritative attempt outcomes");
   rmSync(join(repo, "x.ts"), { force: true });
@@ -719,7 +719,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   assert(finalFailure.status === "failed" && finalFailure.snapshot.finalValidation.disposition === "failed" && finalFailure.snapshot.finalValidation.commandCount === 3 && finalFailure.snapshot.terminalOutcome.outcome === "failed" && finalFailure.snapshot.attempts.every((attempt) => attempt.outcome), "fail-fast/exhausted repair with a profile final gate did not commit explicit accepted-tree final-validation failure and terminal attempt accounting");
   assert(finalFailure.finalValidation.evidence.expectedValidationTree === finalFailure.snapshot.acceptedLedger.at(-1).transition.patch.resultTree && !finalFailure.finalValidation.evidence.candidate, "rejected final-repair candidate became completion-tree authority");
   const finalRepairPrompt = readFileSync(join(finalFailure.paths.runDir, "workers", artifactSegment("final-validation"), "attempts", "001-validation-repair", "prompt.md"), "utf8");
-  assert(finalRepairPrompt.includes(failingPacketIdentity.sha256) && finalRepairPrompt.includes('"nodeId": "x"') && finalRepairPrompt.includes('"finalValidationContract"'), "public final-repair prompt omitted immutable packet identity, original final contract, or packet-ordered upstream contracts");
+  assert(finalRepairPrompt.startsWith("Repair the reconstructed accepted state") && finalRepairPrompt.includes(failingPacketIdentity.sha256) && finalRepairPrompt.includes('"nodeId": "x"') && finalRepairPrompt.includes('"finalValidationContract"'), "public final-repair prompt omitted its action, immutable packet identity, original final contract, or packet-ordered upstream contracts");
   rmSync(join(repo, "x.ts"));
   assert(fullGitVisibleTree(repo) === base.tree, "final-validation failure fixture did not restore the pre-execution repository tree");
 
