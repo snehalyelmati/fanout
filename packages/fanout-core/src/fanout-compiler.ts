@@ -1,6 +1,8 @@
+import { isDeepStrictEqual } from "node:util";
 import { parseArtifactIdentity, parseGitCommitId, parseGitTreeId, type ArtifactIdentity } from "./artifact-identity.ts";
 import { parseResource, resourcesOverlap, type Resource } from "./repository-resource.ts";
 import { parseValidationCommands } from "./validation-command.ts";
+import type { ProjectExecutionProfile } from "./project-execution-profile.ts";
 import { compileWorkContracts, type GroundedWorkInput, type PlannedWorkSource } from "./work-contract-compiler.ts";
 import { derivePreferredTier, deriveTierAssignment, validateExecutionPacket, EXECUTION_PACKET_SCHEMA, EXECUTION_PACKET_VERSION, type FanoutExecutionPacket, type FanoutRuntimePolicy, type FanoutTierPlan, type FanoutPacketNode, type WorkUnitKind } from "./execution-packet.ts";
 import { FIXED_WORKER_CAPABILITIES, WORK_CONTRACT_SCHEMA, WORK_CONTRACT_VERSION, validateWorkContract, type AdvisoryNote, type ChangeIntent, type ForbiddenWrite, type WorkContractIssue, type WorkReadDependency } from "./work-contract.ts";
@@ -67,7 +69,7 @@ export function validateImplementationPlan(value: unknown): { ok: boolean; error
 	return { ok: errors.length === 0, errors, itemCount: plan?.implementationItems.length ?? 0, ...(errors.length || !plan ? {} : { plan }) };
 }
 
-export function validateImplementationDetailsArtifact(value: unknown, expected: { planIdentity?: ArtifactIdentity; planIds?: Iterable<string>; plan?: ImplementationPlan } = {}): { ok: boolean; errors: string[]; itemCount: number; details?: ImplementationDetails } {
+export function validateImplementationDetailsArtifact(value: unknown, expected: { planIdentity?: ArtifactIdentity; planIds?: Iterable<string>; plan?: ImplementationPlan; profile?: ProjectExecutionProfile } = {}): { ok: boolean; errors: string[]; itemCount: number; details?: ImplementationDetails } {
 	const errors: string[] = [];
 	const planIds = expected.plan?.implementationItems.map((item) => item.id) ?? expected.planIds;
 	const details = parseDetails(value, { planIdentity: expected.planIdentity, planIds }, errors);
@@ -76,7 +78,22 @@ export function validateImplementationDetailsArtifact(value: unknown, expected: 
 			errors.push(`items[${itemIndex}].forbiddenWrites[${forbiddenIndex}] overlaps planned write authority; forbiddenWrites are packet-global and worker ownership is already defined by changes`);
 		}
 	}
+	if (details && expected.profile) errors.push(...profileGateDuplicateErrors(details, expected.profile));
 	return { ok: errors.length === 0, errors, itemCount: details?.items.length ?? 0, ...(errors.length || !details ? {} : { details }) };
+}
+
+function profileGateDuplicateErrors(details: ImplementationDetails, profile: ProjectExecutionProfile): string[] {
+	const gates = profile.requiredFinalGates.map((entry) => entry.command);
+	const duplicate = (command: ImplementationDetails["finalValidationCommands"][number]) => gates.findIndex((gate) => isDeepStrictEqual(command, gate));
+	const errors = details.items.flatMap((item, itemIndex) => item.validationCommands.flatMap((command, commandIndex) => {
+		const gateIndex = duplicate(command);
+		return gateIndex < 0 ? [] : [`items[${itemIndex}].validationCommands[${commandIndex}] duplicates Project Execution Profile requiredFinalGates[${gateIndex}].command`];
+	}));
+	for (const [commandIndex, command] of details.finalValidationCommands.entries()) {
+		const gateIndex = duplicate(command);
+		if (gateIndex >= 0) errors.push(`finalValidationCommands[${commandIndex}] duplicates Project Execution Profile requiredFinalGates[${gateIndex}].command`);
+	}
+	return errors.length ? [...errors, "remove each duplicate when another focused check remains, otherwise replace it with a focused task-specific check, then resubmit this Phase B artifact draft"] : [];
 }
 
 export function buildRequiredReadClassifications(value: unknown): RequiredReadClassification[] {

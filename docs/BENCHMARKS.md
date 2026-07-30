@@ -85,11 +85,11 @@ The user operates Pi and authorizes every live or cost-incurring step. Preserve 
 
 Deferred until this manual path is reliable: automated execution harnesses, policy/model variations, and provider-tier cost or latency comparisons. Add a running-experiment ledger row only after observed artifacts and metrics exist.
 
-## P2b — Prepared Execa Web Streams transfer benchmark
+## P2b — Execa Web Streams transfer canary
 
-Date prepared: 2026-07-29
+Date: 2026-07-29
 
-Status: fixture and runbook prepared; no Fanout plan, dry run, live execution, cost, latency, or reliability result exists yet.
+Status: the first controlled canary completed; no repetitions have been run.
 
 Purpose: exercise the same manual product-debugging path on a larger repository and cross-module feature after the p-map control. The task adds asynchronous subprocess Web Stream conversion methods across runtime behavior, pipeline forwarding, early-error handling, public types, type tests, behavioral tests, and documentation. It is transfer/complexity evidence, not a byte-identical p-map repetition or a directly comparable speed cohort.
 
@@ -103,9 +103,17 @@ Fixed fixture:
 - baseline difference: committed `package-lock.json` only;
 - baseline validation: 5,096 unit tests plus lint, `tsd`, and `tsc` passed on Node `v26.5.0` and npm `11.17.0`.
 
-The fixture is a shallow single-history checkout with no remote, keeping the historical implementation unavailable to workers through local Git history. Runbook: [`docs/benchmarks/execa-web-streams-manual-e2e.md`](benchmarks/execa-web-streams-manual-e2e.md).
+The fixture is a shallow single-history checkout with no remote, keeping the historical implementation unavailable to workers through local Git history. Runbook and exact evidence: [`docs/benchmarks/execa-web-streams-manual-e2e.md`](benchmarks/execa-web-streams-manual-e2e.md).
 
-Keep p-map as the existing control and release gate. Run one Execa canary only after explicit user authorization; do not add an experiment-ledger row until observed execution artifacts and independent validation exist.
+Dry run `2026-07-29T18-34-56-001Z-b5556ab8` passed without workers or mutations. Live canary `2026-07-29T18-35-56-724Z-06e1182a` completed from the exact baseline with four ordinary nodes, concurrency two, and final accepted tree `c3ad52480adfb65a9bda2b63f609b7133aaef7b7`. The final checkout changed exactly the 14 allowed paths, independent `npm test` and `git diff --check` passed, and no current-run process, extra worktree, or execution lock remained.
+
+Three ordinary nodes passed first try. The joint runtime/test node required both validation repairs after a 240-second focused AVA timeout and a second program failure. One project final-validation repair fixed three integrated XO findings, then both ordered full `npm test` gates passed. Immediate worker-summary continuity held across the runtime repair chain and remained outside authoritative event and recovery state. There was no integration repair, reconciliation, exact-no-progress stop, budget exhaustion, fusion, or attempt fallback.
+
+The run took 1,240.055s, used 1,403,298 tokens, and cost an estimated `$1.8652415`. Profiler compatibility passed with the exact profile identity and derived a 1,193.167s observed completion boundary, 231.712s ordinary-node overlap, 596.734s final-validation span, 65.718s aggregate TTFT, and 316.537s aggregate generation. Ordinary workers used Terra medium as the configured realtime fallback for unavailable async Tier 2; repairs used Sol medium, with no Tier 2 provider calls.
+
+Post-canary protocol analysis found avoidable validation breadth: Phase B repeated the profile's exact `npm test` gate as packet-final validation, so effective final validation ran the full suite twice; the type node also selected repository-wide `npm run type` rather than a focused type-test invocation. The 2026-07-30 planning fix supplies the exact approved profile to Phase B, requires the narrowest meaningful node checks, reserves packet-final commands for additional task-specific integration, and rejects exact profile-gate duplicates as correctable drafts without ending planning. This is workflow-validation hardening, not a revised Execa performance result; measure its effect only in a newly authorized clean canary.
+
+Keep p-map as the existing control and release gate. This single Execa canary is transfer/complexity evidence only; do not report a median, range, reliability rate, direct p-map speed comparison, or universal SLO. Repetitions require separate authorization and a clean baseline with byte-identical frozen inputs.
 
 ## Current baseline: B0 — Pi session traces, GLM 5.2 pricing
 

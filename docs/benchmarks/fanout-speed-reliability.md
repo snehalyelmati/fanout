@@ -252,7 +252,7 @@ against the exact policy it used.
 
 ### Planning behavior
 
-The planning LLM receives the current approved profile as explicit context:
+The planning LLM receives the exact current approved profile and identity as explicit context:
 
 ```text
 Already guaranteed by the Project Execution Profile:
@@ -261,8 +261,10 @@ Already guaranteed by the Project Execution Profile:
 - required final quality gates: …
 
 Do not repeat these commands.
-Add only task-specific requirements.
+Add only focused node checks and task-specific integrated packet-final checks.
 ```
+
+An ordinary node uses the narrowest meaningful checks covering its owned changes; shared infrastructure, configuration, build, test-harness, and similarly wide-impact work may require broader checks. Project-wide suites remain profile final gates and run once during effective final validation. If a submitted node or packet-final command is exactly identical to a profile final gate, core artifact admission rejects only that Phase B draft, identifies both locations, and tells the planner to remove it or replace it with a focused check. The Pi controller publishes no artifact and the model may resubmit in the same planning session. Fanout does not silently deduplicate because doing so could remove a node's only meaningful validation and would mutate submitted authority.
 
 Planning records which profile version it saw, but the profile remains
 separate from packet authority.
@@ -1294,3 +1296,7 @@ controlled runs, any next sequence restarts from a fresh canary. Exact run,
 profile, packet, pane, phase, critical-path, overlap, cost, token, repair, tree,
 cleanup, and failure evidence is recorded in
 [`p-map-abort-signal-canary-tracker.md`](p-map-abort-signal-canary-tracker.md).
+
+## Implementation update — 2026-07-30
+
+Post-canary analysis of the Execa transfer run found that Phase B had received only the profile identity, not the exact approved profile commands. It consequently repeated `npm test` in the packet-final contract and the profile required final gate. The planning boundary now supplies the exact profile to Phase B, directs ordinary nodes toward the narrowest checks for owned changes, reserves packet-final commands for additional task-specific integration, and delegates exact profile-gate duplicate rejection to core artifact admission as a correctable draft. Focused regression evidence proves that rejection publishes no details artifact, preserves the planning session, returns both duplicate locations with correction guidance, and accepts a corrected resubmission.

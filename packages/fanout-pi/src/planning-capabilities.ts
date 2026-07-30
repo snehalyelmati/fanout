@@ -42,12 +42,16 @@ export function submitPlanningArtifact(state: FanoutPhaseState, artifact: unknow
 	assertControllerDestination(root, destination, cwd);
 	const planIdentity = state.phase === "details" ? acceptedPlanIdentity(state) : undefined;
 	const submitted = controllerEnvelope(state, artifact, planIdentity);
-	const validation = state.phase === "profile"
-		? profileValidation(submitted)
-		: state.phase === "implementation"
-		? validateImplementationPlan(submitted)
-		: validateImplementationDetailsArtifact(submitted, { planIdentity, plan: acceptedPlan(state) });
-	if (!validation.ok) throw new Error(validation.errors.join("; "));
+	if (state.phase === "profile") {
+		const validation = profileValidation(submitted);
+		if (!validation.ok) throw new Error(validation.errors.join("; "));
+	} else if (state.phase === "implementation") {
+		const validation = validateImplementationPlan(submitted);
+		if (!validation.ok) throw new Error(validation.errors.join("; "));
+	} else {
+		const validation = validateImplementationDetailsArtifact(submitted, { planIdentity, plan: acceptedPlan(state), profile: approvedProfile(state) });
+		if (!validation.ok || !validation.details) throw new Error(validation.errors.join("; "));
+	}
 
 	const relativePath = relative(resolve(root), resolve(destination)).split(sep).join("/");
 	const bytes = Buffer.from(`${JSON.stringify(submitted, null, 2)}\n`);
@@ -84,7 +88,7 @@ function controllerEnvelope(state: FanoutPhaseState, body: unknown, planIdentity
 			createdAt: new Date().toISOString(),
 			planningHost: { platform: process.platform },
 			planningBase: { headCommit: planningBase.headCommit, tree: planningBase.tree },
-			profile: state.profileIdentity,
+			profile: state.approvedProfile?.identity,
 			objective: body.objective,
 			userContext: body.userContext,
 			discoveredRepoFacts: body.discoveredRepoFacts,
@@ -107,6 +111,11 @@ function controllerEnvelope(state: FanoutPhaseState, body: unknown, planIdentity
 function profileValidation(value: unknown): { ok: boolean; errors: string[] } {
 	try { parseProjectExecutionProfile(value); return { ok: true, errors: [] }; }
 	catch (error) { return { ok: false, errors: [error instanceof Error ? error.message : String(error)] }; }
+}
+
+function approvedProfile(state: FanoutPhaseState) {
+	if (!state.approvedProfile) throw new Error("approved Project Execution Profile is missing; restart /fanout-plan");
+	return state.approvedProfile.profile;
 }
 
 function acceptedPlanIdentity(state: FanoutPhaseState) {

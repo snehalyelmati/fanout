@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { IMPLEMENTATION_PLAN_SCHEMA, IMPLEMENTATION_PLAN_VERSION, type ImplementationPlan, type RequiredReadClassification } from "../../fanout-core/src/fanout-compiler.ts";
 import type { ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
+import type { ProjectExecutionProfile } from "../../fanout-core/src/project-execution-profile.ts";
 import type { WorkContractIssue } from "../../fanout-core/src/work-contract.ts";
 import type { PlanningMetrics } from "./planning-observability.ts";
 
@@ -21,7 +22,7 @@ export interface FanoutPhaseState extends FanoutPlanRun {
 	systemPrompt?: string;
 	acceptedSubmission?: { runId: string; phase: FanoutPhaseState["phase"]; path: string; identity: ArtifactIdentity };
 	planIdentity?: ArtifactIdentity;
-	profileIdentity?: ArtifactIdentity;
+	approvedProfile?: { identity: ArtifactIdentity; profile: ProjectExecutionProfile };
 	acceptedPlan?: ImplementationPlan;
 	invocation: string;
 	objective: string;
@@ -95,6 +96,7 @@ function phaseBInput(run: FanoutPlanRun, requiredReadClassifications: RequiredRe
 	return {
 		planIdentity: accepted.planIdentity,
 		acceptedPlan: accepted.acceptedPlan,
+		projectExecutionProfile: accepted.approvedProfile,
 		requiredReadClassifications,
 	};
 }
