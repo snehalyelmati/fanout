@@ -16,7 +16,7 @@ import { parseAttemptRecoveryContext, type AttemptRecoveryContext } from "./reco
 import { repairStateDigest, type RepairStateDigest } from "./repair-state.ts";
 
 export const ATTEMPT_OUTCOME_SCHEMA = "fanout.attempt-outcome";
-export const ATTEMPT_OUTCOME_VERSION = 4;
+export const ATTEMPT_OUTCOME_VERSION = 5;
 
 export type AttemptKind = "original" | "retry" | "fallback" | "validation-repair" | "integration-repair";
 export type ControllerAction = "accept" | "retry" | "fallback" | "validation-repair" | "integration-repair" | "fail" | "abort";
@@ -201,6 +201,7 @@ export function routeAttempt(fact: StageFact, context: RoutingContext): Controll
 	if ((fact.stage === "process" && fact.code === "user-abort") || (fact.stage === "provider" && fact.code === "abort") || (fact.stage === "candidate-normalization" && fact.code === "user-abort") || (fact.stage === "validation" && fact.code === "abort")) return "abort";
 	if (fact.stage === "validation" && (fact.code === "program-failure" || fact.code === "timeout" || fact.code === "signal")) return context.remaining.validationRepair > 0 ? "validation-repair" : "fail";
 	if (fact.stage === "apply" && (fact.code === "check-conflict" || fact.code === "apply-failure")) return context.remaining.integrationRepair > 0 ? "integration-repair" : "fail";
+	if (fact.stage === "worker-gate" && fact.code === "unauthorized-change" && context.kind === "original") return context.remaining.retry > 0 ? "retry" : "fail";
 	if (isTransient(fact)) return transientAction(context);
 	return "fail";
 }

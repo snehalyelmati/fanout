@@ -185,11 +185,7 @@ export class FanoutNodeExecutor {
 
 	async runNode(unit: FanoutWorkUnit, signal?: AbortSignal): Promise<DagNodeResult> {
 		signal?.throwIfAborted();
-		const original = await this.#runOriginalWithRetry(unit, signal);
-		if (!original.ok) return await this.#result(original);
-
-		if (signal?.aborted) return await this.#result(await this.#completeAbortedAttempt(original, signal.reason));
-		let gated = await this.#gateOwnershipAndValidation(unit, original, signal);
+		let gated = await this.#runOriginalWithRetry(unit, signal);
 		if (!gated.ok && gated.failureKind === "validation" && this.#terminalOutcome(gated).action === "validation-repair") gated = await this.#repairValidation(unit, gated, signal);
 		if (!gated.ok) return await this.#result(gated);
 
@@ -207,12 +203,13 @@ export class FanoutNodeExecutor {
 		return attempt.ok ? { ok: true, attemptId: attempt.attemptId } : { ...failed(attempt), attemptId: attempt.attemptId };
 	}
 
-	async #runOriginalWithRetry(unit: FanoutWorkUnit, signal?: AbortSignal): Promise<WorkerAttempt> {
+	async #runOriginalWithRetry(unit: FanoutWorkUnit, signal?: AbortSignal): Promise<GatedAttempt | WorkerAttempt> {
 		const assigned = tierForUnit(unit);
-		let outcome: WorkerAttempt | undefined;
+		let outcome: GatedAttempt | WorkerAttempt | undefined;
 		for (let attempt = 1; attempt <= 2; attempt++) {
 			signal?.throwIfAborted();
 			outcome = await this.#runWorkerAttempt(unit, assigned, attempt === 1 ? "original" : "retry", { sourceAttemptId: outcome?.attemptId, signal });
+			if (outcome.ok) outcome = await this.#gateOwnershipAndValidation(unit, outcome, signal);
 			if (outcome.ok) return outcome;
 			const action = this.#terminalOutcome(outcome).action;
 			if (action !== "retry") {
@@ -228,7 +225,7 @@ export class FanoutNodeExecutor {
 		const fallback = tierTwoFallback(this.#packet);
 		signal?.throwIfAborted();
 		const result = await this.#runWorkerAttempt(unit, fallback, "fallback", { sourceAttemptId: outcome.attemptId, signal });
-		return result;
+		return result.ok ? await this.#gateOwnershipAndValidation(unit, result, signal) : result;
 	}
 
 	async #runWorkerAttempt(

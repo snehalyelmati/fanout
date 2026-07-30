@@ -2,6 +2,12 @@
 
 ## 2026-07-30
 
+### Cut ownership-retry routing to a new execution generation
+
+Decision: The original-candidate `unauthorized-change` retry changes controller-action semantics, so the only current runtime evidence generation is Attempt Outcome v5, Event v5, and Projection v6. Event v4 and Projection v5 become descriptive Legacy evidence and are not replayed through current routing. Packet v7 and the remaining profile, planning, work-contract, final-evidence, pointer, and presentation generations stay unchanged. There is no compatibility adapter or migration.
+
+Reason: Recomputing the new retry action while replaying an existing Event v4 outcome recorded as `fail` makes same-version evidence contradictory. A coordinated fail-closed cutover preserves one routing meaning per generation instead of trusting stored actions selectively or adding historical routing branches.
+
 ### Keep project-wide validation out of packet task checks
 
 Decision: Phase B receives the exact approved Project Execution Profile and treats its preparation, readiness, candidate normalization, and required final gates as already guaranteed. Ordinary-node validation uses the narrowest meaningful checks covering that node's owned changes, retaining broader scope for shared infrastructure, configuration, build, test-harness, and similarly wide-impact work, while packet-final validation contains only additional task-specific integrated checks. Core artifact admission rejects an exact node or packet-final duplicate of a profile final gate only for the submitted Phase B draft, with both command locations and a correction instruction; the Pi planning session remains open for resubmission. Fanout never silently deduplicates submitted command authority.
@@ -114,7 +120,7 @@ This file records design decisions made during development. Keep new entries dat
 
 ### Cut planning and execution to Project Execution Profiles
 
-Decision: The only executable generation is Project Execution Profile v1, implementation plan v3, implementation details v5, work contract v3, execution packet v7, active packet pointer v2, Attempt Outcome v4, final-validation evidence v2, execution event v4, and projection v5. Profiles own approved preparation, readiness, candidate normalization, and project-wide final gates; packets retain task scope, graph, task validation, routing, and model-work authority and bind the exact profile artifact identity. Packet final commands run before profile final gates, and final-repair recovery derives from that exact combined ordered command manifest. `/fanout-plan --refresh-profile` validates a replacement in a disposable clean worktree before atomically publishing it; failure preserves the previous profile. Older executable artifacts require replanning, while older events and projections remain descriptive Legacy evidence.
+Decision: The only executable generation is Project Execution Profile v1, implementation plan v3, implementation details v5, work contract v3, execution packet v7, active packet pointer v2, Attempt Outcome v5, final-validation evidence v2, execution event v5, and projection v6. Profiles own approved preparation, readiness, candidate normalization, and project-wide final gates; packets retain task scope, graph, task validation, routing, and model-work authority and bind the exact profile artifact identity. Packet final commands run before profile final gates, and final-repair recovery derives from that exact combined ordered command manifest. `/fanout-plan --refresh-profile` validates a replacement in a disposable clean worktree before atomically publishing it; failure preserves the previous profile. Older executable artifacts require replanning, while older events and projections remain descriptive Legacy evidence.
 
 Profile mutation disclosure is phase-specific: `candidate-owned` is valid only for candidate normalization and does not expand the packet/work-contract write boundary. Preparation and readiness remain limited to `none` or `ignored-only`, and clean-baseline validation still rejects tracked mutation.
 
@@ -614,9 +620,9 @@ Reason: The Phase 3 contract needs a fresh git worktree per attempt, attempt-sco
 
 ### Allow only typed bounded execution recovery
 
-Decision: `/fanout-execute` may run bounded tier1 recovery for two typed cases: validation-failure repair and integration-conflict repair. Retry/fallback handles retryable tier2 worker/provider failures. Generic repair agents, scope expansion, ownership expansion, partial patch application, and arbitrary retries remain out of scope.
+Decision: `/fanout-execute` may run bounded tier1 recovery for two typed cases: validation-failure repair and integration-conflict repair. Retry/fallback handles retryable tier2 worker/provider failures. An original candidate rejected as `unauthorized-change` may also consume the node's existing clean retry: the controller discards the whole candidate and launches the same assignment and unchanged work contract in a fresh reconstruction of the latest accepted ledger. A repeated unauthorized change, an exhausted retry pool, and every `forbidden-change` fail without another launch. Generic repair agents, scope expansion, ownership expansion, partial patch application, rejected-candidate seeding, and arbitrary retries remain out of scope.
 
-Reason: Valid worker output can still fail local validation or conflict with already-applied parallel patches. Typed bounded recovery preserves safety while avoiding an open-ended repair loop.
+Reason: Valid worker output can still fail local validation or conflict with already-applied parallel patches, while a worker can complete useful work but exceed explicit ownership. One clean rerun can recover scope obedience without trusting or trimming unauthorized bytes. Typed bounded recovery preserves safety while avoiding an open-ended repair loop.
 
 ### Anchor execution artifacts to the loaded packet path
 

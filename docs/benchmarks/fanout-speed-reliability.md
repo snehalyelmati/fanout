@@ -1265,9 +1265,14 @@ derived from the current authoritative artifacts.
 
 ## Implementation record — 2026-07-27
 
-The approved prerequisite and Points 1–4 are implemented as one coordinated
+The approved prerequisite and Points 1–4 were implemented as one coordinated
 generation: profile v1, plan v3, details v5, work contract v3, packet v7,
 Attempt Outcome v4, final evidence v2, Event v4, and Projection v5.
+
+Supersession note (2026-07-30): ownership-retry routing cuts current runtime
+evidence to Attempt Outcome v5, Event v5, and Projection v6 without changing
+the profile, planning, packet, work-contract, or final-evidence generations.
+The generation recorded below remains historical Legacy evidence.
 
 Focused regression coverage now proves:
 

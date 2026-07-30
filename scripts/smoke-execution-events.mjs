@@ -52,10 +52,10 @@ const preflightEvidence = {
 };
 
 try {
-  assert(EXECUTION_EVENT_NAMES.join(",") === "run-started,preflight-completed,confirmation-decided,attempt-allocated,attempt-completed,node-completed,final-validation-started,final-validation-completed,run-finished", "execution-event v4 does not expose exactly the nine approved transitions");
+  assert(EXECUTION_EVENT_NAMES.join(",") === "run-started,preflight-completed,confirmation-decided,attempt-allocated,attempt-completed,node-completed,final-validation-started,final-validation-completed,run-finished", "execution-event v5 does not expose exactly the nine approved transitions");
   const legacyTimestamp = allocationFor("legacy-time");
   const legacyMetrics = correlateAttemptMetrics(metricEvidence(legacyTimestamp.allocation.attemptId));
-  expectThrow(() => completeAttempt(legacyTimestamp.allocation, { state: legacyTimestamp.state, startedAt: "2026-07-13T00:00:00Z", finishedAt: "2026-07-13T00:00:01Z", terminalFact: { stage: "apply", code: "applied" }, fallbackAllowed: false, metrics: legacyMetrics.metrics }), "Attempt v4 producer admitted noncanonical envelope timestamps");
+  expectThrow(() => completeAttempt(legacyTimestamp.allocation, { state: legacyTimestamp.state, startedAt: "2026-07-13T00:00:00Z", finishedAt: "2026-07-13T00:00:01Z", terminalFact: { stage: "apply", code: "applied" }, fallbackAllowed: false, metrics: legacyMetrics.metrics }), "Attempt v5 producer admitted noncanonical envelope timestamps");
   const dryEvents = [
     event(1, "run-started", { mode: "dry-run", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 2, failFast: false, fallbackAllowed: false } }),
     event(2, "preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }),
@@ -64,10 +64,10 @@ try {
   const dryJsonl = `${dryEvents.map(JSON.stringify).join("\n")}\n`;
   assert(isDeepStrictEqual(parseExecutionEventLog(dryJsonl), dryEvents), "core Event Log admission did not return the runtime replay sequence");
   const dryEnvelope = inspectExecutionEventLogEnvelope(dryJsonl);
-  assert(dryEnvelope.runId === "run" && dryEnvelope.version === 4 && dryEnvelope.eventCount === 3 && dryEnvelope.updatedAt === dryEvents.at(-1).occurredAt, "core Event Log envelope inspection lost current evidence metadata");
-  const legacyJsonl = `${dryEvents.map((item) => JSON.stringify({ ...item, version: 3 })).join("\n")}\n`;
-  assert(inspectExecutionEventLogEnvelope(legacyJsonl).version === 3, "core Event Log envelope inspection rejected one recognized older generation");
-  expectThrow(() => inspectExecutionEventLogEnvelope(`${JSON.stringify({ ...dryEvents[0], version: 3 })}\n${JSON.stringify(dryEvents[1])}\n`), "core Event Log envelope inspection admitted mixed generations");
+  assert(dryEnvelope.runId === "run" && dryEnvelope.version === 5 && dryEnvelope.eventCount === 3 && dryEnvelope.updatedAt === dryEvents.at(-1).occurredAt, "core Event Log envelope inspection lost current evidence metadata");
+  const legacyJsonl = `${dryEvents.map((item) => JSON.stringify({ ...item, version: 4 })).join("\n")}\n`;
+  assert(inspectExecutionEventLogEnvelope(legacyJsonl).version === 4, "core Event Log envelope inspection rejected the previous generation");
+  expectThrow(() => inspectExecutionEventLogEnvelope(`${JSON.stringify({ ...dryEvents[0], version: 4 })}\n${JSON.stringify(dryEvents[1])}\n`), "core Event Log envelope inspection admitted mixed generations");
   expectAdmissionError("", "empty-log", undefined);
   expectAdmissionError(dryJsonl.trimEnd(), "incomplete-frame", undefined);
   expectAdmissionError(`${JSON.stringify(dryEvents[0])}\n \t\n${JSON.stringify(dryEvents[1])}\n`, "blank-row", 2);
@@ -77,7 +77,7 @@ try {
   expectAdmissionError("[]\n", "invalid-event", 1);
   expectAdmissionError(`${JSON.stringify(dryEvents[0])}\n${JSON.stringify({ ...dryEvents[1], sequence: 3 })}\n`, "invalid-log", 2);
   const dry = replayExecutionEvents(dryEvents);
-  assert(dry.version === 5, "execution projection did not advance to v5");
+  assert(dry.version === 6, "execution projection did not advance to v6");
   assert(JSON.stringify(dry.profile) === JSON.stringify(profile) && JSON.stringify(dry.profileValidation) === JSON.stringify(profileValidation), "projection discarded exact profile authority");
   assert(dry.preflightEvidence.validationCommands[0].manifest.args[0] === "validate", "projection discarded strict preflight evidence");
   assert(dry.mode === "dry-run" && dry.terminalOutcome?.outcome === "dry-run-completed", "A14 lost the explicit dry-run outcome");
@@ -115,8 +115,8 @@ try {
   ]), "controller cause contradicted the current phase");
 
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], surprise: true }), "unknown event field was admitted");
-  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], version: 3 }), "legacy execution event v3 was admitted");
-  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], version: 5 }), "future execution event v5 was admitted");
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], version: 4 }), "legacy execution event v4 was admitted");
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], version: 6 }), "future execution event v6 was admitted");
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, mode: "preview" } }), "unknown run mode was admitted");
   const { fallbackAllowed: _fallbackAllowed, ...incompletePolicy } = dryEvents[0].payload.policy;
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, policy: incompletePolicy } }), "run-started admitted an incomplete immutable runtime policy");
@@ -166,7 +166,7 @@ try {
   expectThrow(() => reduceExecutionEvent(dry, dryEvents[2]), "event after terminal outcome was admitted");
 
   const { allocation, outcome } = acceptedOutcome();
-  expectThrow(() => parseExecutionEvent(event(5, "attempt-completed", { outcome: { ...outcome, version: 3 }, acceptedTransition: patch })), "event v4 admitted an Attempt Outcome v3 payload");
+  expectThrow(() => parseExecutionEvent(event(5, "attempt-completed", { outcome: { ...outcome, version: 4 }, acceptedTransition: patch })), "event v5 admitted an Attempt Outcome v4 payload");
   const liveEvents = [
     event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: true, fallbackAllowed: false } }),
     event(2, "preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }),
@@ -200,6 +200,16 @@ try {
   expectThrow(() => replayExecutionEvents(liveEvents.map((item) => item.event === "final-validation-completed" ? { ...item, payload: { ...item.payload, commandCount: 2 } } : item)), "final-validation aggregate contradicted its launched commands");
   expectThrow(() => replayExecutionEvents(liveEvents.map((item) => item.event === "run-finished" ? { ...item, payload: { ...item.payload, cause: { ...item.payload.cause, attemptId: "node-a:000001" } } } : item)), "completed cause admitted an inapplicable attempt reference");
 
+  const unauthorized = unauthorizedOutcome();
+  const unauthorizedProjection = replayExecutionEvents([
+    event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: true } }),
+    event(2, "preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }),
+    event(3, "confirmation-decided", { decision: "accepted" }),
+    event(4, "attempt-allocated", { allocation: unauthorized.allocation }),
+    event(5, "attempt-completed", { outcome: unauthorized.outcome }),
+  ]);
+  assert(unauthorizedProjection.attempts[0].outcome.action === "retry" && unauthorizedProjection.budgets["node-a"].retry === 0, "Event-v5 replay rejected or consumed the clean ownership retry before allocation");
+
   const repairFailure = repairFailureOutcomes();
   const repairFailureEvents = [
     event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: true } }),
@@ -210,10 +220,10 @@ try {
     event(6, "attempt-allocated", { allocation: repairFailure.repairAllocation }),
     event(7, "attempt-completed", { outcome: repairFailure.repairOutcome }),
   ];
-  assert(replayExecutionEvents(repairFailureEvents).attempts.at(-1).outcome.repairProgress.disposition === "changed", "Event-v4 reducer discarded exact repair progress");
+  assert(replayExecutionEvents(repairFailureEvents).attempts.at(-1).outcome.repairProgress.disposition === "changed", "Event-v5 reducer discarded exact repair progress");
   const omittedProgressEvents = structuredClone(repairFailureEvents);
   delete omittedProgressEvents.at(-1).payload.outcome.repairProgress;
-  expectThrow(() => replayExecutionEvents(omittedProgressEvents), "Event-v4 reducer admitted a failed repair without exact progress evidence");
+  expectThrow(() => replayExecutionEvents(omittedProgressEvents), "Event-v5 reducer admitted a failed repair without exact progress evidence");
 
   const finalRepairLaunch = allocateAttempt(createNodeAttemptState("final-validation"), {
     runId: "run",
@@ -377,7 +387,7 @@ try {
 function event(sequence, name, payload) {
   if (name === "run-started") payload = startedPayload(payload);
   if (name === "run-finished") payload = { cleanupDurationMs: 0, ...payload };
-  return { schema: "fanout.execution-event", version: 4, runId: "run", sequence, occurredAt: `2026-07-13T00:00:00.${String(sequence).padStart(3, "0")}Z`, event: name, payload };
+  return { schema: "fanout.execution-event", version: 5, runId: "run", sequence, occurredAt: `2026-07-13T00:00:00.${String(sequence).padStart(3, "0")}Z`, event: name, payload };
 }
 
 function startedPayload(payload) {
@@ -448,6 +458,20 @@ function routedOutcome() {
     metrics: metrics.metrics,
   });
   assert(outcome.action === "retry", "routed fixture did not request retry");
+  return { allocation: launch.allocation, outcome };
+}
+
+function unauthorizedOutcome() {
+  const launch = allocationFor("node-a");
+  const outcome = completeAttempt(launch.allocation, {
+    state: launch.state,
+    startedAt: "2026-07-13T00:00:00.000Z",
+    finishedAt: "2026-07-13T00:00:00.001Z",
+    terminalFact: { stage: "worker-gate", code: "unauthorized-change" },
+    fallbackAllowed: true,
+    metrics: correlateAttemptMetrics(metricEvidence(launch.allocation.attemptId)).metrics,
+  });
+  assert(outcome.action === "retry", "unauthorized fixture did not request a clean retry");
   return { allocation: launch.allocation, outcome };
 }
 

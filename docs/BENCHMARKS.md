@@ -51,7 +51,9 @@ Current result: the prior plan-v2/details-v3/packet-v5 generation passed locally
 
 Supersession note (2026-07-20): this remains historical contract evidence for Attempt outcome v2/event v2/projection v3. Attempt Outcome v3/Event v3/Projection v4 is now the only current replayable generation and records exact Worker Turn, Provider Response, named Tool Invocation, and cache evidence. The complete keyless root contract/replay/worker matrix passes through `rtk npm run check`; this is validation evidence, not a new live latency, cost, or release-readiness claim.
 
-Current-generation note (2026-07-28): profile v1, plan v3, details v5, work contract v3, packet v7, Attempt Outcome v4, final evidence v2, Event v4, and Projection v5 supersede that executable generation. Focused offline evidence covers cumulative repair seeds, isolated profile preparation, exact path-disjoint reconciliation, exact no-progress termination, vertical serial-chain fusion, profile-aware profiler compatibility, cleanup timing before the terminal event, and optional advisory Worker-summary continuity across node validation repairs without a schema change. Older execution evidence is descriptive Legacy data; there is no migration. The Worker-summary candidate's initial live confirmation exposed a mislabeled digest and launched no worker. Reviewed fix `3fef090` corrected the display; the restarted canary completed and repetition 1 then stopped on bounded runtime-test validation-repair exhaustion.
+Current-generation note (2026-07-30): the ownership-retry routing change cuts runtime evidence to Attempt Outcome v5, Event v5, and Projection v6 while retaining profile v1, plan v3, details v5, work contract v3, packet v7, pointer v2, final evidence v2, and presentation v1. Event v4/Projection v5 evidence is now descriptive Legacy data rather than replaying under changed routing semantics; there is no migration or compatibility adapter. This is a correctness cutover, not a new benchmark result.
+
+Previous-generation note (2026-07-28): profile v1, plan v3, details v5, work contract v3, packet v7, Attempt Outcome v4, final evidence v2, Event v4, and Projection v5 superseded the prior executable generation. Focused offline evidence covers cumulative repair seeds, isolated profile preparation, exact path-disjoint reconciliation, exact no-progress termination, vertical serial-chain fusion, profile-aware profiler compatibility, cleanup timing before the terminal event, and optional advisory Worker-summary continuity across node validation repairs without a schema change. Older execution evidence is descriptive Legacy data; there is no migration. The Worker-summary candidate's initial live confirmation exposed a mislabeled digest and launched no worker. Reviewed fix `3fef090` corrected the display; the restarted canary completed and repetition 1 then stopped on bounded runtime-test validation-repair exhaustion.
 
 The attempt-outcome check passes A10–A12 offline: prose-like output cannot affect typed routing, accepted generic and instrumented metrics require exact correlated identities, failed attempts retain observed partial cost, and nested validation/integration repair cannot exceed either fixed two-launch pool. This remains contract evidence only.
 
@@ -114,6 +116,8 @@ The run took 1,240.055s, used 1,403,298 tokens, and cost an estimated `$1.865241
 Post-canary protocol analysis found avoidable validation breadth: Phase B repeated the profile's exact `npm test` gate as packet-final validation, so effective final validation ran the full suite twice; the type node also selected repository-wide `npm run type` rather than a focused type-test invocation. The 2026-07-30 planning fix supplies the exact approved profile to Phase B, requires the narrowest meaningful node checks, reserves packet-final commands for additional task-specific integration, and rejects exact profile-gate duplicates as correctable drafts without ending planning. This is workflow-validation hardening, not a revised Execa performance result; measure its effect only in a newly authorized clean canary.
 
 Keep p-map as the existing control and release gate. This single Execa canary is transfer/complexity evidence only; do not report a median, range, reliability rate, direct p-map speed comparison, or universal SLO. Repetitions require separate authorization and a clean baseline with byte-identical frozen inputs.
+
+The adopted routing follow-up discards an original unauthorized candidate whole and spends at most the existing clean retry in a fresh reconstruction with the same assignment, prompt, and work contract. It does not trim unauthorized paths, seed rejected bytes, expand ownership, or retry forbidden/repeated violations. This is a bounded reliability-policy change, not a revised Execa result; measure it only in a separately authorized canary.
 
 ## Current baseline: B0 — Pi session traces, GLM 5.2 pricing
 
@@ -541,7 +545,7 @@ The 15-trace prediction artifact is tracked at `datasets/fixtures/tat-bucket-cod
 
 ## P3 — Offline profiler fixed-behavior concurrency and Provider Profile scenarios
 
-The profiler's public scenario query calculates observed, sequential, custom positive-safe-integer, and unlimited Fanout-concurrency schedules over admitted Event v4/Projection v5 evidence bound to exact profile identity. Independent Tier 1 and Tier 2 mappings may retain observed calls or apply fixed/cold-warm TTFT, FIFO provider capacity, explicit warmth/reset assumptions, output-token generation speed, and displayed input/output/cache-read/cache-write per-million rates. Missing usage keeps cost Partial or Unavailable. The packet DAG, recorded Attempt and repair chains, tier assignments, Worker Turns, Provider Responses, Tool Invocations, outcomes, validations, patches, and Accepted Ledger order stay fixed. Results expose Fanout/provider capacity and acceptance-gate waits, TTFT, generation, cost, uncovered time, the completion chain, recorded-prefix or dry-run limits, and one Evidence Receipt. They are deterministic workflow experiments under fixed assumptions, not provider forecasts, quality claims, routing recommendations, or measured performance baselines.
+The profiler's public scenario query calculates observed, sequential, custom positive-safe-integer, and unlimited Fanout-concurrency schedules over admitted Event v5/Projection v6 evidence bound to exact profile identity. Independent Tier 1 and Tier 2 mappings may retain observed calls or apply fixed/cold-warm TTFT, FIFO provider capacity, explicit warmth/reset assumptions, output-token generation speed, and displayed input/output/cache-read/cache-write per-million rates. Missing usage keeps cost Partial or Unavailable. The packet DAG, recorded Attempt and repair chains, tier assignments, Worker Turns, Provider Responses, Tool Invocations, outcomes, validations, patches, and Accepted Ledger order stay fixed. Results expose Fanout/provider capacity and acceptance-gate waits, TTFT, generation, cost, uncovered time, the completion chain, recorded-prefix or dry-run limits, and one Evidence Receipt. They are deterministic workflow experiments under fixed assumptions, not provider forecasts, quality claims, routing recommendations, or measured performance baselines.
 
 Validation:
 
@@ -560,19 +564,19 @@ Run separately from normal validation:
 rtk npm run benchmark:profiler
 ```
 
-The generated temporary storage root contains exactly 50 project directories. Three are admitted projects: one contains 100 Workflow Lineages, 500 Execution Runs, 100,000 Event Log rows, and one 134,217,728-byte (128 MiB) supporting log, while two contain lightweight execution evidence. The other 47 directories contain runtime context only and must not enter the project registry. Two completed current runs contribute 400 fully admitted Event v4 rows bound to one exact profile and support the workspace, exact same-packet comparison, and observed-scenario measurements. The other 498 runs contribute 99,600 recognized Event v2 envelope rows, exercising Legacy discovery without pretending old evidence is current or replayable. The supporting log contains 1,048,576 complete 128-byte JSONL rows. Catalog load accounting must report zero supporting-evidence content bytes before the benchmark requests the capped first 500 rows, and the immutable snapshot must not contain the row payload.
+The generated temporary storage root contains exactly 50 project directories. Three are admitted projects: one contains 100 Workflow Lineages, 500 Execution Runs, 100,000 Event Log rows, and one 134,217,728-byte (128 MiB) supporting log, while two contain lightweight execution evidence. The other 47 directories contain runtime context only and must not enter the project registry. Two completed current runs contribute 400 fully admitted Event v5 rows bound to one exact profile and support the workspace, exact same-packet comparison, and observed-scenario measurements. The other 498 runs contribute 99,600 recognized Event v2 envelope rows, exercising Legacy discovery without pretending old evidence is current or replayable. The supporting log contains 1,048,576 complete 128-byte JSONL rows. Catalog load accounting must report zero supporting-evidence content bytes before the benchmark requests the capped first 500 rows, and the immutable snapshot must not contain the row payload.
 
-Local targets from issue #46 are under 5,000 ms for initial storage-root discovery/catalog load or refresh, under 250 ms for workspace/comparison/scenario queries, and under 500 ms for a capped evidence page. The profile-bound compatibility run on 2026-07-27 used Bun 1.3.14 on macOS arm64 with an Apple M1 Pro:
+Local targets from issue #46 are under 5,000 ms for initial storage-root discovery/catalog load or refresh, under 250 ms for workspace/comparison/scenario queries, and under 500 ms for a capped evidence page. The Event v5/Projection v6 compatibility run on 2026-07-30 used Bun 1.3.14 on macOS arm64 with an Apple M1 Pro:
 
 | Measurement | Result | Target |
 | --- | ---: | ---: |
-| Fixture generation (reported separately) | 196.24 ms | n/a |
-| Initial storage-root discovery and catalog | 1,680.69 ms | <5,000 ms |
-| Storage-root rescan and selected-project refresh | 1,628.47 ms | <5,000 ms |
-| Workspace query | 5.94 ms | <250 ms |
-| Exact comparison query | 6.11 ms | <250 ms |
-| Observed scenario query | 6.63 ms | <250 ms |
-| 500-row evidence page | 1.92 ms | <500 ms |
+| Fixture generation (reported separately) | 209.68 ms | n/a |
+| Initial storage-root discovery and catalog | 1,749.16 ms | <5,000 ms |
+| Storage-root rescan and selected-project refresh | 1,699.17 ms | <5,000 ms |
+| Workspace query | 6.38 ms | <250 ms |
+| Exact comparison query | 7.82 ms | <250 ms |
+| Observed scenario query | 7.18 ms | <250 ms |
+| 500-row evidence page | 0.76 ms | <500 ms |
 
 These are one local wall-clock observation, not a CI guarantee, provider benchmark, or claim that 99,600 Legacy rows cost the same as replaying 99,600 current events. The benchmark contains no timing assertions. Normal checks instead prove structurally that a 128 MiB supporting log is represented only by metadata until selected, is not retained in the immutable snapshot, and cannot return more than 500 rows per page.
 

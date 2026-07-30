@@ -95,7 +95,7 @@ test("timing views distinguish boundaries, overlapping measured work, unavailabl
 	expect(workspace.metrics.find(({ id }) => id === "worker-duration")).toMatchObject({ value: 700, category: "overlapping-measured-work" });
 	expect(workspace.metrics.find(({ id }) => id === "worker-duration")).toMatchObject({ evidenceClass: "Derived", receipt: { evidenceClass: "Derived" } });
 	expect(workspace.metrics.find(({ id }) => id === "provider-duration")).toMatchObject({ value: null, evidenceClass: "Unavailable" });
-	expect(workspace.metrics.every(({ receipt }) => receipt.artifactGeneration === "Event v4 / Projection v5" && JSON.stringify(receipt.profileIdentity) === JSON.stringify(profile))).toBe(true);
+	expect(workspace.metrics.every(({ receipt }) => receipt.artifactGeneration === "Event v5 / Projection v6" && JSON.stringify(receipt.profileIdentity) === JSON.stringify(profile))).toBe(true);
 	expect(workspace.ledger.find(({ id }) => id === "poll:poll-1")).toMatchObject({ startMs: null, endMs: null, durationMs: 25, placement: "unavailable" });
 	expect(workspace.inspector.receipt).toMatchObject({ evidenceClass: "Observed", derivation: expect.any(String), missingInputs: expect.any(Array), assumptions: expect.any(Array), limitations: expect.any(Array) });
 	expect(workspace.objective).toContain("<script>");

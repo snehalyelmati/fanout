@@ -154,7 +154,7 @@ function writeLineage(index, fixture) {
 
 function executionEvents(packet, packetIdentity, lineageId, runId, baseTime) {
 	const events = [];
-	const emit = (event, payload) => events.push({ schema: "fanout.execution-event", version: 4, runId, sequence: events.length + 1, occurredAt: isoTimestamp(baseTime + events.length), event, payload });
+	const emit = (event, payload) => events.push({ schema: "fanout.execution-event", version: 5, runId, sequence: events.length + 1, occurredAt: isoTimestamp(baseTime + events.length), event, payload });
 	const commandEvidence = packet.nodes.map((node, packetNodeIndex) => ({ packetNodeIndex, nodeId: node.id, commandIndex: 0, manifest: { executable: "bun", args: ["--version"], cwd: null }, resolution: { status: "available", resolvedExecutable: process.execPath, resolvedCwd: process.cwd() } }));
 	const preflightEvidence = {
 		planningCommit: { expected: BASE_TREE, actual: BASE_TREE, status: "matched" }, repositoryTree: { expected: BASE_TREE, actual: BASE_TREE, status: "matched" }, platform: { expected: process.platform, actual: process.platform, status: "matched" },
