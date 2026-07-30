@@ -37,7 +37,7 @@ export interface TimingRow {
 	selection: WorkspaceSelection;
 }
 
-export const CURRENT_EXECUTION_GENERATION = "Event v4 / Projection v5";
+export const CURRENT_EXECUTION_GENERATION = "Event v5 / Projection v6";
 
 export function executionArtifactGeneration(admissions: readonly CatalogAdmission[]): string {
 	return admissions.some((admission) => admission === "Legacy") ? "Legacy execution generation" : admissions.some((admission) => admission !== "Current") ? "Unverifiable execution generation" : CURRENT_EXECUTION_GENERATION;
@@ -287,14 +287,14 @@ function inspectorFor(run: CatalogExecutionRun, projection: ExecutionRunProjecti
 	}
 	const attemptId = selection.kind === "attempt" || selection.kind === "stage" ? selection.id : selection.attemptId;
 	const attempt = projection && attemptId ? resolveExecutionEvidence(projection, { attemptId }).attempt : null;
-	if (selection.kind === "stage" && attempt?.outcome) return { title: `${attempt.outcome.terminalFact.stage}/${attempt.outcome.terminalFact.code}`, kind: "Stage Fact", fields: [["Controller action", attempt.outcome.action], ["Controller disposition", attempt.outcome.disposition], ["Stage Fact", `${attempt.outcome.terminalFact.stage}/${attempt.outcome.terminalFact.code}`]], receipt: receipt("Observed", "Typed terminal Stage Fact, action, and disposition from Attempt Outcome v4", [], [], sources) };
+	if (selection.kind === "stage" && attempt?.outcome) return { title: `${attempt.outcome.terminalFact.stage}/${attempt.outcome.terminalFact.code}`, kind: "Stage Fact", fields: [["Controller action", attempt.outcome.action], ["Controller disposition", attempt.outcome.disposition], ["Stage Fact", `${attempt.outcome.terminalFact.stage}/${attempt.outcome.terminalFact.code}`]], receipt: receipt("Observed", "Typed terminal Stage Fact, action, and disposition from Attempt Outcome v5", [], [], sources) };
 	if (selection.kind === "tool" && attempt?.outcome) {
 		const tool = attempt.outcome.metrics.tools.find(({ toolCallId, turnId }) => toolCallId === selection.id && turnId === selection.turnId)!;
-		return { title: tool.name, kind: "Tool Invocation", fields: [["Tool ID", tool.toolCallId], ["Duration", show(tool.durationMs)]], receipt: receipt("Observed", "Correlated Tool Invocation interval from Attempt Outcome v4", tool.durationMs === undefined ? ["tool duration"] : [], [], sources) };
+		return { title: tool.name, kind: "Tool Invocation", fields: [["Tool ID", tool.toolCallId], ["Duration", show(tool.durationMs)]], receipt: receipt("Observed", "Correlated Tool Invocation interval from Attempt Outcome v5", tool.durationMs === undefined ? ["tool duration"] : [], [], sources) };
 	}
 	if (selection.kind === "turn" && attempt?.outcome) {
 		const turn = attempt.outcome.metrics.turns.find(({ turnId }) => turnId === selection.id)!;
-		return { title: turn.turnId, kind: "Worker Turn", fields: [["Provider", turn.provider], ["Model", turn.model], ["Tier", turn.tier]], receipt: receipt("Observed", "Correlated Worker Turn from Attempt Outcome v4", [], [], sources) };
+		return { title: turn.turnId, kind: "Worker Turn", fields: [["Provider", turn.provider], ["Model", turn.model], ["Tier", turn.tier]], receipt: receipt("Observed", "Correlated Worker Turn from Attempt Outcome v5", [], [], sources) };
 	}
 	if (attempt) return { title: attempt.allocation.attemptId, kind: "Attempt", fields: [["Kind", attempt.allocation.kind], ["Observed routing", `${attempt.allocation.assignment.tier} · ${attempt.allocation.assignment.provider}/${attempt.allocation.assignment.model}`], ["Controller action", attempt.outcome?.action ?? "unknown"], ["Controller disposition", attempt.outcome?.disposition ?? "unknown"]], relatedSelections: attempt.outcome ? [{ label: "Stage Fact", selection: { kind: "stage", id: attempt.allocation.attemptId } }] : [], receipt: receipt(attempt.outcome ? "Observed" : "Partial", "Attempt allocation and admitted terminal outcome", attempt.outcome ? [] : ["terminal Attempt Outcome"], [], sources) };
 	const node = projection?.nodes.find(({ id }) => id === selection.id);

@@ -22,7 +22,7 @@ import { repairStateDigest } from "./repair-state.ts";
 import { FINAL_VALIDATION_NODE_ID } from "./work-contract-graph.ts";
 
 export const EXECUTION_PROJECTION_SCHEMA = "fanout.execution-run";
-export const EXECUTION_PROJECTION_VERSION = 5;
+export const EXECUTION_PROJECTION_VERSION = 6;
 
 export interface AttemptProjection {
 	allocationSequence: number;

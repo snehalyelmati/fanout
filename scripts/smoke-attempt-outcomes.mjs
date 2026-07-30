@@ -28,6 +28,9 @@ assert(routeAttempt({ stage: "provider", code: "rate-limit", httpStatus: 429 }, 
 assert(routeAttempt({ stage: "provider", code: "authentication", httpStatus: 401 }, retryContext) === "fail", "authentication retried");
 assert(routeAttempt({ stage: "provider", code: "quota" }, retryContext) === "fail", "quota exhaustion retried");
 assert(routeAttempt({ stage: "provider", code: "invalid-model" }, retryContext) === "fail", "invalid model retried");
+assert(routeAttempt({ stage: "worker-gate", code: "unauthorized-change" }, retryContext) === "retry", "original unauthorized candidate did not receive one clean retry");
+assert(routeAttempt({ stage: "worker-gate", code: "unauthorized-change" }, { ...retryContext, kind: "retry", remaining: noBudgets }) === "fail", "repeated unauthorized candidate escaped its retry limit");
+assert(routeAttempt({ stage: "worker-gate", code: "forbidden-change" }, retryContext) === "fail", "forbidden candidate retried");
 assert(routeAttempt({ stage: "process", code: "user-abort", durationMs: 1 }, retryContext) === "abort", "user abort did not abort");
 for (const code of ["preflight-failure", "spawn-failure", "timeout", "signal", "head-drift", "index-drift", "identity-failure", "audit-failure"]) {
   assert(routeAttempt({ stage: "candidate-normalization", code, commandIndex: 0 }, retryContext) === "fail", `candidate normalization ${code} consumed model retry authority`);
@@ -260,9 +263,9 @@ const accepted = completeAttempt(forged.allocation, {
   diagnostic: "human-only text: 429 network crash",
 });
 assert(accepted.action === "accept" && accepted.disposition === "ordinary" && accepted.durationMs === 1000 && accepted.budgetTransition.name === "original", "terminal outcome lost actual action, disposition, or budget transition");
-assert(accepted.version === 4, "attempt outcome did not advance to v4");
-expectThrow(() => parseAttemptOutcome({ ...accepted, version: 3 }), "legacy attempt outcome v3 was admitted");
-expectThrow(() => parseAttemptOutcome({ ...accepted, version: 5 }), "future attempt outcome v5 was admitted");
+assert(accepted.version === 5, "attempt outcome did not advance to v5");
+expectThrow(() => parseAttemptOutcome({ ...accepted, version: 4 }), "legacy attempt outcome v4 was admitted");
+expectThrow(() => parseAttemptOutcome({ ...accepted, version: 6 }), "future attempt outcome v6 was admitted");
 const mixedAttemptMetrics = structuredClone(accepted);
 delete mixedAttemptMetrics.metrics.turns[0].requestedAt;
 expectThrow(() => parseAttemptOutcome(mixedAttemptMetrics), "mixed-generation Attempt metrics were admitted");

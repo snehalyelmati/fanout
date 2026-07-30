@@ -84,7 +84,7 @@ test("fixed-behavior scenarios preserve evidence while varying only bounded Fano
 	const observed = queryScenario(state, { concurrency: { mode: "observed" } });
 	expect(observed).toMatchObject({ status: "available", configuration: { mode: "observed", limit: 2 }, observedBoundaryMs: 160, scenarioBoundaryMs: 160, deltaMs: 0, statement: expect.stringContaining("fixed recorded behavior") });
 	expect(observed.schedule.nodes).toContainEqual(expect.objectContaining({ nodeId: "b", executionEndMs: 50, completedMs: 100, acceptanceGateWaitMs: 50 }));
-	expect(observed.receipt).toMatchObject({ evidenceClass: "Scenario", artifactGeneration: "Event v4 / Projection v5", profileIdentity: { path: "profiles/default.json" }, sourceReferences: expect.arrayContaining([expect.objectContaining({ id: "packet" }), expect.objectContaining({ id: "events" })]) });
+	expect(observed.receipt).toMatchObject({ evidenceClass: "Scenario", artifactGeneration: "Event v5 / Projection v6", profileIdentity: { path: "profiles/default.json" }, sourceReferences: expect.arrayContaining([expect.objectContaining({ id: "packet" }), expect.objectContaining({ id: "events" })]) });
 
 	const sequential = queryScenario(state, { concurrency: { mode: "sequential" } });
 	expect(sequential).toMatchObject({ status: "available", observedBoundaryMs: 160, scenarioBoundaryMs: 210, deltaMs: 50, configuration: { mode: "sequential", limit: 1 } });

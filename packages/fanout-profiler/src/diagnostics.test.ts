@@ -56,7 +56,7 @@ test("ready-work observation uses confirmation for roots, predecessor completion
 	]);
 	expect(atThreshold.observations[0]).toMatchObject({
 		evidence: { readiness: { kind: "accepted-confirmation", eventSequence: 3 }, firstAllocationEventSequence: 7, capacity: { maxConcurrency: 2 } },
-		receipt: { evidenceClass: "Derived", artifactGeneration: "Event v4 / Projection v5", profileIdentity: profile, sourceReferences: [packetSource, source] },
+		receipt: { evidenceClass: "Derived", artifactGeneration: "Event v5 / Projection v6", profileIdentity: profile, sourceReferences: [packetSource, source] },
 	});
 	expect(atThreshold.observations[1]).toMatchObject({ evidence: { readiness: { kind: "successful-predecessors", predecessorNodeIds: ["root"], eventSequences: [9] } } });
 

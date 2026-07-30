@@ -40,7 +40,7 @@ Fanout should preserve developer velocity by using slower tiers only where laten
 
 ### End-to-end hardening
 
-Status: The current closed generation is Project Execution Profile v1, plan v3, details v5, packet v7, pointer v2, work contract v3, Attempt Outcome v4, final evidence v2, Event v4, Projection v5, and presentation entry v1. It adds isolated profile preparation, cumulative final-repair seeds, exact path-disjoint reconciliation, exact no-progress termination, compiler-owned vertical fusion, profile-aware profiler comparisons, and optional advisory Worker summaries for node validation repair without a schema cutover. Older planning authority requires replanning; older execution evidence remains descriptive Legacy data.
+Status: The current closed generation is Project Execution Profile v1, plan v3, details v5, packet v7, pointer v2, work contract v3, Attempt Outcome v5, final evidence v2, Event v5, Projection v6, and presentation entry v1. It adds isolated profile preparation, cumulative final-repair seeds, exact path-disjoint reconciliation, exact no-progress termination, compiler-owned vertical fusion, profile-aware profiler comparisons, and optional advisory Worker summaries for node validation repair without a schema cutover. Older planning authority requires replanning; older execution evidence remains descriptive Legacy data.
 
 Live `/fanout-execute` remains blocked from release until the explicitly authorized macOS p-map canary, fresh review, and repository-owner approval pass for the same immutable commit. Offline readiness does not satisfy those external gates.
 
@@ -137,7 +137,7 @@ Implemented order:
    - Show the objective, work-unit count, concurrency, apply behavior, and audit path before asking the user to confirm launch.
 2. **Execution run recorder**
    - Derive `<packet-artifact-dir>` from the loaded packet path and create `<packet-artifact-dir>/executions/<execution-run-id>/` before mutation.
-   - Write authoritative event v4 `events.jsonl`, derived projection v5 `execution-run.json`, and terminal deterministic `summary.md`; cleanup completes and is timed before `run-finished`.
+   - Write authoritative event v5 `events.jsonl`, derived projection v6 `execution-run.json`, and terminal deterministic `summary.md`; cleanup completes and is timed before `run-finished`.
 3. **DAG scheduler**
    - Execute ready nodes in dependency order with deterministic packet-order tie breaking.
    - Keep scheduling separate from worktrees, workers, patch capture, validation, and repair.
@@ -148,14 +148,15 @@ Implemented order:
    - Rebuild previously accepted integration state in each fresh downstream worktree by replaying the ordered ledger's digest/length-bound `patch.bin` transitions with exact base/result-tree, changed-path, and patch-stat verification; create no baseline commits or snapshot authority.
 5. **Patch, validation, and apply gates**
    - After a successful worker edit, run every profile-declared candidate normalizer once, audit identities, capture the patch, enforce authority, run packet task validation, and apply only accepted whole-node patches.
+   - Discard an original `unauthorized-change` candidate whole and spend at most the existing clean retry in a fresh reconstruction with the same assignment and work contract; repeated unauthorized changes and all forbidden changes fail.
    - Before integration repair, reconcile only exact path-disjoint stale candidates by reconstruction, overlay, normalization, recapture, ownership, validation, and compare-and-swap.
    - Continue past normalizer nonzero results so partial deterministic fixes reach authoritative validation; hard execution/identity failures stop without consuming model-repair budget.
    - Keep Git-observed filenames identity-preserving at the ownership gate; reject lossy path normalization.
    - Reject validation commands that change the captured patch or move the detached worker `HEAD`.
    - Serialize active-worktree apply checks and applies so parallel workers cannot race the integration state.
    - Allow only typed bounded Tier 1 recovery for validation failures and integration conflicts.
-6. **Tier2 retry / realtime fallback**
-   - Use fixed MVP retry/repair limits and retry only classified transient facts. Stop when exact candidate and typed failure state repeat, leaving unused budget untouched.
+6. **Retry / realtime fallback**
+   - Use fixed MVP retry/repair limits. Retry classified transient facts and one original unauthorized candidate only; stop after a repeated unauthorized change or when exact candidate and typed repair-failure state repeat, leaving unused budget untouched.
    - After retryable Tier 2 exhaustion, run at most one realtime attempt with the packet's concrete `tierPlan.tier2Fallback` model, and only when the typed work-unit assignment permits realtime fallback.
    - Do not switch remaining nodes globally. Tier 1 remains reserved for control-plane work and typed validation/integration recovery.
 7. **Summary and metrics**
@@ -380,7 +381,7 @@ Order:
 4. Implementation completed: built and repository-validated the smallest read-only local profiler over the new authoritative event generation, including the catalog, workspace, comparisons, diagnostics, Fanout-concurrency scenarios, independent fixed/cold-warm Tier Provider Profiles, URL-addressable keyboard-operable interactions, and separate measured benchmark. The manual Chrome/Firefox acceptance walkthrough remains pending under #58.
 5. Repository startup now resolves one Fanout storage root, prefers the current project, and exposes an accessible URL-addressable picker for every evidence-bearing project under that root; refresh rescans membership, `--artifact-root` remains a single-project override, and the profiler package retains its Pi-independent dependency direction.
 
-Attempt Outcome v4/Event v4/Projection v5 with exact profile identity is the only current replayable execution generation. Older artifacts are Legacy descriptive evidence only.
+Attempt Outcome v5/Event v5/Projection v6 with exact profile identity is the only current replayable execution generation. Older artifacts are Legacy descriptive evidence only.
 
 ## Deferred ideas
 

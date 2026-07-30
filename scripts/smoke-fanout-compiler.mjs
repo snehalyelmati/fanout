@@ -127,7 +127,7 @@ assert(validateExecutionPacket(packet).executable, "packet v7 rejected");
 assert(!validateExecutionPacket({ ...packet, version: 5 }).executable, "packet v5 admitted");
 assert(!validateExecutionPacket({ ...packet, status: "ready" }).executable, "legacy status field admitted");
 assert(!validateExecutionPacket({ ...packet, runtimePolicy: { ...packet.runtimePolicy, maxConcurrency: 0 } }).executable, "invalid packet runtime policy admitted");
-assert(EXECUTION_RUN_VERSION === 5 && SHIM_EVENT_NAMES.length === 9, "execution-run compatibility subpath exposed legacy runtime authority");
+assert(EXECUTION_RUN_VERSION === 6 && SHIM_EVENT_NAMES.length === 9, "execution-run compatibility subpath exposed legacy runtime authority");
 const graph = deriveExecutionGraph(packet);
 assert(JSON.stringify(graph.edges) === JSON.stringify([["feature", "final-validation"]]), "graph was not derived from contracts");
 

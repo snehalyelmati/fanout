@@ -6,7 +6,7 @@ The coordinated caller cutover is implemented with focused offline coverage. It 
 
 ## Executable generation
 
-`/fanout-execute` admits only active pointer v2 referencing packet v7, whose exact top-level profile identity must match active Project Execution Profile v1. Packet v7 embeds work-contract v3 nodes and binds plan v3/details v5, planning identity, and platform. Runtime authority is event v4 carrying Attempt Outcome v4; `execution-run.json` is projection v5; final-validation evidence is v2; presentation data remains v1. Older authority requires replanning and older execution evidence is descriptive Legacy data.
+`/fanout-execute` admits only active pointer v2 referencing packet v7, whose exact top-level profile identity must match active Project Execution Profile v1. Packet v7 embeds work-contract v3 nodes and binds plan v3/details v5, planning identity, and platform. Runtime authority is event v5 carrying Attempt Outcome v5; `execution-run.json` is projection v6; final-validation evidence is v2; presentation data remains v1. Older authority requires replanning and older execution evidence is descriptive Legacy data.
 
 Legacy, mixed, profile-mismatched, or shared-path configurations fail before model allocation. No runtime component migrates or partially accepts old artifacts.
 
@@ -17,11 +17,11 @@ Legacy, mixed, profile-mismatched, or shared-path configurations fail before mod
 3. Validate the profile in a disposable clean worktree, then record `run-started` with exact profile/validation identities and strict preflight evidence. Environment failure consumes no worker or repair budget.
 4. Dry run terminates explicitly after passed preflight. Live mode records an explicit confirmation decision before any attempt allocation.
 5. Derive the scheduler graph from embedded contracts. Every worker/retry/fallback/repair launch consumes a fixed typed budget allocation and every allocation receives exactly one typed terminal outcome.
-6. Independently prepare every worker/repair worktree through the profile, run profile normalization after edits, then capture, enforce authority, run packet task validation, reverify, and exact-apply.
+6. Independently prepare every worker/repair worktree through the profile, run profile normalization after edits, then capture, enforce authority, run packet task validation, reverify, and exact-apply. Discard an original unauthorized candidate whole before spending the existing clean retry in a fresh reconstruction; never seed it, trim its paths, or retry a repeated/forbidden violation.
 7. Before integration repair, reconcile only exact path-disjoint stale candidates through latest-ledger reconstruction, overlay, normalization, recapture, ownership, validation, and compare-and-swap. Retry only after ledger advancement.
 8. Preserve the immediately preceding rejected repair candidate as the next exact seed. Stop a repair chain when exact candidate identity and typed failure state repeat, leaving unused budget untouched.
 9. Extract the final numbered `Worker summary` from the existing assistant output, store it in the attempt result, and include it only in the immediately following node validation-repair prompt. It remains optional diagnostic context outside routing, recovery, repair state, budgets, validation, acceptance, and replay.
-10. Final validation runs packet final commands followed by profile-required final gates in an independently prepared worktree. Record event v4/projection v5; cleanup runs and is timed before the causal terminal event.
+10. Final validation runs packet final commands followed by profile-required final gates in an independently prepared worktree. Record event v5/projection v6; cleanup runs and is timed before the causal terminal event.
 
 Residual host trust is explicit: installed extensions/providers, validation programs, ignored files, external paths, network, and processes execute with user permissions and are not a container boundary.
 

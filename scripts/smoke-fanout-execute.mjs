@@ -52,13 +52,13 @@ try {
   catch (error) { traversalRejected = /canonical path segment/.test(String(error)); }
   assert(traversalRejected && !existsSync(join(artifacts, "escape")) && !existsSync(join(repo, ".git", "fanout-execution.lock")), "path-traversing run identity escaped execution storage or acquired the repository lock");
   const result = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", dryRun: true, runId: "dry-run", maxConcurrency: 99 });
-  assert(result.status === "succeeded" && result.snapshot.version === 5 && result.snapshot.mode === "dry-run" && result.snapshot.terminalOutcome.outcome === "dry-run-completed" && Number.isFinite(result.snapshot.terminalOutcome.cleanupDurationMs), "hardened dry run did not project explicit state and cleanup timing");
+  assert(result.status === "succeeded" && result.snapshot.version === 6 && result.snapshot.mode === "dry-run" && result.snapshot.terminalOutcome.outcome === "dry-run-completed" && Number.isFinite(result.snapshot.terminalOutcome.cleanupDurationMs), "hardened dry run did not project explicit state and cleanup timing");
   assert(result.snapshot.policy.maxConcurrency === 2, "execution options overrode immutable packet runtime policy");
   assert(result.snapshot.preflightEvidence.planningCommit.actual === base.headCommit && result.snapshot.preflightEvidence.repositoryTree.actual === base.tree && result.snapshot.preflightEvidence.platform.actual === process.platform, "dry run did not preserve exact repository/platform preflight evidence");
   assert(result.snapshot.preflightEvidence.worker.launcher.resolvedExecutable && result.snapshot.preflightEvidence.worker.extension.resolved && result.snapshot.preflightEvidence.worker.modelCallableTools.join(",") === "read,grep,find,ls,edit,write", "dry run did not preserve worker capability evidence");
   assert(result.snapshot.preflightEvidence.validationCommands.some((entry) => entry.nodeId === "x" && entry.manifest.args.join("\0") === command.args.join("\0") && entry.resolution.status === "available"), "dry run did not preserve resolved validation argv evidence");
   const events = readFileSync(result.paths.eventsPath, "utf8").trim().split("\n").map(JSON.parse);
-  assert(events.map((event) => event.sequence).join(",") === "1,2,3" && events.every((event) => event.version === 4), "events are not gapless v4 authority");
+  assert(events.map((event) => event.sequence).join(",") === "1,2,3" && events.every((event) => event.version === 5), "events are not gapless v5 authority");
   const profileValidation = JSON.parse(readFileSync(join(result.paths.runDir, events[0].payload.profileValidation.path), "utf8"));
   assert(JSON.stringify(profileValidation.profile) === JSON.stringify(events[0].payload.profile)
     && profileValidation.platform === process.platform
@@ -101,7 +101,7 @@ try {
 
   const fakePi = join(root, "fake-pi.mjs");
   writeFileSync(fakePi, `#!/usr/bin/env node
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 if (process.argv.includes("--version")) { console.log("fake-pi 1.0.0"); process.exit(0); }
 const args = process.argv.slice(2);
 const [provider, ...modelParts] = args[args.indexOf("--model") + 1].split("/");
@@ -112,13 +112,18 @@ if (process.env.FANOUT_RUN_ID === "provider-abort") {
   appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_error", runId: process.env.DOUBLEWORD_RUN_ID, provider, model, turnIndex: 0, responseId: "response-1", failureCode: "abort" }) + "\\n");
   process.exit(1);
 }
-if (!['post-worker-abort', 'repair-overlay', 'worker-summary-chain', 'disjoint-reconciliation', 'overlap-reconciliation', 'fused-execution', 'normalized-candidate', 'unauthorized-normalization', 'interrupted-normalization', 'identity-normalization', 'diagnostic-normalization', 'normalization-boundary-abort', 'normalization-boundary-abort-rewrite-failure', 'final-normalization', 'final-normalization-widened'].includes(process.env.FANOUT_RUN_ID) && process.env.FANOUT_WORKER_DIR.endsWith("001-original")) {
+if (!['post-worker-abort', 'repair-overlay', 'worker-summary-chain', 'disjoint-reconciliation', 'overlap-reconciliation', 'fused-execution', 'normalized-candidate', 'unauthorized-worker-retry', 'unauthorized-normalization', 'interrupted-normalization', 'identity-normalization', 'diagnostic-normalization', 'normalization-boundary-abort', 'normalization-boundary-abort-rewrite-failure', 'final-normalization', 'final-normalization-widened'].includes(process.env.FANOUT_RUN_ID) && process.env.FANOUT_WORKER_DIR.endsWith("001-original")) {
   appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_error", runId: process.env.DOUBLEWORD_RUN_ID, provider, model, turnIndex: 0, responseId: "response-1", failureCode: "rate-limit", httpStatus: 429 }) + "\\n");
   process.exit(1);
 }
 if (process.env.FANOUT_RUN_ID === "fused-execution") {
   writeFileSync("x.ts", "export const x = 0;\\n");
   writeFileSync("y.ts", "export const x = 0;\\n");
+} else if (process.env.FANOUT_RUN_ID === "unauthorized-worker-retry") {
+  const retry = process.env.FANOUT_WORKER_DIR.endsWith("002-retry");
+  if (retry && existsSync("outside.ts")) process.exit(8);
+  writeFileSync("x.ts", retry ? "export const x = 1;\\n" : "export const x = 0;\\n");
+  if (!retry) writeFileSync("outside.ts", "outside\\n");
 } else if (process.env.FANOUT_RUN_ID === "worker-summary-chain") {
   const attempt = process.env.FANOUT_WORKER_DIR.split("/").at(-1);
   writeFileSync("x.ts", \`export const x = \${attempt.startsWith("003-") ? 2 : attempt.startsWith("002-") ? 1 : 0};\\n\`);
@@ -193,6 +198,35 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   assert(unavailableResult.status === "failed" && unavailableResult.snapshot.preflight.issues.some((issue) => issue.code === "executable-unavailable" && issue.detail.includes("candidate normalization")), "preflight did not expose an unavailable candidate normalizer");
   assert(unavailableResult.snapshot.preflightEvidence.candidateNormalizationCommands.every((entry) => entry.resolution.status === "unavailable" && entry.resolution.resolvedExecutable === null), "failed normalizer resolution was not preserved as closed preflight evidence");
 
+  const workerUnauthorizedNode = structuredClone(compiled.packet.nodes[0]);
+  const workerUnauthorizedProfile = profile("worker-unauthorized");
+  const workerUnauthorizedProfileIdentity = artifactIdentity("profiles/worker-unauthorized.json", Buffer.from(`${JSON.stringify(workerUnauthorizedProfile, null, 2)}\n`));
+  const workerUnauthorizedFinal = structuredClone(compiled.packet.nodes.at(-1));
+  const workerUnauthorizedPacket = { ...compiled.packet, profile: workerUnauthorizedProfileIdentity, nodes: [workerUnauthorizedNode, workerUnauthorizedFinal] };
+  const workerUnauthorizedRunDir = join(runDir, "executions", "unauthorized-worker-retry");
+  const workerUnauthorizedCompletions = [];
+  const workerUnauthorizedExecutor = new FanoutNodeExecutor({
+    packet: workerUnauthorizedPacket,
+    packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(workerUnauthorizedPacket)),
+    profile: workerUnauthorizedProfile,
+    profileIdentity: workerUnauthorizedProfileIdentity,
+    repoRoot: repo,
+    runDir: workerUnauthorizedRunDir,
+    runId: "unauthorized-worker-retry",
+    extensionEntry: "packages/fanout-pi/src/index.ts",
+    piCommand: fakePi,
+    recorder: { async recordAttemptAllocated() {}, async recordAttemptCompleted(outcome, acceptedTransition) { workerUnauthorizedCompletions.push({ outcome, acceptedTransition }); }, async flush() {} },
+  });
+  let workerUnauthorizedResult;
+  try { workerUnauthorizedResult = await workerUnauthorizedExecutor.runNode(workerUnauthorizedNode); }
+  finally { workerUnauthorizedExecutor.cleanupWorktrees(); }
+  assert(workerUnauthorizedResult.ok && workerUnauthorizedCompletions.length === 2, "unauthorized worker candidate did not receive exactly one clean retry");
+  assert(workerUnauthorizedCompletions[0].outcome.terminalFact.code === "unauthorized-change" && workerUnauthorizedCompletions[0].outcome.action === "retry" && !workerUnauthorizedCompletions[0].acceptedTransition, "unauthorized original candidate was not rejected before retry");
+  assert(workerUnauthorizedCompletions[1].outcome.kind === "retry" && workerUnauthorizedCompletions[1].outcome.action === "accept" && workerUnauthorizedCompletions[1].acceptedTransition, "clean ownership retry was not accepted normally");
+  assert(readFileSync(join(repo, "x.ts"), "utf8") === "export const x = 1;\n" && !existsSync(join(repo, "outside.ts")), "rejected candidate bytes reached the fresh retry or active checkout");
+  rmSync(join(repo, "x.ts"));
+  assert(fullGitVisibleTree(repo) === base.tree, "ownership retry fixture did not restore the planning tree");
+
   const unauthorizedNode = structuredClone(compiled.packet.nodes[0]);
   const unauthorizedProfile = profile("unauthorized", [{ executable: process.execPath, args: ["-e", "const fs = require('node:fs'); fs.writeFileSync('x.ts', 'export const x = 1;\\n'); fs.writeFileSync('outside.ts', 'outside\\n')"] }]);
   const unauthorizedProfileIdentity = artifactIdentity("profiles/unauthorized.json", Buffer.from(`${JSON.stringify(unauthorizedProfile, null, 2)}\n`));
@@ -215,7 +249,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   let unauthorizedResult;
   try { unauthorizedResult = await unauthorizedExecutor.runNode(unauthorizedNode); }
   finally { unauthorizedExecutor.cleanupWorktrees(); }
-  assert(!unauthorizedResult.ok && unauthorizedCompletions.length === 1 && unauthorizedCompletions[0].terminalFact.stage === "worker-gate" && unauthorizedCompletions[0].terminalFact.code === "unauthorized-change", "normalizer edits bypassed typed write ownership");
+  assert(!unauthorizedResult.ok && unauthorizedCompletions.length === 2 && unauthorizedCompletions[0].action === "retry" && unauthorizedCompletions[1].kind === "retry" && unauthorizedCompletions[1].action === "fail" && unauthorizedCompletions.every(({ terminalFact }) => terminalFact.stage === "worker-gate" && terminalFact.code === "unauthorized-change"), "normalizer widening did not stay rejected and bounded to one clean retry");
   assert(!existsSync(join(repo, "x.ts")) && !existsSync(join(repo, "outside.ts")), "unauthorized normalized candidate reached the active checkout");
 
   const interruptedNode = structuredClone(compiled.packet.nodes[0]);
@@ -757,7 +791,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   let rejected = false; try { await executeFanout({ cwd: repo, activePointerPath: legacyPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", dryRun: true, runId: "legacy" }); } catch (error) { rejected = /rerun \/fanout-plan/.test(String(error)); }
   assert(rejected, "A18 legacy pointer did not get replan guidance");
   assert(readFileSync(legacyPath, "utf8") === legacy && git(repo, ["status", "--porcelain=v1"]) === before && !existsSync(join(repo, ".git", "fanout-execution.lock")), "A18 rejection mutated history, repository, or lock");
-  console.log("fanout execute cutover smoke passed (live public seam/event v4/projection v5/A18)");
+  console.log("fanout execute cutover smoke passed (live public seam/event v5/projection v6/A18)");
 } finally { rmSync(root, { recursive: true, force: true }); }
 
 function git(cwd, args) { return execFileSync("git", ["-c", "core.fsmonitor=false", ...args], { cwd, encoding: "utf8" }).trim(); }
