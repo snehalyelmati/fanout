@@ -101,20 +101,22 @@ export class FanoutPlanningController {
 					return;
 				}
 				const run = createFanoutPlanRun(invocation, context);
-				let profileIdentity;
+				let approvedProfile;
 				if (!parsedInvocation.refreshProfile && existsSync(context.activeProfilePointerPath)) {
-					try { profileIdentity = loadActiveProjectExecutionProfile(context.activeProfilePointerPath, context.projectArtifactRoot).identity; }
-					catch (error) {
+					try {
+						const loaded = loadActiveProjectExecutionProfile(context.activeProfilePointerPath, context.projectArtifactRoot);
+						approvedProfile = { identity: loaded.identity, profile: loaded.profile };
+					} catch (error) {
 						ctx.ui.notify(`Active Project Execution Profile is invalid: ${message(error)}\nRerun with /fanout-plan --refresh-profile <objective>.`, "error");
 						return;
 					}
 				}
-				const phase = profileIdentity ? "implementation" as const : "profile" as const;
-				const state = { phase, invocation, objective: invocation, context, metrics: createPlanningMetrics(), profileIdentity, ...run };
-				this.#pending = { ...state, systemPrompt: profileIdentity ? buildImplementationPlanPrompt(invocation, context, state) : buildProjectExecutionProfilePrompt(invocation, context, state) };
-				const trigger = profileIdentity ? "Prepare and submit the Fanout implementation plan." : "Build and submit the Fanout Project Execution Profile.";
+				const phase = approvedProfile ? "implementation" as const : "profile" as const;
+				const state = { phase, invocation, objective: invocation, context, metrics: createPlanningMetrics(), approvedProfile, ...run };
+				this.#pending = { ...state, systemPrompt: approvedProfile ? buildImplementationPlanPrompt(invocation, context, state) : buildProjectExecutionProfilePrompt(invocation, context, state) };
+				const trigger = approvedProfile ? "Prepare and submit the Fanout implementation plan." : "Build and submit the Fanout Project Execution Profile.";
 				writeJsonl("fanout_plan_start", { planRunId: run.runId, invocation, phase, refreshProfile: parsedInvocation.refreshProfile, artifactRoot: context.artifactRoot, artifactDir: run.artifactDir, projectExecutionProfilePath: run.projectExecutionProfilePath, implementationPlanPath: run.implementationPlanPath, implementationDetailsPath: run.implementationDetailsPath, tierDefaults: context.tierDefaults }, ctx.cwd);
-				writeJsonl("fanout_plan_preflight", { planRunId: run.runId, phase, profileIdentity, tierPlan: context.resolvedTierPlan, tier2Availability: context.tier2Availability }, ctx.cwd);
+				writeJsonl("fanout_plan_preflight", { planRunId: run.runId, phase, profileIdentity: approvedProfile?.identity, tierPlan: context.resolvedTierPlan, tier2Availability: context.tier2Availability }, ctx.cwd);
 				if (!ctx.isIdle()) {
 					this.#pi.sendUserMessage(trigger, { deliverAs: "followUp" });
 					ctx.ui.notify("Queued /fanout-plan after the current turn.", "info");
@@ -154,7 +156,7 @@ export class FanoutPlanningController {
 				const published = publishProjectExecutionProfile(profile, stringField(finished.context.projectArtifactRoot), stringField(finished.context.activeProfilePointerPath));
 				finishPlanningPhase(finished.metrics, "profile");
 				startPlanningPhase(finished.metrics);
-				const implementationState = { ...finished, phase: "implementation" as const, acceptedSubmission: undefined, profileIdentity: published.identity };
+				const implementationState = { ...finished, phase: "implementation" as const, acceptedSubmission: undefined, approvedProfile: { identity: published.identity, profile: published.profile } };
 				this.#pending = { ...implementationState, systemPrompt: buildImplementationPlanPrompt(finished.objective, finished.context, implementationState) };
 				ctx.ui.notify("Project Execution Profile approved; planning implementation.", "info");
 				this.#startTurn(this.#pending, "Prepare and submit the Fanout implementation plan.");

@@ -1,6 +1,6 @@
 # Execa Web Streams manual Fanout E2E
 
-Status: prepared; no Fanout plan, dry run, live execution, or benchmark result exists yet.
+Status: the first controlled canary completed on 2026-07-29; no repetitions have been run.
 
 This is the next transfer/complexity benchmark after the controlled p-map task. It follows the common safety, execution, evidence, failure, and reporting protocol in [`fanout-execution-benchmark-procedure.md`](fanout-execution-benchmark-procedure.md) and the operator workflow in [`p-map-abort-signal-manual-e2e.md`](p-map-abort-signal-manual-e2e.md). This document records only Execa-specific inputs and gates.
 
@@ -99,6 +99,29 @@ rtk ps -axo pid,etime,command
 ```
 
 Inspect the authoritative Event v4 log, Projection v5, summary, attempt evidence, final validation, accepted tree, cleanup, provider/model/tier identities, tokens, cost, TTFT, tool time, and wall time. Preserve failed artifacts and classify the owning component before proposing changes.
+
+## 2026-07-29 canary result
+
+The canary ran directly in the primary clean checkout, as explicitly authorized, from Fanout commit `b1cc84d6513de1551b617b01ba947103498921fb`. Pi ran in retained tmux pane `%267` under `doubleword:fanout-canary`. The frozen planning artifacts were:
+
+- plan SHA-256 `5fd92ec0e3527953cb45faad1b4aeeb682f3e733c3c00b983ec197fe2d703fba`, 17,842 bytes;
+- details SHA-256 `38687d76f07cbecd165d95b3247ad46f5eff0ef2da008b105382241cfa7d462e`, 17,685 bytes;
+- packet SHA-256 `ba69f67e86443a2735aa1a9654945a3ebec4acbfc337bbe72028b6b1b2131103`, 58,073 bytes;
+- profile SHA-256 `50c9bec27ac95da0453bc11092e5a1b40830540175c10f82461fc72c7916acf1`, 1,701 bytes.
+
+Dry run `2026-07-29T18-34-56-001Z-b5556ab8` passed with zero workers, attempts, tokens, accepted transitions, or repository changes. Live run `2026-07-29T18-35-56-724Z-06e1182a` then completed with Event v4 / Projection v5 evidence and passed final validation.
+
+The immutable packet made four ordinary nodes concurrently ready with maximum concurrency two: joint runtime/AVA behavior, joint types/`tsd`, API documentation, and guide documentation. The three smaller nodes passed on their original attempts. The joint runtime node's original candidate timed out at the fixture's 240-second AVA limit; validation repair 1 still failed its focused program gate, and validation repair 2 passed. The initial integrated `npm test` then found three XO violations across the combined result. One project final-validation repair corrected the two affected test files, after which both ordered full `npm test` gates passed. No integration repair, reconciliation, exact-no-progress termination, budget exhaustion, serial-chain fusion, or attempt fallback occurred.
+
+Worker-summary continuity held only across the immediate runtime validation-repair chain: repair 1 received the original summary and repair 2 received repair 1's summary. The project final-validation repair received no predecessor summary. Summaries remained absent from Attempt Outcome, Event, Projection, and recovery authority.
+
+The final checkout changed exactly the 14 task-allowed paths and hashed to accepted tree `c3ad52480adfb65a9bda2b63f609b7133aaef7b7`. The ledger reported 16 cumulative file touches, +373/-30, because the final repair re-touched two test files. Independent `npm test` passed; an initial operator rerun inside the Codex sandbox was invalid because XO could not write its ignored cache, and the permission-correct rerun passed. `git diff --check` passed. No current-run process, extra worktree, or execution lock remained.
+
+The authoritative run duration was 1,240.055s, with 1,403,298 tokens, estimated cost `$1.8652415`, 420.670s summed worker time, and 3.972s summed tool time. The profiler admitted the current artifacts with exact profile identity and derived a 1,193.167s observed completion boundary, 231.712s overlap across ordinary node envelopes, a 596.734s final-validation span, 65.718s aggregate TTFT, and 316.537s aggregate generation time. Ordinary workers used the configured Terra medium realtime fallback because async Tier 2 was unavailable; validation repairs used Sol medium. There were no Tier 2 provider calls.
+
+Post-canary inspection found that Phase B had not received the profile commands: `implementation-details.json` supplied `npm test` as packet-final validation while the exact approved profile already required `npm test`, and the effective initial and repaired final rounds therefore ran that full suite twice. The type node also used the repository-wide `npm run type` script rather than a focused invocation for its owned type tests. The 2026-07-30 protocol correction passes the exact profile into Phase B, asks for the narrowest meaningful node checks, reserves packet-final commands for additional task-specific integration, and rejects an exact profile-gate duplicate as a correctable draft while preserving normal resubmission. Existing canary metrics remain unchanged; any measured improvement requires a newly authorized clean run.
+
+This is one canary, not a reliability cohort. No median, range, reliability rate, cross-task speed comparison, or universal SLO is reported. Repetitions require separate user authorization and byte-identical packet/profile/pointer bytes from a clean baseline.
 
 ## Reporting
 

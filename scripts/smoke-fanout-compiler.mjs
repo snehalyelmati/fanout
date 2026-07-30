@@ -27,6 +27,11 @@ const plan = {
 const planBytes = Buffer.from(`${JSON.stringify(plan, null, 2)}\n`);
 const planIdentity = artifactIdentity("implementation-plan.json", planBytes);
 const command = { executable: "rtk", args: ["npm", "run", "check"] };
+const profileGate = { executable: "rtk", args: ["npm", "run", "full-check"], env: { SECOND: "2", FIRST: "1" } };
+const profile = {
+  schema: "fanout.project-execution-profile", version: 1, profileId: "test", createdAt: new Date(0).toISOString(), preparation: [], readiness: [], candidateNormalization: [],
+  requiredFinalGates: [{ command: profileGate, purpose: "full validation", expectedMutations: "none", networkAccess: false, lifecycleScripts: false }],
+};
 
 const reservedFinalPlan = structuredClone(plan);
 reservedFinalPlan.implementationItems.push({
@@ -63,7 +68,14 @@ const tier = (provider, model, status = "available") => ({ provider, model, thin
 const tierPlan = { tier1: tier("local", "one"), tier2: { ...tier("local", "two", "unavailable"), fallback: "tier1" }, tier2Fallback: tier("local", "fallback") };
 
 assert(validateImplementationPlan(plan).ok, "plan v3 rejected");
-assert(validateImplementationDetailsArtifact(details, { planIdentity, planIds: ["feature"] }).ok, "details v5 rejected");
+assert(validateImplementationDetailsArtifact(details, { planIdentity, planIds: ["feature"], profile }).ok, "details v5 rejected");
+for (const [label, duplicateDetails] of [
+  ["node", { ...structuredClone(details), items: [{ ...structuredClone(details.items[0]), validationCommands: [{ ...profileGate, env: { FIRST: "1", SECOND: "2" } }] }] }],
+  ["packet-final", { ...structuredClone(details), finalValidationCommands: [profileGate] }],
+]) {
+  const result = validateImplementationDetailsArtifact(duplicateDetails, { planIdentity, planIds: ["feature"], profile });
+  assert(!result.ok && result.errors.some((error) => error.includes("requiredFinalGates[0]")) && result.errors.some((error) => error.includes("focused task-specific check") && error.includes("resubmit")), `${label} profile-gate duplicate was admitted or lacked correction guidance`);
+}
 const packetNormalization = { ...structuredClone(details), candidateNormalizationCommands: [] };
 assert(!validateImplementationDetailsArtifact(packetNormalization, { planIdentity, planIds: ["feature"] }).ok, "details v5 admitted packet-owned normalization");
 const perItemNormalization = structuredClone(details); perItemNormalization.items[0].candidateNormalizationCommands = [];

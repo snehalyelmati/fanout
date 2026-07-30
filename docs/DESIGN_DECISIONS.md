@@ -1,5 +1,13 @@
 # Design Decisions
 
+## 2026-07-30
+
+### Keep project-wide validation out of packet task checks
+
+Decision: Phase B receives the exact approved Project Execution Profile and treats its preparation, readiness, candidate normalization, and required final gates as already guaranteed. Ordinary-node validation uses the narrowest meaningful checks covering that node's owned changes, retaining broader scope for shared infrastructure, configuration, build, test-harness, and similarly wide-impact work, while packet-final validation contains only additional task-specific integrated checks. Core artifact admission rejects an exact node or packet-final duplicate of a profile final gate only for the submitted Phase B draft, with both command locations and a correction instruction; the Pi planning session remains open for resubmission. Fanout never silently deduplicates submitted command authority.
+
+Reason: The Execa transfer canary repeated `npm test` in the packet-final contract and profile gate, while one ordinary type node selected a broader command than its changed type-test surface required. Supplying the profile closes the documented planning-context gap, draft-only rejection prevents repeated full-suite work without aborting planning, and focused prompt guidance remains ecosystem-independent instead of interpreting package scripts.
+
 ## 2026-07-28
 
 ### Carry advisory Worker summaries only into node validation repair

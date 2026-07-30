@@ -1,10 +1,9 @@
+import { rejects } from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
-import { visibleWidth } from "@earendil-works/pi-tui";
 import { BATCHING_DISCIPLINE_MARKER } from "../packages/fanout-core/src/batching-discipline.ts";
 import {
   activatePlanningTools,
@@ -14,13 +13,8 @@ import {
   submitPlanningArtifact,
 } from "../packages/fanout-pi/src/planning-capabilities.ts";
 import { FANOUT_ORCHESTRATION_MARKER } from "../packages/fanout-pi/src/fanout-plan-orchestration.ts";
-import {
-  appendFanoutReport,
-  FANOUT_EXECUTION_REPORT_ENTRY,
-  FANOUT_PLAN_REPORT_ENTRY,
-  registerFanoutReportPresentation,
-} from "../packages/fanout-pi/src/report-presentation.ts";
 import { publishProjectExecutionProfile } from "../packages/fanout-pi/src/project-execution-profile.ts";
+import { testPlanningPresentation } from "./smoke-planning-presentation.mjs";
 
 const profileIdentity = { path: "project-execution-profile.json", sha256: "a".repeat(64), byteLength: 1 };
 
@@ -28,9 +22,8 @@ const root = mkdtempSync(join(tmpdir(), "fanout-planning-boundary-"));
 try {
   testToolProfile();
   testArtifactSubmission();
-  testReportPresentation();
   await testPlanningLifecycle();
-  await testA15ProviderContext();
+  await testPlanningPresentation(root);
   console.log("planning boundary smoke passed (A15)");
 } finally {
   rmSync(root, { recursive: true, force: true });
@@ -53,7 +46,8 @@ function testArtifactSubmission() {
   mkdirSync(repository);
   const artifactDir = join(artifactRoot, "run-1");
   const submittedProfile = submitPlanningArtifact(phaseState(repository, artifactRoot, artifactDir, "profile"), validProfile(), repository);
-  const state = { ...phaseState(repository, artifactRoot, artifactDir, "implementation"), profileIdentity: submittedProfile.identity };
+  const profile = JSON.parse(readFileSync(submittedProfile.path, "utf8"));
+  const state = { ...phaseState(repository, artifactRoot, artifactDir, "implementation"), approvedProfile: { identity: submittedProfile.identity, profile } };
   const plan = validPlan(artifactDir);
   const submittedPlan = submitPlanningArtifact(state, plan, repository);
   assert(submittedPlan.path === state.implementationPlanPath, "controller did not select the Phase A destination");
@@ -68,6 +62,11 @@ function testArtifactSubmission() {
   writeFileSync(submittedPlan.path, Buffer.concat([acceptedPlanBytes, Buffer.from(" ")]));
   expectThrows(() => submitPlanningArtifact(detailsState, details, repository), /accepted implementation-plan bytes changed/, "mutated accepted Phase A bytes");
   writeFileSync(submittedPlan.path, acceptedPlanBytes);
+  const profileGate = profile.requiredFinalGates[0].command;
+  expectThrows(() => submitPlanningArtifact(detailsState, { ...details, items: details.items.map((item, index) => index ? item : { ...item, validationCommands: [profileGate] }) }, repository), /items\[0\]\.validationCommands\[0\].*requiredFinalGates\[0\].*remove.*focused.*resubmit/, "duplicate node profile gate draft");
+  expectThrows(() => submitPlanningArtifact(detailsState, { ...details, finalValidationCommands: [profileGate] }, repository), /finalValidationCommands\[0\].*requiredFinalGates\[0\].*remove.*focused.*resubmit/, "duplicate packet-final profile gate draft");
+  expectThrows(() => submitPlanningArtifact(detailsState, { ...details, finalValidationCommands: [{ ...profileGate, env: { FIRST: "1", SECOND: "2" } }] }, repository), /finalValidationCommands\[0\].*requiredFinalGates\[0\]/, "duplicate profile gate with reordered environment");
+  assert(!existsSync(state.implementationDetailsPath), "rejected duplicate Phase B draft was published");
   const submittedDetails = submitPlanningArtifact(detailsState, details, repository);
   assert(submittedDetails.path === state.implementationDetailsPath, "controller did not select the Phase B destination");
   expectThrows(() => submitPlanningArtifact(detailsState, plan, repository), /unknown or missing fields/, "wrong-phase artifact");
@@ -83,66 +82,6 @@ function testArtifactSubmission() {
   symlinkSync(outside, linkedRoot, "dir");
   const linkedDir = join(linkedRoot, "run");
   submitPlanningArtifact(phaseState(repository, linkedRoot, linkedDir, "implementation"), plan, repository);
-}
-
-function testReportPresentation() {
-  const reportPath = join(root, "report.md");
-  writeFileSync(reportPath, "PRIVATE_REPORT\n");
-  const registrations = [];
-  const entries = [];
-  const safe = {
-    registerEntryRenderer: (type, renderer) => registrations.push({ type, renderer }),
-    appendEntry: (type, data) => entries.push({ type, data }),
-    sendMessage: () => { throw new Error("context-bearing fallback used"); },
-    sendUserMessage: () => { throw new Error("context-bearing fallback used"); },
-  };
-  assert(registerFanoutReportPresentation(safe), "safe report capabilities were rejected");
-  assert(registrations.map((entry) => entry.type).join(",") === `${FANOUT_PLAN_REPORT_ENTRY},${FANOUT_EXECUTION_REPORT_ENTRY}`, "versioned report renderers were not registered");
-  appendFanoutReport(safe, true, { kind: "planning", reportPath });
-  appendFanoutReport(safe, true, { kind: "execution", reportPath });
-  assert(entries.length === 2 && entries.every((entry) => entry.data.content === "PRIVATE_REPORT\n"), "report entries did not retain artifact-derived data");
-  assert(JSON.stringify(entries.map((entry) => [entry.type, entry.data.schema, Object.keys(entry.data).sort()])) === JSON.stringify([[FANOUT_PLAN_REPORT_ENTRY, "fanout.planning-report", ["content", "schema", "version"]], [FANOUT_EXECUTION_REPORT_ENTRY, "fanout.execution-report", ["content", "schema", "version"]]]), "report entries were not the two closed presentation-only v1 schemas");
-  assert(registrations[0].renderer({ data: entries[0].data }).render(80).join("\n").includes("PRIVATE_REPORT"), "renderer did not use entry.data");
-  const narrowLines = registrations[0].renderer({ data: { ...entries[0].data, content: `Objective: ${"abort scheduling cleanup ".repeat(20)}` } }).render(40);
-  assert(narrowLines.length > 1 && narrowLines.every((line) => visibleWidth(line) <= 40), "planning report renderer exceeded Pi's render width");
-  for (const { width, content } of [{ width: 0, content: "zero" }, { width: 1, content: "✅" }]) {
-    const lines = registrations[0].renderer({ data: { ...entries[0].data, content } }).render(width);
-    assert(lines.every((line) => visibleWidth(line) <= width), `planning report renderer exceeded edge width ${width}`);
-  }
-  for (const invalid of [
-    undefined,
-    { schema: FANOUT_PLAN_REPORT_ENTRY, version: 1 },
-    { schema: FANOUT_PLAN_REPORT_ENTRY, version: 2, content: "future" },
-    { schema: FANOUT_PLAN_REPORT_ENTRY, version: 1, content: "mixed", legacyPath: reportPath },
-    { schema: FANOUT_EXECUTION_REPORT_ENTRY, version: 1, content: "cross-type" },
-  ]) expectThrows(() => registrations[0].renderer({ data: invalid }), /Fanout report/, "planning renderer admitted non-v1 report data");
-  expectThrows(() => registrations[1].renderer({ data: entries[0].data }), /Fanout report schema/, "execution renderer admitted planning report data");
-
-  assert(!registerFanoutReportPresentation({}), "missing report capabilities did not fail closed");
-  assert(!registerFanoutReportPresentation({ appendEntry() {} }), "partial report capabilities did not fail closed");
-  assert(!registerFanoutReportPresentation({ appendEntry() {}, registerEntryRenderer() { throw new Error("registration failed"); } }), "throwing renderer registration did not fail closed");
-  expectThrows(() => appendFanoutReport({ appendEntry() { throw new Error("append failed"); } }, true, { kind: "planning", reportPath }), /append failed/, "throwing report append");
-  expectThrows(() => appendFanoutReport(safe, false, { kind: "planning", reportPath }), /unavailable/, "disabled report presentation");
-}
-
-async function testA15ProviderContext() {
-  const piCli = realpathSync(execFileSync("which", ["pi"], { encoding: "utf8" }).trim());
-  const sessionManagerUrl = pathToFileURL(join(dirname(piCli), "core", "session-manager.js")).href;
-  const { buildSessionContext } = await import(sessionManagerUrl);
-  for (const mode of ["tui", "rpc", "json", "print"]) {
-    const appended = [];
-    const pi = { registerEntryRenderer() {}, appendEntry: (customType, data) => appended.push({ customType, data }) };
-    assert(registerFanoutReportPresentation(pi), `report presentation unavailable in ${mode} mode`);
-    for (const kind of ["planning", "execution"]) {
-      const reportPath = join(root, `${mode}-${kind}-report.md`);
-      writeFileSync(reportPath, `PRIVATE_${mode.toUpperCase()}_${kind.toUpperCase()}_REPORT\n`);
-      appendFanoutReport(pi, true, { kind, reportPath });
-    }
-    const reportEntries = appended.map((entry, index) => ({ type: "custom", id: `report-${mode}-${index}`, parentId: index ? `report-${mode}-${index - 1}` : null, timestamp: "2026-07-13T00:00:00.000Z", ...entry }));
-    const laterProviderRequest = { messages: buildSessionContext(reportEntries).messages };
-    const serialized = JSON.stringify(laterProviderRequest);
-    assert(!serialized.includes(`PRIVATE_${mode.toUpperCase()}`) && !serialized.includes(FANOUT_PLAN_REPORT_ENTRY) && !serialized.includes(FANOUT_EXECUTION_REPORT_ENTRY), `A15 failed in ${mode} mode`);
-  }
 }
 
 async function testPlanningLifecycle() {
@@ -165,7 +104,7 @@ async function testPlanningLifecycle() {
     assert(published ? !current.equals(previous) : current.equals(previous), `${scenario}: active profile publication was not atomic`);
     assert(published ? harness.notifications.some(({ message }) => message.includes("Profile approved")) && harness.messages.at(-1)?.content === "Prepare and submit the Fanout implementation plan." : harness.messages.length === 1, `${scenario}: refresh lifecycle advanced incorrectly: ${JSON.stringify(harness.messages)}`);
   }
-  for (const scenario of ["success", "failure", "unsubmitted-file", "mutated-submission", "mutated-details-submission", "cancellation", "clarification", "queued-transition"]) {
+  for (const scenario of ["success", "failure", "unsubmitted-file", "mutated-submission", "mutated-details-submission", "duplicate-details-resubmission", "cancellation", "clarification", "queued-transition"]) {
       const harness = await extensionHarness(extension, scenario, scenario === "queued-transition" || scenario === "mutated-details-submission");
       const before = harness.handler("before_agent_start");
       const baseTools = [...harness.activeTools];
@@ -180,7 +119,7 @@ async function testPlanningLifecycle() {
     if (scenario === "clarification") assert(gate === undefined, "clarification tool was blocked");
     else assert(gate?.block === true, `${scenario}: blocked tool reached execution`);
 
-    if (scenario === "success" || scenario === "queued-transition" || scenario === "mutated-submission" || scenario === "mutated-details-submission") {
+    if (scenario === "success" || scenario === "queued-transition" || scenario === "mutated-submission" || scenario === "mutated-details-submission" || scenario === "duplicate-details-resubmission") {
       await harness.submit.execute("submit", { artifact: validPlan(artifactDir) }, undefined, undefined, harness.ctx);
     }
     if (scenario === "mutated-submission") writeFileSync(join(artifactDir, "implementation-plan.json"), "{");
@@ -213,6 +152,18 @@ async function testPlanningLifecycle() {
       assert(harness.messages.length === 2, "malformed post-submission Phase B bytes advanced planning");
       const resumed = before({ prompt: "unrelated", systemPrompt: "base" }, harness.ctx);
       assert(!resumed.systemPrompt.includes(FANOUT_ORCHESTRATION_MARKER) && JSON.stringify(harness.activeTools) === JSON.stringify(baseTools), "malformed post-submission Phase B bytes left planning wedged");
+    }
+
+    if (scenario === "duplicate-details-resubmission") {
+      const phaseBPrompt = harness.messages.at(-1);
+      const phaseBStarted = before({ prompt: phaseBPrompt.content, systemPrompt: "base" }, harness.ctx);
+      const duplicate = { ...validDetails(), finalValidationCommands: [profileGateCommand()] };
+      await rejects(() => harness.submit.execute("submit", { artifact: duplicate }, undefined, undefined, harness.ctx), /finalValidationCommands\[0\].*requiredFinalGates\[0\].*remove.*focused.*resubmit/, "duplicate Phase B tool submission");
+      assert(!existsSync(join(artifactDir, "implementation-details.json")), "duplicate Phase B tool submission published an artifact");
+      assert(phaseBStarted.systemPrompt.includes('"projectExecutionProfile"') && phaseBStarted.systemPrompt.includes('"requiredFinalGates"') && phaseBStarted.systemPrompt.includes("full-check") && phaseBStarted.systemPrompt.includes("Do not repeat"), "Phase B omitted exact profile context or validation-scope protocol");
+      await harness.submit.execute("submit", { artifact: validDetails() }, undefined, undefined, harness.ctx);
+      harness.handler("agent_end")({}, harness.ctx);
+      assert(harness.notifications.some(({ message }) => message.includes("Fanout plan ready")), "corrected Phase B draft did not complete the preserved planning session");
     }
 
     if (scenario === "queued-transition") {
@@ -299,7 +250,7 @@ function phaseState(repository, artifactRoot, artifactDir, phase) {
     objective: "Test planning boundary",
     context: { projectArtifactRoot: artifactRoot, planningBase: { headCommit: "1".repeat(40), tree: "1".repeat(40) } },
     metrics: {},
-    profileIdentity,
+    approvedProfile: { identity: profileIdentity, profile: { schema: "fanout.project-execution-profile", version: 1, profileId: "test", createdAt: new Date(0).toISOString(), ...validProfile() } },
     artifactDir,
     projectExecutionProfilePath: join(artifactDir, "project-execution-profile.json"),
     implementationPlanPath: join(artifactDir, "implementation-plan.json"),
@@ -315,12 +266,16 @@ function validPlan(_artifactDir) {
 }
 
 function validProfile() {
-  const declaration = (purpose) => ({ command: { executable: "rtk", args: ["npm", "run", "check"] }, purpose, expectedMutations: "none", networkAccess: false, lifecycleScripts: false });
-  return { preparation: [], readiness: [declaration("Verify project readiness")], candidateNormalization: [], requiredFinalGates: [declaration("Run required final gate")] };
+  const declaration = (command, purpose) => ({ command, purpose, expectedMutations: "none", networkAccess: false, lifecycleScripts: false });
+  return { preparation: [], readiness: [declaration({ executable: "rtk", args: ["npm", "run", "ready"] }, "Verify project readiness")], candidateNormalization: [], requiredFinalGates: [declaration(profileGateCommand(), "Run required final gate")] };
+}
+
+function profileGateCommand() {
+  return { executable: "rtk", args: ["npm", "run", "full-check"], env: { SECOND: "2", FIRST: "1" } };
 }
 
 function validDetails(_state, _objective) {
-  const command = { executable: "rtk", args: ["npm", "run", "check"] };
+  const command = { executable: "rtk", args: ["npm", "run", "focused-check"] };
   return {
     finalValidationCommands: [command],
     items: [{ id: "code", kind: "docs", changes: [{ kind: "modify", target: { resource: { kind: "file", path: "README.md" }, sourcePlanIds: ["code"] }, intent: "Test", anchors: [{ kind: "section", section: "Test" }] }], readDependencies: [], forbiddenWrites: [], validationCommands: [command], advisoryNotes: [] }],
