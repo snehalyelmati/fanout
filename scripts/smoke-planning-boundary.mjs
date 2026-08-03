@@ -1,9 +1,8 @@
 import { rejects } from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
+import { artifactIdentity } from "../packages/fanout-core/src/artifact-identity.ts";
 import { BATCHING_DISCIPLINE_MARKER } from "../packages/fanout-core/src/batching-discipline.ts";
 import {
   activatePlanningTools,
@@ -13,15 +12,14 @@ import {
   submitPlanningArtifact,
 } from "../packages/fanout-pi/src/planning-capabilities.ts";
 import { FANOUT_ORCHESTRATION_MARKER } from "../packages/fanout-pi/src/fanout-plan-orchestration.ts";
-import { publishProjectExecutionProfile } from "../packages/fanout-pi/src/project-execution-profile.ts";
+import { assert, expectThrows, extensionHarness, phaseState, profileGateCommand, validDetails, validPlan, validProfile } from "./planning-boundary-fixtures.mjs";
 import { testPlanningPresentation } from "./smoke-planning-presentation.mjs";
-
-const profileIdentity = { path: "project-execution-profile.json", sha256: "a".repeat(64), byteLength: 1 };
 
 const root = mkdtempSync(join(tmpdir(), "fanout-planning-boundary-"));
 try {
   testToolProfile();
   testArtifactSubmission();
+  testPlanningFilesystemGate();
   await testPlanningLifecycle();
   await testPlanningPresentation(root);
   console.log("planning boundary smoke passed (A15)");
@@ -35,9 +33,9 @@ function testToolProfile() {
   const previous = activatePlanningTools(pi);
   restorePlanningTools(pi, previous);
   assert(JSON.stringify(calls) === JSON.stringify([FANOUT_PLANNING_TOOLS, previous]), "planning profile did not restore the exact prior tools");
-  assert(!planningToolBlockReason("read", true), "read was blocked during planning");
-  assert(planningToolBlockReason("bash", true)?.includes("blocks bash"), "blocked tool did not fail closed");
-  assert(!planningToolBlockReason("bash", false), "normal turns inherited the planning gate");
+  assert(!planningToolBlockReason("read", { path: "." }, {}, root), "read was blocked during planning");
+  assert(planningToolBlockReason("bash", {}, {}, root)?.includes("blocks bash"), "blocked tool did not fail closed");
+  assert(!planningToolBlockReason("bash", {}, undefined, root), "normal turns inherited the planning gate");
 }
 
 function testArtifactSubmission() {
@@ -53,8 +51,8 @@ function testArtifactSubmission() {
   assert(submittedPlan.path === state.implementationPlanPath, "controller did not select the Phase A destination");
   assert(JSON.parse(readFileSync(submittedPlan.path, "utf8")).objective === plan.objective, "Phase A artifact was not atomically published");
 
-  expectThrows(() => submitPlanningArtifact(state, { ...plan, artifactDir: join(root, "wrong-run") }, repository), /unknown or missing fields/, "caller-selected Phase A envelope");
-  expectThrows(() => submitPlanningArtifact(state, { schema: "wrong" }, repository), /unknown or missing fields/, "malformed Phase A");
+  expectThrows(() => submitPlanningArtifact(state, { ...plan, artifactDir: join(root, "wrong-run") }, repository), /additional properties/, "caller-selected Phase A envelope");
+  expectThrows(() => submitPlanningArtifact(state, { schema: "wrong" }, repository), /additional properties|required properties/, "malformed Phase A");
 
 	const details = validDetails(state, plan.objective);
 	const acceptedPlanBytes = readFileSync(submittedPlan.path);
@@ -67,10 +65,14 @@ function testArtifactSubmission() {
   expectThrows(() => submitPlanningArtifact(detailsState, { ...details, finalValidationCommands: [profileGate] }, repository), /finalValidationCommands\[0\].*requiredFinalGates\[0\].*remove.*focused.*resubmit/, "duplicate packet-final profile gate draft");
   expectThrows(() => submitPlanningArtifact(detailsState, { ...details, finalValidationCommands: [{ ...profileGate, env: { FIRST: "1", SECOND: "2" } }] }, repository), /finalValidationCommands\[0\].*requiredFinalGates\[0\]/, "duplicate profile gate with reordered environment");
   assert(!existsSync(state.implementationDetailsPath), "rejected duplicate Phase B draft was published");
-  const submittedDetails = submitPlanningArtifact(detailsState, details, repository);
+  const omittedNotes = structuredClone(details);
+  delete omittedNotes.items[0].advisoryNotes;
+  const submittedDetails = submitPlanningArtifact(detailsState, omittedNotes, repository);
   assert(submittedDetails.path === state.implementationDetailsPath, "controller did not select the Phase B destination");
-  expectThrows(() => submitPlanningArtifact(detailsState, plan, repository), /unknown or missing fields/, "wrong-phase artifact");
-  expectThrows(() => submitPlanningArtifact(detailsState, { ...details, sourcePlanPath: join(root, "wrong-run.json") }, repository), /unknown or missing fields/, "caller-selected Phase B envelope");
+  assert(JSON.parse(readFileSync(submittedDetails.path, "utf8")).items[0].advisoryNotes.length === 0, "omitted Phase B advisoryNotes did not persist canonically as []");
+  expectThrows(() => submitPlanningArtifact(detailsState, { ...details, items: [{ ...details.items[0], advisoryNotes: null }] }, repository), /advisoryNotes/, "null Phase B advisoryNotes");
+  expectThrows(() => submitPlanningArtifact(detailsState, plan, repository), /additional properties|required properties/, "wrong-phase artifact");
+  expectThrows(() => submitPlanningArtifact(detailsState, { ...details, sourcePlanPath: join(root, "wrong-run.json") }, repository), /additional properties/, "caller-selected Phase B envelope");
 
   const repositoryArtifact = join(repository, ".fanout", "run");
   expectThrows(() => submitPlanningArtifact(phaseState(repository, join(repository, ".fanout"), repositoryArtifact, "implementation"), plan, repository), /cannot be submitted into the repository/, "repository destination");
@@ -84,18 +86,53 @@ function testArtifactSubmission() {
   submitPlanningArtifact(phaseState(repository, linkedRoot, linkedDir, "implementation"), plan, repository);
 }
 
+function testPlanningFilesystemGate() {
+  const repository = join(root, "gate-repo");
+  const artifactRoot = join(root, "gate-artifacts");
+  const runDir = join(artifactRoot, "run");
+  mkdirSync(repository); mkdirSync(runDir, { recursive: true });
+  writeFileSync(join(repository, "inside.txt"), "inside\n");
+  writeFileSync(join(runDir, "implementation-details.json"), "{}\n");
+  const outside = join(root, "gate-outside.txt");
+  writeFileSync(outside, "outside\n");
+  symlinkSync(outside, join(repository, "escape.txt"));
+  const detailsPath = join(runDir, "implementation-details.json");
+  const state = {
+    ...phaseState(repository, artifactRoot, runDir, "details"),
+    repairAttempted: true,
+    repairArtifact: { path: detailsPath, realPath: realpathSync(detailsPath), identity: artifactIdentity("implementation-details.json", readFileSync(detailsPath)) },
+  };
+  assert(!planningToolBlockReason("read", { path: "inside.txt" }, state, repository), "repository-relative read was blocked");
+  assert(!planningToolBlockReason("read", { path: join(repository, "inside.txt") }, state, repository), "absolute repository read was blocked");
+  assert(!planningToolBlockReason("grep", { pattern: "inside" }, state, repository), "omitted grep path did not resolve to repository root");
+  assert(planningToolBlockReason("read", { path: "../gate-outside.txt" }, state, repository), "traversal escape was admitted");
+  assert(planningToolBlockReason("read", { path: "escape.txt" }, state, repository), "symlink escape was admitted");
+  assert(planningToolBlockReason("ls", { path: artifactRoot }, state, repository), "artifact-root listing was admitted");
+  assert(!planningToolBlockReason("read", { path: state.implementationDetailsPath }, state, repository), "exact repair artifact was blocked");
+  assert(planningToolBlockReason("ls", { path: dirname(state.implementationDetailsPath) }, state, repository), "repair artifact parent listing was admitted");
+  const alias = join(root, "repair-artifact-alias.json");
+  symlinkSync(detailsPath, alias);
+  assert(planningToolBlockReason("read", { path: alias }, state, repository), "repair artifact alias was admitted");
+  writeFileSync(detailsPath, '{"changed":true}\n');
+  assert(planningToolBlockReason("read", { path: detailsPath }, state, repository), "mutated repair artifact bytes were admitted");
+  rmSync(detailsPath);
+  symlinkSync(outside, detailsPath);
+  assert(planningToolBlockReason("read", { path: detailsPath }, state, repository), "replaced repair artifact symlink was admitted");
+}
+
 async function testPlanningLifecycle() {
   const extension = (await import("../packages/fanout-pi/src/index.ts")).default;
-  const rejectedPreflight = await extensionHarness(extension, "no-model", false, false);
+  const rejectedPreflight = await extensionHarness(root, extension, "no-model", false, false);
   assert(rejectedPreflight.messages.length === 0 && !existsSync(rejectedPreflight.activePointerPath) && rejectedPreflight.notifications.some((entry) => entry.message.includes("prior active packet selection remains invalidated")), "planning preflight rejection left or misreported the prior active selection");
   for (const [scenario, profile, published] of [
     ["refresh-profile-failure", validProfile(), false],
     ["refresh-profile-success", { preparation: [], readiness: [], candidateNormalization: [], requiredFinalGates: [] }, true],
   ]) {
-    const harness = await extensionHarness(extension, scenario, false, true, "--refresh-profile Test planning boundary");
+    const harness = await extensionHarness(root, extension, scenario, false, true, "--refresh-profile Test planning boundary");
     const previous = readFileSync(harness.activeProfilePath);
     const started = harness.handler("before_agent_start")({ prompt: harness.messages[0].content, systemPrompt: "base" }, harness.ctx);
     assert(started.systemPrompt.includes("Project Execution Profile"), `${scenario}: refresh did not enter the profile phase`);
+    assert(harness.submit.parameters.properties.artifact.properties.preparation && !harness.submit.parameters.properties.artifact.properties.implementationItems, `${scenario}: profile did not register its exact submission schema`);
     assert(started.systemPrompt.indexOf("Build and submit the Project Execution Profile") < started.systemPrompt.indexOf(BATCHING_DISCIPLINE_MARKER), `${scenario}: generic batching buried the profile action`);
     await harness.submit.execute("submit", { artifact: profile }, undefined, undefined, harness.ctx);
     await harness.handler("agent_end")({}, harness.ctx);
@@ -105,7 +142,7 @@ async function testPlanningLifecycle() {
     assert(published ? harness.notifications.some(({ message }) => message.includes("Profile approved")) && harness.messages.at(-1)?.content === "Prepare and submit the Fanout implementation plan." : harness.messages.length === 1, `${scenario}: refresh lifecycle advanced incorrectly: ${JSON.stringify(harness.messages)}`);
   }
   for (const scenario of ["success", "failure", "unsubmitted-file", "mutated-submission", "mutated-details-submission", "duplicate-details-resubmission", "cancellation", "clarification", "queued-transition"]) {
-      const harness = await extensionHarness(extension, scenario, scenario === "queued-transition" || scenario === "mutated-details-submission");
+      const harness = await extensionHarness(root, extension, scenario, scenario === "queued-transition" || scenario === "mutated-details-submission");
       const before = harness.handler("before_agent_start");
       const baseTools = [...harness.activeTools];
       const started = before({ prompt: harness.messages[0].content, systemPrompt: scenario === "clarification" ? `base\n\n${BATCHING_DISCIPLINE_MARKER}` : "base" }, harness.ctx);
@@ -177,116 +214,44 @@ async function testPlanningLifecycle() {
       assert(JSON.stringify(harness.activeTools) === JSON.stringify(baseTools), "session switch did not restore the queued Phase B profile");
     }
   }
+  await testPlanningContextIsolation(extension);
 }
 
-async function extensionHarness(extension, scenario, queued, modelAvailable = true, invocation = "Test planning boundary") {
-  const handlers = new Map();
-  const commands = new Map();
-  const tools = new Map();
-  const messages = [];
-  const notifications = [];
-  let streaming = false;
-  const pi = {
-    activeTools: ["read", "bash", "extension_tool"],
-    on: (event, handler) => handlers.set(event, handler),
-    registerCommand: (name, command) => commands.set(name, command),
-    registerTool: (tool) => tools.set(tool.name, tool),
-    registerProvider() {},
-    registerEntryRenderer() {},
-    appendEntry() {},
-    getActiveTools() { return [...this.activeTools]; },
-    setActiveTools(value) { this.activeTools = [...value]; },
-    getThinkingLevel: () => "low",
-    sendUserMessage: (content, options) => {
-      if (streaming && options?.deliverAs !== "followUp") return;
-      messages.push({ content, options, queuedWhileStreaming: streaming });
-    },
-  };
-  process.env.FANOUT_ARTIFACT_DIR = join(root, "extension-artifacts");
-  await extension(pi);
-  const model = { provider: "doubleword-stub", id: "deepseek-v4-flash", name: "stub", contextWindow: 100000, maxTokens: 1000 };
-  const ctx = {
-    cwd: join(root, `lifecycle-${scenario}`), mode: "tui", hasUI: true, model: modelAvailable ? model : undefined,
-    modelRegistry: { getAll: () => [model] }, isIdle: () => !queued,
-    ui: { notify: (message, level) => notifications.push({ message, level }), setStatus() {}, confirm: async () => scenario.startsWith("refresh-profile") },
-  };
-  mkdirSync(ctx.cwd, { recursive: true });
-  execFileSync("git", ["init", "-q"], { cwd: ctx.cwd });
-  execFileSync("git", ["config", "user.email", "fanout@example.invalid"], { cwd: ctx.cwd });
-  execFileSync("git", ["config", "user.name", "Fanout Test"], { cwd: ctx.cwd });
-  writeFileSync(join(ctx.cwd, "README.md"), "# Test\n");
-  execFileSync("git", ["add", "README.md"], { cwd: ctx.cwd });
-  execFileSync("git", ["commit", "-qm", "fixture"], { cwd: ctx.cwd });
-  const projectId = `${basename(ctx.cwd)}-${createHash("sha1").update(resolve(ctx.cwd)).digest("hex").slice(0, 12)}`;
-  const activePointerPath = join(process.env.FANOUT_ARTIFACT_DIR, projectId, "active-packet.json");
-  const projectArtifactRoot = dirname(activePointerPath);
-  const activeProfilePath = join(projectArtifactRoot, "active-profile.json");
-  publishProjectExecutionProfile({ schema: "fanout.project-execution-profile", version: 1, profileId: "test", createdAt: new Date(0).toISOString(), ...validProfile() }, projectArtifactRoot, activeProfilePath);
-  mkdirSync(dirname(activePointerPath), { recursive: true });
-  writeFileSync(activePointerPath, '{"legacy":"selection"}\n');
-  await commands.get("fanout-plan").handler(invocation, ctx);
-  assert(!existsSync(activePointerPath), `${scenario}: /fanout-plan did not invalidate the prior active selection before planning`);
-  if (modelAvailable) assert(messages[0]?.content === (invocation.startsWith("--refresh-profile") ? "Build and submit the Fanout Project Execution Profile." : "Prepare and submit the Fanout implementation plan."), `${scenario}: initial planning trigger was not phase-scoped`);
-  return {
-    get activeTools() { return pi.activeTools; },
-    messages, notifications, activePointerPath, activeProfilePath, ctx, submit: tools.get("fanout_submit_artifact"),
-    handler(event) {
-      const value = handlers.get(event);
-      if (!value) throw new Error(`missing ${event} handler`);
-      if (event !== "agent_end") return value;
-      return (...args) => {
-        streaming = true;
-        try { return value(...args); } finally { streaming = false; }
-      };
-    },
-  };
-}
+async function testPlanningContextIsolation(extension) {
+  const prior = [
+    { role: "user", content: "Superseded request" },
+    { role: "assistant", content: [{ type: "text", text: "Earlier answer" }] },
+    { role: "user", content: "Initiating objective context" },
+    { role: "assistant", content: [{ type: "text", text: "Acknowledged" }] },
+  ];
+  const explicit = await extensionHarness(root, extension, "context-explicit", false, true, "Explicit objective", prior);
+  explicit.handler("before_agent_start")({ prompt: explicit.messages[0].content, systemPrompt: "base" }, explicit.ctx);
+  assert(explicit.submit.parameters.properties.artifact.properties.implementationItems && !explicit.submit.parameters.properties.artifact.properties.items, "Phase A did not register its exact submission schema");
+  let filtered = explicit.handler("context")({ messages: structuredClone(explicit.sessionMessages) }, explicit.ctx).messages;
+  assert(filtered.length === 1 && filtered[0].content === "Prepare and submit the Fanout implementation plan.", "explicit /fanout-plan retained earlier conversation");
+  assert(Buffer.byteLength(JSON.stringify(filtered)) < Buffer.byteLength(JSON.stringify(explicit.sessionMessages)), "explicit planning context did not shrink deterministically");
+  explicit.sessionMessages.push({ role: "assistant", content: [
+    { type: "toolCall", id: "batched-read", name: "read", arguments: { path: "README.md" } },
+    { type: "toolCall", id: "batched-submit", name: "fanout_submit_artifact", arguments: { artifact: validPlan() } },
+  ] });
+  const batched = explicit.handler("tool_call")({ toolName: "fanout_submit_artifact", toolCallId: "batched-submit", input: { artifact: validPlan() } }, explicit.ctx);
+  assert(batched?.block === true, "batched planning submission was admitted");
+  explicit.sessionMessages.push({ role: "assistant", content: [{ type: "toolCall", id: "lone-submit", name: "fanout_submit_artifact", arguments: { artifact: validPlan() } }] });
+  const lone = explicit.handler("tool_call")({ toolName: "fanout_submit_artifact", toolCallId: "lone-submit", input: { artifact: validPlan() } }, explicit.ctx);
+  assert(lone === undefined, "lone planning submission was blocked");
+  const submitted = await explicit.submit.execute("submit", { artifact: validPlan() }, undefined, undefined, explicit.ctx);
+  assert(submitted.terminate === true, "successful planning submission was not terminating");
+  assert((submitted.terminate ? 1 : 2) === 1, "successful submission retained the deterministic post-submit provider call");
+  await explicit.handler("agent_end")({}, explicit.ctx);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  explicit.handler("before_agent_start")({ prompt: explicit.messages.at(-1).content, systemPrompt: "base" }, explicit.ctx);
+  assert(explicit.submit.parameters.properties.artifact.properties.items && !explicit.submit.parameters.properties.artifact.properties.objective, "Phase B did not register its exact submission schema");
+  filtered = explicit.handler("context")({ messages: structuredClone(explicit.sessionMessages) }, explicit.ctx).messages;
+  assert(filtered.length === 1 && filtered[0].content.startsWith("Ground the accepted Phase A plan"), "Phase B retained Phase A messages or tool results");
+  assert(Buffer.byteLength(JSON.stringify(filtered)) < Buffer.byteLength(JSON.stringify(explicit.sessionMessages)), "Phase B serialized context did not shrink deterministically");
 
-function phaseState(repository, artifactRoot, artifactDir, phase) {
-  return {
-    phase,
-    runId: "run-1",
-    invocation: "test",
-    objective: "Test planning boundary",
-    context: { projectArtifactRoot: artifactRoot, planningBase: { headCommit: "1".repeat(40), tree: "1".repeat(40) } },
-    metrics: {},
-    approvedProfile: { identity: profileIdentity, profile: { schema: "fanout.project-execution-profile", version: 1, profileId: "test", createdAt: new Date(0).toISOString(), ...validProfile() } },
-    artifactDir,
-    projectExecutionProfilePath: join(artifactDir, "project-execution-profile.json"),
-    implementationPlanPath: join(artifactDir, "implementation-plan.json"),
-    implementationDetailsPath: join(artifactDir, "implementation-details.json"),
-  };
-}
-
-function validPlan(_artifactDir) {
-  return {
-    objective: "Test planning boundary", userContext: [], discoveredRepoFacts: [], assumptions: [],
-    implementationItems: [{ id: "code", goals: ["Test"], writeResources: [{ kind: "file", path: "README.md" }], readResources: [], forbiddenWrites: [], semanticReviewCriteria: ["works"], advisoryNotes: [{ kind: "rationale", reference: "code", text: "Test" }] }],
-  };
-}
-
-function validProfile() {
-  const declaration = (command, purpose) => ({ command, purpose, expectedMutations: "none", networkAccess: false, lifecycleScripts: false });
-  return { preparation: [], readiness: [declaration({ executable: "rtk", args: ["npm", "run", "ready"] }, "Verify project readiness")], candidateNormalization: [], requiredFinalGates: [declaration(profileGateCommand(), "Run required final gate")] };
-}
-
-function profileGateCommand() {
-  return { executable: "rtk", args: ["npm", "run", "full-check"], env: { SECOND: "2", FIRST: "1" } };
-}
-
-function validDetails(_state, _objective) {
-  const command = { executable: "rtk", args: ["npm", "run", "focused-check"] };
-  return {
-    finalValidationCommands: [command],
-    items: [{ id: "code", kind: "docs", changes: [{ kind: "modify", target: { resource: { kind: "file", path: "README.md" }, sourcePlanIds: ["code"] }, intent: "Test", anchors: [{ kind: "section", section: "Test" }] }], readDependencies: [], forbiddenWrites: [], validationCommands: [command], advisoryNotes: [] }],
-  };
-}
-
-function expectThrows(fn, pattern, label) {
-  try { fn(); } catch (error) { if (pattern.test(String(error))) return; throw error; }
-  throw new Error(`${label} did not throw`);
-}
-
-function assert(condition, message) {
-  if (!condition) throw new Error(message);
+  const implicit = await extensionHarness(root, extension, "context-implicit", false, true, "", prior);
+  implicit.handler("before_agent_start")({ prompt: implicit.messages[0].content, systemPrompt: "base" }, implicit.ctx);
+  filtered = implicit.handler("context")({ messages: structuredClone(implicit.sessionMessages) }, implicit.ctx).messages;
+  assert(filtered.length === 2 && filtered[0].role === "user" && filtered[0].content === "Initiating objective context" && filtered[1].content === "Prepare and submit the Fanout implementation plan.", "implicit /fanout-plan retained more than its initiating user request");
 }

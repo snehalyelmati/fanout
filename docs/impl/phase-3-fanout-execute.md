@@ -6,7 +6,7 @@ The coordinated caller cutover is implemented with focused offline coverage. It 
 
 ## Executable generation
 
-`/fanout-execute` admits only active pointer v2 referencing packet v7, whose exact top-level profile identity must match active Project Execution Profile v1. Packet v7 embeds work-contract v3 nodes and binds plan v3/details v5, planning identity, and platform. Runtime authority is event v5 carrying Attempt Outcome v5; `execution-run.json` is projection v6; final-validation evidence is v2; presentation data remains v1. Older authority requires replanning and older execution evidence is descriptive Legacy data.
+`/fanout-execute` admits only active pointer v2 referencing packet v8, whose exact top-level profile identity must match active Project Execution Profile v1. Packet v8 embeds work-contract v3 nodes and binds plan v3/details v6, planning identity, and platform. Runtime authority is event v5 carrying Attempt Outcome v5; `execution-run.json` is projection v6; final-validation evidence is v2; presentation data remains v1. Details v5 and packet v7 require replanning; older execution evidence is descriptive Legacy data.
 
 Legacy, mixed, profile-mismatched, or shared-path configurations fail before model allocation. No runtime component migrates or partially accepts old artifacts.
 

@@ -27,7 +27,7 @@ Submit this body once with `fanout_submit_artifact`; output no envelope fields o
 }
 ```
 
-Use literal canonical repository-relative file/directory paths. `writeResources` define maximum authority; declare only genuine typed reads. Put other dependencies in advisory notes (`rationale`, `risk`, `validation-intent`, `constraint`, or `context`).
+The submission tool schema is the structural authority. Use literal canonical repository-relative file/directory paths. `writeResources` define maximum authority; declare only genuine typed reads. Put other dependencies in advisory notes (`rationale`, `risk`, `validation-intent`, `constraint`, or `context`), and submit `advisoryNotes: []` when none apply.
 
 Choose implementation-item boundaries by independent authorability, acceptability, and repairability. First keep together changes that must be accepted or repaired together: when production and behavioral tests cannot be accepted or repaired independently, keep them in one item.
 

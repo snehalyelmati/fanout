@@ -3,7 +3,7 @@ import { validateWorkContractNodes, type WorkContractGraph } from "./work-contra
 import { type WorkContract, type WorkContractIssue } from "./work-contract.ts";
 
 export const EXECUTION_PACKET_SCHEMA = "fanout.execution-packet";
-export const EXECUTION_PACKET_VERSION = 7;
+export const EXECUTION_PACKET_VERSION = 8;
 export const ACTIVE_PACKET_SCHEMA = "fanout.active-packet";
 
 export type TierName = "tier1" | "tier2";

@@ -17,7 +17,7 @@ import { publishProjectExecutionProfile } from "../packages/fanout-pi/src/projec
 import { capturePlanningBase, fullGitVisibleTree } from "../packages/fanout-pi/src/repository-identity.ts";
 
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
-const root = mkdtempSync(join(tmpdir(), "fanout-v7-execute-"));
+const root = mkdtempSync(join(tmpdir(), "fanout-v8-execute-"));
 try {
   const repo = join(root, "repo"); const artifacts = join(root, "artifacts"); const runDir = join(artifacts, "plan");
   mkdirSync(repo); mkdirSync(runDir, { recursive: true });
@@ -40,7 +40,7 @@ try {
   const plan = { schema: "fanout.implementation-plan", version: 3, planId: "p", createdAt: new Date(0).toISOString(), planningHost: { platform: process.platform }, planningBase: base, profile: publishedDefaultProfile.identity, objective: "Add x", userContext: [], discoveredRepoFacts: [], assumptions: [], implementationItems: [{ id: "x", goals: ["Add x"], writeResources: [{ kind: "file", path: "x.ts" }], readResources: [], forbiddenWrites: [], semanticReviewCriteria: ["x exists"], advisoryNotes: [] }] };
   const planIdentity = artifactIdentity("implementation-plan.json", Buffer.from(JSON.stringify(plan)));
   const command = { executable: process.execPath, args: ["-e", "if (require('node:fs').readFileSync('x.ts','utf8') !== 'export const x = 1;\\n') process.exit(1)"] };
-  const details = { schema: "fanout.implementation-details", version: 5, detailsId: "p", createdAt: new Date(0).toISOString(), plan: planIdentity, items: [{ id: "x", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "x.ts" }, sourcePlanIds: ["x"] }, contentIntent: "x" }], readDependencies: [], forbiddenWrites: [], validationCommands: [command], advisoryNotes: [] }], finalValidationCommands: [command] };
+  const details = { schema: "fanout.implementation-details", version: 6, detailsId: "p", createdAt: new Date(0).toISOString(), plan: planIdentity, items: [{ id: "x", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "x.ts" }, sourcePlanIds: ["x"] }, contentIntent: "x" }], readDependencies: [], validationCommands: [command], advisoryNotes: [] }], finalValidationCommands: [command] };
   const detailsIdentity = artifactIdentity("implementation-details.json", Buffer.from(JSON.stringify(details)));
   const summary = { provider: "doubleword-stub", model: "deepseek-v4-flash", thinking: "off", source: "test", status: "available", reason: "test" };
   const compiled = compileExecutionPacket({ implementationPlan: plan, implementationDetails: details, planIdentity, detailsIdentity, tierPlan: { tier1: summary, tier2: { ...summary, status: "unavailable", fallback: "tier1" }, tier2Fallback: summary }, runtimePolicy: { maxConcurrency: 2, failFast: false, fallbackAllowed: true }, createdAt: new Date(0).toISOString() });
@@ -711,13 +711,13 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const fusedPlanIdentity = artifactIdentity("fused-execution-plan.json", Buffer.from(JSON.stringify(fusedPlan)));
   const fusedDetails = {
     schema: "fanout.implementation-details",
-    version: 5,
+    version: 6,
     detailsId: "fused-execution",
     createdAt: new Date(0).toISOString(),
     plan: fusedPlanIdentity,
     items: [
-      { id: "fused-x", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "x.ts" }, sourcePlanIds: ["fused-x"] }, contentIntent: "x" }], readDependencies: [{ resource: { kind: "file", path: "y.ts" }, timing: "baseline-context", timingSource: "phase-b", sourcePlanIds: ["fused-x"], reason: "shared context" }], forbiddenWrites: [], validationCommands: [xValidation], advisoryNotes: [] },
-      { id: "fused-y", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "y.ts" }, sourcePlanIds: ["fused-y"] }, contentIntent: "y" }], readDependencies: [{ resource: { kind: "file", path: "x.ts" }, timing: "post-change-required", timingSource: "phase-b", sourcePlanIds: ["fused-y"], reason: "test implemented x" }], forbiddenWrites: [], validationCommands: [xValidation, yValidation], advisoryNotes: [] },
+      { id: "fused-x", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "x.ts" }, sourcePlanIds: ["fused-x"] }, contentIntent: "x" }], readDependencies: [{ resource: { kind: "file", path: "y.ts" }, timing: "baseline-context", timingSource: "phase-b", sourcePlanIds: ["fused-x"], reason: "shared context" }], validationCommands: [xValidation], advisoryNotes: [] },
+      { id: "fused-y", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "y.ts" }, sourcePlanIds: ["fused-y"] }, contentIntent: "y" }], readDependencies: [{ resource: { kind: "file", path: "x.ts" }, timing: "post-change-required", timingSource: "phase-b", sourcePlanIds: ["fused-y"], reason: "test implemented x" }], validationCommands: [xValidation, yValidation], advisoryNotes: [] },
     ],
     finalValidationCommands: [xValidation, yValidation],
   };

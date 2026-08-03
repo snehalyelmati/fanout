@@ -40,7 +40,7 @@ Fanout should preserve developer velocity by using slower tiers only where laten
 
 ### End-to-end hardening
 
-Status: The current closed generation is Project Execution Profile v1, plan v3, details v5, packet v7, pointer v2, work contract v3, Attempt Outcome v5, final evidence v2, Event v5, Projection v6, and presentation entry v1. It adds isolated profile preparation, cumulative final-repair seeds, exact path-disjoint reconciliation, exact no-progress termination, compiler-owned vertical fusion, profile-aware profiler comparisons, and optional advisory Worker summaries for node validation repair without a schema cutover. Older planning authority requires replanning; older execution evidence remains descriptive Legacy data.
+Status: The current closed generation is Project Execution Profile v1, plan v3, details v6, packet v8, pointer v2, work contract v3, Attempt Outcome v5, final evidence v2, Event v5, Projection v6, and presentation entry v1. Planning now uses canonical TypeBox structures, phase-specific terminating submission tools, phase-isolated provider context, realpath-gated repository inspection, and Phase A-only global forbidden writes. Details v5 and packet v7 require replanning; older execution evidence remains descriptive Legacy data.
 
 Live `/fanout-execute` remains blocked from release until the explicitly authorized macOS p-map canary, fresh review, and repository-owner approval pass for the same immutable commit. Offline readiness does not satisfy those external gates.
 
@@ -58,7 +58,7 @@ Acceptance criteria:
 
 ### Phase 2: Execution packet via `/fanout-plan`
 
-Status: Phase 2B now publishes plan v3/details v5 and compiles work-contract v3 nodes into profile-bound packet v7. A separately approved profile v1 owns preparation, readiness, normalization, and required final gates. Phase B receives that exact profile, keeps node validation focused on owned changes, reserves packet-final commands for additional task-specific integration, and rejects exact profile-gate duplicates as correctable drafts without ending planning. `/fanout-plan --refresh-profile` validates replacement before pointer publication; failed refresh preserves the prior profile. Live canary evidence remains a release gate, not an offline implementation claim.
+Status: Phase 2B now publishes plan v3/details v6 and compiles work-contract v3 nodes into profile-bound packet v8. A separately approved profile v1 owns preparation, readiness, normalization, and required final gates. Phase-specific structural schemas reject malformed submissions before tool execution, while contextual semantic checks retain plan membership, profile-gate, resource, identity, and graph policy. Provider context is isolated by phase without altering session history. Phase A alone owns global forbidden writes; Phase B keeps node validation focused on owned changes and reserves packet-final commands for additional task-specific integration. `/fanout-plan --refresh-profile` validates replacement before pointer publication; failed refresh preserves the prior profile. Live canary evidence remains a release gate, not an offline implementation claim.
 
 P0 prompt-DAG dry-run benchmarking graduated `combined-general-conflict-proof` as the current best DAG prompt candidate across known and heldout tasks. The hardened `/fanout-execute` offline smoke matrix now covers the public dry-run and live seams, repair, integration, final validation, event replay, and cleanup. Treating the prompt as a released runtime default still requires the explicitly authorized macOS p-map canary and repository-owner approval.
 
@@ -80,12 +80,12 @@ Build the smallest useful packet first:
    - Draw item boundaries around independently acceptable and repairable changes, keeping inseparable production behavior and its behavioral tests in one item; declare genuine shared reads without padding for fusion.
    - Do not choose anchors, worker ownership, parallelism, execution dependencies, or tiers in this phase; semantic dependencies are traceability/planning context, not DAG edges.
 4. **Prepare implementation-details artifact**
-   - Ground Phase A items in exact files/resources, stable anchors, edit intent, new-file content shape, read-dependency classification, forbidden changes, and the narrowest meaningful task-specific validation commands for each node's owned changes; shared infrastructure, configuration, build, and test-harness changes may require broader checks.
+   - Ground Phase A items in exact files/resources, stable anchors, edit intent, new-file content shape, read-dependency classification, and the narrowest meaningful task-specific validation commands for each node's owned changes; Phase A remains the sole source of global forbidden writes, while shared infrastructure, configuration, build, and test-harness changes may require broader checks.
    - Treat the exact approved profile as guaranteed: do not repeat its commands, and use packet-final commands only for additional task-specific integrated checks before profile-owned project-wide gates.
    - Reject an exact node or packet-final duplicate of a profile final gate in core artifact admission as a correctable draft; identify both locations and let the Pi controller preserve the planning session for resubmission instead of silently deduplicating.
    - Do not invent contracts/APIs/product scope or write packet/DAG fields.
 5. **Compile canonical work contracts and execution DAG**
-   - Deterministically validate plan v3/details v5, reject missing anchors/source ids/contracts, group overlapping typed changes into packet-v7 work-contract-v3 nodes, derive dependency edges from typed `post-change-required` reads, assign tiers, fuse eligible unique vertical chains, and add the final-validation contract.
+   - Structurally admit plan v3/details v6 through canonical schemas, reject malformed anchors/endpoints/source IDs/commands before semantic compilation, group overlapping typed changes into packet-v8 work-contract-v3 nodes, derive dependency edges from typed `post-change-required` reads, propagate every Phase A ban, assign tiers, fuse eligible unique vertical chains, and add the final-validation contract.
    - Persist no default node, flattened worker packet, or duplicate graph authority.
 6. **Validate the DAG during compilation**
    - Reject cycles, ownerless reads, overlapping ownership contradictions, missing direct-argv validation, malformed semantic criteria, tier-policy violations, and ambiguous read/write overlap.
@@ -130,7 +130,7 @@ Implemented order:
 
 1. **Active packet loader and guardrails**
    - Load the active execution packet prepared by `/fanout-plan`.
-   - Admit only pointer v2 bound to packet v7 and its exact packet-bound profile v1 identity; an orthogonal active-profile refresh does not invalidate an existing packet. Reject legacy or mixed generations before lock creation or mutation.
+   - Admit only pointer v2 bound to packet v8 and its exact packet-bound profile v1 identity; an orthogonal active-profile refresh does not invalidate an existing packet. Reject legacy or mixed generations before lock creation or mutation.
    - Revalidate the profile in a disposable clean worktree before confirmation or model allocation; reject shared-path configuration.
    - Refuse paths outside the project artifact root, exact planning commit/tree/platform drift, unsafe typed resources, unavailable direct validation executables, unavailable worker capability, and non-executable derived graphs.
    - Hold one canonical git-worktree execution lock for the run; never delete an existing lock automatically as stale.
@@ -354,7 +354,7 @@ Design target: two narrower opt-in workflows, documented in [`docs/OPTIMISTIC_DA
 
 The hardened Phase 2 and Phase 3 contracts are implemented. Next work is evidence-driven:
 
-- Measure packet-v7 scheduling against accepted DAG depth, immutable concurrency, typed outcomes, complete accepted metrics, fusion count, reconciliation, and actual Tier 2 wait.
+- Measure packet-v8 scheduling against accepted DAG depth, immutable concurrency, typed outcomes, complete accepted metrics, fusion count, reconciliation, and actual Tier 2 wait.
 - Extend observability only for demonstrated gaps in active planning time, background completion time, late outputs, review latency, or acceptance failures.
 - Keep scheduler changes subordinate to typed work-contract authority, exact transitions, causal events, and fresh final validation.
 - Keep default duplicate implementations deferred until trace-derived evidence shows they are worth the cost.

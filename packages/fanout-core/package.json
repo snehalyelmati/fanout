@@ -19,6 +19,7 @@
     "./final-validation": "./src/final-validation.ts",
     "./fanout-compiler": "./src/fanout-compiler.ts",
     "./observability": "./src/observability.ts",
+    "./planning-artifact-schema": "./src/planning-artifact-schema.ts",
     "./recovery-evidence": "./src/recovery-evidence.ts",
     "./repository-resource": "./src/repository-resource.ts",
     "./validation-command": "./src/validation-command.ts",
@@ -27,5 +28,8 @@
     "./work-contract-graph": "./src/work-contract-graph.ts",
     "./work-contract-views": "./src/work-contract-views.ts",
     "./worker-metrics": "./src/worker-metrics.ts"
+  },
+  "dependencies": {
+    "typebox": "^1.3.10"
   }
 }

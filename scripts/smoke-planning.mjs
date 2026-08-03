@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
-import { BATCHING_DISCIPLINE, BATCHING_DISCIPLINE_MARKER } from "../packages/fanout-core/src/batching-discipline.ts";
+import { BATCHING_DISCIPLINE, BATCHING_DISCIPLINE_MARKER, PLANNING_BATCHING_DISCIPLINE } from "../packages/fanout-core/src/batching-discipline.ts";
 import { IMPLEMENTATION_DETAILS_SCHEMA, IMPLEMENTATION_DETAILS_VERSION, validateImplementationDetailsArtifact } from "../packages/fanout-core/src/fanout-compiler.ts";
+import { DirectArgvCommandSchema, ImplementationDetailsBodySchema, ImplementationPlanBodySchema, planningSchemaErrors } from "../packages/fanout-core/src/planning-artifact-schema.ts";
 import { buildImplementationDetailsPrompt, buildImplementationDetailsRepairPrompt, buildImplementationPlanPrompt, buildProjectExecutionProfilePrompt, createFanoutPlanRun } from "../packages/fanout-pi/src/fanout-plan-orchestration.ts";
 
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
@@ -15,29 +16,36 @@ for (const text of [profile, phaseA, phaseB]) {
 }
 assert(phaseA.includes("writeResources") && phaseA.includes('"kind":"file"'), "Phase A omitted typed resources");
 assert(phaseA.includes("independent authorability, acceptability, and repairability") && phaseA.includes("run a split pass") && phaseA.includes("every remaining independently authorable and repairable change") && phaseA.includes("Do not split by file count, file category, or step count alone"), "Phase A does not preserve the repair-safe parallel split pass");
-assert(BATCHING_DISCIPLINE_MARKER.includes("every independent tool call") && BATCHING_DISCIPLINE.includes("edits or writes to disjoint files") && BATCHING_DISCIPLINE.includes("same-file"), "batching discipline does not permit safe disjoint-file mutations");
+assert(BATCHING_DISCIPLINE_MARKER.includes("every independent tool call") && BATCHING_DISCIPLINE.includes("edits or writes to disjoint files") && BATCHING_DISCIPLINE.includes("same-file"), "normal batching discipline does not permit safe disjoint-file mutations");
+assert(PLANNING_BATCHING_DISCIPLINE.includes("read-only") && PLANNING_BATCHING_DISCIPLINE.includes("fanout_submit_artifact alone") && !/edit|write|shell command|validation execution/i.test(PLANNING_BATCHING_DISCIPLINE), "planning batching guidance retained unavailable capabilities or omitted lone submission");
 assert(phaseA.includes("Do not create a `final-validation` item") && phaseA.includes("compiler-owned node"), "Phase A permits duplicate final-validation authority");
 assert(phaseA.includes("packet-global bans") && phaseA.includes("never overlap planned writes"), "Phase A does not explain monotonic forbidden-write scope");
 assert(phaseB.includes('"changes"') && phaseB.includes("direct argv") && phaseB.includes("argument order"), "Phase B omitted typed changes/direct argv");
-assert(phaseB.includes("line-range-hint") && phaseB.includes('"sourcePlanIds"') && phaseB.includes("Unknown fields are rejected"), "Phase B omitted strict nested schema guidance");
+assert(phaseB.includes("`anchors`, never `anchor`") && phaseB.includes("nested endpoints") && phaseB.includes('"sourcePlanIds"') && phaseB.includes("Unknown fields are rejected"), "Phase B omitted anchor/endpoint anti-pattern guidance");
 assert(phaseB.includes("Use `baseline-context` whenever") && phaseB.includes("Use `post-change-required` only") && phaseB.includes("why the planning baseline is insufficient") && phaseB.includes("convenience, precautionary, redundant, and transitive dependencies") && phaseB.includes("concurrently ready"), "Phase B does not preserve baseline-authorable parallelism or reject false edges");
 assert(!phaseB.includes('"candidateNormalizationCommands"') && phaseB.includes("Project Execution Profile"), "Phase B retained profile-owned candidate-normalization authority");
 assert(profile.includes("`candidateNormalization`") && profile.includes("`requiredFinalGates`") && profile.includes("`networkAccess`") && profile.includes("`candidate-owned`") && profile.includes("grants no write authority"), "Project Execution Profile prompt omitted executable authority disclosures");
-assert(phaseB.includes("packet-global bans") && phaseB.includes("never another item's write or worker ownership"), "Phase B does not explain monotonic forbidden-write scope");
+assert(!phaseB.includes('"forbiddenWrites"') && phaseB.includes("Phase A is the sole source of global forbidden writes"), "Phase B retained forbidden-write authority");
+assert(phaseA.includes("advisoryNotes: []") && phaseB.includes('"advisoryNotes": []') && phaseB.includes("null") && phaseB.includes("persisted as `[]`"), "planning prompts omitted explicit empty advisory arrays");
+assert(planningSchemaErrors(DirectArgvCommandSchema, { executable: "rtk", args: [], env: { "BAD-NAME": "x" } }).length > 0, "command schema admitted an invalid environment key");
 
 const context = { projectArtifactRoot: "/tmp/fanout" };
 const run = createFanoutPlanRun("Typed plan", context, new Date("2026-07-14T00:00:00.000Z"));
 const planIdentity = { path: "implementation-plan.json", sha256: "a".repeat(64), byteLength: 1 };
 const detailsIdentity = { path: "implementation-details.json", sha256: "b".repeat(64), byteLength: 1 };
+const planBodyMatch = /```json\n([\s\S]*?)\n```/.exec(phaseA);
+assert(planBodyMatch && planningSchemaErrors(ImplementationPlanBodySchema, JSON.parse(planBodyMatch[1])).length === 0, "Phase A JSON body example is structurally invalid");
 const detailsBodyMatch = /Submit exactly one body containing only:\s*```json\n([\s\S]*?)\n```/.exec(phaseB);
 assert(detailsBodyMatch, "Phase B omitted its JSON body example");
+const detailsBody = JSON.parse(detailsBodyMatch[1]);
+assert(planningSchemaErrors(ImplementationDetailsBodySchema, detailsBody).length === 0, "Phase B JSON body example is structurally invalid");
 const detailsExample = validateImplementationDetailsArtifact({
   schema: IMPLEMENTATION_DETAILS_SCHEMA,
   version: IMPLEMENTATION_DETAILS_VERSION,
   detailsId: "details-example",
   createdAt: new Date(0).toISOString(),
   plan: planIdentity,
-  ...JSON.parse(detailsBodyMatch[1]),
+  ...detailsBody,
 }, { planIdentity, planIds: ["stable-source-id"] });
 assert(detailsExample.ok, `Phase B JSON body example is invalid: ${detailsExample.errors.join("; ")}`);
 const acceptedPlan = { objective: "Typed plan", profile: { path: "project-execution-profile.json", sha256: "c".repeat(64), byteLength: 1 }, implementationItems: [] };
@@ -52,6 +60,6 @@ assert(detailsPrompt.includes(planIdentity.sha256) && detailsPrompt.includes(acc
 assert(detailsPrompt.includes("post-change-required") && detailsPrompt.includes('"readResource"'), "typed Phase B read checklist missing");
 const repairPrompt = buildImplementationDetailsRepairPrompt("Typed plan", {}, detailsRun, [{ code: "planned-read-not-grounded", message: "diagnostic wording", path: "planned[0].readResources[0]" }]);
 assert(repairPrompt.startsWith("Repair the compiler-reported read-classification failures") && !repairPrompt.includes("Ground the verified") && !repairPrompt.includes("active-packet.json"), "repair prompt does not prioritize its repair action");
-assert(repairPrompt.includes(detailsIdentity.sha256) && repairPrompt.includes(planIdentity.sha256) && repairPrompt.includes('"code": "planned-read-not-grounded"') && repairPrompt.includes('"path": "planned[0].readResources[0]"') && !repairPrompt.includes("planned-read-not-grounded:"), "repair prompt lost identities or flattened structured compiler issues");
+assert(repairPrompt.includes(detailsIdentity.sha256) && repairPrompt.includes(planIdentity.sha256) && repairPrompt.includes('"code": "planned-read-not-grounded"') && repairPrompt.includes('"path": "planned[0].readResources[0]"') && !repairPrompt.includes("planned-read-not-grounded:") && !repairPrompt.includes("forbidden writes"), "repair prompt lost identities, flattened issues, or retained Phase B forbidden writes");
 
-console.log("planning prompt smoke passed (profile v1/plan v3/details v5 controller envelopes)");
+console.log("planning prompt smoke passed (profile v1/plan v3/details v6 controller envelopes)");
