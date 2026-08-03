@@ -1,6 +1,8 @@
 import { resolveExecutionEvidence, type ExecutionRunProjection } from "../../fanout-core/src/execution-projection";
 import type { ArtifactIdentity } from "../../fanout-core/src/artifact-identity";
 import { deepFreeze } from "../../fanout-core/src/contract-value";
+import { EXECUTION_PACKET_VERSION } from "../../fanout-core/src/execution-packet";
+import { IMPLEMENTATION_DETAILS_VERSION, IMPLEMENTATION_PLAN_VERSION } from "../../fanout-core/src/fanout-compiler";
 import { FINAL_VALIDATION_NODE_ID } from "../../fanout-core/src/work-contract-graph";
 import { requireExecutionRun, type CatalogAdmission, type CatalogExecutionRun, type CatalogSnapshot, type CatalogWorkflowLineage, type SourceReference } from "./catalog";
 
@@ -140,9 +142,9 @@ function planningWorkspace(snapshot: CatalogSnapshot, lineage: CatalogWorkflowLi
 
 function planningArtifactGeneration(lineage: CatalogWorkflowLineage): string {
 	if (lineage.admission === "Legacy") return "Legacy planning generation";
-	if (lineage.packet) return "Planning v3 / Details v5 / Packet v7";
-	if (lineage.planningRun?.details) return "Planning v3 / Details v5";
-	if (lineage.planningRun?.plan) return "Planning v3";
+	if (lineage.packet) return `Planning v${IMPLEMENTATION_PLAN_VERSION} / Details v${IMPLEMENTATION_DETAILS_VERSION} / Packet v${EXECUTION_PACKET_VERSION}`;
+	if (lineage.planningRun?.details) return `Planning v${IMPLEMENTATION_PLAN_VERSION} / Details v${IMPLEMENTATION_DETAILS_VERSION}`;
+	if (lineage.planningRun?.plan) return `Planning v${IMPLEMENTATION_PLAN_VERSION}`;
 	return "Unverifiable planning generation";
 }
 

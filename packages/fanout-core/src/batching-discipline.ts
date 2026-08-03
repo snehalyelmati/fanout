@@ -1,5 +1,19 @@
 export const BATCHING_DISCIPLINE_MARKER = "Batch every independent tool call needed for the next decision into one assistant turn.";
 
+export const PLANNING_BATCHING_DISCIPLINE = `${BATCHING_DISCIPLINE_MARKER}
+
+Before using tools, identify all independent repository evidence needed for the next planning decision.
+
+Batch independent read-only actions in the same assistant turn:
+- read related files together
+- grep related symbols and callers together
+- inspect configs, manifests, tests, and docs together
+- combine independent repository searches and listings
+
+Do not spend another model turn requesting an obvious sibling file, caller search, manifest, or nearby test. Keep dependent actions separate and take another tool turn only when prior results reveal a real ambiguity or new branch of investigation.
+
+Call fanout_submit_artifact alone, never in the same assistant message as another tool call.`;
+
 export const BATCHING_DISCIPLINE = `${BATCHING_DISCIPLINE_MARKER}
 
 Before using tools, identify all independent evidence needed for the next decision.

@@ -62,8 +62,8 @@ function currentLineage(artifactRoot: string, id = "packet"): { packetIdentity: 
 	const planIdentity = artifactIdentity("implementation-plan.json", planBytes);
 	const command = { executable: "node", args: ["--version"] };
 	const details = {
-		schema: "fanout.implementation-details", version: 5, detailsId: id, createdAt: "2026-07-19T00:01:00.000Z", plan: planIdentity,
-		items: [{ id: "work", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "src/work.ts" }, sourcePlanIds: ["work"] }, contentIntent: "work" }], readDependencies: [], forbiddenWrites: [], validationCommands: [command], advisoryNotes: [] }],
+		schema: "fanout.implementation-details", version: 6, detailsId: id, createdAt: "2026-07-19T00:01:00.000Z", plan: planIdentity,
+		items: [{ id: "work", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "src/work.ts" }, sourcePlanIds: ["work"] }, contentIntent: "work" }], readDependencies: [], validationCommands: [command], advisoryNotes: [] }],
 		finalValidationCommands: [command],
 	};
 	const detailsBytes = Buffer.from(`${JSON.stringify(details)}\n`);
@@ -110,6 +110,14 @@ test("catalog narrowly discovers planning, legacy, invalid, and unverifiable evi
 	write(planningPath, plan("old"));
 	const planningBytes = readFileSync(planningPath);
 	write(join(artifactRoot, "legacy", "implementation-plan.json"), plan("old", 1));
+	const legacyDetailsPlanPath = join(artifactRoot, "legacy-details", "implementation-plan.json");
+	write(legacyDetailsPlanPath, plan("legacy-details"));
+	const legacyDetailsPlanIdentity = artifactIdentity("implementation-plan.json", readFileSync(legacyDetailsPlanPath));
+	write(join(artifactRoot, "legacy-details", "implementation-details.json"), { schema: "fanout.implementation-details", version: 5, detailsId: "legacy-details", createdAt: new Date(0).toISOString(), plan: legacyDetailsPlanIdentity, items: [], finalValidationCommands: [] });
+	currentLineage(artifactRoot, "legacy-packet");
+	const legacyPacketPath = join(artifactRoot, "legacy-packet", "execution-packet.json");
+	const legacyPacket = JSON.parse(readFileSync(legacyPacketPath, "utf8"));
+	write(legacyPacketPath, { ...legacyPacket, version: 7 });
 	write(join(artifactRoot, "invalid", "implementation-plan.json"), "{");
 	write(join(artifactRoot, "invalid", "implementation-details.json"), { schema: "fanout.implementation-details", version: 3 });
 	write(join(artifactRoot, "projection-only", "executions", "run-projection", "execution-run.json"), {
@@ -133,6 +141,8 @@ test("catalog narrowly discovers planning, legacy, invalid, and unverifiable evi
 		["escaped", "Invalid"],
 		["invalid", "Invalid"],
 		["legacy", "Legacy"],
+		["legacy-details", "Legacy"],
+		["legacy-packet", "Legacy"],
 		["planning-only", "Planning-only"],
 	]);
 	expect(snapshot.executionRuns.map(({ id, admission }) => [id, admission])).toEqual([

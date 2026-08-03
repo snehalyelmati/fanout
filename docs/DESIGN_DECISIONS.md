@@ -1,5 +1,17 @@
 # Design Decisions
 
+## 2026-08-03
+
+### Cut planning structures and context to one fail-closed generation
+
+Decision: The only executable planning generation is now Project Execution Profile v1, implementation plan v3, implementation details v6, work contract v3, execution packet v8, and active pointer v2. Canonical Pi-independent TypeBox schemas define planning bodies and persisted artifacts, drive the phase-specific `fanout_submit_artifact` parameters, and run before contextual semantic checks. Details v5 and packet v7 are Legacy and receive no adapter or migration.
+
+Phase A is the sole planning source of global forbidden writes. Phase B grounds changes, typed reads, task validation, and advisory context without repeating bans; its omitted model-body `advisoryNotes` canonicalizes to `[]`, while persisted details require the field. The compiler propagates every Phase A ban with provenance into ordinary and final Work Contracts.
+
+Each successful lone submission returns a terminating tool result; a submission batched with another tool is rejected before execution, while invalid submissions throw and remain correctable in the same phase. Provider context retains only the current phase suffix and controller-built inputs, preserving only the initiating user request for implicit objectives. Planning read/search/list calls resolve real filesystem identities and admit repository targets only, except for the exact accepted details path, real identity, and bytes during compiler repair. The session file and visible transcript remain intact.
+
+Reason: Structural retries, inherited cross-phase transcripts, post-submit continuation, and historical-artifact reads consumed paid turns without adding semantic judgment. One schema source, one global-ban owner, phase-local provider context, and realpath admission remove those traps while preserving Pi's normal agent loop and existing semantic authority checks.
+
 ## 2026-07-30
 
 ### Cut ownership-retry routing to a new execution generation

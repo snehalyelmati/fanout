@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { artifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
 import { buildRequiredReadClassifications, compileExecutionPacket, validateImplementationDetailsArtifact, validateImplementationPlan } from "../../fanout-core/src/fanout-compiler.ts";
@@ -12,7 +12,7 @@ import {
 	createFanoutPlanRun,
 	type FanoutPhaseState,
 } from "./fanout-plan-orchestration.ts";
-import { activatePlanningTools, FANOUT_SUBMIT_TOOL, planningToolBlockReason, readAcceptedImplementationPlan, restorePlanningTools, submitPlanningArtifact } from "./planning-capabilities.ts";
+import { activatePlanningTools, FANOUT_SUBMIT_TOOL, planningSubmissionBatchBlockReason, planningSubmissionParameters, planningToolBlockReason, readAcceptedImplementationPlan, restorePlanningTools, submitPlanningArtifact } from "./planning-capabilities.ts";
 import {
 	createPlanningMetrics,
 	finishPlanningPhase,
@@ -53,22 +53,7 @@ export class FanoutPlanningController {
 	get active(): FanoutPhaseState | undefined { return this.#started; }
 
 	register(): void {
-		this.#pi.registerTool({
-			name: FANOUT_SUBMIT_TOOL,
-			label: "Submit Fanout planning artifact",
-			description: "Validate and atomically submit the artifact expected by the active Fanout planning phase. The controller selects the run and destination.",
-			parameters: { type: "object", properties: { artifact: {} }, required: ["artifact"], additionalProperties: false } as any,
-			executionMode: "sequential",
-			execute: async (_toolCallId, params: { artifact: unknown }, _signal, _onUpdate, ctx) => {
-				const state = this.#started;
-				if (!state || this.#pending?.runId !== state.runId || this.#pending.phase !== state.phase || this.#pending.acceptedSubmission) throw new Error("No matching Fanout planning phase is awaiting submission");
-				const submitted = submitPlanningArtifact(state, params.artifact, ctx.cwd);
-				const acceptedSubmission = { runId: state.runId, phase: state.phase, path: submitted.path, identity: submitted.identity };
-				this.#pending = { ...this.#pending, acceptedSubmission };
-				this.#started = { ...state, acceptedSubmission };
-				return { content: [{ type: "text" as const, text: `${submitted.phase} artifact accepted: ${submitted.path}` }], details: submitted };
-			},
-		});
+		this.#registerSubmissionTool("profile");
 
 		this.#pi.registerCommand("fanout-plan", {
 			description: "Prepare a decision-complete Fanout execution packet",
@@ -79,6 +64,7 @@ export class FanoutPlanningController {
 				}
 				const parsedInvocation = planningInvocation(args);
 				const invocation = parsedInvocation.objective;
+				const priorMessages = contextMessages(ctx);
 				const model = this.#options.activeModel() ?? ctx.model;
 				const thinking = this.#options.activeThinking() ?? this.#pi.getThinkingLevel();
 				const models = ctx.modelRegistry?.getAll?.();
@@ -112,7 +98,7 @@ export class FanoutPlanningController {
 					}
 				}
 				const phase = approvedProfile ? "implementation" as const : "profile" as const;
-				const state = { phase, invocation, objective: invocation, context, metrics: createPlanningMetrics(), approvedProfile, ...run };
+				const state = { phase, invocation, objective: invocation, context, metrics: createPlanningMetrics(), approvedProfile, objectiveContextMessages: parsedInvocation.implicitObjective ? implicitObjectiveMessages(priorMessages) : [], phaseContextStart: priorMessages.length, ...run };
 				this.#pending = { ...state, systemPrompt: approvedProfile ? buildImplementationPlanPrompt(invocation, context, state) : buildProjectExecutionProfilePrompt(invocation, context, state) };
 				const trigger = approvedProfile ? "Prepare and submit the Fanout implementation plan." : "Build and submit the Fanout Project Execution Profile.";
 				writeJsonl("fanout_plan_start", { planRunId: run.runId, invocation, phase, refreshProfile: parsedInvocation.refreshProfile, artifactRoot: context.artifactRoot, artifactDir: run.artifactDir, projectExecutionProfilePath: run.projectExecutionProfilePath, implementationPlanPath: run.implementationPlanPath, implementationDetailsPath: run.implementationDetailsPath, tierDefaults: context.tierDefaults }, ctx.cwd);
@@ -132,6 +118,7 @@ export class FanoutPlanningController {
 		const prompt = this.#pending.systemPrompt;
 		this.#started = { ...this.#pending, systemPrompt: undefined, acceptedSubmission: undefined };
 		this.#pending = this.#started;
+		this.#registerSubmissionTool(this.#started.phase);
 		this.#toolsBefore = activatePlanningTools(this.#pi);
 		return prompt;
 	}
@@ -156,7 +143,7 @@ export class FanoutPlanningController {
 				const published = publishProjectExecutionProfile(profile, stringField(finished.context.projectArtifactRoot), stringField(finished.context.activeProfilePointerPath));
 				finishPlanningPhase(finished.metrics, "profile");
 				startPlanningPhase(finished.metrics);
-				const implementationState = { ...finished, phase: "implementation" as const, acceptedSubmission: undefined, approvedProfile: { identity: published.identity, profile: published.profile } };
+				const implementationState = { ...finished, phase: "implementation" as const, acceptedSubmission: undefined, approvedProfile: { identity: published.identity, profile: published.profile }, phaseContextStart: contextMessages(ctx).length };
 				this.#pending = { ...implementationState, systemPrompt: buildImplementationPlanPrompt(finished.objective, finished.context, implementationState) };
 				ctx.ui.notify("Project Execution Profile approved; planning implementation.", "info");
 				this.#startTurn(this.#pending, "Prepare and submit the Fanout implementation plan.");
@@ -179,7 +166,7 @@ export class FanoutPlanningController {
 			const requiredReadClassifications = buildRequiredReadClassifications(implementationPlan);
 			finishPlanningPhase(finished.metrics, "implementation");
 			startPlanningPhase(finished.metrics);
-			const detailsState = { ...finished, phase: "details" as const, acceptedSubmission: undefined, planIdentity, acceptedPlan: validation.plan, objective, requiredReadClassifications };
+			const detailsState = { ...finished, phase: "details" as const, acceptedSubmission: undefined, planIdentity, acceptedPlan: validation.plan, objective, requiredReadClassifications, phaseContextStart: contextMessages(ctx).length };
 			this.#pending = { ...detailsState, systemPrompt: buildImplementationDetailsPrompt(objective, finished.context, detailsState, requiredReadClassifications) };
 			writeJsonl("fanout_required_read_classifications", { planRunId: finished.runId, phase: "implementation", objective, artifactDir: finished.artifactDir, count: requiredReadClassifications.length, requiredReadClassifications }, ctx.cwd);
 			ctx.ui.notify("Implementation plan validated; grounding edit details.", "info");
@@ -210,7 +197,8 @@ export class FanoutPlanningController {
 			const compiled = compileExecutionPacket({ implementationPlan, implementationDetails, planIdentity, detailsIdentity, tierPlan: finished.context.resolvedTierPlan, runtimePolicy: { maxConcurrency: positiveIntegerSetting(recordField(finished.context.executionDefaults).maxConcurrency, 2), failFast: false, fallbackAllowed: true }, sequentialReadFallback: finished.repairAttempted === true });
 			writeJsonl("fanout_compiler_validation", { planRunId: finished.runId, phase: "details", artifactDir: finished.artifactDir, policy: "error", repairAttempted: finished.repairAttempted === true, ok: compiled.ok, errors: compiled.errors, warnings: compiled.warnings }, ctx.cwd);
 			if (!compiled.ok && readClassificationFailure(compiled.issues) && !finished.repairAttempted) {
-				this.#pending = { ...finished, systemPrompt: buildImplementationDetailsRepairPrompt(finished.objective, finished.context, finished, compiled.issues, finished.requiredReadClassifications ?? []), acceptedSubmission: undefined, repairAttempted: true };
+				const repairState = { ...finished, acceptedSubmission: undefined, repairAttempted: true, repairArtifact: { path: finished.implementationDetailsPath, realPath: realpathSync(finished.implementationDetailsPath), identity: detailsIdentity } };
+				this.#pending = { ...repairState, systemPrompt: buildImplementationDetailsRepairPrompt(finished.objective, finished.context, repairState, compiled.issues, finished.requiredReadClassifications ?? []) };
 				writeJsonl("fanout_compiler_repair_requested", { planRunId: finished.runId, phase: "details", artifactDir: finished.artifactDir, issues: compiled.issues }, ctx.cwd);
 				ctx.ui.notify("Fanout compiler found ambiguous read overlaps; repairing implementation details.", "info");
 				this.#startTurn(this.#pending, "Repair read-classification failures in implementation-details.json.");
@@ -246,13 +234,39 @@ export class FanoutPlanningController {
 		this.#toolStarts.delete(toolCallId);
 		if (started) recordPlanningToolInterval(started.metrics, started.started, ended);
 	}
-	blockReason(toolName: string): string | undefined { return planningToolBlockReason(toolName, Boolean(this.#started)); }
+	filterContext(messages: unknown[]): unknown[] {
+		const state = this.#started;
+		if (!state) return messages;
+		return [...state.objectiveContextMessages, ...messages.slice(state.phaseContextStart)];
+	}
+	blockReason(toolName: string, input: unknown, cwd: string, toolCallId: string, messages: unknown[]): string | undefined {
+		return planningToolBlockReason(toolName, input, this.#started, cwd) ?? planningSubmissionBatchBlockReason(toolName, toolCallId, messages, this.#started);
+	}
 	reset(): void {
 		restorePlanningTools(this.#pi, this.#toolsBefore);
 		this.#toolsBefore = undefined;
 		this.#pending = undefined;
 		this.#started = undefined;
 		this.#toolStarts.clear();
+	}
+
+	#registerSubmissionTool(phase: FanoutPhaseState["phase"]): void {
+		this.#pi.registerTool({
+			name: FANOUT_SUBMIT_TOOL,
+			label: "Submit Fanout planning artifact",
+			description: "Validate and atomically submit the artifact expected by the active Fanout planning phase. The controller selects the run and destination.",
+			parameters: planningSubmissionParameters(phase),
+			executionMode: "sequential",
+			execute: async (_toolCallId, params: { artifact: unknown }, _signal, _onUpdate, ctx) => {
+				const state = this.#started;
+				if (!state || this.#pending?.runId !== state.runId || this.#pending.phase !== state.phase || this.#pending.acceptedSubmission) throw new Error("No matching Fanout planning phase is awaiting submission");
+				const submitted = submitPlanningArtifact(state, params.artifact, ctx.cwd);
+				const acceptedSubmission = { runId: state.runId, phase: state.phase, path: submitted.path, identity: submitted.identity };
+				this.#pending = { ...this.#pending, acceptedSubmission };
+				this.#started = { ...state, acceptedSubmission };
+				return { content: [{ type: "text" as const, text: `${submitted.phase} artifact accepted: ${submitted.path}` }], details: submitted, terminate: true };
+			},
+		});
 	}
 
 	#startTurn(state: FanoutPhaseState, trigger: string): void {
@@ -276,12 +290,22 @@ function message(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-function planningInvocation(args: string): { objective: string; refreshProfile: boolean } {
+function planningInvocation(args: string): { objective: string; refreshProfile: boolean; implicitObjective: boolean } {
 	const value = args.trim();
-	if (!value.startsWith("--refresh-profile")) return { objective: value || "Use the current conversation context.", refreshProfile: false };
+	if (!value.startsWith("--refresh-profile")) return { objective: value || "Use the current conversation context.", refreshProfile: false, implicitObjective: !value };
 	const remainder = value.slice("--refresh-profile".length);
 	if (remainder && !/^\s/.test(remainder)) throw new Error("Usage: /fanout-plan [--refresh-profile] <objective>");
-	return { objective: remainder.trim() || "Use the current conversation context.", refreshProfile: true };
+	return { objective: remainder.trim() || "Use the current conversation context.", refreshProfile: true, implicitObjective: !remainder.trim() };
+}
+
+function contextMessages(ctx: any): unknown[] {
+	const messages = ctx.sessionManager?.buildSessionContext?.().messages;
+	return Array.isArray(messages) ? messages : [];
+}
+
+function implicitObjectiveMessages(messages: unknown[]): unknown[] {
+	const request = messages.findLast((value) => isRecord(value) && value.role === "user");
+	return request ? [structuredClone(request)] : [];
 }
 
 function profileSummary(value: unknown): string {

@@ -5,7 +5,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerDoublewordDevProviders } from "../../doubleword-provider/src/dev.ts";
 import { setDoublewordActiveTurnIndex, setDoublewordRunId } from "../../doubleword-provider/src/index.ts";
-import { BATCHING_DISCIPLINE, BATCHING_DISCIPLINE_MARKER } from "../../fanout-core/src/batching-discipline.ts";
+import { BATCHING_DISCIPLINE, BATCHING_DISCIPLINE_MARKER, PLANNING_BATCHING_DISCIPLINE } from "../../fanout-core/src/batching-discipline.ts";
 import { durationMs, RUN_ID, writeJsonl } from "../../fanout-core/src/observability.ts";
 import { configureFanoutTier } from "./fanout-config.ts";
 import { executeFanout } from "./fanout-execute.ts";
@@ -31,7 +31,7 @@ export default async function (pi: ExtensionAPI) {
 	let activeModel: unknown;
 	let activeThinking: unknown;
 	const turnStats = new Map<number, { started: number; toolCallCount: number; firstAssistantUpdateMs?: number }>();
-	const toolStarts = new Map<string, { started: number; turnIndex?: number; planRunId?: string; phase?: "implementation" | "details" }>();
+	const toolStarts = new Map<string, { started: number; turnIndex?: number; planRunId?: string; phase?: "profile" | "implementation" | "details" }>();
 	let fanoutExecutionInProgress = false;
 	const reportPresentationAvailable = registerFanoutReportPresentation(pi);
 	const planning = new FanoutPlanningController(pi, { reportPresentationAvailable, activeModel: () => activeModel, activeThinking: () => activeThinking });
@@ -131,16 +131,14 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.on("before_agent_start", (event) => {
-		const batchingPrompt = event.systemPrompt.includes(BATCHING_DISCIPLINE_MARKER) ? event.systemPrompt : `${event.systemPrompt}\n\n${BATCHING_DISCIPLINE}`;
 		const phasePrompt = planning.beginTurn();
-		return {
-			systemPrompt: phasePrompt
-				? event.systemPrompt.includes(BATCHING_DISCIPLINE_MARKER)
-					? event.systemPrompt.replace(BATCHING_DISCIPLINE_MARKER, `${phasePrompt}\n\n${BATCHING_DISCIPLINE_MARKER}`)
-					: `${event.systemPrompt}\n\n${phasePrompt}\n\n${BATCHING_DISCIPLINE}`
-				: batchingPrompt,
-		};
+		if (!phasePrompt) return { systemPrompt: event.systemPrompt.includes(BATCHING_DISCIPLINE_MARKER) ? event.systemPrompt : `${event.systemPrompt}\n\n${BATCHING_DISCIPLINE}` };
+		if (event.systemPrompt.includes(BATCHING_DISCIPLINE)) return { systemPrompt: event.systemPrompt.replace(BATCHING_DISCIPLINE, `${phasePrompt}\n\n${PLANNING_BATCHING_DISCIPLINE}`) };
+		if (event.systemPrompt.includes(BATCHING_DISCIPLINE_MARKER)) return { systemPrompt: event.systemPrompt.replace(BATCHING_DISCIPLINE_MARKER, `${phasePrompt}\n\n${PLANNING_BATCHING_DISCIPLINE}`) };
+		return { systemPrompt: `${event.systemPrompt}\n\n${phasePrompt}\n\n${PLANNING_BATCHING_DISCIPLINE}` };
 	});
+
+	pi.on("context", (event) => ({ messages: planning.filterContext(event.messages) as any }));
 
 	pi.on("agent_start", (_event, ctx) => {
 		agentStarted = performance.now();
@@ -238,8 +236,9 @@ export default async function (pi: ExtensionAPI) {
 		);
 	});
 
-	pi.on("tool_call", (event) => {
-		const reason = planning.blockReason(event.toolName);
+	pi.on("tool_call", (event, ctx) => {
+		const sessionMessages = ctx.sessionManager?.buildSessionContext?.().messages;
+		const reason = planning.blockReason(event.toolName, event.input, ctx.cwd, event.toolCallId, Array.isArray(sessionMessages) ? sessionMessages : []);
 		if (reason) return { block: true, reason };
 		const workerReason = workerToolBlockReason(event.toolName, event.input, process.env.FANOUT_WORKTREE_ROOT);
 		if (workerReason) return { block: true, reason: workerReason };

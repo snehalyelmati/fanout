@@ -17,7 +17,6 @@ import {
 	validateWorkContract,
 	type AdvisoryNote,
 	type ChangeIntent,
-	type ForbiddenWrite,
 	type WorkContract,
 	type WorkContractIssue,
 	type WorkContractNode,
@@ -40,7 +39,6 @@ export interface GroundedWorkInput {
 	kind: string;
 	changes: ChangeIntent[];
 	readDependencies: WorkReadDependency[];
-	forbiddenWrites: ForbiddenWrite[];
 	validationCommands: ValidationCommand[];
 	advisoryNotes: AdvisoryNote[];
 }
@@ -68,7 +66,7 @@ export function compileWorkContracts(plannedInput: readonly PlannedWorkSource[],
 		sourcePlanIds: endpoint.sourcePlanIds,
 		ownedResources: [endpoint.resource],
 		readDependencies: [],
-		forbiddenWriteResources: input.forbiddenWrites.map((entry) => entry.resource),
+		forbiddenWriteResources: [],
 	})));
 	const authority = compileRepositoryAuthority(plannedScopes, endpointScopes);
 	errors.push(...authority.errors);
@@ -85,11 +83,7 @@ export function compileWorkContracts(plannedInput: readonly PlannedWorkSource[],
 	for (const [inputIndex, input] of grounded.entries()) for (const [readIndex, read] of input.readDependencies.entries()) {
 		for (const issue of authorizeResourceForSources(read.resource, read.sourcePlanIds, plannedScopes, "read")) errors.push({ ...issue, path: `grounded[${inputIndex}].readDependencies[${readIndex}]` });
 	}
-	const planIds = new Set(planned.map((plan) => plan.id));
-	for (const [inputIndex, input] of grounded.entries()) for (const [forbiddenIndex, forbiddenWrite] of input.forbiddenWrites.entries()) for (const sourcePlanId of forbiddenWrite.sourcePlanIds) {
-		if (!planIds.has(sourcePlanId)) add(errors, "unknown-source-plan-id", `unknown source plan id ${sourcePlanId}`, `grounded[${inputIndex}].forbiddenWrites[${forbiddenIndex}]`);
-	}
-	const forbidden = [...planned.flatMap((plan) => plan.forbiddenWrites.map((entry) => entry.resource)), ...grounded.flatMap((input) => input.forbiddenWrites.map((entry) => entry.resource))];
+	const forbidden = planned.flatMap((plan) => plan.forbiddenWrites.map((entry) => entry.resource));
 	for (const input of grounded) for (const write of changeWriteResources(input.changes)) if (forbidden.some((resource) => resourcesOverlap(write, resource))) add(errors, "write-forbidden-overlap", `${show(write)} overlaps a typed forbidden write`);
 	if (errors.length) return { ok: false, errors, warnings, nodes: [] };
 
@@ -144,9 +138,9 @@ function admitGroundedInputs(value: readonly GroundedWorkInput[], plans: Planned
 	return value.flatMap((input, index) => {
 		const path = `grounded[${index}]`;
 		if (!isRecord(input) || !canonical(input.id) || !canonical(input.kind)) { add(errors, "invalid-grounded-input", "grounded work needs canonical id and kind", path); return []; }
-		const validation = validateWorkContract({ schema: WORK_CONTRACT_SCHEMA, version: WORK_CONTRACT_VERSION, goals: statements, changes: input.changes, readDependencies: input.readDependencies, forbiddenWrites: input.forbiddenWrites, validationCommands: input.validationCommands, capabilities: FIXED_WORKER_CAPABILITIES, semanticReviewCriteria: criteria, advisoryNotes: input.advisoryNotes });
+		const validation = validateWorkContract({ schema: WORK_CONTRACT_SCHEMA, version: WORK_CONTRACT_VERSION, goals: statements, changes: input.changes, readDependencies: input.readDependencies, forbiddenWrites: [], validationCommands: input.validationCommands, capabilities: FIXED_WORKER_CAPABILITIES, semanticReviewCriteria: criteria, advisoryNotes: input.advisoryNotes });
 		if (!validation.ok || !validation.contract) { for (const issue of validation.errors) errors.push({ ...issue, path: issue.path ? `${path}.${issue.path}` : path }); return []; }
-		return [{ id: input.id, kind: input.kind, changes: validation.contract.changes, readDependencies: validation.contract.readDependencies, forbiddenWrites: validation.contract.forbiddenWrites, validationCommands: validation.contract.validationCommands, advisoryNotes: validation.contract.advisoryNotes }];
+		return [{ id: input.id, kind: input.kind, changes: validation.contract.changes, readDependencies: validation.contract.readDependencies, validationCommands: validation.contract.validationCommands, advisoryNotes: validation.contract.advisoryNotes }];
 	});
 }
 
@@ -160,7 +154,7 @@ function makeContract(allPlans: PlannedWorkSource[], plans: PlannedWorkSource[],
 		goals: plans.flatMap((plan) => plan.goals.map((statement) => ({ sourcePlanId: plan.id, statement }))),
 		changes: inputs.flatMap((input) => input.changes),
 		readDependencies: inputs.flatMap((input) => input.readDependencies),
-		forbiddenWrites: [...allPlans.flatMap((plan) => plan.forbiddenWrites.map((entry) => ({ resource: entry.resource, sourcePlanIds: [plan.id], reason: entry.reason }))), ...inputs.flatMap((input) => input.forbiddenWrites)],
+		forbiddenWrites: allPlans.flatMap((plan) => plan.forbiddenWrites.map((entry) => ({ resource: entry.resource, sourcePlanIds: [plan.id], reason: entry.reason }))),
 		validationCommands: inputs.flatMap((input) => input.validationCommands), capabilities: FIXED_WORKER_CAPABILITIES,
 		semanticReviewCriteria: plans.flatMap((plan) => plan.semanticReviewCriteria.map((statement) => ({ sourcePlanId: plan.id, statement }))),
 		advisoryNotes: [...plans.flatMap((plan) => plan.advisoryNotes), ...inputs.flatMap((input) => input.advisoryNotes)],
@@ -179,7 +173,7 @@ function makeFinalContract(plans: PlannedWorkSource[], validationCommands: reado
 }
 
 function changeEndpoints(changes: readonly ChangeIntent[]) { return changes.flatMap((change) => change.kind === "move" ? [change.from, change.to] : [change.target]); }
-function contractSourceIds(input: GroundedWorkInput): string[] { return unique([...changeEndpoints(input.changes).flatMap((endpoint) => endpoint.sourcePlanIds), ...input.readDependencies.flatMap((read) => read.sourcePlanIds), ...input.forbiddenWrites.flatMap((entry) => entry.sourcePlanIds)]); }
+function contractSourceIds(input: GroundedWorkInput): string[] { return unique([...changeEndpoints(input.changes).flatMap((endpoint) => endpoint.sourcePlanIds), ...input.readDependencies.flatMap((read) => read.sourcePlanIds)]); }
 function resources(value: unknown, path: string, errors: WorkContractIssue[]): Resource[] { if (!Array.isArray(value)) { add(errors, "invalid-resource-list", "resource list must be an array", path); return []; } return value.flatMap((entry, index) => { try { return [parseResource(entry)]; } catch (error) { add(errors, "invalid-resource", message(error), `${path}[${index}]`); return []; } }); }
 function forbiddenPlans(value: unknown, path: string, errors: WorkContractIssue[]): Array<{ resource: Resource; reason: string }> { if (!Array.isArray(value)) { add(errors, "invalid-forbidden-list", "forbiddenWrites must be an array", path); return []; } return value.flatMap((entry, index) => { if (!isRecord(entry) || !text(entry.reason)) { add(errors, "invalid-forbidden", "forbidden write needs a resource and reason", `${path}[${index}]`); return []; } try { return [{ resource: parseResource(entry.resource), reason: entry.reason }]; } catch (error) { add(errors, "invalid-resource", message(error), `${path}[${index}].resource`); return []; } }); }
 function strings(value: unknown, path: string, errors: WorkContractIssue[]): string[] { if (!Array.isArray(value)) { add(errors, "invalid-string-list", "value must be an array", path); return []; } return value.flatMap((entry, index) => text(entry) ? [entry] : (add(errors, "invalid-semantic-text", "value must be non-empty without controls", `${path}[${index}]`), [])); }

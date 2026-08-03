@@ -20,8 +20,8 @@ Fanout has one planning-to-execution path. The architecture separates semantic m
 | Project Execution Profile | `fanout.project-execution-profile` | 1 |
 | Active profile pointer | `fanout.active-project-execution-profile` | 1 |
 | Plan | `fanout.implementation-plan` | 3 |
-| Grounding | `fanout.implementation-details` | 5 |
-| Execution packet | `fanout.execution-packet` | 7 |
+| Grounding | `fanout.implementation-details` | 6 |
+| Execution packet | `fanout.execution-packet` | 8 |
 | Active packet pointer | `fanout.active-packet` | 2 |
 | Work contract | `fanout.work-contract` | 3 |
 | Attempt outcome | `fanout.attempt-outcome` | 5 |
@@ -39,10 +39,10 @@ flowchart LR
     U["User objective"] --> A["Phase A: plan body"]
     A --> P["Controller-bound plan v3"]
     P --> B["Phase B: grounding body"]
-    B --> D["Controller-bound details v5"]
+    B --> D["Controller-bound details v6"]
     E["Approved execution profile v1"] --> C
     D --> C["Core compiler"]
-    C --> K["Packet v7 with work-contract v3 nodes"]
+    C --> K["Packet v8 with work-contract v3 nodes"]
     K --> X["Exact active pointer"]
     X --> F["Preflight and user confirmation"]
     F --> W["Isolated preparation, then DAG worker attempts"]
@@ -55,9 +55,9 @@ flowchart LR
 
 ### Planning
 
-Starting a planning run invalidates the previous active packet pointer; if planning fails, no stale packet remains selected. The controller captures the planning commit, full Git-visible tree, platform, run identity, and exact active Project Execution Profile identity. `/fanout-plan --refresh-profile` first gathers and validates a replacement profile in a disposable clean worktree, publishing its pointer only after success; a failed refresh preserves the prior profile. Phase A and Phase B submit only their assigned bodies through a controller-bound tool; models cannot choose artifact destinations or envelope identities. Phase A preserves changes that must share a repair boundary, then splits every remaining independently authorable and repairable change. Phase B classifies a cross-item read as `baseline-context` whenever planning-base contents suffice and uses `post-change-required` only for a specific accepted upstream change. The compiler validates same-source scope, derives ownership groups and DAG edges from those typed resources, fuses only eligible vertical serial chains, inserts fixed worker capabilities, creates the final-validation node, and publishes packet-derived human views before selecting packet v7 through pointer v2.
+Starting a planning run invalidates the previous active packet pointer; if planning fails, no stale packet remains selected. The controller captures the planning commit, full Git-visible tree, platform, run identity, and exact active Project Execution Profile identity. `/fanout-plan --refresh-profile` first gathers and validates a replacement profile in a disposable clean worktree, publishing its pointer only after success; a failed refresh preserves the prior profile. Phase-specific TypeBox schemas define the model submission tools and structurally admit persisted artifacts before semantic checks. Successful lone submissions terminate their model turn; a submission batched with another tool is rejected before execution, and invalid submissions remain correctable in the same phase. Phase context keeps only the current phase transcript plus explicit controller inputs, retaining only the initiating user request for an implicit objective. Planning filesystem calls resolve real identities and admit only repository targets, except the exact path, real identity, and bytes of the accepted details artifact during compiler repair. Phase A preserves changes that must share a repair boundary, then splits every remaining independently authorable and repairable change; it is the sole source of global forbidden writes. Phase B grounds scope without repeating those bans, classifies a cross-item read as `baseline-context` whenever planning-base contents suffice, and uses `post-change-required` only for a specific accepted upstream change. The compiler validates same-source scope, derives ownership groups and DAG edges from those typed resources, propagates Phase A bans into every Work Contract, fuses only eligible vertical serial chains, inserts fixed worker capabilities, creates the final-validation node, and publishes packet-derived human views before selecting packet v8 through pointer v2.
 
-Each planning phase is a typed pending controller state. Its full instructions are injected for one turn through `before_agent_start.systemPrompt`, while the visible user message is only a short trigger. This internal prompt path is separate from the context-free custom entries used to present completed planning and execution reports.
+Each planning phase is a typed pending controller state. Its full instructions and read-only batching guidance are injected through `before_agent_start.systemPrompt`, while the visible user message is only a short trigger. A `context` adapter filters provider messages without changing the session file or TUI transcript. This internal prompt path is separate from the context-free custom entries used to present completed planning and execution reports.
 
 Relevant code: [`fanout-planning-controller.ts`](../packages/fanout-pi/src/fanout-planning-controller.ts), [`fanout-runtime-context.ts`](../packages/fanout-pi/src/fanout-runtime-context.ts), [`planning-capabilities.ts`](../packages/fanout-pi/src/planning-capabilities.ts), [`fanout-compiler.ts`](../packages/fanout-core/src/fanout-compiler.ts), [`work-contract-compiler.ts`](../packages/fanout-core/src/work-contract-compiler.ts), and [`execution-packet.ts`](../packages/fanout-core/src/execution-packet.ts).
 

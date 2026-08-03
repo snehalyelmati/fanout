@@ -1,20 +1,24 @@
-import { mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { artifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
-import {
-	PROJECT_EXECUTION_PROFILE_SCHEMA,
-	PROJECT_EXECUTION_PROFILE_VERSION,
-	parseProjectExecutionProfile,
-} from "../../fanout-core/src/project-execution-profile.ts";
+import { parseProjectExecutionProfile } from "../../fanout-core/src/project-execution-profile.ts";
 import {
 	IMPLEMENTATION_DETAILS_SCHEMA,
 	IMPLEMENTATION_DETAILS_VERSION,
 	IMPLEMENTATION_PLAN_SCHEMA,
 	IMPLEMENTATION_PLAN_VERSION,
-	validateImplementationDetailsArtifact,
-	validateImplementationPlan,
-} from "../../fanout-core/src/fanout-compiler.ts";
+	ImplementationDetailsBodySchema,
+	ImplementationDetailsSubmissionParametersSchema,
+	ImplementationPlanBodySchema,
+	ImplementationPlanSubmissionParametersSchema,
+	PROJECT_EXECUTION_PROFILE_SCHEMA,
+	PROJECT_EXECUTION_PROFILE_VERSION,
+	ProfileSubmissionParametersSchema,
+	ProjectExecutionProfileBodySchema,
+	planningSchemaErrors,
+} from "../../fanout-core/src/planning-artifact-schema.ts";
+import { validateImplementationDetailsArtifact, validateImplementationPlan } from "../../fanout-core/src/fanout-compiler.ts";
 import { writeArtifactAtomically } from "./artifact-store.ts";
 import { type FanoutPhaseState } from "./fanout-plan-orchestration.ts";
 
@@ -31,9 +35,42 @@ export function restorePlanningTools(pi: Pick<ExtensionAPI, "setActiveTools">, p
 	if (previous) pi.setActiveTools(previous);
 }
 
-export function planningToolBlockReason(toolName: string, active: boolean): string | undefined {
-	if (!active || FANOUT_PLANNING_TOOLS.includes(toolName)) return undefined;
-	return `Fanout planning blocks ${toolName}; allowed tools are ${FANOUT_PLANNING_TOOLS.join(", ")}.`;
+export function planningSubmissionParameters(phase: FanoutPhaseState["phase"]) {
+	return phase === "profile" ? ProfileSubmissionParametersSchema : phase === "implementation" ? ImplementationPlanSubmissionParametersSchema : ImplementationDetailsSubmissionParametersSchema;
+}
+
+export function planningToolBlockReason(toolName: string, input: unknown, state: FanoutPhaseState | undefined, cwd: string): string | undefined {
+	if (!state) return undefined;
+	if (!FANOUT_PLANNING_TOOLS.includes(toolName)) return `Fanout planning blocks ${toolName}; allowed tools are ${FANOUT_PLANNING_TOOLS.join(", ")}.`;
+	if (!["read", "grep", "find", "ls"].includes(toolName)) return undefined;
+	if (!isRecord(input)) return `Fanout planning blocks malformed ${toolName} input.`;
+	const raw = typeof input.path === "string" ? input.path.replace(/^@/, "") : toolName === "read" ? undefined : ".";
+	if (raw === undefined) return "Fanout planning read requires a path.";
+	let target: string;
+	try { target = realpathSync(resolve(cwd, raw)); }
+	catch { return `Fanout planning cannot resolve ${raw}.`; }
+	const repository = realpathSync(cwd);
+	if (!escapes(repository, target)) return undefined;
+	if (isAcceptedRepairArtifact(raw, target, state, cwd)) return undefined;
+	return `Fanout planning blocks filesystem access outside the repository: ${raw}.`;
+}
+
+export function planningSubmissionBatchBlockReason(toolName: string, toolCallId: string, messages: unknown[], state: FanoutPhaseState | undefined): string | undefined {
+	if (!state || toolName !== FANOUT_SUBMIT_TOOL) return undefined;
+	const assistant = messages.findLast((value) => isRecord(value) && value.role === "assistant" && Array.isArray(value.content) && value.content.some((part) => isRecord(part) && part.type === "toolCall" && part.id === toolCallId));
+	const calls = isRecord(assistant) && Array.isArray(assistant.content) ? assistant.content.filter((part) => isRecord(part) && part.type === "toolCall") : [];
+	if (calls.length === 1) return undefined;
+	return "Fanout planning requires fanout_submit_artifact to be the only tool call in its assistant message; inspect first, then submit alone.";
+}
+
+function isAcceptedRepairArtifact(raw: string, target: string, state: FanoutPhaseState, cwd: string): boolean {
+	const accepted = state.repairArtifact;
+	if (state.phase !== "details" || !state.repairAttempted || !accepted || resolve(cwd, raw) !== resolve(accepted.path) || target !== accepted.realPath || !existsSync(accepted.path)) return false;
+	try {
+		return JSON.stringify(artifactIdentity(accepted.identity.path, readFileSync(accepted.path))) === JSON.stringify(accepted.identity);
+	} catch {
+		return false;
+	}
 }
 
 export function submitPlanningArtifact(state: FanoutPhaseState, artifact: unknown, cwd: string): { path: string; phase: FanoutPhaseState["phase"]; identity: ReturnType<typeof artifactIdentity> } {
@@ -64,9 +101,11 @@ export function readAcceptedImplementationPlan(path: string, expected: ReturnTyp
 }
 
 function controllerEnvelope(state: FanoutPhaseState, body: unknown, planIdentity?: ReturnType<typeof artifactIdentity>): unknown {
+	const bodySchema = state.phase === "profile" ? ProjectExecutionProfileBodySchema : state.phase === "implementation" ? ImplementationPlanBodySchema : ImplementationDetailsBodySchema;
+	const errors = planningSchemaErrors(bodySchema, body);
+	if (errors.length) throw new TypeError(errors.join("; "));
 	if (!isRecord(body)) throw new TypeError("planning submission body must be an object");
 	if (state.phase === "profile") {
-		exactBody(body, ["preparation", "readiness", "candidateNormalization", "requiredFinalGates"]);
 		return {
 			schema: PROJECT_EXECUTION_PROFILE_SCHEMA,
 			version: PROJECT_EXECUTION_PROFILE_VERSION,
@@ -79,7 +118,6 @@ function controllerEnvelope(state: FanoutPhaseState, body: unknown, planIdentity
 		};
 	}
 	if (state.phase === "implementation") {
-		exactBody(body, ["objective", "userContext", "discoveredRepoFacts", "assumptions", "implementationItems"]);
 		const planningBase = isRecord(state.context.planningBase) ? state.context.planningBase : {};
 		return {
 			schema: IMPLEMENTATION_PLAN_SCHEMA,
@@ -96,14 +134,13 @@ function controllerEnvelope(state: FanoutPhaseState, body: unknown, planIdentity
 			implementationItems: body.implementationItems,
 		};
 	}
-	exactBody(body, ["items", "finalValidationCommands"]);
 	return {
 		schema: IMPLEMENTATION_DETAILS_SCHEMA,
 		version: IMPLEMENTATION_DETAILS_VERSION,
 		detailsId: state.runId,
 		createdAt: new Date().toISOString(),
 		plan: planIdentity,
-		items: body.items,
+		items: (body.items as Array<Record<string, unknown>>).map((item) => ({ ...item, advisoryNotes: item.advisoryNotes ?? [] })),
 		finalValidationCommands: body.finalValidationCommands,
 	};
 }
@@ -134,12 +171,6 @@ function readAcceptedPlanBytes(path: string, expected: ReturnType<typeof artifac
 function acceptedPlan(state: FanoutPhaseState) {
 	if (!state.acceptedPlan) throw new Error("accepted implementation plan is missing; restart /fanout-plan");
 	return state.acceptedPlan;
-}
-
-function exactBody(value: Record<string, unknown>, fields: string[]): void {
-	const unknown = Object.keys(value).filter((field) => !fields.includes(field));
-	const missing = fields.filter((field) => !Object.hasOwn(value, field));
-	if (unknown.length || missing.length) throw new TypeError(`planning submission has unknown or missing fields: ${[...unknown, ...missing].join(", ")}`);
 }
 
 function assertControllerDestination(root: string, destination: string, cwd: string): void {
