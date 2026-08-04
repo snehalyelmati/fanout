@@ -238,7 +238,7 @@ export default async function (pi: ExtensionAPI) {
 
 	pi.on("tool_call", (event, ctx) => {
 		const sessionMessages = ctx.sessionManager?.buildSessionContext?.().messages;
-		const reason = planning.blockReason(event.toolName, event.input, ctx.cwd, event.toolCallId, Array.isArray(sessionMessages) ? sessionMessages : []);
+		const reason = planning.blockReason(event.toolName, event.toolCallId, Array.isArray(sessionMessages) ? sessionMessages : []);
 		if (reason) return { block: true, reason };
 		const workerReason = workerToolBlockReason(event.toolName, event.input, process.env.FANOUT_WORKTREE_ROOT);
 		if (workerReason) return { block: true, reason: workerReason };

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { artifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
@@ -39,20 +39,9 @@ export function planningSubmissionParameters(phase: FanoutPhaseState["phase"]) {
 	return phase === "profile" ? ProfileSubmissionParametersSchema : phase === "implementation" ? ImplementationPlanSubmissionParametersSchema : ImplementationDetailsSubmissionParametersSchema;
 }
 
-export function planningToolBlockReason(toolName: string, input: unknown, state: FanoutPhaseState | undefined, cwd: string): string | undefined {
-	if (!state) return undefined;
-	if (!FANOUT_PLANNING_TOOLS.includes(toolName)) return `Fanout planning blocks ${toolName}; allowed tools are ${FANOUT_PLANNING_TOOLS.join(", ")}.`;
-	if (!["read", "grep", "find", "ls"].includes(toolName)) return undefined;
-	if (!isRecord(input)) return `Fanout planning blocks malformed ${toolName} input.`;
-	const raw = typeof input.path === "string" ? input.path.replace(/^@/, "") : toolName === "read" ? undefined : ".";
-	if (raw === undefined) return "Fanout planning read requires a path.";
-	let target: string;
-	try { target = realpathSync(resolve(cwd, raw)); }
-	catch { return `Fanout planning cannot resolve ${raw}.`; }
-	const repository = realpathSync(cwd);
-	if (!escapes(repository, target)) return undefined;
-	if (isAcceptedRepairArtifact(raw, target, state, cwd)) return undefined;
-	return `Fanout planning blocks filesystem access outside the repository: ${raw}.`;
+export function planningToolBlockReason(toolName: string, active: boolean): string | undefined {
+	if (!active || FANOUT_PLANNING_TOOLS.includes(toolName)) return undefined;
+	return `Fanout planning blocks ${toolName}; allowed tools are ${FANOUT_PLANNING_TOOLS.join(", ")}.`;
 }
 
 export function planningSubmissionBatchBlockReason(toolName: string, toolCallId: string, messages: unknown[], state: FanoutPhaseState | undefined): string | undefined {
@@ -61,16 +50,6 @@ export function planningSubmissionBatchBlockReason(toolName: string, toolCallId:
 	const calls = isRecord(assistant) && Array.isArray(assistant.content) ? assistant.content.filter((part) => isRecord(part) && part.type === "toolCall") : [];
 	if (calls.length === 1) return undefined;
 	return "Fanout planning requires fanout_submit_artifact to be the only tool call in its assistant message; inspect first, then submit alone.";
-}
-
-function isAcceptedRepairArtifact(raw: string, target: string, state: FanoutPhaseState, cwd: string): boolean {
-	const accepted = state.repairArtifact;
-	if (state.phase !== "details" || !state.repairAttempted || !accepted || resolve(cwd, raw) !== resolve(accepted.path) || target !== accepted.realPath || !existsSync(accepted.path)) return false;
-	try {
-		return JSON.stringify(artifactIdentity(accepted.identity.path, readFileSync(accepted.path))) === JSON.stringify(accepted.identity);
-	} catch {
-		return false;
-	}
 }
 
 export function submitPlanningArtifact(state: FanoutPhaseState, artifact: unknown, cwd: string): { path: string; phase: FanoutPhaseState["phase"]; identity: ReturnType<typeof artifactIdentity> } {
