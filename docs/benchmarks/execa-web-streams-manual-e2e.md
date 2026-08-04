@@ -1,6 +1,6 @@
 # Execa Web Streams manual Fanout E2E
 
-Status: the first controlled canary completed on 2026-07-29; no repetitions have been run.
+Status: the first controlled canary completed on 2026-07-29; the focused-validation canary stopped on its first worker-scope failure on 2026-07-30; the bounded unauthorized-change-recovery canary then completed on 2026-07-30 without exercising that recovery route; a normal Pi control completed from the same baseline. No repetitions have been run.
 
 This is the next transfer/complexity benchmark after the controlled p-map task. It follows the common safety, execution, evidence, failure, and reporting protocol in [`fanout-execution-benchmark-procedure.md`](fanout-execution-benchmark-procedure.md) and the operator workflow in [`p-map-abort-signal-manual-e2e.md`](p-map-abort-signal-manual-e2e.md). This document records only Execa-specific inputs and gates.
 
@@ -98,7 +98,7 @@ rtk git worktree list --porcelain
 rtk ps -axo pid,etime,command
 ```
 
-Inspect the authoritative Event v4 log, Projection v5, summary, attempt evidence, final validation, accepted tree, cleanup, provider/model/tier identities, tokens, cost, TTFT, tool time, and wall time. Preserve failed artifacts and classify the owning component before proposing changes.
+Inspect the authoritative Event v5 log, Projection v6, summary, attempt evidence, final validation, accepted tree, cleanup, provider/model/tier identities, tokens, cost, TTFT, tool time, and wall time. Preserve failed artifacts and classify the owning component before proposing changes. Older Event v4 / Projection v5 runs remain descriptive Legacy evidence.
 
 ## 2026-07-29 canary result
 
@@ -122,6 +122,77 @@ The authoritative run duration was 1,240.055s, with 1,403,298 tokens, estimated 
 Post-canary inspection found that Phase B had not received the profile commands: `implementation-details.json` supplied `npm test` as packet-final validation while the exact approved profile already required `npm test`, and the effective initial and repaired final rounds therefore ran that full suite twice. The type node also used the repository-wide `npm run type` script rather than a focused invocation for its owned type tests. The 2026-07-30 protocol correction passes the exact profile into Phase B, asks for the narrowest meaningful node checks, reserves packet-final commands for additional task-specific integration, and rejects an exact profile-gate duplicate as a correctable draft while preserving normal resubmission. Existing canary metrics remain unchanged; any measured improvement requires a newly authorized clean run.
 
 This is one canary, not a reliability cohort. No median, range, reliability rate, cross-task speed comparison, or universal SLO is reported. Repetitions require separate user authorization and byte-identical packet/profile/pointer bytes from a clean baseline.
+
+## 2026-07-30 focused-validation canary stop
+
+The rerun used Fanout commit `071a978d9f87c05dc4e1967ba2aff6f84fa14a22` directly in the restored primary Execa checkout. Dependencies were reinitialized; the user waived another redundant baseline `npm test` because the exact clean fixture had already passed setup validation. Pi ran in retained tmux pane `%270`; historical pane `%267` was closed after `%270` was alive. The existing approved profile remained byte-identical at SHA-256 `50c9bec27ac95da0453bc11092e5a1b40830540175c10f82461fc72c7916acf1`, 1,701 bytes.
+
+Ordinary planning created a new lineage without a decomposition override. Plan SHA-256 was `c904919e0d0c2f0940de8caa38642106ae0807ca01d93029d55f9c87615c121c`, 15,430 bytes; details SHA-256 `814d606b8e8263d6417a14e8e631a609df3d55c0fb8841f46e7cf453aff54572`, 23,822 bytes; packet SHA-256 `402e13486f57c1f03a8fae4a1f5abd787722797cdb4cbd83ed3f64474262b53b`, 54,135 bytes. Dry run `2026-07-30T13-30-04-955Z-515240ac` passed with zero workers, tokens, accepted transitions, or mutations.
+
+The new packet demonstrated the intended validation-scope correction: runtime used its focused three-file AVA command, types used focused `tsd --files` arguments, the combined docs node used one two-file XO command, packet-final validation contained only the additional task-specific `npx ava test/convert/web.js`, and the profile retained the sole project-wide `npm test`. The runtime/test, types/`tsd`, and documentation repair boundaries and all 14 unique write owners remained correct.
+
+Live canary `2026-07-30T13-31-34-936Z-035a16ed` stopped on its first failure. The Terra runtime worker ignored its explicit seven-file canonical work contract and edited all 14 task files, including the separately owned type and documentation paths. Ownership enforcement rejected the complete runtime candidate as `unauthorized-change` before validation; it was not repaired or applied. The original types and docs attempts passed and were accepted. The primary checkout exactly matched their accepted tree `c401cf558d22387faf1756c133e7dab5f12382ee`; `git diff --check` passed. Final validation correctly did not run. No current-run process, extra worktree, or execution lock remained.
+
+The focused type gate took 3.887s versus 9.376s for the prior `npm run type`, a 5.489s (58.5%) reduction. The combined docs gate took 1.897s versus 3.524s summed across the prior two docs gates, a 1.627s (46.2%) reduction. The run stopped before runtime, packet-final, or profile-final validation, so it provides no measured full-suite or end-to-end optimization comparison.
+
+The failed run lasted 307.657s, used 999,692 tokens, and cost an estimated `$1.030657`. The profiler admitted the recorded prefix with exact profile identity: 245.026s observed boundary, 228.039s ordinary-node overlap, 47.785s aggregate TTFT, and 331.906s aggregate generation. This is stopped-run evidence, not a completed comparison or reliability statistic.
+
+## 2026-07-30 unauthorized-change-recovery canary
+
+The next canary ran Fanout commit `5ee0d8eee2fc6f1784dc794deda56c103ed3f11b` directly in the restored primary Execa checkout. The user waived another redundant baseline `npm test`; the exact baseline commit `6e9ed1185adca485097d299da263a38d74ee636b` and tree `475de97e8bce060242e1ce9025d10e7f763735bd` were clean before planning. Pi ran in retained tmux pane `%271`; historical pane `%270` was closed after `%271` was alive. Routing remained Sol medium for Tier 1/control, disabled async Tier 2, and Terra medium for the realtime worker fallback.
+
+The approved profile remained byte-identical at SHA-256 `50c9bec27ac95da0453bc11092e5a1b40830540175c10f82461fc72c7916acf1`, 1,701 bytes. Ordinary planning created lineage `20260730-144225004-read-task-md-and-implement-that-feature-` without a decomposition override:
+
+- plan SHA-256 `8034d66a2b8310f1b51a3581ed2bbc8b930db6213d5e0e3673b5f62ee063bad9`, 17,179 bytes;
+- details SHA-256 `f87c6421c7ab85590bbae696bec5cc16995e5e74201c1ea475795f7c0f117bbc`, 23,375 bytes;
+- packet SHA-256 `d020151817b4410922384f32772e7f1cf460ff7e90b8c76c29c21b9a2f704343`, 56,432 bytes;
+- active-packet pointer SHA-256 `3940b5d66835460a28f9a5f747b74b20420fc9fc2396f64dc138da6bc9b397ec`.
+
+The packet preserved three parallel repair boundaries: runtime plus AVA tests, types plus `tsd` tests, and documentation. Their union contained exactly the 14 allowed paths. Node validation remained focused; packet-wide validation was one XO invocation over the changed paths; the profile retained the sole full `npm test`. Dry run `2026-07-30T14-49-23-602Z-ddb21840` completed in 26.669s with zero attempts, tokens, accepted transitions, or mutations.
+
+Live run `2026-07-30T14-50-17-829Z-86af4e51` completed with current Event v5 / Projection v6 evidence. The original types and docs candidates passed and applied. The original runtime candidate stayed within its seven-path authority but failed focused AVA validation; its immediate validation repair received the original worker summary, passed, and reconciled onto the advanced accepted ledger. Initial project final validation stopped at two XO findings in `test/convert/web.js`; one Sol final-validation repair corrected them. The repaired XO gate passed in 4.393s and the profile's single full `npm test` passed in 295.261s. Final validation preserved exact tree `b320d9829b6257000cf22845c932a0e594fae5e8`.
+
+No original candidate made an unauthorized change, so the new bounded clean-retry route was not exercised: retry count remained zero. This run therefore validates compatibility of the new policy with the successful path, not recovery effectiveness. There was no fallback, integration repair, exact-no-progress termination, budget exhaustion, or fusion. Worker-summary continuity held for the immediate runtime validation repair; the project final-validation repair received no predecessor summary. Summaries remained outside Attempt Outcome, Event, Projection, and recovery authority.
+
+The final checkout changed exactly the 14 task-allowed paths. The accepted ledger reported 15 cumulative file touches, +303/-6, because project final repair re-touched `test/convert/web.js`. `git diff --check` passed. The controller-owned full suite is the post-run test evidence; no redundant independent full-suite rerun was performed. Cleanup left no current-run worker process, extra worktree, or execution lock, and pane `%271` remains visible.
+
+The authoritative run duration was 733.668s, with 989,440 tokens, estimated cost `$1.1097045`, 387.951s summed worker time, 2.187s summed tool time, and 8.407s cleanup. Aggregate Attempt Outcome turn timing was 64.381s TTFT and 302.938s generation. The profiler admitted the run as Current with exact profile identity, a 657.421s observed completion boundary, 214.021s overlap across ordinary node envelopes, and a 367.586s final-validation span. Profile validation passed with 2.308s isolated preparation, 0.283s readiness, and 20.039s normalization while preserving the baseline tree.
+
+This is one separately planned canary, not a byte-identical repetition of either earlier Execa run. No median, range, reliability rate, recovery rate, or universal SLO is reported.
+
+## 2026-07-30 normal Pi control
+
+The normal control restored the same primary checkout to clean baseline commit `6e9ed1185adca485097d299da263a38d74ee636b` and tree `475de97e8bce060242e1ce9025d10e7f763735bd`. Dependencies were already initialized and the baseline suite had already passed, so setup was not repeated. Pi ran in retained tmux pane `%272` with `openai-codex/gpt-5.6-sol` medium and no Fanout extension loaded. The session was `019fb39b-b700-738e-b75b-3193a92357d4`; its immutable trace is:
+
+```text
+/Users/snehalyelmati/.pi/agent/sessions/--Users-snehalyelmati-Documents-execa-web-streams-repo--/2026-07-30T15-19-14-432Z_019fb39b-b700-738e-b75b-3193a92357d4.jsonl
+```
+
+The user prompt was recorded at `2026-07-30T15:19:48.212Z`. Normal Pi inspected the task and repository, proposed a plan, and paused for approval. Approval was recorded at `15:21:55.444Z`; the final response was produced at `15:31:40.284Z`. Prompt-to-final wall time was 712.072s, including the 127.232s approval interval; post-approval implementation time was 584.840s.
+
+The single Sol session used 33 assistant turns, 106,514 input tokens, 15,185 output tokens, 1,806,848 cache-read tokens, 0 cache-write tokens, and 1,928,547 total tokens, costing `$1.891544`. Its 63 tool calls comprised 28 reads, 16 shell calls, 5 writes, and 14 edits. Four tool results were errors: two expected reads of not-yet-created files, one ambiguous documentation edit, and one focused AVA failure. Session-derived tool envelopes summed to 307.696s and occupied 272.220s of wall time, dominated by validation. The session format does not record a trustworthy TTFT/generation split, so neither is inferred.
+
+Normal Pi corrected the focused AVA failure in-session. The focused three-file AVA run then passed 77 tests; a subsequent Web-conversion-only AVA run passed 14 tests; lint, `tsd`, and `tsc` passed; and the final full `npm test` passed 5,115 tests in 252.3s. `git diff --check` passed. Exactly the 14 allowed paths changed, with +322/-15, producing exact tree `ed7963c8f5e7304acfb9d5074f4190bcb7b2d7e9`. The captured patch SHA-256 was `d83ae22cc2ad45e3d126794aab764d244c30e76401b35ad26a625983a0e40d5f`, 31,428 bytes. No worker, extra worktree, execution lock, or leaked Execa process existed.
+
+### Observed comparison with the recovery-policy Fanout canary
+
+The closest Fanout comparison is the immediately preceding recovery-policy canary because it used the same task, baseline, profile, routing policy, and day. Its end-to-end boundary from the first Phase A planning prompt at `14:42:25.007Z` through the terminal execution report at `15:02:31.518Z` was 1,206.511s. That boundary includes two-phase planning, dry-run, confirmation, and live execution. Normal Pi's prompt-to-final boundary includes its own planning and approval pause.
+
+| Metric | Fanout | Normal Pi | Observation |
+| --- | ---: | ---: | --- |
+| End-to-end wall | 1,206.511s | 712.072s | Normal Pi was 494.439s / 41.0% shorter |
+| Live/post-approval work boundary | 733.668s live run | 584.840s after approval | Normal Pi was 148.828s / 20.3% shorter; boundaries are similar but not identical |
+| Total tokens including Fanout planning | 1,551,297 | 1,928,547 | Normal Pi recorded 377,250 / 24.3% more, mostly cache reads |
+| Total cost including Fanout planning | `$2.6579225` | `$1.891544` | Normal Pi was `$0.7663785` / 28.8% cheaper |
+| Model turns | 8 planning + 33 execution | 33 | Fanout used separate planning and worker/repair turns |
+| Model tool calls | 51 planning + 129 execution | 63 | Controller validation commands are additional and not included in Fanout's model-tool count |
+| Full-suite result | passed | 5,115 tests passed | Both passed their self-authored integrated suites |
+| Allowed path count | 14 | 14 | Both respected the task allowlist |
+| Exact final tree | `b320d9829b6257000cf22845c932a0e594fae5e8` | `ed7963c8f5e7304acfb9d5074f4190bcb7b2d7e9` | Implementations differ and are not byte-equivalent |
+
+Fanout's separately reported live-only 989,440 tokens and `$1.1097045` cost omit its 561,857-token / `$1.548218` planning session and must not be compared directly with the normal Pi total. Conversely, Fanout supplies typed authority enforcement, rejected-candidate isolation, accepted-ledger replay, exact repair routing, isolated preparation, and profiler timing that normal Pi does not. Normal Pi avoided that control-plane overhead and self-corrected sequentially.
+
+Both results pass their own tests, but there is no shared independently authored hidden acceptance suite in this fixture. The comparison therefore supports workflow, cost, scope, and recorded-validation observations; it does not establish that either implementation is semantically superior. One run per mode cannot support a reliability rate, variance estimate, median, range, or universal SLO.
 
 ## Reporting
 
