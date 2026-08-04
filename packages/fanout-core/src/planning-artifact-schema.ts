@@ -1,5 +1,7 @@
+import { createRequire } from "node:module";
 import Type, { type Static, type TSchema } from "typebox";
-import Schema from "typebox/schema";
+
+const Schema = createRequire(import.meta.url)("typebox/schema") as typeof import("typebox/schema");
 
 export const PROJECT_EXECUTION_PROFILE_SCHEMA = "fanout.project-execution-profile";
 export const PROJECT_EXECUTION_PROFILE_VERSION = 1;
