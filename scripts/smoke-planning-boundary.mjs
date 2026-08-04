@@ -1,8 +1,7 @@
 import { rejects } from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { artifactIdentity } from "../packages/fanout-core/src/artifact-identity.ts";
 import { BATCHING_DISCIPLINE_MARKER } from "../packages/fanout-core/src/batching-discipline.ts";
 import {
   activatePlanningTools,
@@ -19,7 +18,6 @@ const root = mkdtempSync(join(tmpdir(), "fanout-planning-boundary-"));
 try {
   testToolProfile();
   testArtifactSubmission();
-  testPlanningFilesystemGate();
   await testPlanningLifecycle();
   await testPlanningPresentation(root);
   console.log("planning boundary smoke passed (A15)");
@@ -33,9 +31,9 @@ function testToolProfile() {
   const previous = activatePlanningTools(pi);
   restorePlanningTools(pi, previous);
   assert(JSON.stringify(calls) === JSON.stringify([FANOUT_PLANNING_TOOLS, previous]), "planning profile did not restore the exact prior tools");
-  assert(!planningToolBlockReason("read", { path: "." }, {}, root), "read was blocked during planning");
-  assert(planningToolBlockReason("bash", {}, {}, root)?.includes("blocks bash"), "blocked tool did not fail closed");
-  assert(!planningToolBlockReason("bash", {}, undefined, root), "normal turns inherited the planning gate");
+  assert(!planningToolBlockReason("read", true), "read was blocked during planning");
+  assert(planningToolBlockReason("bash", true)?.includes("blocks bash"), "blocked tool did not fail closed");
+  assert(!planningToolBlockReason("bash", false), "normal turns inherited the planning gate");
 }
 
 function testArtifactSubmission() {
@@ -86,40 +84,6 @@ function testArtifactSubmission() {
   submitPlanningArtifact(phaseState(repository, linkedRoot, linkedDir, "implementation"), plan, repository);
 }
 
-function testPlanningFilesystemGate() {
-  const repository = join(root, "gate-repo");
-  const artifactRoot = join(root, "gate-artifacts");
-  const runDir = join(artifactRoot, "run");
-  mkdirSync(repository); mkdirSync(runDir, { recursive: true });
-  writeFileSync(join(repository, "inside.txt"), "inside\n");
-  writeFileSync(join(runDir, "implementation-details.json"), "{}\n");
-  const outside = join(root, "gate-outside.txt");
-  writeFileSync(outside, "outside\n");
-  symlinkSync(outside, join(repository, "escape.txt"));
-  const detailsPath = join(runDir, "implementation-details.json");
-  const state = {
-    ...phaseState(repository, artifactRoot, runDir, "details"),
-    repairAttempted: true,
-    repairArtifact: { path: detailsPath, realPath: realpathSync(detailsPath), identity: artifactIdentity("implementation-details.json", readFileSync(detailsPath)) },
-  };
-  assert(!planningToolBlockReason("read", { path: "inside.txt" }, state, repository), "repository-relative read was blocked");
-  assert(!planningToolBlockReason("read", { path: join(repository, "inside.txt") }, state, repository), "absolute repository read was blocked");
-  assert(!planningToolBlockReason("grep", { pattern: "inside" }, state, repository), "omitted grep path did not resolve to repository root");
-  assert(planningToolBlockReason("read", { path: "../gate-outside.txt" }, state, repository), "traversal escape was admitted");
-  assert(planningToolBlockReason("read", { path: "escape.txt" }, state, repository), "symlink escape was admitted");
-  assert(planningToolBlockReason("ls", { path: artifactRoot }, state, repository), "artifact-root listing was admitted");
-  assert(!planningToolBlockReason("read", { path: state.implementationDetailsPath }, state, repository), "exact repair artifact was blocked");
-  assert(planningToolBlockReason("ls", { path: dirname(state.implementationDetailsPath) }, state, repository), "repair artifact parent listing was admitted");
-  const alias = join(root, "repair-artifact-alias.json");
-  symlinkSync(detailsPath, alias);
-  assert(planningToolBlockReason("read", { path: alias }, state, repository), "repair artifact alias was admitted");
-  writeFileSync(detailsPath, '{"changed":true}\n');
-  assert(planningToolBlockReason("read", { path: detailsPath }, state, repository), "mutated repair artifact bytes were admitted");
-  rmSync(detailsPath);
-  symlinkSync(outside, detailsPath);
-  assert(planningToolBlockReason("read", { path: detailsPath }, state, repository), "replaced repair artifact symlink was admitted");
-}
-
 async function testPlanningLifecycle() {
   const extension = (await import("../packages/fanout-pi/src/index.ts")).default;
   const rejectedPreflight = await extensionHarness(root, extension, "no-model", false, false);
@@ -152,6 +116,8 @@ async function testPlanningLifecycle() {
     const artifactDir = runId ? join(dirname(harness.activeProfilePath), runId) : undefined;
     assert(artifactDir, `${scenario}: internal phase prompt omitted its run identity`);
     assert(JSON.stringify(harness.activeTools) === JSON.stringify(FANOUT_PLANNING_TOOLS), `${scenario}: planning profile was not activated`);
+    const externalRead = harness.handler("tool_call")({ toolName: "read", toolCallId: "external-read", input: { path: join(root, "external-context.md") } }, harness.ctx);
+    assert(externalRead === undefined, `${scenario}: planning blocked Pi-native external read scope`);
     const gate = harness.handler("tool_call")({ toolName: scenario === "clarification" ? "ask_user_question" : "bash", toolCallId: "call", input: {} }, harness.ctx);
     if (scenario === "clarification") assert(gate === undefined, "clarification tool was blocked");
     else assert(gate?.block === true, `${scenario}: blocked tool reached execution`);

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { artifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
 import { buildRequiredReadClassifications, compileExecutionPacket, validateImplementationDetailsArtifact, validateImplementationPlan } from "../../fanout-core/src/fanout-compiler.ts";
@@ -197,8 +197,7 @@ export class FanoutPlanningController {
 			const compiled = compileExecutionPacket({ implementationPlan, implementationDetails, planIdentity, detailsIdentity, tierPlan: finished.context.resolvedTierPlan, runtimePolicy: { maxConcurrency: positiveIntegerSetting(recordField(finished.context.executionDefaults).maxConcurrency, 2), failFast: false, fallbackAllowed: true }, sequentialReadFallback: finished.repairAttempted === true });
 			writeJsonl("fanout_compiler_validation", { planRunId: finished.runId, phase: "details", artifactDir: finished.artifactDir, policy: "error", repairAttempted: finished.repairAttempted === true, ok: compiled.ok, errors: compiled.errors, warnings: compiled.warnings }, ctx.cwd);
 			if (!compiled.ok && readClassificationFailure(compiled.issues) && !finished.repairAttempted) {
-				const repairState = { ...finished, acceptedSubmission: undefined, repairAttempted: true, repairArtifact: { path: finished.implementationDetailsPath, realPath: realpathSync(finished.implementationDetailsPath), identity: detailsIdentity } };
-				this.#pending = { ...repairState, systemPrompt: buildImplementationDetailsRepairPrompt(finished.objective, finished.context, repairState, compiled.issues, finished.requiredReadClassifications ?? []) };
+				this.#pending = { ...finished, systemPrompt: buildImplementationDetailsRepairPrompt(finished.objective, finished.context, finished, compiled.issues, finished.requiredReadClassifications ?? []), acceptedSubmission: undefined, repairAttempted: true };
 				writeJsonl("fanout_compiler_repair_requested", { planRunId: finished.runId, phase: "details", artifactDir: finished.artifactDir, issues: compiled.issues }, ctx.cwd);
 				ctx.ui.notify("Fanout compiler found ambiguous read overlaps; repairing implementation details.", "info");
 				this.#startTurn(this.#pending, "Repair read-classification failures in implementation-details.json.");
@@ -239,8 +238,8 @@ export class FanoutPlanningController {
 		if (!state) return messages;
 		return [...state.objectiveContextMessages, ...messages.slice(state.phaseContextStart)];
 	}
-	blockReason(toolName: string, input: unknown, cwd: string, toolCallId: string, messages: unknown[]): string | undefined {
-		return planningToolBlockReason(toolName, input, this.#started, cwd) ?? planningSubmissionBatchBlockReason(toolName, toolCallId, messages, this.#started);
+	blockReason(toolName: string, toolCallId: string, messages: unknown[]): string | undefined {
+		return planningToolBlockReason(toolName, Boolean(this.#started)) ?? planningSubmissionBatchBlockReason(toolName, toolCallId, messages, this.#started);
 	}
 	reset(): void {
 		restorePlanningTools(this.#pi, this.#toolsBefore);

@@ -32,7 +32,7 @@ The packet contains exact source and profile identities, planning identity, obje
 
 ## Capability boundary
 
-Planning turns expose read-only repository tools, `ask_user_question`, and a phase-specific controller-bound artifact submission tool. A successful lone submission is terminating; a submission batched with another tool is rejected before execution, and validation errors leave the phase open for correction. A provider-context adapter retains only the current phase suffix plus controller-built explicit inputs, except that implicit-objective runs also retain their initiating user request. The session file and TUI transcript remain unchanged. Filesystem calls resolve real targets and admit repository contents only, with one accepted-details exception bound to its exact path, real identity, and bytes during compiler repair; artifact directories, sibling runs, parent listings, replaced symlinks, and symlink escapes are rejected. Artifact destinations and envelope fields remain controller-owned.
+Planning turns expose Pi's read/search/list filesystem tools, `ask_user_question`, and a phase-specific controller-bound artifact submission tool. A successful lone submission is terminating; a submission batched with another tool is rejected before execution, and validation errors leave the phase open for correction. A provider-context adapter retains only the current phase suffix plus controller-built explicit inputs, except that implicit-objective runs also retain their initiating user request. The session file and TUI transcript remain unchanged. Filesystem reads use Pi's ordinary permissions without an additional Fanout repository-containment gate; artifact destinations and envelope fields remain controller-owned, and edit, write, and shell tools remain unavailable.
 
 ## Package boundaries
 
@@ -50,7 +50,7 @@ rtk npm run test:doubleword-provider
 rtk git diff --check
 ```
 
-The planning, compiler, contract, and packet smokes prove profile-v1/plan-v3/details-v6/packet-v8/pointer-v2/work-contract-v3 admission, phase-specific schemas, lone terminating submission with mixed-batch rejection, initiating-request context retention, accepted-repair identity and realpath filesystem gates, failed-refresh preservation, exact profile binding, details-v5/packet-v7 Legacy rejection, deterministic fusion/graph/views, Phase A ban propagation, pointer-last publication, packet/profile independence, and package independence.
+The planning, compiler, contract, and packet smokes prove profile-v1/plan-v3/details-v6/packet-v8/pointer-v2/work-contract-v3 admission, phase-specific schemas, lone terminating submission with mixed-batch rejection, initiating-request context retention, ordinary Pi filesystem access during planning, failed-refresh preservation, exact profile binding, details-v5/packet-v7 Legacy rejection, deterministic fusion/graph/views, Phase A ban propagation, pointer-last publication, packet/profile independence, and package independence.
 
 ## Release gates
 

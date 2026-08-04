@@ -40,7 +40,7 @@ Fanout should preserve developer velocity by using slower tiers only where laten
 
 ### End-to-end hardening
 
-Status: The current closed generation is Project Execution Profile v1, plan v3, details v6, packet v8, pointer v2, work contract v3, Attempt Outcome v5, final evidence v2, Event v5, Projection v6, and presentation entry v1. Planning now uses canonical TypeBox structures, phase-specific terminating submission tools, phase-isolated provider context, realpath-gated repository inspection, and Phase A-only global forbidden writes. Details v5 and packet v7 require replanning; older execution evidence remains descriptive Legacy data.
+Status: The current closed generation is Project Execution Profile v1, plan v3, details v6, packet v8, pointer v2, work contract v3, Attempt Outcome v5, final evidence v2, Event v5, Projection v6, and presentation entry v1. Planning now uses canonical TypeBox structures, phase-specific terminating submission tools, phase-isolated provider context, Pi-native read-only filesystem access, and Phase A-only global forbidden writes. Details v5 and packet v7 require replanning; older execution evidence remains descriptive Legacy data.
 
 Live `/fanout-execute` remains blocked from release until the explicitly authorized macOS p-map canary, fresh review, and repository-owner approval pass for the same immutable commit. Offline readiness does not satisfy those external gates.
 
