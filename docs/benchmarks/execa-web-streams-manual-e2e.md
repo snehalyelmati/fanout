@@ -1,6 +1,6 @@
 # Execa Web Streams manual Fanout E2E
 
-Status: the first controlled canary completed on 2026-07-29; the focused-validation canary stopped on its first worker-scope failure on 2026-07-30; the bounded unauthorized-change-recovery canary then completed on 2026-07-30 without exercising that recovery route; a normal Pi control completed from the same baseline. No repetitions have been run.
+Status: the first controlled canary completed on 2026-07-29; the focused-validation canary stopped on its first worker-scope failure on 2026-07-30; the bounded unauthorized-change-recovery canary then completed on 2026-07-30 without exercising that recovery route; a normal Pi control completed from the same baseline; and the packet-v9 worker-validation canary stopped on malformed direct-argv TypeScript validation authority on 2026-08-04. No repetitions have been run.
 
 This is the next transfer/complexity benchmark after the controlled p-map task. It follows the common safety, execution, evidence, failure, and reporting protocol in [`fanout-execution-benchmark-procedure.md`](fanout-execution-benchmark-procedure.md) and the operator workflow in [`p-map-abort-signal-manual-e2e.md`](p-map-abort-signal-manual-e2e.md). This document records only Execa-specific inputs and gates.
 
@@ -193,6 +193,22 @@ The closest Fanout comparison is the immediately preceding recovery-policy canar
 Fanout's separately reported live-only 989,440 tokens and `$1.1097045` cost omit its 561,857-token / `$1.548218` planning session and must not be compared directly with the normal Pi total. Conversely, Fanout supplies typed authority enforcement, rejected-candidate isolation, accepted-ledger replay, exact repair routing, isolated preparation, and profiler timing that normal Pi does not. Normal Pi avoided that control-plane overhead and self-corrected sequentially.
 
 Both results pass their own tests, but there is no shared independently authored hidden acceptance suite in this fixture. The comparison therefore supports workflow, cost, scope, and recorded-validation observations; it does not establish that either implementation is semantically superior. One run per mode cannot support a reliability rate, variance estimate, median, range, or universal SLO.
+
+## 2026-08-04 packet-v9 worker-validation canary stop
+
+Live run `2026-08-04T15-47-51-375Z-6255f7df` used packet SHA-256 `6a76399830ad9e727a2be57f147a0410da7d091f6601518a415ff90ed5c7d6c9` with work contract v4 and the existing profile SHA-256 `50c9bec27ac95da0453bc11092e5a1b40830540175c10f82461fc72c7916acf1`. It started from the exact baseline commit/tree and exposed the six fixed file tools plus zero-argument, manifest-bound `fanout_validate`; controller validation remained authoritative.
+
+The runtime original called advisory validation three times with failed → passed → passed results, then passed controller validation. The documentation original called it twice with failed → passed results, then passed controller validation. Both original candidates were accepted without node repair. The TypeScript original's immutable command was:
+
+```text
+npx tsd --files test-d/convert/{readable-stream,writable-stream,transform-stream}.test-d.ts --files test-d/pipe.test-d.ts
+```
+
+Fanout correctly launched that manifest as direct argv, so no shell brace expansion occurred. `tsd` received the brace expression literally and failed. The worker could not change packet authority; its one repair produced the same candidate and typed failure, correctly recording `fail/exact-no-progress` with the second attempt and leaving the other repair slot unused.
+
+The recorded prefix contains four attempts: accepted runtime and documentation originals plus the TypeScript original and one repair. It ended after 327.517s with 825,187 tokens, estimated cost `$0.784550`, two accepted transitions covering nine cumulative file touches, one exact-no-progress termination, and no final validation. A node-executor routing bug continued after the terminal repair and caused `node typescript-web-stream-contracts completed without a causal attempt`; the run therefore recorded controller `internal-failure` and left that node pending even though the repair attempt's typed terminal outcome was already authoritative.
+
+Completed historical run `2026-08-04T13-58-43-157Z-e46c2a14` used three repairs: two node repairs and one final repair. In the packet-v9 recorded prefix, repairs fell to one, repair fresh input fell from 163,536 to 32,346 tokens, and repair cost fell from `$1.329` to `$0.275`. This is encouraging advisory-validation evidence only. Because malformed validation authority stopped the latest run before final validation, it is not a completed performance, cost, quality, accepted-tree, reliability, or end-to-end comparison.
 
 ## Reporting
 
