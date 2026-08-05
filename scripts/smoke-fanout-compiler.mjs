@@ -120,15 +120,15 @@ const runtimePolicy = { maxConcurrency: 2, failFast: false, fallbackAllowed: tru
 const compiled = compileExecutionPacket({ implementationPlan: plan, implementationDetails: details, planIdentity, detailsIdentity, tierPlan, runtimePolicy, createdAt: "2026-07-14T00:02:00.000Z" });
 assert(compiled.ok && compiled.packet, `compile failed: ${compiled.errors.join("; ")}`);
 const packet = compiled.packet;
-assert(packet.version === EXECUTION_PACKET_VERSION && packet.version === 8, "packet is not v8");
+assert(packet.version === EXECUTION_PACKET_VERSION && packet.version === 9, "packet is not v9");
 assert(packet.nodes.length === 2 && packet.nodes.at(-1).kind === "final-validation", "canonical nodes/final validation missing");
 assert(packet.nodes.every((node) => !Object.hasOwn(node.workContract, "candidateNormalizationCommands")), "packet retained profile-owned normalization");
 assert(packet.nodes.at(-1).workContract.validationCommands.length === 2, "command order/duplicates were not preserved");
 assert(packet.nodes.every((node) => node.workContract.forbiddenWrites.some((entry) => entry.resource.path === "generated" && entry.sourcePlanIds[0] === "feature")), "Phase A forbidden writes did not reach every ordinary/final Work Contract with provenance");
-assert(JSON.stringify(packet.runtimePolicy) === JSON.stringify(runtimePolicy), "immutable runtime policy was not stored in packet v8");
+assert(JSON.stringify(packet.runtimePolicy) === JSON.stringify(runtimePolicy), "immutable runtime policy was not stored in packet v9");
 const forbidden = ["artifactDir", "blockers", "workUnits", "estimates", "stopRules", "risks", "finalValidationPlan", "goal", "dependencies", "ownedFiles", "readOnlyFiles", "steps", "validationCommands", "acceptanceCriteria", "rollbackNotes", "workerPacket"];
 assert(!forbidden.some((key) => Object.hasOwn(packet, key) || packet.nodes.some((node) => Object.hasOwn(node, key))), "packet retains flattened legacy authority");
-assert(validateExecutionPacket(packet).executable, "packet v8 rejected");
+assert(validateExecutionPacket(packet).executable, "packet v9 rejected");
 assert(!validateExecutionPacket({ ...packet, version: 7 }).executable, "legacy packet v7 admitted");
 assert(!validateExecutionPacket({ ...packet, status: "ready" }).executable, "legacy status field admitted");
 assert(!validateExecutionPacket({ ...packet, runtimePolicy: { ...packet.runtimePolicy, maxConcurrency: 0 } }).executable, "invalid packet runtime policy admitted");
@@ -162,7 +162,7 @@ for (const name of readdirSync("packages/fanout-core/src").filter((name) => name
 const providerPackage = JSON.parse(readFileSync("packages/doubleword-provider/package.json", "utf8"));
 assert(!JSON.stringify(providerPackage).includes("fanout-core") && !JSON.stringify(providerPackage).includes("fanout-pi"), "standalone Doubleword package depends on Fanout");
 
-console.log("hardened compiler cutover smoke passed (plan v3, details v6, packet v8, package independence)");
+console.log("hardened compiler cutover smoke passed (plan v3, details v6, packet v9, package independence)");
 
 function compileSerialFixture(shape) {
   const ids = shape === "branch" || shape === "join" || shape === "chain" ? ["a", "b", "c"] : ["a", "b"];

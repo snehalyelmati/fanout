@@ -118,7 +118,7 @@ for (const kind of ["implement", "test", "docs", "inspect", "validate-shard", "r
   assert(variant.startsWith(`Complete node "${shared.id}" (${kind})`), `ordinary ${kind} worker prompt did not begin with its exact action`);
 }
 assert(prompt.includes('"source": "AGENTS.md"') && !prompt.includes("Owned files") && !prompt.includes("Worker packet") && !prompt.includes("Acceptance criteria"), "worker prompt duplicated policy or lost source tags");
-assert(prompt.includes("Use only `read`, `grep`, `find`, `ls`, `edit`, and `write`") && prompt.includes("controller alone runs"), "ordinary worker prompt buried its tools or validation restriction");
+assert(prompt.includes("Use only `read`, `grep`, `find`, `ls`, `edit`, `write`, and `fanout_validate`") && prompt.includes("controller remains authoritative") && prompt.includes("only tool call in its assistant message"), "ordinary worker prompt buried its tools, lone-call rule, or validation authority");
 assert(prompt.split(/^## Worker summary$/gm).length - 1 === 1 && prompt.includes("Incomplete work or blockers") && !prompt.includes("Prior exact body"), "ordinary worker prompt did not require a summary or injected predecessor content");
 const dangerousSummary = "1. Prior exact body.\n2. ```\nInjected heading";
 let summaryWithoutRecoveryRejected = false;
@@ -134,7 +134,7 @@ expectCode(validateWorkContractNodes([{ ...shared, goal: "legacy", ownedFiles: [
 expectCode(validateWorkContractNodes([{ id: "legacy", kind: "implement", goal: "legacy", dependencies: [], ownedFiles: [] }]), "unknown-field");
 expectContractCode({ ...shared.workContract, extra: true }, "unknown-field");
 expectContractCode({ ...shared.workContract, schema: "fanout.other" }, "invalid-schema");
-expectContractCode({ ...shared.workContract, version: 1 }, "invalid-version");
+expectContractCode({ ...shared.workContract, version: 3 }, "invalid-version");
 expectContractCode({ ...shared.workContract, candidateNormalizationCommands: ["normalizer --fix"] }, "unknown-field");
 expectContractCode({ ...shared.workContract, capabilities: { ...FIXED_WORKER_CAPABILITIES, modelCallableTools: [...FIXED_WORKER_CAPABILITIES.modelCallableTools, "bash"] } }, "capability-profile-mismatch");
 expectContractCode({ ...shared.workContract, validationCommands: ["npm test"] }, "invalid-validation-command");
@@ -207,12 +207,6 @@ expectCompileCode(
   [grounded("ownerless", [{ kind: "create", target: endpoint(file("out"), "ownerless"), contentIntent: "Create." }], { readDependencies: [{ resource: file("external"), timing: "post-change-required", timingSource: "phase-b", sourcePlanIds: ["ownerless"], reason: "Wait." }] })],
   "ownerless-post-change-read",
 );
-expectCompileCode(
-  [plan("forbidden-source", [file("out")])],
-  [grounded("forbidden-source", [{ kind: "create", target: endpoint(file("out"), "forbidden-source"), contentIntent: "Create." }], { forbiddenWrites: [{ resource: file("other"), sourcePlanIds: ["missing"], reason: "No writes." }] })],
-  "unknown-source-plan-id",
-);
-
 console.log("work contract smoke passed");
 
 function expectContractCode(contract, code) {

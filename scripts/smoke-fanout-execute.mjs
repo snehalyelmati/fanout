@@ -17,7 +17,7 @@ import { publishProjectExecutionProfile } from "../packages/fanout-pi/src/projec
 import { capturePlanningBase, fullGitVisibleTree } from "../packages/fanout-pi/src/repository-identity.ts";
 
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
-const root = mkdtempSync(join(tmpdir(), "fanout-v8-execute-"));
+const root = mkdtempSync(join(tmpdir(), "fanout-v9-execute-"));
 try {
   const repo = join(root, "repo"); const artifacts = join(root, "artifacts"); const runDir = join(artifacts, "plan");
   mkdirSync(repo); mkdirSync(runDir, { recursive: true });
@@ -55,7 +55,7 @@ try {
   assert(result.status === "succeeded" && result.snapshot.version === 6 && result.snapshot.mode === "dry-run" && result.snapshot.terminalOutcome.outcome === "dry-run-completed" && Number.isFinite(result.snapshot.terminalOutcome.cleanupDurationMs), "hardened dry run did not project explicit state and cleanup timing");
   assert(result.snapshot.policy.maxConcurrency === 2, "execution options overrode immutable packet runtime policy");
   assert(result.snapshot.preflightEvidence.planningCommit.actual === base.headCommit && result.snapshot.preflightEvidence.repositoryTree.actual === base.tree && result.snapshot.preflightEvidence.platform.actual === process.platform, "dry run did not preserve exact repository/platform preflight evidence");
-  assert(result.snapshot.preflightEvidence.worker.launcher.resolvedExecutable && result.snapshot.preflightEvidence.worker.extension.resolved && result.snapshot.preflightEvidence.worker.modelCallableTools.join(",") === "read,grep,find,ls,edit,write", "dry run did not preserve worker capability evidence");
+  assert(result.snapshot.preflightEvidence.worker.launcher.resolvedExecutable && result.snapshot.preflightEvidence.worker.extension.resolved && result.snapshot.preflightEvidence.worker.modelCallableTools.join(",") === "read,grep,find,ls,edit,write,fanout_validate", "dry run did not preserve worker capability evidence");
   assert(result.snapshot.preflightEvidence.validationCommands.some((entry) => entry.nodeId === "x" && entry.manifest.args.join("\0") === command.args.join("\0") && entry.resolution.status === "available"), "dry run did not preserve resolved validation argv evidence");
   const events = readFileSync(result.paths.eventsPath, "utf8").trim().split("\n").map(JSON.parse);
   assert(events.map((event) => event.sequence).join(",") === "1,2,3" && events.every((event) => event.version === 5), "events are not gapless v5 authority");

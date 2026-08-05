@@ -20,6 +20,7 @@ import {
 	type PlanningBase,
 } from "./repository-identity.ts";
 import { WORKER_MODEL_TOOLS } from "./worker-capabilities.ts";
+import { publishWorkerValidationManifest } from "./worker-validation.ts";
 
 export interface WorkerTier {
 	tier: TierName;
@@ -124,6 +125,15 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 		), "utf8");
 		writeFileSync(observabilityPath, "", { encoding: "utf8", flag: "wx" });
 		mkdirSync(sessionDir);
+		const validationManifest = publishWorkerValidationManifest(attemptDir, {
+			runId: options.runId,
+			nodeId: unit.id,
+			attemptId,
+			worktreeRoot: worktreePath,
+			platform: packet.planningHost.platform,
+			commands: contract.validationCommands,
+			timeoutMs: options.validationTimeoutMs,
+		});
 
 		const providerRunId = `${options.runId}-${artifactSegment(unit.id)}-${attemptId}`;
 		const args = [
@@ -151,8 +161,10 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 				FANOUT_OBSERVABILITY_FILE: observabilityPath,
 				FANOUT_RUN_ID: options.runId,
 				FANOUT_NODE_ID: unit.id,
+				FANOUT_ATTEMPT_ID: attemptId,
 				FANOUT_WORKER_DIR: attemptDir,
 				FANOUT_WORKTREE_ROOT: worktreePath,
+				FANOUT_VALIDATION_MANIFEST: JSON.stringify(validationManifest),
 				DOUBLEWORD_OBSERVABILITY_FILE: observabilityPath,
 				DOUBLEWORD_RUN_ID: providerRunId,
 				DOUBLEWORD_EXECUTION_MODE: tier.tier === "tier2" ? "async" : "realtime",

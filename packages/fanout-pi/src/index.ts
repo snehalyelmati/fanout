@@ -22,6 +22,7 @@ import { FanoutPlanningController } from "./fanout-planning-controller.ts";
 import { roundedDuration } from "./planning-observability.ts";
 import { displayFanoutExecutionReport, registerFanoutReportPresentation } from "./report-presentation.ts";
 import { workerToolBlockReason } from "./worker-capabilities.ts";
+import { loadWorkerValidationContext, registerWorkerValidationTool, workerValidationBatchBlockReason } from "./worker-validation.ts";
 
 export default async function (pi: ExtensionAPI) {
 	let agentStarted: number | undefined;
@@ -35,7 +36,9 @@ export default async function (pi: ExtensionAPI) {
 	let fanoutExecutionInProgress = false;
 	const reportPresentationAvailable = registerFanoutReportPresentation(pi);
 	const planning = new FanoutPlanningController(pi, { reportPresentationAvailable, activeModel: () => activeModel, activeThinking: () => activeThinking });
+	const workerValidation = loadWorkerValidationContext();
 	planning.register();
+	if (workerValidation) registerWorkerValidationTool(pi, workerValidation);
 
 	setDoublewordRunId(RUN_ID);
 	configureMainObservability(fanoutRuntimeContext(process.cwd(), undefined, undefined));
@@ -238,7 +241,9 @@ export default async function (pi: ExtensionAPI) {
 
 	pi.on("tool_call", (event, ctx) => {
 		const sessionMessages = ctx.sessionManager?.buildSessionContext?.().messages;
-		const reason = planning.blockReason(event.toolName, event.toolCallId, Array.isArray(sessionMessages) ? sessionMessages : []);
+		const messages = Array.isArray(sessionMessages) ? sessionMessages : [];
+		const reason = planning.blockReason(event.toolName, event.toolCallId, messages)
+			?? workerValidationBatchBlockReason(event.toolName, event.toolCallId, messages, Boolean(workerValidation));
 		if (reason) return { block: true, reason };
 		const workerReason = workerToolBlockReason(event.toolName, event.input, process.env.FANOUT_WORKTREE_ROOT);
 		if (workerReason) return { block: true, reason: workerReason };

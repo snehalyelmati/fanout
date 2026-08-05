@@ -38,7 +38,7 @@ const preflightEvidence = {
   worker: {
     extension: { requested: "packages/fanout-pi/src/index.ts", resolved: "/repo/packages/fanout-pi/src/index.ts", status: "available" },
     launcher: { executable: process.execPath, args: ["--version"], resolvedExecutable: process.execPath, resolvedCwd: "/repo", version: process.version, status: "available" },
-    modelCallableTools: ["read", "grep", "find", "ls", "edit", "write"],
+    modelCallableTools: ["read", "grep", "find", "ls", "edit", "write", "fanout_validate"],
   },
   commandCounts: { candidateNormalization: [2, 0], validation: [1, 1] },
   candidateNormalizationCommands: [
@@ -512,7 +512,7 @@ function validationRecovery(sourceAttemptId, stderr) {
     sourceAttemptId,
     workContract: {
       schema: "fanout.work-contract",
-      version: 3,
+      version: 4,
       goals: [{ sourcePlanId: "node-a", statement: "Update node A." }],
       changes: [{ kind: "create", target: { resource: { kind: "file", path: "src/a.ts" }, sourcePlanIds: ["node-a"] }, contentIntent: "Create node A." }],
       readDependencies: [],

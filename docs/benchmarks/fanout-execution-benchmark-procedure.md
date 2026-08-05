@@ -159,13 +159,15 @@ Required metrics:
 | run/node/worker duration | Projection-v6 run totals plus correlated Attempt Outcome v5 metrics |
 | worker launch count | Canonical Event-v5 `attempt-allocated` records and projection attempts |
 | retry/fallback/rejection count | Typed attempt kinds/actions and projection totals |
-| validation pass/fail and duration | Attempt `validation.json`, final-validation evidence v2, and projection disposition |
+| validation pass/fail and duration | Worker `worker-validation/*.json` advisory calls, authoritative attempt `validation.json`, final-validation evidence v2, and projection disposition; report them separately |
 | token/cost provenance | Correlated attempt outcomes, including observed partial failed-attempt usage |
 | patch statistics | Accepted-ledger aggregate files/insertions/deletions; `result.json` retains per-attempt patch identity, changed paths, and stats |
 | tool/poll timing | Correlated provider/extension observability per attempt |
 | summary fields present | unified title; mode/phase/outcome; node status/attempts; totals; final-validation disposition; ledger tree transitions; stable audit links |
 
-Current executable planning inputs are profile v1, plan v3, details v6, work contract v3, packet v8, and pointer v2. Details v5 and packet v7 are historical inputs only and must not be reused for a current P1/P2 run.
+Current executable planning inputs are profile v1, plan v3, details v6, work contract v4, packet v9, and pointer v2. Work contract v3 and packet v8 are historical inputs only and must not be reused for a current P1/P2 run.
+
+For the worker-validation experiment, compare otherwise identical runs by advisory `fanout_validate` call count/status/duration, authoritative node-validation failures, validation-repair attempts, final-repair attempts, wall time, tokens, and cost. Do not count an advisory pass as acceptance or combine its duration with controller validation.
 
 ## P2: controlled local repo execution benchmark
 

@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { AcceptedPatch } from "../../fanout-core/src/artifact-identity.ts";
 import { correlateAttemptMetrics, type CorrelatedAttemptMetrics } from "../../fanout-core/src/attempt-metrics.ts";
@@ -86,7 +86,9 @@ export function attemptEvidenceRefs(runDir: string, attempt: PatchAttemptEvidenc
 	const refs = artifactFile(join(attempt.attemptDir, "result.json")) ? ["result.json"] : [];
 	if (artifactFile(join(attempt.attemptDir, "observability.jsonl"))) refs.push("observability.jsonl");
 	if (attempt.patch) refs.push(attempt.patch.artifact.path);
-	for (const name of ["preparation.json", "candidate-normalization.json", "validation.json", "ownership-check.json", "apply-check.json", "reconciliation.json"]) if (artifactFile(join(attempt.attemptDir, name))) refs.push(name);
+	for (const name of ["preparation.json", "candidate-normalization.json", "validation.json", "ownership-check.json", "apply-check.json", "reconciliation.json", "worker-validation-manifest.json"]) if (artifactFile(join(attempt.attemptDir, name))) refs.push(name);
+	const workerValidationDir = join(attempt.attemptDir, "worker-validation");
+	if (existsSync(workerValidationDir) && lstatSync(workerValidationDir).isDirectory()) for (const name of readdirSync(workerValidationDir).sort()) if (artifactFile(join(workerValidationDir, name))) refs.push(`${prefix}/worker-validation/${name}`);
 	return [...new Set(refs.filter((reference) => !excluded.has(reference)).map((reference) => reference.includes("/") ? reference : `${prefix}/${reference}`))];
 }
 

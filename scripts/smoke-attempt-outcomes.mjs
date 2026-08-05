@@ -573,7 +573,7 @@ function commandEvidence(index, status, extra = {}) {
 function workContract() {
   return {
     schema: "fanout.work-contract",
-    version: 3,
+    version: 4,
     goals: [{ sourcePlanId: "plan", statement: "Update the file." }],
     changes: [{ kind: "create", target: { resource: { kind: "file", path: "src/value.ts" }, sourcePlanIds: ["plan"] }, contentIntent: "Create the value module." }],
     readDependencies: [],
