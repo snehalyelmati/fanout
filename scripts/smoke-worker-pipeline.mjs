@@ -126,6 +126,28 @@ async function testWorkerValidation(root, worktree) {
   const evidence = readdirSync(join(attemptDir, "worker-validation")).sort();
   assert(evidence.length === 2 && evidence.every((name) => JSON.parse(readFileSync(join(attemptDir, "worker-validation", name), "utf8")).manifest.sha256 === identity.sha256), "worker validation evidence was not recorded against the immutable manifest");
 
+  const bulkCommands = [
+    { executable: process.execPath, args: ["-e", "process.stdout.write('PASSED_HEAD_' + 'p'.repeat(20_000) + '_PASSED_TAIL')"] },
+    { executable: process.execPath, args: ["-e", "process.stdout.write('FAILED_STDOUT_HEAD_' + 'o'.repeat(12_000) + '_FAILED_STDOUT_TAIL'); process.stderr.write('FAILED_STDERR_HEAD_' + 'e'.repeat(12_000) + '_FAILED_STDERR_TAIL'); process.exit(7)"] },
+  ];
+  const bulkIdentity = publishWorkerValidationManifest(attemptDir, {
+    runId: "run-1",
+    nodeId: "node-1",
+    attemptId: "node-1:000001",
+    worktreeRoot: worktree,
+    platform: process.platform,
+    commands: bulkCommands,
+    timeoutMs: 5_000,
+  });
+  const bulkContext = loadWorkerValidationContext({ ...env, FANOUT_VALIDATION_MANIFEST: JSON.stringify(bulkIdentity) }, worktree);
+  const bulk = await runWorkerValidation(bulkContext, "validate-bulk", undefined, worktree);
+  const bulkText = bulk.content[0].text;
+  assert(bulk.isError === true && bulkText.includes("[0] passed") && !bulkText.includes("PASSED_HEAD_") && !bulkText.includes("_PASSED_TAIL"), "passed worker validation output remained model-visible");
+  assert(bulkText.length < 9_000 && bulkText.includes("fanout_validate output truncated") && bulkText.includes("FAILED_STDOUT_HEAD_") && bulkText.includes("_FAILED_STDERR_TAIL"), "failed worker validation output was not bounded with useful head/tail diagnostics");
+  assert(bulk.details.result.commands[0].stdout.includes("_PASSED_TAIL") && bulk.details.result.commands[1].stdout.includes("_FAILED_STDOUT_TAIL") && bulk.details.result.commands[1].stderr.includes("_FAILED_STDERR_TAIL"), "bounded model output truncated authoritative validation details");
+  const bulkEvidence = JSON.parse(readFileSync(join(attemptDir, bulk.details.evidence.path), "utf8"));
+  assert(bulkEvidence.result.commands[0].stdout.includes("_PASSED_TAIL") && bulkEvidence.result.commands[1].stderr.includes("_FAILED_STDERR_TAIL"), "bounded model output truncated stored validation evidence");
+
   writeFileSync(join(attemptDir, identity.path), "{}\n");
   let tamperRejected = false;
   try { loadWorkerValidationContext(env, worktree); } catch (error) { tamperRejected = /digest|length|artifact/i.test(String(error)); }

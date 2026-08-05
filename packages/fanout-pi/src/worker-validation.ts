@@ -5,12 +5,13 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { parseArtifactIdentity, type ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
 import { parseValidationCommands, type ValidationCommand } from "../../fanout-core/src/validation-command.ts";
 import { readVerifiedArtifact, writeArtifactAtomically } from "./artifact-store.ts";
-import { runValidationCommands, type ValidationRunResult } from "./validation-runner.ts";
+import { runValidationCommands, type ValidationCommandResult, type ValidationRunResult } from "./validation-runner.ts";
 
 export const FANOUT_VALIDATE_TOOL = "fanout_validate";
 export const WORKER_VALIDATION_MANIFEST_SCHEMA = "fanout.worker-validation-manifest";
 export const WORKER_VALIDATION_MANIFEST_VERSION = 1;
 const MANIFEST_PATH = "worker-validation-manifest.json";
+const MODEL_VISIBLE_FAILURE_OUTPUT_LIMIT = 8_000;
 
 export interface WorkerValidationManifest {
 	schema: typeof WORKER_VALIDATION_MANIFEST_SCHEMA;
@@ -174,12 +175,25 @@ function formatResult(result: ValidationRunResult): string {
 	const lines = [`fanout_validate ${result.status}: ${result.executedCount}/${result.commands.length} commands executed in ${result.durationMs}ms.`];
 	for (const command of result.commands) {
 		lines.push(`[${command.index}] ${command.outcome} (exit ${command.exitCode ?? "none"}, ${command.durationMs}ms)`);
-		if (command.stdout) lines.push(`stdout:\n${command.stdout}`);
-		if (command.stderr) lines.push(`stderr:\n${command.stderr}`);
-		if (command.spawnError) lines.push(`spawn error: ${command.spawnError}`);
+		if (command.outcome !== "passed" && command.outcome !== "unexecuted") {
+			const diagnostics = formatFailureDiagnostics(command);
+			if (diagnostics) lines.push(diagnostics);
+		}
 	}
 	lines.push("Advisory only: the controller will rerun authoritative validation.");
 	return lines.join("\n");
+}
+
+function formatFailureDiagnostics(command: ValidationCommandResult): string {
+	const output = [
+		command.spawnError ? `spawn error: ${command.spawnError}` : "",
+		command.stdout ? `stdout:\n${command.stdout}` : "",
+		command.stderr ? `stderr:\n${command.stderr}` : "",
+	].filter(Boolean).join("\n");
+	if (output.length <= MODEL_VISIBLE_FAILURE_OUTPUT_LIMIT) return output;
+	const marker = "\n... [fanout_validate output truncated; head and tail shown] ...\n";
+	const retained = MODEL_VISIBLE_FAILURE_OUTPUT_LIMIT - marker.length;
+	return `${output.slice(0, Math.ceil(retained / 2))}${marker}${output.slice(-Math.floor(retained / 2))}`;
 }
 
 function validationEnvironment(): NodeJS.ProcessEnv {
