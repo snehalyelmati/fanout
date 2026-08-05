@@ -112,7 +112,7 @@ if (process.env.FANOUT_RUN_ID === "provider-abort") {
   appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_error", runId: process.env.DOUBLEWORD_RUN_ID, provider, model, turnIndex: 0, responseId: "response-1", failureCode: "abort" }) + "\\n");
   process.exit(1);
 }
-if (!['post-worker-abort', 'repair-overlay', 'worker-summary-chain', 'disjoint-reconciliation', 'overlap-reconciliation', 'fused-execution', 'normalized-candidate', 'unauthorized-worker-retry', 'unauthorized-normalization', 'interrupted-normalization', 'identity-normalization', 'diagnostic-normalization', 'normalization-boundary-abort', 'normalization-boundary-abort-rewrite-failure', 'final-normalization', 'final-normalization-widened'].includes(process.env.FANOUT_RUN_ID) && process.env.FANOUT_WORKER_DIR.endsWith("001-original")) {
+if (!['post-worker-abort', 'repair-overlay', 'worker-summary-chain', 'exact-no-progress', 'disjoint-reconciliation', 'overlap-reconciliation', 'fused-execution', 'normalized-candidate', 'unauthorized-worker-retry', 'unauthorized-normalization', 'interrupted-normalization', 'identity-normalization', 'diagnostic-normalization', 'normalization-boundary-abort', 'normalization-boundary-abort-rewrite-failure', 'final-normalization', 'final-normalization-widened'].includes(process.env.FANOUT_RUN_ID) && process.env.FANOUT_WORKER_DIR.endsWith("001-original")) {
   appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_error", runId: process.env.DOUBLEWORD_RUN_ID, provider, model, turnIndex: 0, responseId: "response-1", failureCode: "rate-limit", httpStatus: 429 }) + "\\n");
   process.exit(1);
 }
@@ -127,6 +127,8 @@ if (process.env.FANOUT_RUN_ID === "fused-execution") {
 } else if (process.env.FANOUT_RUN_ID === "worker-summary-chain") {
   const attempt = process.env.FANOUT_WORKER_DIR.split("/").at(-1);
   writeFileSync("x.ts", \`export const x = \${attempt.startsWith("003-") ? 2 : attempt.startsWith("002-") ? 1 : 0};\\n\`);
+} else if (process.env.FANOUT_RUN_ID === "exact-no-progress") {
+  writeFileSync("x.ts", "export const x = 0;\\n");
 } else {
   writeFileSync(process.env.FANOUT_NODE_ID === "y" ? "y.ts" : "x.ts", process.env.FANOUT_WORKER_DIR.endsWith("validation-repair") ? "export const x = 1;\\n" : "export const x = 0;\\n");
 }
@@ -694,6 +696,18 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   assert(!JSON.stringify(summaryCompletions).includes("workerSummary"), "worker summary leaked into authoritative attempt outcomes");
   rmSync(join(repo, "x.ts"), { force: true });
   assert(fullGitVisibleTree(repo) === base.tree, "worker summary fixture did not restore the planning tree");
+
+  const exactNoProgress = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: () => true, piCommand: fakePi, runId: "exact-no-progress", workerTimeoutMs: 10_000, validationTimeoutMs: 10_000 });
+  const exactAttempts = exactNoProgress.snapshot.attempts.filter(({ allocation }) => allocation.nodeId === "x");
+  const exactRepair = exactAttempts[1];
+  const exactNode = exactNoProgress.snapshot.nodes.find(({ id }) => id === "x");
+  const exactCause = exactNoProgress.snapshot.terminalOutcome.cause;
+  assert(exactNoProgress.status === "failed" && exactAttempts.length === 2 && exactAttempts.map(({ allocation }) => allocation.kind).join(",") === "original,validation-repair", "exact no-progress allocated more than the original and one repair");
+  assert(exactRepair.outcome.action === "fail" && exactRepair.outcome.disposition === "exact-no-progress" && exactRepair.outcome.repairProgress.disposition === "exact-no-progress", "repeated validation repair did not terminate with exact no-progress");
+  assert(exactNode.status === "failed" && exactNode.causalAttemptId === exactRepair.allocation.attemptId, "failed node did not retain the terminal repair as its causal attempt");
+  assert(exactCause.kind === "event" && exactCause.code === "node-failed" && exactCause.attemptId === exactRepair.allocation.attemptId, "exact no-progress escaped as an internal controller failure");
+  assert(!existsSync(join(exactNoProgress.paths.runDir, "workers", artifactSegment("x"), "attempts", "003-validation-repair")), "exact no-progress allocated a third attempt");
+  assert(!existsSync(join(repo, "x.ts")) && fullGitVisibleTree(repo) === base.tree, "exact no-progress mutated the active tree");
 
   const xValidation = { executable: process.execPath, args: ["-e", "if(require('node:fs').readFileSync('x.ts','utf8')!=='export const x = 0;\\n')process.exit(1)"] };
   const yValidation = { executable: process.execPath, args: ["-e", "if(require('node:fs').readFileSync('y.ts','utf8')!=='export const x = 0;\\n')process.exit(1)"] };

@@ -395,6 +395,7 @@ export class FanoutNodeExecutor {
 				return gated as GatedAttempt;
 			}
 			if (gated.failureKind === "ownership" || gated.failureKind === "metrics" || gated.failureKind === "unsafe") return gated;
+			if (this.#terminalOutcome(gated).action !== "validation-repair") return gated;
 			current = gated;
 			seedPatch = gated.patch;
 			recoveryContext = gated.recovery;
