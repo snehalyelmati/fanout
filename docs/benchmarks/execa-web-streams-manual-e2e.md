@@ -1,6 +1,6 @@
 # Execa Web Streams manual Fanout E2E
 
-Status: the first controlled canary completed on 2026-07-29; the focused-validation canary stopped on its first worker-scope failure on 2026-07-30; the bounded unauthorized-change-recovery canary then completed on 2026-07-30 without exercising that recovery route; a normal Pi control completed from the same baseline; and the packet-v9 worker-validation canary stopped on malformed direct-argv TypeScript validation authority on 2026-08-04. No repetitions have been run.
+Status: the first controlled canary completed on 2026-07-29; the focused-validation canary stopped on its first worker-scope failure on 2026-07-30; the bounded unauthorized-change-recovery canary then completed on 2026-07-30 without exercising that recovery route; a normal Pi control completed from the same baseline; the first packet-v9 worker-validation canary stopped on malformed direct-argv TypeScript validation authority on 2026-08-04; and the corrected packet-v9 canary completed on 2026-08-05. No repetitions have been run.
 
 This is the next transfer/complexity benchmark after the controlled p-map task. It follows the common safety, execution, evidence, failure, and reporting protocol in [`fanout-execution-benchmark-procedure.md`](fanout-execution-benchmark-procedure.md) and the operator workflow in [`p-map-abort-signal-manual-e2e.md`](p-map-abort-signal-manual-e2e.md). This document records only Execa-specific inputs and gates.
 
@@ -209,6 +209,34 @@ Fanout correctly launched that manifest as direct argv, so no shell brace expans
 The recorded prefix contains four attempts: accepted runtime and documentation originals plus the TypeScript original and one repair. It ended after 327.517s with 825,187 tokens, estimated cost `$0.784550`, two accepted transitions covering nine cumulative file touches, one exact-no-progress termination, and no final validation. A node-executor routing bug continued after the terminal repair and caused `node typescript-web-stream-contracts completed without a causal attempt`; the run therefore recorded controller `internal-failure` and left that node pending even though the repair attempt's typed terminal outcome was already authoritative.
 
 Completed historical run `2026-08-04T13-58-43-157Z-e46c2a14` used three repairs: two node repairs and one final repair. In the packet-v9 recorded prefix, repairs fell to one, repair fresh input fell from 163,536 to 32,346 tokens, and repair cost fell from `$1.329` to `$0.275`. This is encouraging advisory-validation evidence only. Because malformed validation authority stopped the latest run before final validation, it is not a completed performance, cost, quality, accepted-tree, reliability, or end-to-end comparison.
+
+The stopped run exposed two independent defects. Planning encoded shell brace expansion in a direct-argv validation manifest instead of using a command valid without a shell. After the typed repair outcome reached exact no-progress, node execution also lost its causal failure and reported controller `internal-failure`. The subsequent fixes changed the TypeScript gate to `npm run type` and preserved the causal failed-node disposition. The stopped candidate remains preserved as `stash@{0}` at the time of the corrected run; the first historical canary remains `stash@{1}`.
+
+## 2026-08-05 corrected packet-v9 worker-validation canary
+
+The corrected canary froze clean Fanout commit `505c258b8d9f367796b4e3c2fe1afaf741dc1ef0` and reused the exact clean Execa baseline commit `6e9ed1185adca485097d299da263a38d74ee636b` / tree `475de97e8bce060242e1ce9025d10e7f763735bd`. Pi ran in retained pane `%301` under `doubleword:fanout-canary`, chat `019fd008-7188-7a24-a6a4-10182ecd99eb`. Routing was Sol medium for Tier 1/control, disabled async Tier 2, and Terra medium for the realtime worker fallback, with concurrency four. The existing profile remained SHA-256 `50c9bec27ac95da0453bc11092e5a1b40830540175c10f82461fc72c7916acf1`, 1,701 bytes.
+
+Planning successfully read `../TASK.md` and created lineage `20260805-034813952-read-task-md-and-implement-that-feature-`. Its frozen identities were:
+
+- task SHA-256 `e2f9d0145c3955ed94db6fc45f19fbe03ac43df3359679ed1c0d218ef88fb869`, 5,059 bytes;
+- plan SHA-256 `e0b533379fdba8b4d14b00233d67ab14b672ef1dc57477c8bc18ab9aa6e34c5c`, 17,537 bytes;
+- details SHA-256 `b72698e7b3eda9af6a556f981bbb1da59f968f56e6ffa97069144044a084aca6`, 27,292 bytes;
+- packet SHA-256 `974cb3b9eb0a48e3c1cbc8dd2e6e0a3bbe90374e185a119c4e9a79d3f287596c`, 60,259 bytes;
+- active-packet pointer SHA-256 `f35a71ec10a7dad029151fdd1a526ef0521e43750e221aedb51eef275e856725`, 322 bytes.
+
+Packet v9 / work-contract v4 made four original nodes concurrently ready: runtime plus AVA tests, types plus `tsd` tests, API documentation, and stream-guide documentation. Their union granted write authority to exactly the 14 `TASK.md` paths. Each implementation worker received manifest-bound `fanout_validate`; the TypeScript node used the corrected `npm run type` command. Packet-final validation was focused XO over the 14 paths, while the isolated profile retained the sole full `npm test` gate.
+
+Dry run `2026-08-05T03-54-28-976Z-706202bb` completed in 25.836s with exactly three lifecycle events and zero workers, attempts, model calls, tokens, accepted transitions, cost, or repository mutations. Live run `2026-08-05T03-55-29-413Z-80959fd6` then completed in 998.923s and passed final validation.
+
+All four original workers were allocated within 1.410s. Types, API documentation, and runtime reconciled deterministically onto the advancing accepted ledger; stream-guide documentation applied ordinarily. There were five attempts total: four original Terra attempts and one Sol final-validation repair. All five were accepted, with no node retry, fallback, node validation repair, integration repair, exact-no-progress termination, budget exhaustion, or internal failure. All five worker results contained the complete required five-section summary and reported no incomplete work or blockers.
+
+Workers called `fanout_validate` ten times, producing eleven command executions: five advisory failures followed by five passing calls, with the final repair's one call running both immutable final commands. The runtime original accounted for all five failures before its passing sixth call; types and both documentation workers passed their advisory gates. Initial integrated XO found only three style violations in `test/convert/web.js` and `test/pipe/methods.js`. The bounded final-validation repair corrected those two files, invoked `fanout_validate`, and passed focused XO plus full `npm test` in 300.326s. The controller independently reran the same final gates and passed in 300.091s.
+
+The final checkout changed exactly the 14 authorized paths and produced tree `375b89e307bb59cd121cb5b8eb5abc8c6aa08a5c`. The accepted ledger recorded 16 cumulative file touches because the final repair re-touched two test files. Independent `rtk npm test` passed lint, 5,109 AVA tests, `tsd`, and `tsc`; `git diff --check` passed. Inspection found one Execa worktree, no execution lock, and no current-run worker or test process. Pane `%301` remains alive for inspection.
+
+The run used 1,376,170 tokens: 244,708 input, 19,398 output, and 1,112,064 cache-read tokens, with estimated cost `$1.1057552`. Summed worker duration was 812.975s, tool duration 338.335s, and cleanup 10.440s. TTFT ranged from 3.739s to 4.994s with a 4.505s median. Original-worker generation summed to 481.377s; their maximum concurrent envelope was 186.175s, yielding 295.202s observed overlap savings. Poll time was zero.
+
+This corrected run demonstrates successful worker advisory validation, controller-authoritative reruns, four-way launch concurrency, deterministic reconciliation, and bounded final repair on one packet. It did not re-exercise the exact-no-progress causal-failure branch fixed after the stopped run, and it is not a byte-identical repetition of earlier Execa packets. No median, range, repair rate, reliability rate, or universal SLO is inferred.
 
 ## Reporting
 
