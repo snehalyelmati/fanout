@@ -2,7 +2,7 @@ import { lstatSync, realpathSync } from "node:fs";
 import { isAbsolute, resolve, sep } from "node:path";
 import { parseRepoPath } from "../../fanout-core/src/repository-resource.ts";
 
-export const WORKER_MODEL_TOOLS = ["read", "grep", "find", "ls", "edit", "write"] as const;
+export const WORKER_MODEL_TOOLS = ["read", "grep", "find", "ls", "edit", "write", "fanout_validate"] as const;
 
 export const WORKER_TRUST_BOUNDARY =
 	"Local Pi workers, discovered trusted extensions, and validation programs run with the user's permissions; ignored files, external paths, network, and processes are outside Fanout containment.";

@@ -1,10 +1,22 @@
 # Design Decisions
 
+## 2026-08-04
+
+### Let workers run only their immutable contract validation
+
+Decision: Cut over atomically to work contract v4 and execution packet v9. The fixed worker profile now exposes the existing six file tools plus one worker-only, zero-argument `fanout_validate` tool. Before each worker launch, the controller publishes a digest-bound manifest containing the exact contract-declared ordered direct-argv commands, platform, timeout, and canonical run/node/attempt/worktree identity. The extension registers the tool only after verifying that manifest and identity, reverifies it on every call, rejects any call not alone in its assistant message, returns command failures in the same tool result, and stores per-call advisory evidence. Shell and every other extension tool remain unavailable.
+
+Worker validation is diagnostic, not acceptance authority. The controller still captures the patch, enforces ownership, and independently reruns the same contract commands through the existing validation runner before accepting or repairing a candidate. Work contract v3 and packet v8 require replanning; no adapter or migration is added. Attempt Outcome, Event, Projection, final-evidence, profile, plan, details, and pointer generations remain unchanged because routing and acceptance semantics do not change.
+
+Reason: Controller-only validation forced workers to finish without seeing deterministic failures, converting locally correctable feedback into extra validation-repair attempts. A manifest-bound no-argument tool provides the narrow capability needed to fix failures in the same model call without restoring arbitrary shell access or weakening controller authority. Benchmark whether it reduces repair attempts, runtime, tokens, and cost before making broader workflow claims.
+
 ## 2026-08-03
 
 ### Cut planning structures and context to one fail-closed generation
 
-Decision: The only executable planning generation is now Project Execution Profile v1, implementation plan v3, implementation details v6, work contract v3, execution packet v8, and active pointer v2. Canonical Pi-independent TypeBox schemas define planning bodies and persisted artifacts, drive the phase-specific `fanout_submit_artifact` parameters, and run before contextual semantic checks. Details v5 and packet v7 are Legacy and receive no adapter or migration.
+Superseded only for work-contract and packet generations by the 2026-08-04 v4/v9 worker-validation cutover.
+
+Decision: The executable planning generation at this cutover was Project Execution Profile v1, implementation plan v3, implementation details v6, work contract v3, execution packet v8, and active pointer v2. Canonical Pi-independent TypeBox schemas define planning bodies and persisted artifacts, drive the phase-specific `fanout_submit_artifact` parameters, and run before contextual semantic checks. Details v5 and packet v7 are Legacy and receive no adapter or migration.
 
 Phase A is the sole planning source of global forbidden writes. Phase B grounds changes, typed reads, task validation, and advisory context without repeating bans; its omitted model-body `advisoryNotes` canonicalizes to `[]`, while persisted details require the field. The compiler propagates every Phase A ban with provenance into ordinary and final Work Contracts.
 
@@ -101,6 +113,8 @@ Decision: The final-validation node is a controller gate rather than an ordinary
 Reason: Running validation in active or adopting a repair worker's checkout would make validation side effects and ignored residue part of the returned repository without proof. Sequence-boundary checks allow intentional create-then-remove checks while persistent drift fails closed without reset, replay, or rollback. This remains repository integrity under trusted-local-program semantics, not containment of ignored files, external paths, network, processes, services, or mutate-then-restore behavior.
 
 ### Run workers through fixed file capabilities and exact accepted patches
+
+Superseded only for the fixed tool list by the 2026-08-04 contract-bound `fanout_validate` decision; the patch and integration boundaries remain current.
 
 Decision: Every worker attempt keeps Pi's trusted automatic extension/provider discovery, `--approve`, `--no-context-files`, curated repository instructions, and the inherited parent environment, while `--tools` exposes exactly `read`, `grep`, `find`, `ls`, `edit`, and `write`. The Fanout extension synchronously rejects unavailable tools and edit/write targets using absolute, traversal, `.git`, or existing symlink segments. The node executor rebuilds fresh worktrees from the planning base plus ordered accepted-state transitions, captures and reverifies binary patches by digest/length/paths/HEAD/trees, and applies verified bytes through Git stdin with exact pre/post trees. A rejected validation-repair seed is not an accepted transition: its verified bytes may be overlaid only into the latest disposable reconstruction, after which the repaired candidate is recaptured relative to the current accepted tree and must pass the ordinary exact transition boundary before active mutation. Active drift fails without repair or reset; failure after active mutation is a distinct bookkeeping hard fail and Fanout does not guess a rollback.
 

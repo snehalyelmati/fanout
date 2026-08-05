@@ -25,7 +25,7 @@ These versions are a closed generation. Producers emit only these versions and c
 2. Phase A's model submits only the plan body. The controller supplies schema, version, ID, timestamp, planning host, and planning base. Item boundaries follow independent acceptability and repairability rather than file categories: inseparable production and behavioral-test writes share one item, while split items declare only genuine typed reads and never pad reads for fusion.
 3. Phase B's model submits only grounded details. The controller supplies schema, version, ID, timestamp, and the exact digest/length/path identity of the once-read Phase A bytes. Omitted model-body advisory arrays canonicalize to `[]`; persisted details require the field and reject `null`.
 4. Details use typed `create`, `modify`, `delete`, and `move` intents; typed repository resources; classified reads; and direct executable/argv task-validation manifests. Phase A is the sole source of global forbidden writes. The profile separately owns preparation, readiness, normalization, and required final gates.
-5. `fanout-core` structurally admits both envelopes through canonical TypeBox schemas, applies contextual semantic checks, assigns tiers, derives dependencies, propagates all Phase A bans to ordinary and final Work Contracts, fuses eligible unique vertical serial chains, appends final validation, and produces packet v8 bound to the exact profile identity.
+5. `fanout-core` structurally admits both envelopes through canonical TypeBox schemas, applies contextual semantic checks, assigns tiers, derives dependencies, propagates all Phase A bans to ordinary and final Work Contracts, fuses eligible unique vertical serial chains, appends final validation, and produces packet v9 with work-contract v4 nodes bound to the exact profile identity.
 6. `fanout-pi` atomically publishes immutable plan, details, packet, and packet-derived Markdown/Mermaid views. It publishes pointer v2 last. A failed plan invalidates the old pointer instead of preserving stale executable authority.
 
 The packet contains exact source and profile identities, planning identity, objective/context, tier plan, and ordered nodes with embedded work contracts. It does not duplicate profile commands, flattened ownership, dependency, or worker-prompt fields.
@@ -50,7 +50,7 @@ rtk npm run test:doubleword-provider
 rtk git diff --check
 ```
 
-The planning, compiler, contract, and packet smokes prove profile-v1/plan-v3/details-v6/packet-v8/pointer-v2/work-contract-v3 admission, phase-specific schemas, lone terminating submission with mixed-batch rejection, initiating-request context retention, ordinary Pi filesystem access during planning, failed-refresh preservation, exact profile binding, details-v5/packet-v7 Legacy rejection, deterministic fusion/graph/views, Phase A ban propagation, pointer-last publication, packet/profile independence, and package independence.
+The planning, compiler, contract, and packet smokes prove profile-v1/plan-v3/details-v6/packet-v9/pointer-v2/work-contract-v4 admission, phase-specific schemas, lone terminating submission with mixed-batch rejection, initiating-request context retention, ordinary Pi filesystem access during planning, failed-refresh preservation, exact profile binding, work-contract-v3/packet-v8 Legacy rejection, deterministic fusion/graph/views, Phase A ban propagation, pointer-last publication, packet/profile independence, and package independence.
 
 ## Release gates
 

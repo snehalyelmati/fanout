@@ -2,7 +2,7 @@ import { parseResource, resourcesOverlap, type Resource } from "./repository-res
 import { parseValidationCommands, type ValidationCommand } from "./validation-command.ts";
 
 export const WORK_CONTRACT_SCHEMA = "fanout.work-contract";
-export const WORK_CONTRACT_VERSION = 3;
+export const WORK_CONTRACT_VERSION = 4;
 
 export type WorkAnchor =
 	| { kind: "symbol"; symbol: string }
@@ -47,12 +47,12 @@ export interface AdvisoryNote {
 	text: string;
 }
 
-const FIXED_MODEL_TOOLS = Object.freeze(["read", "grep", "find", "ls", "edit", "write"] as const);
+const FIXED_MODEL_TOOLS = Object.freeze(["read", "grep", "find", "ls", "edit", "write", "fanout_validate"] as const);
 export const FIXED_WORKER_CAPABILITIES = Object.freeze({
 	modelCallableTools: FIXED_MODEL_TOOLS,
-	validationExecution: "controller-only" as const,
+	validationExecution: "worker-advisory-controller-authoritative" as const,
 	shell: "unavailable" as const,
-	extensionTools: "unavailable" as const,
+	extensionTools: "fanout-validate-only" as const,
 });
 
 export interface WorkContract {
@@ -232,7 +232,7 @@ function sourceStatements(value: unknown, path: string, errors: WorkContractIssu
 function validateCapabilities(value: unknown, errors: WorkContractIssue[]): void {
 	if (!isRecord(value)) { add(errors, "invalid-capabilities", "capabilities must be an object", "capabilities"); return; }
 	unknownFields(value, CAPABILITY_FIELDS, "capabilities", errors);
-	if (JSON.stringify(value.modelCallableTools) !== JSON.stringify(CAPABILITY_TOOLS) || value.validationExecution !== "controller-only" || value.shell !== "unavailable" || value.extensionTools !== "unavailable") add(errors, "capability-profile-mismatch", "capabilities must match the fixed worker profile", "capabilities");
+	if (JSON.stringify(value.modelCallableTools) !== JSON.stringify(CAPABILITY_TOOLS) || value.validationExecution !== "worker-advisory-controller-authoritative" || value.shell !== "unavailable" || value.extensionTools !== "fanout-validate-only") add(errors, "capability-profile-mismatch", "capabilities must match the fixed worker profile", "capabilities");
 }
 
 function ids(value: unknown, path: string, errors: WorkContractIssue[]): string[] {

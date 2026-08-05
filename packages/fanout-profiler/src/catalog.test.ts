@@ -86,7 +86,7 @@ function currentLineage(artifactRoot: string, id = "packet"): { packetIdentity: 
 		worker: {
 			extension: { requested: "packages/fanout-pi/src/index.ts", resolved: "/repo/packages/fanout-pi/src/index.ts", status: "available" },
 			launcher: { executable: process.execPath, args: ["--version"], resolvedExecutable: process.execPath, resolvedCwd: "/repo", version: process.version, status: "available" },
-			modelCallableTools: ["read", "grep", "find", "ls", "edit", "write"],
+			modelCallableTools: ["read", "grep", "find", "ls", "edit", "write", "fanout_validate"],
 		},
 		commandCounts: { candidateNormalization: [0, 0], validation: [1, 1] },
 		candidateNormalizationCommands: [],

@@ -6,7 +6,7 @@ The coordinated caller cutover is implemented with focused offline coverage. It 
 
 ## Executable generation
 
-`/fanout-execute` admits only active pointer v2 referencing packet v8, whose exact top-level profile identity must match active Project Execution Profile v1. Packet v8 embeds work-contract v3 nodes and binds plan v3/details v6, planning identity, and platform. Runtime authority is event v5 carrying Attempt Outcome v5; `execution-run.json` is projection v6; final-validation evidence is v2; presentation data remains v1. Details v5 and packet v7 require replanning; older execution evidence is descriptive Legacy data.
+`/fanout-execute` admits only active pointer v2 referencing packet v9, whose exact top-level profile identity must match active Project Execution Profile v1. Packet v9 embeds work-contract v4 nodes and binds plan v3/details v6, planning identity, and platform. Runtime authority is event v5 carrying Attempt Outcome v5; `execution-run.json` is projection v6; final-validation evidence is v2; presentation data remains v1. Work contract v3 and packet v8 require replanning; older execution evidence is descriptive Legacy data.
 
 Legacy, mixed, profile-mismatched, or shared-path configurations fail before model allocation. No runtime component migrates or partially accepts old artifacts.
 
@@ -17,7 +17,7 @@ Legacy, mixed, profile-mismatched, or shared-path configurations fail before mod
 3. Validate the profile in a disposable clean worktree, then record `run-started` with exact profile/validation identities and strict preflight evidence. Environment failure consumes no worker or repair budget.
 4. Dry run terminates explicitly after passed preflight. Live mode records an explicit confirmation decision before any attempt allocation.
 5. Derive the scheduler graph from embedded contracts. Every worker/retry/fallback/repair launch consumes a fixed typed budget allocation and every allocation receives exactly one typed terminal outcome.
-6. Independently prepare every worker/repair worktree through the profile, run profile normalization after edits, then capture, enforce authority, run packet task validation, reverify, and exact-apply. Discard an original unauthorized candidate whole before spending the existing clean retry in a fresh reconstruction; never seed it, trim its paths, or retry a repeated/forbidden violation.
+6. Independently prepare every worker/repair worktree through the profile. Give the worker only six file tools plus zero-argument `fanout_validate`, bound to a digest-verified attempt manifest containing the exact contract commands; require the validation call to be alone, return failures immediately, and store advisory per-call evidence. Then run profile normalization after edits, capture, enforce authority, rerun authoritative packet task validation, reverify, and exact-apply. Discard an original unauthorized candidate whole before spending the existing clean retry in a fresh reconstruction; never seed it, trim its paths, or retry a repeated/forbidden violation.
 7. Before integration repair, reconcile only exact path-disjoint stale candidates through latest-ledger reconstruction, overlay, normalization, recapture, ownership, validation, and compare-and-swap. Retry only after ledger advancement.
 8. Preserve the immediately preceding rejected repair candidate as the next exact seed. Stop a repair chain when exact candidate identity and typed failure state repeat, leaving unused budget untouched.
 9. Extract the final numbered `Worker summary` from the existing assistant output, store it in the attempt result, and include it only in the immediately following node validation-repair prompt. It remains optional diagnostic context outside routing, recovery, repair state, budgets, validation, acceptance, and replay.
@@ -47,7 +47,7 @@ Residual host trust is explicit: installed extensions/providers, validation prog
 | A16 | `smoke-final-validation.mjs` | persistent validation mutation or active drift fails without candidate apply or reset |
 | A17 | `smoke-final-validation.mjs` | ignored repair residue and widened upstream authority cannot make a repair candidate acceptable |
 | A18 | `smoke-fanout-packet.mjs`, `smoke-fanout-execute.mjs` | legacy or mixed generations fail before lock/mutation while historical bytes remain unchanged |
-| A19 | `smoke-worker-pipeline.mjs` | automatic extension/provider discovery coexists with exactly the fixed six model-callable tools |
+| A19 | `smoke-worker-pipeline.mjs` | automatic extension/provider discovery coexists with exactly six file tools plus contract-bound `fanout_validate`; mixed tool-call batches, manifest tampering, arbitrary commands, and widened validation authority remain unavailable |
 | A20 | `smoke-worker-pipeline.mjs`, `smoke-final-validation.mjs` | ignored-file, external-path, network, and process effects are tested and documented as outside containment |
 | A21 | `smoke-final-validation.mjs` | final repairs see the exact immediately preceding rejected candidate and invalid seeds launch no model |
 | A22 | `smoke-fanout-execute.mjs` | exact path-disjoint stale candidates reconcile without a model; overlap routes through integration repair |
@@ -69,7 +69,7 @@ rtk npm run test:doubleword-provider
 
 ## Audit artifacts
 
-Each execution directory contains authoritative `events.jsonl`, derived `execution-run.json`, deterministic `summary.md`, per-attempt evidence, accepted patch artifacts, and final-validation rounds. Presentation entries link to these artifacts but do not become execution authority.
+Each execution directory contains authoritative `events.jsonl`, derived `execution-run.json`, deterministic `summary.md`, per-attempt evidence including the immutable worker-validation manifest and per-call advisory results, accepted patch artifacts, and final-validation rounds. Presentation entries link to these artifacts but do not become execution authority.
 
 ## Release gates
 

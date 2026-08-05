@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { deriveAttemptMetricTotals } from "../packages/fanout-core/src/attempt-metrics.ts";
@@ -11,6 +11,14 @@ import {
   guardWorkerWritePath,
   workerToolBlockReason,
 } from "../packages/fanout-pi/src/worker-capabilities.ts";
+import {
+  FANOUT_VALIDATE_TOOL,
+  loadWorkerValidationContext,
+  publishWorkerValidationManifest,
+  registerWorkerValidationTool,
+  runWorkerValidation,
+  workerValidationBatchBlockReason,
+} from "../packages/fanout-pi/src/worker-validation.ts";
 
 const root = mkdtempSync(join(tmpdir(), "fanout-worker-pipeline-"));
 try {
@@ -21,8 +29,9 @@ try {
   writeFileSync(join(worktree, "src", "value.txt"), "before\n");
   symlinkSync(outside, join(worktree, "escape"));
 
-  assert(WORKER_MODEL_TOOLS.join(",") === "read,grep,find,ls,edit,write", "A19 fixed worker profile changed");
+  assert(WORKER_MODEL_TOOLS.join(",") === "read,grep,find,ls,edit,write,fanout_validate", "A19 fixed worker profile changed");
   assert(workerToolBlockReason("read", { path: "../secret" }, worktree) === undefined, "worker reads were falsely described as contained");
+  assert(workerToolBlockReason(FANOUT_VALIDATE_TOOL, {}, worktree) === undefined, "contract-bound validation was blocked");
   assert(workerToolBlockReason("bash", { command: "true" }, worktree)?.includes("unavailable"), "A7 bash remained model-callable");
   assert(workerToolBlockReason("extension_tool", {}, worktree)?.includes("unavailable"), "A7 extension tool remained model-callable");
   assert(workerToolBlockReason("write", { path: "src/new.txt" }, worktree) === undefined, "valid worker write was blocked");
@@ -33,6 +42,8 @@ try {
   }
   assert(!existsSync(join(outside, "mutated.txt")), "A7 symlink escape mutated outside before rejection");
   assert(guardWorkerWritePath(worktree, "src/future/file.txt") === "src/future/file.txt", "new in-worktree path was rejected");
+
+  await testWorkerValidation(root, worktree);
 
   for (const phrase of ["ignored files", "external paths", "network", "processes", "outside Fanout containment"]) {
     assert(WORKER_TRUST_BOUNDARY.includes(phrase), `A20 trust boundary omitted ${phrase}`);
@@ -73,10 +84,61 @@ try {
   rmSync(root, { recursive: true, force: true });
 }
 
+async function testWorkerValidation(root, worktree) {
+  const attemptDir = join(root, "attempt");
+  mkdirSync(attemptDir);
+  const command = { executable: process.execPath, args: ["-e", "const fs=require('node:fs'); if(fs.readFileSync('src/value.txt','utf8')!=='after\\n'){console.error('expected after');process.exit(7)}"] };
+  const identity = publishWorkerValidationManifest(attemptDir, {
+    runId: "run-1",
+    nodeId: "node-1",
+    attemptId: "node-1:000001",
+    worktreeRoot: worktree,
+    platform: process.platform,
+    commands: [command],
+    timeoutMs: 5_000,
+  });
+  const env = {
+    FANOUT_RUN_ID: "run-1",
+    FANOUT_NODE_ID: "node-1",
+    FANOUT_ATTEMPT_ID: "node-1:000001",
+    FANOUT_WORKER_DIR: attemptDir,
+    FANOUT_WORKTREE_ROOT: worktree,
+    FANOUT_VALIDATION_MANIFEST: JSON.stringify(identity),
+  };
+  const context = loadWorkerValidationContext(env, worktree);
+  assert(context, "verified worker validation context was not loaded");
+  const lone = [{ role: "assistant", content: [{ type: "toolCall", id: "validate-1", name: FANOUT_VALIDATE_TOOL }] }];
+  const mixed = [{ role: "assistant", content: [{ type: "toolCall", id: "validate-1", name: FANOUT_VALIDATE_TOOL }, { type: "toolCall", id: "read-1", name: "read" }] }];
+  assert(workerValidationBatchBlockReason(FANOUT_VALIDATE_TOOL, "validate-1", lone, true) === undefined, "lone worker validation was blocked");
+  assert(workerValidationBatchBlockReason(FANOUT_VALIDATE_TOOL, "validate-1", mixed, true)?.includes("only tool call"), "mixed worker validation batch was admitted");
+  assert(workerValidationBatchBlockReason(FANOUT_VALIDATE_TOOL, "missing", [], true)?.includes("only tool call"), "ambiguous worker validation batch evidence was admitted");
+
+  let registered;
+  registerWorkerValidationTool({ registerTool(tool) { registered = tool; } }, context);
+  assert(registered?.parameters?.additionalProperties === false && Object.keys(registered.parameters.properties).length === 0, "fanout_validate accepted model-supplied command parameters");
+  const arbitraryMarker = join(root, "arbitrary-command-ran");
+  const failed = await registered.execute("validate-1", { command: `${process.execPath} -e require('node:fs').writeFileSync('${arbitraryMarker}','bad')` }, undefined, undefined, { cwd: worktree });
+  assert(!existsSync(arbitraryMarker), "fanout_validate executed a model-supplied arbitrary command");
+  assert(failed.isError === true && failed.content[0].text.includes("expected after") && failed.details.result.status === "failed", "worker did not receive same-call validation failure feedback");
+  writeFileSync(join(worktree, "src", "value.txt"), "after\n");
+  const passed = await runWorkerValidation(context, "validate-2", undefined, worktree);
+  assert(passed.isError === undefined && passed.details.result.status === "passed", "worker validation did not pass after repair");
+  const evidence = readdirSync(join(attemptDir, "worker-validation")).sort();
+  assert(evidence.length === 2 && evidence.every((name) => JSON.parse(readFileSync(join(attemptDir, "worker-validation", name), "utf8")).manifest.sha256 === identity.sha256), "worker validation evidence was not recorded against the immutable manifest");
+
+  writeFileSync(join(attemptDir, identity.path), "{}\n");
+  let tamperRejected = false;
+  try { loadWorkerValidationContext(env, worktree); } catch (error) { tamperRejected = /digest|length|artifact/i.test(String(error)); }
+  assert(tamperRejected, "tampered worker validation manifest was admitted");
+}
+
 function testDiscoveredExtensionWithFixedProfile(root) {
   const repo = join(root, "discovery-repo");
   const marker = join(root, "discovered-tools.json");
+  const attemptDir = join(root, "discovery-attempt");
   mkdirSync(join(repo, ".pi", "extensions"), { recursive: true });
+  mkdirSync(attemptDir);
+  const manifest = publishWorkerValidationManifest(attemptDir, { runId: "discovery", nodeId: "node", attemptId: "node:000001", worktreeRoot: repo, platform: process.platform, commands: [], timeoutMs: 5_000 });
   writeFileSync(join(repo, ".pi", "extensions", "discovered.ts"), `import { writeFileSync } from "node:fs";\nexport default function discovered(pi) {\n  pi.registerTool({ name: "discovered_tool", label: "Discovered", description: "Must remain unavailable", parameters: { type: "object", properties: {} }, async execute() { return { content: [{ type: "text", text: "unexpected" }] }; } });\n  pi.on("session_start", () => writeFileSync(${JSON.stringify(marker)}, JSON.stringify(pi.getActiveTools())));\n}\n`);
   const sessionDir = join(root, "sessions");
   const result = spawnSync("pi", [
@@ -97,7 +159,12 @@ function testDiscoveredExtensionWithFixedProfile(root) {
       PI_OFFLINE: "1",
       PI_CODING_AGENT_DIR: join(root, "pi-home"),
       DOUBLEWORD_MODEL_CACHE_FILE: join(root, "models.json"),
+      FANOUT_RUN_ID: "discovery",
+      FANOUT_NODE_ID: "node",
+      FANOUT_ATTEMPT_ID: "node:000001",
+      FANOUT_WORKER_DIR: attemptDir,
       FANOUT_WORKTREE_ROOT: repo,
+      FANOUT_VALIDATION_MANIFEST: JSON.stringify(manifest),
     },
   });
   assert(result.status === 0, `A19 real Pi worker failed: ${result.stderr || result.stdout}`);

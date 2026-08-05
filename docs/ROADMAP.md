@@ -40,7 +40,7 @@ Fanout should preserve developer velocity by using slower tiers only where laten
 
 ### End-to-end hardening
 
-Status: The current closed generation is Project Execution Profile v1, plan v3, details v6, packet v8, pointer v2, work contract v3, Attempt Outcome v5, final evidence v2, Event v5, Projection v6, and presentation entry v1. Planning now uses canonical TypeBox structures, phase-specific terminating submission tools, phase-isolated provider context, Pi-native read-only filesystem access, and Phase A-only global forbidden writes. Details v5 and packet v7 require replanning; older execution evidence remains descriptive Legacy data.
+Status: The current closed generation is Project Execution Profile v1, plan v3, details v6, packet v9, pointer v2, work contract v4, Attempt Outcome v5, final evidence v2, Event v5, Projection v6, and presentation entry v1. Planning uses canonical TypeBox structures, phase-specific terminating submission tools, phase-isolated provider context, Pi-native read-only filesystem access, and Phase A-only global forbidden writes. Workers have six file tools plus manifest-bound advisory `fanout_validate`; controller validation remains authoritative. Work contract v3 and packet v8 require replanning; older execution evidence remains descriptive Legacy data.
 
 Live `/fanout-execute` remains blocked from release until the explicitly authorized macOS p-map canary, fresh review, and repository-owner approval pass for the same immutable commit. Offline readiness does not satisfy those external gates.
 
@@ -58,7 +58,7 @@ Acceptance criteria:
 
 ### Phase 2: Execution packet via `/fanout-plan`
 
-Status: Phase 2B now publishes plan v3/details v6 and compiles work-contract v3 nodes into profile-bound packet v8. A separately approved profile v1 owns preparation, readiness, normalization, and required final gates. Phase-specific structural schemas reject malformed submissions before tool execution, while contextual semantic checks retain plan membership, profile-gate, resource, identity, and graph policy. Provider context is isolated by phase without altering session history. Phase A alone owns global forbidden writes; Phase B keeps node validation focused on owned changes and reserves packet-final commands for additional task-specific integration. `/fanout-plan --refresh-profile` validates replacement before pointer publication; failed refresh preserves the prior profile. Live canary evidence remains a release gate, not an offline implementation claim.
+Status: Phase 2B now publishes plan v3/details v6 and compiles work-contract v4 nodes into profile-bound packet v9. A separately approved profile v1 owns preparation, readiness, normalization, and required final gates. Phase-specific structural schemas reject malformed submissions before tool execution, while contextual semantic checks retain plan membership, profile-gate, resource, identity, and graph policy. Provider context is isolated by phase without altering session history. Phase A alone owns global forbidden writes; Phase B keeps node validation focused on owned changes and reserves packet-final commands for additional task-specific integration. `/fanout-plan --refresh-profile` validates replacement before pointer publication; failed refresh preserves the prior profile. Live canary evidence remains a release gate, not an offline implementation claim.
 
 P0 prompt-DAG dry-run benchmarking graduated `combined-general-conflict-proof` as the current best DAG prompt candidate across known and heldout tasks. The hardened `/fanout-execute` offline smoke matrix now covers the public dry-run and live seams, repair, integration, final validation, event replay, and cleanup. Treating the prompt as a released runtime default still requires the explicitly authorized macOS p-map canary and repository-owner approval.
 
@@ -85,7 +85,7 @@ Build the smallest useful packet first:
    - Reject an exact node or packet-final duplicate of a profile final gate in core artifact admission as a correctable draft; identify both locations and let the Pi controller preserve the planning session for resubmission instead of silently deduplicating.
    - Do not invent contracts/APIs/product scope or write packet/DAG fields.
 5. **Compile canonical work contracts and execution DAG**
-   - Structurally admit plan v3/details v6 through canonical schemas, reject malformed anchors/endpoints/source IDs/commands before semantic compilation, group overlapping typed changes into packet-v8 work-contract-v3 nodes, derive dependency edges from typed `post-change-required` reads, propagate every Phase A ban, assign tiers, fuse eligible unique vertical chains, and add the final-validation contract.
+   - Structurally admit plan v3/details v6 through canonical schemas, reject malformed anchors/endpoints/source IDs/commands before semantic compilation, group overlapping typed changes into packet-v9 work-contract-v4 nodes, derive dependency edges from typed `post-change-required` reads, propagate every Phase A ban, assign tiers, fuse eligible unique vertical chains, and add the final-validation contract.
    - Persist no default node, flattened worker packet, or duplicate graph authority.
 6. **Validate the DAG during compilation**
    - Reject cycles, ownerless reads, overlapping ownership contradictions, missing direct-argv validation, malformed semantic criteria, tier-policy violations, and ambiguous read/write overlap.
@@ -130,7 +130,7 @@ Implemented order:
 
 1. **Active packet loader and guardrails**
    - Load the active execution packet prepared by `/fanout-plan`.
-   - Admit only pointer v2 bound to packet v8 and its exact packet-bound profile v1 identity; an orthogonal active-profile refresh does not invalidate an existing packet. Reject legacy or mixed generations before lock creation or mutation.
+   - Admit only pointer v2 bound to packet v9 and its exact packet-bound profile v1 identity; an orthogonal active-profile refresh does not invalidate an existing packet. Reject legacy or mixed generations before lock creation or mutation.
    - Revalidate the profile in a disposable clean worktree before confirmation or model allocation; reject shared-path configuration.
    - Refuse paths outside the project artifact root, exact planning commit/tree/platform drift, unsafe typed resources, unavailable direct validation executables, unavailable worker capability, and non-executable derived graphs.
    - Hold one canonical git-worktree execution lock for the run; never delete an existing lock automatically as stale.
@@ -143,6 +143,7 @@ Implemented order:
    - Keep scheduling separate from worktrees, workers, patch capture, validation, and repair.
 4. **Worker management**
    - Run approved work units in independently profile-prepared git worktrees through curated non-interactive Pi subprocess workers.
+   - Expose only six file tools plus zero-argument `fanout_validate`, bound to the attempt's immutable contract command manifest; require it to be a lone tool call, return failures immediately, and keep its evidence advisory while the controller reruns authoritative validation.
    - Use `--no-context-files` and explicitly inject only applicable repo-local `AGENTS.md`/`CLAUDE.md` instructions into the curated prompt, while leaving automatic Pi extension discovery enabled under `--approve`; enabled extensions are a separate trusted runtime boundary.
    - Capture the final numbered `Worker summary` from the existing model response and pass it only to the immediately following node validation-repair prompt; keep it outside routing, recovery, validation, budgets, acceptance, and replay.
    - Rebuild previously accepted integration state in each fresh downstream worktree by replaying the ordered ledger's digest/length-bound `patch.bin` transitions with exact base/result-tree, changed-path, and patch-stat verification; create no baseline commits or snapshot authority.
@@ -354,7 +355,8 @@ Design target: two narrower opt-in workflows, documented in [`docs/OPTIMISTIC_DA
 
 The hardened Phase 2 and Phase 3 contracts are implemented. Next work is evidence-driven:
 
-- Measure packet-v8 scheduling against accepted DAG depth, immutable concurrency, typed outcomes, complete accepted metrics, fusion count, reconciliation, and actual Tier 2 wait.
+- Measure packet-v9 scheduling against accepted DAG depth, immutable concurrency, typed outcomes, complete accepted metrics, fusion count, reconciliation, and actual Tier 2 wait.
+- Compare advisory worker-validation calls with authoritative validation failures, validation/final repair attempts, runtime, tokens, and cost before claiming the new capability improves workflow efficiency.
 - Extend observability only for demonstrated gaps in active planning time, background completion time, late outputs, review latency, or acceptance failures.
 - Keep scheduler changes subordinate to typed work-contract authority, exact transitions, causal events, and fresh final validation.
 - Keep default duplicate implementations deferred until trace-derived evidence shows they are worth the cost.
