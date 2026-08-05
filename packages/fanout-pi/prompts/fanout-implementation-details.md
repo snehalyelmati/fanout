@@ -43,7 +43,7 @@ The controller supplies schema/version, details identity/time, exact plan identi
 
 For every required-read row, add a reader-linked dependency. Use `baseline-context` whenever planning-base contents let the reader be authored safely. Use `post-change-required` only when the reader needs a specific accepted change from another item, and name that change plus why the planning baseline is insufficient. Reject convenience, precautionary, redundant, and transitive dependencies; leave every baseline-authorable item concurrently ready.
 
-Commands are direct argv (`executable`, ordered `args`, optional repository-relative `cwd`, optional literal `env`). Preserve exact executable, argument order, duplicates, cwd, environment names, and values. Explicit shells/interpreters remain trusted executables.
+Commands are direct argv (`executable`, ordered `args`, optional repository-relative `cwd`, optional literal `env`). Preserve exact executable, argument order, duplicates, cwd, environment names, and values. Explicit shells/interpreters remain trusted executables. No shell glob, brace, variable, or command-substitution expansion occurs: every argument is passed literally unless the executable itself documents expansion. Repeat flags and paths explicitly. Prefer repository-proven scripts or command forms; when focused syntax is not evidenced, use a broader existing script instead of inventing shell syntax.
 
 Treat every command in the approved Project Execution Profile as already guaranteed. Do not repeat preparation, readiness, candidate-normalization, or required-final-gate commands. An exact duplicate of a profile final gate is rejected as a correctable draft.
 
