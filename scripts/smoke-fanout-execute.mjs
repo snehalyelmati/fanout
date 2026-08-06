@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { artifactIdentity } from "../packages/fanout-core/src/artifact-identity.ts";
 import { compileExecutionPacket } from "../packages/fanout-core/src/fanout-compiler.ts";
 import { runDag } from "../packages/fanout-core/src/dag-scheduler.ts";
@@ -112,7 +112,7 @@ if (process.env.FANOUT_RUN_ID === "provider-abort") {
   appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_error", runId: process.env.DOUBLEWORD_RUN_ID, provider, model, turnIndex: 0, responseId: "response-1", failureCode: "abort" }) + "\\n");
   process.exit(1);
 }
-if (!['post-worker-abort', 'repair-overlay', 'worker-summary-chain', 'exact-no-progress', 'disjoint-reconciliation', 'overlap-reconciliation', 'fused-execution', 'normalized-candidate', 'unauthorized-worker-retry', 'unauthorized-normalization', 'interrupted-normalization', 'identity-normalization', 'diagnostic-normalization', 'normalization-boundary-abort', 'normalization-boundary-abort-rewrite-failure', 'final-normalization', 'final-normalization-widened'].includes(process.env.FANOUT_RUN_ID) && process.env.FANOUT_WORKER_DIR.endsWith("001-original")) {
+if (!['post-worker-abort', 'repair-overlay', 'worker-summary-chain', 'exact-no-progress', 'disjoint-reconciliation', 'overlap-reconciliation', 'fused-execution', 'normalized-candidate', 'unauthorized-worker-retry', 'unauthorized-normalization', 'interrupted-normalization', 'identity-normalization', 'diagnostic-normalization', 'normalization-boundary-abort', 'normalization-boundary-abort-rewrite-failure', 'final-normalization', 'final-normalization-widened', 'final-validation-routing'].includes(process.env.FANOUT_RUN_ID) && process.env.FANOUT_WORKER_DIR.endsWith("001-original")) {
   appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_error", runId: process.env.DOUBLEWORD_RUN_ID, provider, model, turnIndex: 0, responseId: "response-1", failureCode: "rate-limit", httpStatus: 429 }) + "\\n");
   process.exit(1);
 }
@@ -129,6 +129,10 @@ if (process.env.FANOUT_RUN_ID === "fused-execution") {
   writeFileSync("x.ts", \`export const x = \${attempt.startsWith("003-") ? 2 : attempt.startsWith("002-") ? 1 : 0};\\n\`);
 } else if (process.env.FANOUT_RUN_ID === "exact-no-progress") {
   writeFileSync("x.ts", "export const x = 0;\\n");
+} else if (process.env.FANOUT_RUN_ID === "final-validation-routing") {
+  const repairAttempt = process.env.FANOUT_WORKER_DIR.split("/").at(-1);
+  const value = process.env.FANOUT_NODE_ID === "final-validation" ? (repairAttempt.startsWith("002-") ? 2 : 1) : 0;
+  writeFileSync("x.ts", \`export const x = \${value};\\n\`);
 } else {
   writeFileSync(process.env.FANOUT_NODE_ID === "y" ? "y.ts" : "x.ts", process.env.FANOUT_WORKER_DIR.endsWith("validation-repair") ? "export const x = 1;\\n" : "export const x = 0;\\n");
 }
@@ -770,6 +774,63 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   assert(finalRepairPrompt.startsWith("Repair the reconstructed accepted state") && finalRepairPrompt.includes(failingPacketIdentity.sha256) && finalRepairPrompt.includes('"nodeId": "x"') && finalRepairPrompt.includes('"finalValidationContract"'), "public final-repair prompt omitted its action, immutable packet identity, original final contract, or packet-ordered upstream contracts");
   rmSync(join(repo, "x.ts"));
   assert(fullGitVisibleTree(repo) === base.tree, "final-validation failure fixture did not restore the pre-execution repository tree");
+
+  const focusedFailure = { executable: process.execPath, args: ["-e", "const value=require('node:fs').readFileSync('x.ts','utf8');if(value!=='export const x = 2;\\n'){process.stdout.write('focused failure stdout');process.stderr.write('focused failure stderr');process.exit(7)}"] };
+  const focusedFollowup = { executable: process.execPath, args: ["-e", "if(require('node:fs').readFileSync('x.ts','utf8')!=='export const x = 2;\\n')process.exit(8)"] };
+  const profileNpmTest = { executable: "npm", args: ["test"] };
+  const finalRoutingDetails = structuredClone(details);
+  finalRoutingDetails.detailsId = "final-validation-routing";
+  finalRoutingDetails.items[0].validationCommands = [{ executable: process.execPath, args: ["-e", "if(require('node:fs').readFileSync('x.ts','utf8')!=='export const x = 0;\\n')process.exit(1)"] }];
+  finalRoutingDetails.finalValidationCommands = [focusedFailure, focusedFollowup];
+  const finalRoutingDetailsIdentity = artifactIdentity("implementation-details.json", Buffer.from(JSON.stringify(finalRoutingDetails)));
+  const finalRoutingCompiled = compileExecutionPacket({ implementationPlan: plan, implementationDetails: finalRoutingDetails, planIdentity, detailsIdentity: finalRoutingDetailsIdentity, tierPlan: { tier1: summary, tier2: { ...summary, status: "unavailable", fallback: "tier1" }, tier2Fallback: summary }, runtimePolicy: { maxConcurrency: 2, failFast: false, fallbackAllowed: true }, createdAt: new Date(0).toISOString() });
+  assert(finalRoutingCompiled.packet, finalRoutingCompiled.errors.join("; "));
+  const finalRoutingProfile = publishProjectExecutionProfile(profile("final-validation-routing", [], [profileNpmTest]), artifacts, activeProfilePath);
+  finalRoutingCompiled.packet.profile = finalRoutingProfile.identity;
+  const finalRoutingPlanDir = join(artifacts, "final-validation-routing-plan");
+  const finalRoutingPaths = publishExecutionPacket(finalRoutingCompiled.packet, artifacts, finalRoutingPlanDir, join(artifacts, "final-validation-routing-active.json"));
+  const finalRoutingPacketIdentity = JSON.parse(readFileSync(finalRoutingPaths.activePointerPath, "utf8")).packet;
+  const npmMarker = join(root, "profile-npm-test.log");
+  const fakeNpmBin = join(root, "fake-npm-bin");
+  mkdirSync(fakeNpmBin);
+  writeFileSync(join(fakeNpmBin, "npm"), `#!/usr/bin/env node\nconst { appendFileSync } = require("node:fs");\nif (process.argv[2] !== "test") process.exit(2);\nappendFileSync(${JSON.stringify(npmMarker)}, "npm test\\n");\n`);
+  chmodSync(join(fakeNpmBin, "npm"), 0o755);
+  const previousPath = process.env.PATH;
+  process.env.PATH = [fakeNpmBin, previousPath].filter(Boolean).join(delimiter);
+  let finalRouting;
+  try {
+    finalRouting = await executeFanout({ cwd: repo, activePointerPath: finalRoutingPaths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: () => true, piCommand: fakePi, runId: "final-validation-routing", workerTimeoutMs: 10_000, validationTimeoutMs: 10_000 });
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+  }
+  const finalRoutingAttempts = finalRouting.snapshot.attempts.filter((attempt) => attempt.allocation.nodeId === "final-validation");
+  assert(finalRouting.status === "succeeded" && finalRoutingAttempts.length === 2 && finalRoutingAttempts.every((attempt) => attempt.allocation.kind === "validation-repair"), "final-validation routing fixture did not use two bounded fresh repair workers");
+  const [firstFinalRepair, secondFinalRepair] = finalRoutingAttempts;
+  assert(firstFinalRepair.allocation.attemptNumber === 1 && firstFinalRepair.allocation.sourceFinalValidationEvidence && secondFinalRepair.allocation.sourceAttemptId === firstFinalRepair.allocation.attemptId, "final-validation repair allocations lost fresh-context evidence or predecessor causality");
+  const firstRepairDir = join(finalRouting.paths.runDir, "workers", artifactSegment("final-validation"), "attempts", "001-validation-repair");
+  const secondRepairDir = join(finalRouting.paths.runDir, "workers", artifactSegment("final-validation"), "attempts", "002-validation-repair");
+  const firstManifest = JSON.parse(readFileSync(join(firstRepairDir, "worker-validation-manifest.json"), "utf8"));
+  const secondManifest = JSON.parse(readFileSync(join(secondRepairDir, "worker-validation-manifest.json"), "utf8"));
+  assert(JSON.stringify(firstManifest.commands) === JSON.stringify(finalRoutingDetails.finalValidationCommands) && JSON.stringify(secondManifest.commands) === JSON.stringify(finalRoutingDetails.finalValidationCommands) && !firstManifest.commands.some((command) => command.executable === "npm"), "final-repair fanout_validate manifest included a profile final gate or lost focused packet commands");
+  const initialFinalEvidence = JSON.parse(readFileSync(join(finalRouting.paths.runDir, firstFinalRepair.allocation.sourceFinalValidationEvidence.path), "utf8"));
+  const firstRejectedIdentity = firstFinalRepair.outcome.recovery.sourceFinalValidationEvidence;
+  assert(JSON.stringify(secondFinalRepair.outcome.repairSource.sourceFinalValidationEvidence) === JSON.stringify(firstRejectedIdentity), "second final repair was not seeded from the first rejected round");
+  const firstRejectedEvidence = JSON.parse(readFileSync(join(finalRouting.paths.runDir, firstRejectedIdentity.path), "utf8"));
+  const routingFirstRepairPrompt = readFileSync(join(firstRepairDir, "prompt.md"), "utf8");
+  const routingSecondRepairPrompt = readFileSync(join(secondRepairDir, "prompt.md"), "utf8");
+  assert(initialFinalEvidence.commands.length === 3 && initialFinalEvidence.commands[0].outcome === "nonzero" && initialFinalEvidence.commands[0].stdout === "focused failure stdout" && initialFinalEvidence.commands[0].stderr === "focused failure stderr" && initialFinalEvidence.commands.slice(1).every((command) => command.outcome === "unexecuted"), "fresh final repair lost complete fail-fast controller evidence");
+  assert(routingFirstRepairPrompt.includes(finalRoutingPacketIdentity.sha256) && routingFirstRepairPrompt.includes("focused failure stdout") && routingFirstRepairPrompt.includes("focused failure stderr") && routingFirstRepairPrompt.includes('"finalValidationContract"'), "fresh final-repair prompt omitted packet identity or complete failure evidence");
+  assert(firstRejectedEvidence.status === "failed" && firstRejectedEvidence.candidate && routingSecondRepairPrompt.includes(firstRejectedEvidence.candidate.patch.artifact.sha256), "second final repair lost the rejected-candidate seed or its failure evidence");
+  const authoritativeCommands = finalRouting.finalValidation.evidence.commands.map((command) => command.command);
+  assert(JSON.stringify(authoritativeCommands) === JSON.stringify([...finalRoutingDetails.finalValidationCommands, profileNpmTest]) && finalRouting.finalValidation.evidence.commands.every((command) => command.outcome === "passed"), "controller final evidence lost focused commands, the profile npm test gate, or successful outcomes");
+  assert(readFileSync(npmMarker, "utf8") === "npm test\n", "profile npm test did not run exactly once under controller authority");
+  const acceptedFinalRepair = finalRouting.finalValidation.evidence.acceptedRepair;
+  assert(!initialFinalEvidence.candidate && !initialFinalEvidence.acceptedRepair && initialFinalEvidence.active.before.tree === initialFinalEvidence.active.after.tree, "initial failed final validation changed active authority");
+  assert(firstRejectedEvidence.candidate && !firstRejectedEvidence.acceptedRepair && firstRejectedEvidence.active.before.tree === firstRejectedEvidence.active.after.tree && firstRejectedEvidence.active.after.tree === initialFinalEvidence.expectedActiveTree, "rejected final repair applied before authoritative validation passed");
+  assert(acceptedFinalRepair && JSON.stringify(finalRouting.finalValidation.evidence.candidate) === JSON.stringify(acceptedFinalRepair.transition) && acceptedFinalRepair.activeAfterApply.tree === acceptedFinalRepair.transition.patch.resultTree && fullGitVisibleTree(repo) === acceptedFinalRepair.transition.patch.resultTree && readFileSync(join(repo, "x.ts"), "utf8") === "export const x = 2;\n", "passing authoritative final validation did not bind and apply the repaired immutable candidate");
+  rmSync(join(repo, "x.ts"));
+  assert(fullGitVisibleTree(repo) === base.tree, "final-validation routing fixture did not restore the pre-execution repository tree");
 
   const ambiguous = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: () => true, piCommand: fakePi, runId: "ambiguous-lock", workerTimeoutMs: 10_000, validationTimeoutMs: 10_000, afterActiveApply: () => writeFileSync(join(repo, "raced.ts"), "external race\n") });
   const ambiguousAttempt = ambiguous.snapshot.attempts.find((attempt) => attempt.outcome?.terminalFact?.stage === "bookkeeping" && attempt.outcome.terminalFact.code === "failed-after-mutation");

@@ -40,7 +40,7 @@ export async function runExecutorFinalValidation(options: {
 	const authoritativeCommands = finalValidationCommands(options.packet, options.profile, finalContract?.validationCommands ?? options.commands);
 	const upstreamUnits = options.packet.nodes.filter((unit) => unit.kind !== "final-validation");
 	const effectiveFinalContract = finalContract ? { ...finalContract, validationCommands: authoritativeCommands } : undefined;
-	const repairContract = effectiveFinalContract ? deriveFinalRepairWorkContract(upstreamUnits.map((unit) => unit.workContract), effectiveFinalContract) : undefined;
+	const repairContract = finalContract ? deriveFinalRepairWorkContract(upstreamUnits.map((unit) => unit.workContract), finalContract) : undefined;
 	const repairUnit = finalUnit && repairContract ? { ...finalUnit, kind: "implement" as const, workContract: repairContract } : undefined;
 	return await runFinalValidation<WorkerAttempt>({
 		repoRoot: options.repoRoot,
