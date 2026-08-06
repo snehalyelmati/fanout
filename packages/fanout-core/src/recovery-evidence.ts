@@ -86,10 +86,14 @@ export function parseAttemptRecoveryContext(value: unknown): AttemptRecoveryCont
 		const finalContractValidation = validateWorkContract(root.finalValidationContract, { finalValidation: true });
 		if (!finalContractValidation.ok || !finalContractValidation.contract) throw new TypeError(`invalid final-validation command contract: ${finalContractValidation.errors.map((error) => error.message).join("; ")}`);
 		const upstreamWorkContracts = parseUpstreamWorkContracts(root.upstreamWorkContracts);
-		if (JSON.stringify(deriveFinalRepairWorkContract(upstreamWorkContracts.map((entry) => entry.workContract), finalContractValidation.contract)) !== JSON.stringify(validation.contract)) throw new TypeError("final-validation effective repair contract does not match its ordered upstream contracts and original command contract");
+		const repairCommands = validation.contract.validationCommands;
+		const authoritativeCommands = finalContractValidation.contract.validationCommands;
+		if (repairCommands.length > authoritativeCommands.length || repairCommands.some((command, index) => JSON.stringify(command) !== JSON.stringify(authoritativeCommands[index]))) throw new TypeError("final-validation repair commands must be an ordered prefix of the authoritative command contract");
+		const focusedFinalContract = { ...finalContractValidation.contract, validationCommands: repairCommands };
+		if (JSON.stringify(deriveFinalRepairWorkContract(upstreamWorkContracts.map((entry) => entry.workContract), focusedFinalContract)) !== JSON.stringify(validation.contract)) throw new TypeError("final-validation effective repair contract does not match its ordered upstream contracts and focused command contract");
 		if (!Array.isArray(root.commands) || !root.commands.length) throw new TypeError("final-validation recovery requires ordered command evidence");
 		const commands = root.commands.map(parseCommandEvidence);
-		requireContractCommands(validation.contract, commands, "final-validation");
+		requireContractCommands(finalContractValidation.contract, commands, "final-validation");
 		if (!commands.some((command) => command.status !== "passed" && command.status !== "unexecuted")) throw new TypeError("final-validation recovery requires a failed command");
 		const acceptedLedger = parseLedger(root.acceptedLedger);
 		const reconstructedTree = parseGitTreeId(root.reconstructedTree);

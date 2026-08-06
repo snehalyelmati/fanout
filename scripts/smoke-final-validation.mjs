@@ -200,6 +200,10 @@ try {
     conflictingContract.validationCommands = [node("process.exit(9)")];
     assertThrows(() => buildCanonicalWorkerPrompt({ objective: "repair", userContext: [], discoveredRepoFacts: [], assumptions: [] }, { id: "final-validation", kind: "implement", workContract: conflictingContract }, [], recovery), `final-repair prompt ${index + 1} admitted conflicting node and recovery contracts`);
   }
+  const nonPrefixRepair = structuredClone(promptRecoveries[0]);
+  nonPrefixRepair.workContract.validationCommands = [node("process.exit(9)")];
+  assertThrows(() => parseAttemptRecoveryContext(nonPrefixRepair), "final-validation recovery admitted repair commands outside the authoritative command prefix");
+
   const omittedCandidate = structuredClone(promptRecoveries[1]);
   delete omittedCandidate.failedRound.candidate;
   let omittedCandidateRejected = false;

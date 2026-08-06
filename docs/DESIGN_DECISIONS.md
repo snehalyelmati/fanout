@@ -1,5 +1,13 @@
 # Design Decisions
 
+## 2026-08-05
+
+### Keep project final gates controller-only during final repair
+
+Decision: Final-repair workers receive the packet final node's focused validation commands in their immutable `fanout_validate` manifest, while authoritative controller rounds retain the complete ordered packet-final plus profile-required command manifest and failure evidence. Recovery admission requires the focused repair commands to be an ordered prefix of that authoritative manifest. The controller still validates every repaired candidate in a fresh reconstruction and applies it only after the complete authoritative round passes. This supersedes only the 2026-07-27 requirement that final-repair worker validation derive from the combined packet/profile manifest; schemas, profiles, repair budgets, and controller acceptance authority remain unchanged.
+
+Reason: Profile-required project gates are long, controller-owned acceptance checks. Running them inside a repair worker and then again in the controller duplicated the same gate on one candidate tree without adding authority. Focused worker feedback preserves in-context correction, complete controller failure evidence, fresh-context seed continuity, and bounded repair while removing the duplicate route.
+
 ## 2026-08-04
 
 ### Let workers run only their immutable contract validation

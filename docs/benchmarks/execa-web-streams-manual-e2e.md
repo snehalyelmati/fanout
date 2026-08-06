@@ -1,6 +1,6 @@
 # Execa Web Streams manual Fanout E2E
 
-Status: the first controlled canary completed on 2026-07-29; the focused-validation canary stopped on its first worker-scope failure on 2026-07-30; the bounded unauthorized-change-recovery canary then completed on 2026-07-30 without exercising that recovery route; a normal Pi control completed from the same baseline; the first packet-v9 worker-validation canary stopped on malformed direct-argv TypeScript validation authority on 2026-08-04; and the corrected packet-v9 canary completed on 2026-08-05. No repetitions have been run.
+Status: the first controlled canary completed on 2026-07-29; the focused-validation canary stopped on its first worker-scope failure on 2026-07-30; the bounded unauthorized-change-recovery canary then completed on 2026-07-30 without exercising that recovery route; a normal Pi control completed from the same baseline; the first packet-v9 worker-validation canary stopped on malformed direct-argv TypeScript validation authority on 2026-08-04; the corrected packet-v9 canary completed on 2026-08-05; and five subsequent repetitions completed on 2026-08-05.
 
 This is the next transfer/complexity benchmark after the controlled p-map task. It follows the common safety, execution, evidence, failure, and reporting protocol in [`fanout-execution-benchmark-procedure.md`](fanout-execution-benchmark-procedure.md) and the operator workflow in [`p-map-abort-signal-manual-e2e.md`](p-map-abort-signal-manual-e2e.md). This document records only Execa-specific inputs and gates.
 
@@ -87,16 +87,17 @@ Run `/fanout-execute --dry-run` first and confirm zero workers, provider calls, 
 
 Do not schedule repetitions until the canary, independent repository checks, artifacts, and cleanup all pass. Stop on the first failure or any source, task, packet, profile, routing, concurrency, or platform change.
 
-After execution, independently run:
+After execution, inspect the checkout without launching another full suite:
 
 ```bash
 rtk git status --short
 rtk git diff --name-only
 rtk git diff --check
-rtk npm test
 rtk git worktree list --porcelain
 rtk ps -axo pid,etime,command
 ```
+
+Require tree-bound controller final evidence showing status `passed`, the packet-focused commands followed by one successful profile `npm test`, and matching expected, validation-before, validation-after, accepted-repair when present, and final active-checkout trees. Confirm every final-repair `worker-validation-manifest.json` contains only packet-focused commands and no profile `npm test`. Run an external full suite only for an explicitly requested audit or missing, incomplete, or suspect controller evidence, and record that exception separately.
 
 Inspect the authoritative Event v5 log, Projection v6, summary, attempt evidence, final validation, accepted tree, cleanup, provider/model/tier identities, tokens, cost, TTFT, tool time, and wall time. Preserve failed artifacts and classify the owning component before proposing changes. Older Event v4 / Projection v5 runs remain descriptive Legacy evidence.
 
@@ -238,9 +239,31 @@ The run used 1,376,170 tokens: 244,708 input, 19,398 output, and 1,112,064 cache
 
 This corrected run demonstrates successful worker advisory validation, controller-authoritative reruns, four-way launch concurrency, deterministic reconciliation, and bounded final repair on one packet. It did not re-exercise the exact-no-progress causal-failure branch fixed after the stopped run, and it is not a byte-identical repetition of earlier Execa packets. No median, range, repair rate, reliability rate, or universal SLO is inferred.
 
+## 2026-08-05 five-repetition cohort
+
+The user authorized five additional live executions with the corrected packet, profile, routing, concurrency four, Execa baseline, and platform held fixed. Fanout HEAD was `ebbbd7ecba4418fb58944558727b933f690c090d`, whose only difference from canary commit `505c258b8d9f367796b4e3c2fe1afaf741dc1ef0` was the benchmark documentation recording that canary; runtime and test source bytes were unchanged. The five repetitions therefore form a fixed repetition cohort, while the preceding canary remains separate because its Git commit identity differs.
+
+| Repetition | Pane | Run | Attempts | Recovery | Wall | Tokens | Cost | Final tree |
+| ---: | --- | --- | ---: | --- | ---: | ---: | ---: | --- |
+| 1 | `%302` | `2026-08-05T05-18-55-482Z-7437e419` | 4 | none | 631.296s | 756,614 | `$0.5685264` | `7e28e0d2d8f68beff3968fbbe9b78ce91913b320` |
+| 2 | `%303` | `2026-08-05T05-34-34-351Z-75851a2b` | 5 | one final repair | 964.733s | 782,874 | `$0.8108926` | `b45076d5d9f5aa3ee59aed3c6e333e182dc95a46` |
+| 3 | `%304` | `2026-08-05T05-56-09-745Z-6193c2da` | 5 | one final repair | 1,011.988s | 1,207,320 | `$0.9649424` | `6b2d11d141eb05a735cad0c6ed8d80ce8361af95` |
+| 4 | `%305` | `2026-08-05T06-19-29-749Z-e7c91c41` | 6 | one clean runtime retry and one final repair | 1,530.488s | 1,654,515 | `$1.1499204` | `af25d4af7d8ebdc521889d56cc47fcfc3bb0cab8` |
+| 5 | `%306` | `2026-08-05T06-50-24-299Z-fc84a3bd` | 5 | one final repair | 995.074s | 1,143,064 | `$0.8866022` | `e3520fe195fba1f757ed036d95b3b8cf0af39408` |
+
+All five runs completed and passed final validation. Their wall-time median was 995.074s with range 631.296–1,530.488s; token median was 1,143,064 with range 756,614–1,654,515; cost median was `$0.8866022` with range `$0.5685264`–`$1.1499204`. Summed live execution was 5,133.579s, 5,544,387 tokens, and `$4.380884`.
+
+The cohort recorded 20 original attempts, one clean runtime retry, and four final-validation repairs. Repetition 4's runtime original exhausted its 602-second worker-process timeout after multiple advisory validations; the single clean retry succeeded. There were no model fallbacks, node validation repairs, integration repairs, exact-no-progress terminations, budget-exhausted terminations, internal failures, or manual code interventions. Fourteen deterministic reconciliations applied disjoint candidates onto advancing accepted ledgers.
+
+Across the five runs, workers invoked `fanout_validate` 36 times, executing 40 immutable commands: 29 calls passed and seven failed before workers corrected their candidates in the same attempt. All 24 completed worker results contained the required five-section summary; the timed-out runtime original was the sole attempt without a complete summary. Per-run median TTFT ranged from 1.559s to 2.002s. Summed generation time per run had median 632.676s and range 282.248–948.849s. Original-worker overlap savings had median 200.798s and range 189.887–254.861s; poll time remained zero throughout.
+
+Each run changed exactly the 14 authorized paths, passed `git diff --check`, and passed an independent full `npm test` after controller validation; the independent AVA counts were 5,109, 5,108, 5,109, 5,110, and 5,109. Each completed with one Execa worktree and no execution lock, worker, or test-process leak. Repetitions 1–4 and the corrected canary were preserved as named Git stashes; repetition 5 remains in the primary checkout and pane `%306` for inspection. Panes `%301`–`%304` also remain visible; repetitions 4–5 used windows `fanout-canary-4` and `fanout-canary-5` after the original window reached its pane-layout limit. Obsolete failed pane `%297` was closed.
+
+This fixed five-run cohort supports a 5/5 completed-run observation for this packet and environment. It does not exercise the corrected exact-no-progress causal-failure branch, establish behavior under source/profile/packet changes, or support a universal SLO.
+
 ## Reporting
 
-Record Execa results in [`../BENCHMARKS.md`](../BENCHMARKS.md) only after observed artifacts and independent validation exist. Report correctness and reliability before speed or cost. Keep p-map and Execa cohorts separate; do not combine their medians, ranges, or success claims.
+Record Execa results in [`../BENCHMARKS.md`](../BENCHMARKS.md) only after observed artifacts and tree-bound controller validation evidence exist. Report correctness and reliability before speed or cost. Keep p-map and Execa cohorts separate; do not combine their medians, ranges, or success claims.
 
 ## Fresh-chat handoff
 

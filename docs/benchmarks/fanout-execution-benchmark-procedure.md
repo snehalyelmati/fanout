@@ -2,6 +2,8 @@
 
 Purpose: define the benchmark path from read-only Fanout DAG prompt experiments through executable `/fanout-execute` benchmarks, including TermBench-style terminal task suites.
 
+Use [`fanout-canary-run-protocol.md`](fanout-canary-run-protocol.md) for the common operational procedure for live canaries, repetitions, concurrent worktree isolation, tmux lifecycle, evidence capture, and stop conditions. Task-specific runbooks add only their fixed inputs and gates.
+
 Evidence scope: this procedure tracks workflow quality, runtime execution quality, and provider/model cost separately. A good prompt-DAG score is not proof of executable correctness; a good executable benchmark is not proof of provider-tier savings unless cost/time telemetry is captured.
 
 ## Benchmark stages
