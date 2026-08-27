@@ -266,10 +266,10 @@ The planning surface is now `/fanout-plan`, not a standalone prompt template.
 
 ## Track 4: Live-shaped realtime Doubleword stubs
 
-Status: `doubleword-stub` exposes the first live-shaped model IDs, pricing metadata, reasoning metadata, and realtime/async/batch Fanout tier metadata. An opt-in `doubleword` live provider now calls the Responses API with `service_tier: "priority"`, discovers live models from `/v1/models`, fills missing reasoning/tier metadata while preserving live catalog fields, and caches that catalog; normal validation remains offline and keyless.
+Status: `doubleword-stub` exposes the first live-shaped model IDs, pricing metadata, reasoning metadata, and realtime/async/batch Fanout tier metadata. An opt-in `doubleword` live provider now calls the Responses API with `service_tier: "priority"`, discovers live models from `/v1/models`, fills missing reasoning/tier metadata while preserving live catalog fields, and caches that catalog; normal validation remains offline and keyless. Current exact live prices are generated into a reviewed snapshot from the official Doubleword model catalogue; runtime startup never scrapes pricing.
 
-- Register Doubleword realtime-shaped stub models for `glm-5-2` ($1.40/$4.40 per MTok in/out) and `deepseek-v4-flash` ($0.14/$0.28 per MTok in/out).
-- Use pricing metadata from `https://doubleword.ai/pricing` for stub cost estimates and known live model tier costs; unknown discovered models remain available with zero-cost placeholders until pricing is added.
+- Register Doubleword realtime-shaped stub models for `glm-5-2` and `deepseek-v4-flash` using the reviewed exact-model snapshot's current realtime prices.
+- Generate trusted input/cache-read/output pricing from `https://docs.doubleword.ai/inference-api/models` only through the manual `npm run sync:doubleword-pricing` workflow. Join `/v1/models` or cached availability to the snapshot by exact ID; keep unknown discovered models available to ordinary Pi with required zero-cost placeholders, and keep the hard-coded fallback list ordinary-only when no availability evidence exists. Omit trusted provenance in both cases so strict Fanout execution rejects them.
 - Keep the stub path available for tests; no live API key or network required.
 - Verify model IDs, fixture streaming, usage reporting, pricing metadata, reasoning metadata, and tier capability metadata.
 - Register opt-in live realtime models under `doubleword` from provider discovery/cache, falling back to the minimal GLM/DeepSeek list when discovery is unavailable.

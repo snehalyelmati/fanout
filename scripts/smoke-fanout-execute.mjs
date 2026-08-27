@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
+import { DOUBLEWORD_PRICING_PROVENANCE } from "../packages/doubleword-provider/src/pricing.ts";
 import { artifactIdentity } from "../packages/fanout-core/src/artifact-identity.ts";
 import { compileExecutionPacket } from "../packages/fanout-core/src/fanout-compiler.ts";
 import { runDag } from "../packages/fanout-core/src/dag-scheduler.ts";
@@ -42,7 +43,7 @@ try {
   const command = { executable: process.execPath, args: ["-e", "if (require('node:fs').readFileSync('x.ts','utf8') !== 'export const x = 1;\\n') process.exit(1)"] };
   const details = { schema: "fanout.implementation-details", version: 6, detailsId: "p", createdAt: new Date(0).toISOString(), plan: planIdentity, items: [{ id: "x", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "x.ts" }, sourcePlanIds: ["x"] }, contentIntent: "x" }], readDependencies: [], validationCommands: [command], advisoryNotes: [] }], finalValidationCommands: [command] };
   const detailsIdentity = artifactIdentity("implementation-details.json", Buffer.from(JSON.stringify(details)));
-  const summary = { provider: "doubleword-stub", model: "deepseek-v4-flash", thinking: "off", source: "test", status: "available", reason: "test" };
+  const summary = { provider: "doubleword", model: "deepseek-ai/DeepSeek-V4-Flash-0731", thinking: "off", source: "test", status: "available", reason: "test" };
   const compiled = compileExecutionPacket({ implementationPlan: plan, implementationDetails: details, planIdentity, detailsIdentity, tierPlan: { tier1: summary, tier2: { ...summary, status: "unavailable", fallback: "tier1" }, tier2Fallback: summary }, runtimePolicy: { maxConcurrency: 2, failFast: false, fallbackAllowed: true }, createdAt: new Date(0).toISOString() });
   assert(compiled.packet, compiled.errors.join("; "));
   const paths = publishExecutionPacket(compiled.packet, artifacts, runDir, join(artifacts, "active-packet.json"));
@@ -106,7 +107,9 @@ if (process.argv.includes("--version")) { console.log("fake-pi 1.0.0"); process.
 const args = process.argv.slice(2);
 const [provider, ...modelParts] = args[args.indexOf("--model") + 1].split("/");
 const model = modelParts.join("/");
-const usage = { input: 4, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 6, cost: { total: 0.001 } };
+const inputCost = 0.09 / 1_000_000 * 4;
+const outputCost = 0.18 / 1_000_000 * 2;
+const usage = { input: 4, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 6, cost: { input: inputCost, output: outputCost, cacheRead: 0, cacheWrite: 0, total: inputCost + outputCost } };
 if (process.env.FANOUT_RUN_ID === "live" && readFileSync(".preinstalled/ready", "utf8") !== "ready\\n") process.exit(9);
 if (process.env.FANOUT_RUN_ID === "provider-abort") {
   appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_error", runId: process.env.DOUBLEWORD_RUN_ID, provider, model, turnIndex: 0, responseId: "response-1", failureCode: "abort" }) + "\\n");
@@ -142,7 +145,7 @@ appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, [
   { ts: observedAt, event: "provider_start", provider, model, turnIndex: 0 },
   { ts: observedAt, event: "provider_ttft", provider, model, turnIndex: 0, responseId: "response-1", ttftMs: 0 },
   { ts: observedAt, event: "assistant_ttft", turnIndex: 0 },
-  { ts: observedAt, event: "provider_end", provider, model, turnIndex: 0, responseId: "response-1", tier: "realtime", usage, usageSource: "provider", pricingSource: "doubleword-model-metadata", pollCount: 0 },
+  { ts: observedAt, event: "provider_end", provider, model, turnIndex: 0, responseId: "response-1", tier: "realtime", usage, usageSource: "provider", usageInputField: "input_tokens", usageOutputField: "output_tokens", pricingSource: "doubleword-model-metadata", pricingSourceUrl: ${JSON.stringify(DOUBLEWORD_PRICING_PROVENANCE.sourceUrl)}, pricingRetrievedAt: ${JSON.stringify(DOUBLEWORD_PRICING_PROVENANCE.retrievedAt)}, pricingSnapshotSha256: ${JSON.stringify(DOUBLEWORD_PRICING_PROVENANCE.snapshotSha256)}, pollCount: 0 },
   { ts: observedAt, event: "turn_end", turnIndex: 0 },
 ].map(JSON.stringify).join("\\n") + "\\n");
 console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "done" } }));

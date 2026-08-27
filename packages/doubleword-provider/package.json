@@ -17,6 +17,7 @@
     "src/messages.ts",
     "src/models.ts",
     "src/observability.ts",
+    "src/pricing.ts",
     "src/register.ts"
   ],
   "exports": {

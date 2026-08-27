@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -21,7 +22,7 @@ const server = createServer((req, res) => {
   if (req.method === "GET" && url.pathname === "/models") {
     return sendJson(res, 200, {
       data: [
-        { id: "deepseek-ai/DeepSeek-V4-Flash", name: "DeepSeek V4 Flash" },
+        { id: "deepseek-ai/DeepSeek-V4-Flash-0731", name: "DeepSeek V4 Flash 0731" },
         { id: "mock-provider/Capabilities-Reasoning", name: "Capabilities Reasoning", capabilities: ["reasoning"] },
         { id: "mock-provider/Capabilities-Plain", name: "Capabilities Plain", capabilities: ["text"] },
         {
@@ -50,11 +51,14 @@ try {
   const port = await listen();
   process.env.DOUBLEWORD_BASE_URL = `http://127.0.0.1:${port}`;
 
-  const { discoverLiveModels, REALTIME_STUB_MODELS, DOUBLEWORD_THINKING_LEVEL_MAP, tierPricingSource } = await import("../packages/doubleword-provider/src/models.ts");
+  const { discoverLiveModels, REALTIME_STUB_MODELS, DOUBLEWORD_THINKING_LEVEL_MAP, tierPricingProvenance, tierPricingSource, withTierCost } = await import("../packages/doubleword-provider/src/models.ts");
+  const { DOUBLEWORD_PRICING_PROVENANCE, DOUBLEWORD_TIER_PRICING } = await import("../packages/doubleword-provider/src/pricing.ts");
   const { responsesRequestBody } = await import("../packages/doubleword-provider/src/live.ts");
+  const { responseUsageSource } = await import("../packages/doubleword-provider/src/messages.ts");
+  const { modelPagePaths, parseModelPricing } = await import("./sync-doubleword-pricing.mjs");
 
   const models = await discoverLiveModels();
-  const gen = models.find((model) => model.id === "deepseek-ai/DeepSeek-V4-Flash");
+  const gen = models.find((model) => model.id === "deepseek-ai/DeepSeek-V4-Flash-0731");
   const capabilityReasoning = models.find((model) => model.id === "mock-provider/Capabilities-Reasoning");
   const capabilityPlain = models.find((model) => model.id === "mock-provider/Capabilities-Plain");
   const metadataModel = models.find((model) => model.id === "mock-provider/Metadata-Model");
@@ -72,8 +76,34 @@ try {
   assert(ocr?.reasoning === false, `OCR should not be reasoning-capable: ${JSON.stringify(ocr)}`);
   assert(embedding?.reasoning === false, `embedding should not be reasoning-capable: ${JSON.stringify(embedding)}`);
   assert(REALTIME_STUB_MODELS.every((model) => !("fanout" in model)), `stub models leaked Fanout metadata: ${JSON.stringify(REALTIME_STUB_MODELS)}`);
-  assert(tierPricingSource("deepseek-ai/DeepSeek-V4-Flash", "async") === "doubleword-model-metadata", "known tier pricing provenance is missing");
+  const deepseekStub = REALTIME_STUB_MODELS.find((model) => model.id === "deepseek-v4-flash");
+  assert(deepseekStub?.cost.input === 0.09 && deepseekStub.cost.cacheRead === 0.02 && deepseekStub.cost.output === 0.18, `stub did not use exact 0731 pricing: ${JSON.stringify(deepseekStub?.cost)}`);
+  const asyncDeepseekStub = withTierCost(deepseekStub, "async");
+  assert(asyncDeepseekStub.cost.input === 0.07 && asyncDeepseekStub.cost.cacheRead === 0.01 && asyncDeepseekStub.cost.output === 0.14, `stub alias lost exact async pricing: ${JSON.stringify(asyncDeepseekStub.cost)}`);
+  assert(tierPricingProvenance(asyncDeepseekStub, "async") === undefined, "synthetic stub usage received trusted pricing provenance");
+  assert(tierPricingSource("deepseek-ai/DeepSeek-V4-Flash-0731", "async") === "doubleword-model-metadata", "exact 0731 pricing provenance is missing");
+  assert(tierPricingSource("deepseek-ai/deepseek-v4-flash-0731", "async") === undefined, "non-exact model ID falsely joined trusted pricing");
   assert(tierPricingSource("mock-provider/Metadata-Model", "async") === undefined, "unknown model falsely claimed Doubleword pricing metadata");
+  const priced = withTierCost(gen, "realtime");
+  assert(priced.cost.input === 0.09 && priced.cost.cacheRead === 0.02 && priced.cost.output === 0.18 && priced.cost.cacheWrite === 0, `wrong 0731 realtime prices: ${JSON.stringify(priced.cost)}`);
+  const provenance = tierPricingProvenance(gen, "realtime");
+  assert(provenance?.pricingSourceUrl === "https://docs.doubleword.ai/inference-api/models" && provenance.pricingRetrievedAt === DOUBLEWORD_PRICING_PROVENANCE.retrievedAt && provenance.pricingSnapshotSha256 === DOUBLEWORD_PRICING_PROVENANCE.snapshotSha256, `wrong pricing provenance: ${JSON.stringify(provenance)}`);
+  assert(tierPricingProvenance(gen, "realtime", 1) === undefined, "cache-write usage falsely received complete snapshot provenance");
+  assert(createHash("sha256").update(JSON.stringify(DOUBLEWORD_TIER_PRICING)).digest("hex") === DOUBLEWORD_PRICING_PROVENANCE.snapshotSha256, "pricing snapshot identity does not match canonical rows");
+  const parsed = parseModelPricing(`# Example\n\n## Pricing\n\n| Priority | Input Tokens (per 1M) | Cache Read Tokens (per 1M) | Output Tokens (per 1M) |\n|----------|------------------------|----------------------------|------------------------|\n| Realtime[^realtime-availability] | \\$0.09 | \\$0.02 | \\$0.18 |\n| Async | \\$0.07 | \\$0.01 | \\$0.14 |\n\n[^realtime-availability]: Realtime availability is limited.\n\n## Playground\n\nOpen in [Playground](https://app.doubleword.ai/playground?model=deepseek-ai%2FDeepSeek-V4-Flash-0731&from=%2Fmodels).`);
+  assert(parsed.id === gen.id && parsed.tiers.async.cacheRead === 0.01, `pricing Markdown parser changed: ${JSON.stringify(parsed)}`);
+  let malformedRejected = false;
+  try { parseModelPricing("## Pricing\n\n| changed | format |\n"); } catch { malformedRejected = true; }
+  assert(malformedRejected, "unexpected pricing documentation format was accepted");
+  let malformedTierRejected = false;
+  try { parseModelPricing(`# Example\n\n## Pricing\n\n| Priority | Input Tokens (per 1M) | Cache Read Tokens (per 1M) | Output Tokens (per 1M) |\n|----------|------------------------|----------------------------|------------------------|\n| Realtime | \\$0.09 | \\$0.02 | \\$0.18 |\nAsync malformed row\n| Batch | \\$0.05 | \\$0.01 | \\$0.09 |\n\n## Playground\n\n[Playground](https://app.doubleword.ai/playground?model=deepseek-ai%2FDeepSeek-V4-Flash-0731&from=%2Fmodels)`); } catch { malformedTierRejected = true; }
+  assert(malformedTierRejected, "malformed pricing tier was silently omitted");
+  assert(modelPagePaths("# Docs\n\n### Models\n\n- [A](/inference-api/models/a.md)\n- [B](/inference-api/models/b.md)\n").length === 2, "complete Models section was not parsed");
+  let malformedIndexRejected = false;
+  try { modelPagePaths("# Docs\n\n### Models\n\n- [A](/inference-api/models/a.md)\nmalformed model row\n"); } catch { malformedIndexRejected = true; }
+  assert(malformedIndexRejected, "malformed model index row was silently skipped");
+  assert(responseUsageSource({ usage: { input_tokens: 1, output_tokens: 2 } }) === "provider", "native Responses usage was not classified as provider usage");
+  assert(responseUsageSource({ usage: { prompt_tokens: 1, completion_tokens: 2 } }) === "estimated", "compatibility usage aliases were falsely classified as native provider usage");
 
   const piModel = { ...gen, api: "doubleword-api", provider: "doubleword", baseUrl: process.env.DOUBLEWORD_BASE_URL };
   const context = { messages: [{ role: "user", content: "hello", timestamp: Date.now() }] };
@@ -89,6 +119,10 @@ try {
   const cached = await discoverLiveModels();
   const cachedGen = cached.find((model) => model.id === gen.id);
   assert(!("fanout" in cachedGen), `cached provider model leaked Fanout metadata: ${JSON.stringify(cachedGen?.fanout)}`);
+  rmSync(process.env.DOUBLEWORD_MODEL_CACHE_FILE, { force: true });
+  const fallback = await discoverLiveModels();
+  assert(fallback.length === 2 && fallback.every((model) => model.pricingEvidenceEligible === false), `hard-coded fallback models were not ordinary-only: ${JSON.stringify(fallback)}`);
+  assert(fallback.every((model) => tierPricingProvenance(model, "realtime") === undefined), "hard-coded fallback received trusted pricing provenance");
 
   console.log("doubleword metadata test passed");
   rmSync(dir, { recursive: true, force: true });

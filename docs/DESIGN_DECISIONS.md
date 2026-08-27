@@ -1,5 +1,13 @@
 # Design Decisions
 
+## 2026-08-26
+
+### Synchronize exact Doubleword pricing into reviewed snapshots
+
+Decision: Replace the provider's hand-maintained tier-price table with a generated TypeScript snapshot of every exact model ID and realtime/async/batch row published by the official Doubleword model catalogue. A manual `npm run sync:doubleword-pricing` fetches the documented Markdown pages, fails on unexpected structure, and records the source URL, retrieval date, and SHA-256 of canonical pricing rows. Provider startup remains offline with respect to pricing: `/v1/models` supplies live availability, exact IDs join to the committed snapshot, and missing tiers receive no trusted pricing provenance. Discovered unpriced models remain visible to ordinary Pi with its required zero-cost placeholder, but Fanout cannot accept them as strict workers. When discovery and its cache are both unavailable, the minimal hard-coded fallback list remains visible to ordinary Pi and may display exact snapshot costs, but it receives no trusted pricing provenance until discovery or cache supplies availability evidence. Strict Fanout usage evidence requires the Responses API's native `input_tokens` and `output_tokens`; compatibility aliases and estimates remain available only to ordinary Pi accounting and cannot satisfy strict admission. This supersedes the fixed prices and source described on 2026-06-25 without changing ordinary model-discovery availability.
+
+Reason: The published catalogue and cache-read rates change independently from provider releases, while exact usage/cost evidence must remain reviewable and reproducible. A committed identity-bound snapshot avoids startup scraping, aliases, inferred prices, and silent zero-price admission while retaining normal Pi model discovery.
+
 ## 2026-08-05
 
 ### Keep project final gates controller-only during final repair
