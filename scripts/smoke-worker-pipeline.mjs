@@ -2,9 +2,10 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { DOUBLEWORD_PRICING_PROVENANCE } from "../packages/doubleword-provider/src/pricing.ts";
 import { deriveAttemptMetricTotals } from "../packages/fanout-core/src/attempt-metrics.ts";
 import { correlatedWorkerMetrics } from "../packages/fanout-pi/src/attempt-evidence.ts";
-import { extractWorkerSummary } from "../packages/fanout-pi/src/fanout-worker-contract.ts";
+import { extractWorkerSummary, importWorkerMetrics } from "../packages/fanout-pi/src/fanout-worker-contract.ts";
 import {
   WORKER_MODEL_TOOLS,
   WORKER_TRUST_BOUNDARY,
@@ -64,6 +65,44 @@ try {
   ].map(JSON.stringify).join("\n") + "\n");
   const cached = correlatedWorkerMetrics("cached:000001", { provider: "fake", model: "worker", tier: "tier1", workerDurationMs: 8 }, cachedStdout, cachedObservability, 1);
   assert(cached.complete && deriveAttemptMetricTotals(cached).inputTokens === 4 && deriveAttemptMetricTotals(cached).cacheReadTokens === 10 && deriveAttemptMetricTotals(cached).cacheWriteTokens === 1 && deriveAttemptMetricTotals(cached).totalTokens === 6, "Pi cached tokens or exact Turn interval were rejected or omitted");
+
+  const providerStdout = join(root, "provider-stdout.jsonl");
+  const providerObservability = join(root, "provider-observability.jsonl");
+  const inputCost = 0.09 / 1_000_000 * 4;
+  const outputCost = 0.18 / 1_000_000 * 2;
+  const usage = { input: 4, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 6, cost: { input: inputCost, output: outputCost, cacheRead: 0, cacheWrite: 0, total: inputCost + outputCost } };
+  writeFileSync(providerStdout, `${JSON.stringify({ type: "message_end", message: { role: "assistant", provider: "doubleword", model: "deepseek-ai/DeepSeek-V4-Flash-0731", usage, content: [] } })}\n`);
+  const providerEvents = [
+    { ts: "2026-08-26T00:00:00.000Z", event: "turn_start", turnIndex: 0 },
+    { ts: "2026-08-26T00:00:00.001Z", event: "provider_start", provider: "doubleword", model: "deepseek-ai/DeepSeek-V4-Flash-0731", turnIndex: 0 },
+    { ts: "2026-08-26T00:00:00.002Z", event: "provider_ttft", provider: "doubleword", model: "deepseek-ai/DeepSeek-V4-Flash-0731", responseId: "response-1", turnIndex: 0, ttftMs: 1 },
+    { ts: "2026-08-26T00:00:00.002Z", event: "assistant_ttft", turnIndex: 0 },
+    { ts: "2026-08-26T00:00:00.007Z", event: "provider_end", provider: "doubleword", model: "deepseek-ai/DeepSeek-V4-Flash-0731", responseId: "response-1", turnIndex: 0, tier: "realtime", usage, usageSource: "provider", pricingSource: "doubleword-model-metadata" },
+    { ts: "2026-08-26T00:00:00.008Z", event: "turn_end", turnIndex: 0 },
+  ];
+  writeFileSync(providerObservability, providerEvents.map(JSON.stringify).join("\n") + "\n");
+  const staleProvider = importWorkerMetrics({ stdoutPath: providerStdout, observabilityPath: providerObservability, tier: "tier1", workerDurationMs: 8, firstOutputMs: 2, expectedProvider: "doubleword", expectedModel: "deepseek-ai/DeepSeek-V4-Flash-0731" });
+  assert(!staleProvider.ok && staleProvider.errors.some((error) => error.includes("pricingSourceUrl")), "stale Doubleword provider evidence without snapshot provenance was admitted");
+  providerEvents[4] = { ...providerEvents[4], usageInputField: "input_tokens", usageOutputField: "output_tokens", pricingSourceUrl: DOUBLEWORD_PRICING_PROVENANCE.sourceUrl, pricingRetrievedAt: DOUBLEWORD_PRICING_PROVENANCE.retrievedAt, pricingSnapshotSha256: DOUBLEWORD_PRICING_PROVENANCE.snapshotSha256 };
+  writeFileSync(providerObservability, providerEvents.map(JSON.stringify).join("\n") + "\n");
+  const currentProvider = importWorkerMetrics({ stdoutPath: providerStdout, observabilityPath: providerObservability, tier: "tier1", workerDurationMs: 8, firstOutputMs: 2, expectedProvider: "doubleword", expectedModel: "deepseek-ai/DeepSeek-V4-Flash-0731" });
+  assert(currentProvider.ok, `current Doubleword snapshot provenance was rejected: ${currentProvider.errors.join("; ")}`);
+  providerEvents[4] = { ...providerEvents[4], usage: { ...usage, cost: { ...usage.cost, total: 0.0001 } } };
+  writeFileSync(providerObservability, providerEvents.map(JSON.stringify).join("\n") + "\n");
+  const wrongPricing = importWorkerMetrics({ stdoutPath: providerStdout, observabilityPath: providerObservability, tier: "tier1", workerDurationMs: 8, firstOutputMs: 2, expectedProvider: "doubleword", expectedModel: "deepseek-ai/DeepSeek-V4-Flash-0731" });
+  assert(!wrongPricing.ok && wrongPricing.errors.some((error) => error.includes("does not match trusted")), "incorrect Doubleword cost was admitted with trusted snapshot provenance");
+  const unpricedModel = "mock-provider/Unpriced";
+  writeFileSync(providerStdout, `${JSON.stringify({ type: "message_end", message: { role: "assistant", provider: "doubleword", model: unpricedModel, usage, content: [] } })}\n`);
+  providerEvents[4] = { ...providerEvents[4], model: unpricedModel, usage };
+  writeFileSync(providerObservability, providerEvents.map(JSON.stringify).join("\n") + "\n");
+  const unpricedProvider = importWorkerMetrics({ stdoutPath: providerStdout, observabilityPath: providerObservability, tier: "tier1", workerDurationMs: 8, firstOutputMs: 2, expectedProvider: "doubleword", expectedModel: unpricedModel });
+  assert(!unpricedProvider.ok && unpricedProvider.errors.some((error) => error.includes("has no trusted realtime pricing")), "unpriced Doubleword model was admitted with snapshot provenance");
+  writeFileSync(providerStdout, `${JSON.stringify({ type: "message_end", message: { role: "assistant", provider: "doubleword", model: "deepseek-ai/DeepSeek-V4-Flash-0731", usage, content: [] } })}\n`);
+  providerEvents[4] = { ...providerEvents[4], model: "deepseek-ai/DeepSeek-V4-Flash-0731", usage, usageInputField: "prompt_tokens", usageOutputField: "completion_tokens" };
+  writeFileSync(providerObservability, providerEvents.map(JSON.stringify).join("\n") + "\n");
+  const compatibilityUsage = importWorkerMetrics({ stdoutPath: providerStdout, observabilityPath: providerObservability, tier: "tier1", workerDurationMs: 8, firstOutputMs: 2, expectedProvider: "doubleword", expectedModel: "deepseek-ai/DeepSeek-V4-Flash-0731" });
+  assert(!compatibilityUsage.ok && compatibilityUsage.errors.some((error) => error.includes("native input_tokens/output_tokens")), "compatibility usage aliases were admitted as native Doubleword usage");
+
   const summaryStdout = join(root, "summary-stdout.jsonl");
   writeFileSync(summaryStdout, [
     { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "## Worker summary\n\n1. Superseded." }] } },

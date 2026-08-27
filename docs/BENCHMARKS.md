@@ -159,6 +159,8 @@ Five repetitions reused the exact corrected packet/profile, Execa baseline, rout
 
 Across those repetitions, wall time had median 995.074s and range 631.296–1,530.488s; tokens median 1,143,064 and range 756,614–1,654,515; and cost median `$0.8866022` and range `$0.5685264`–`$1.1499204`. The 25 attempts comprised 20 originals, one successful clean runtime retry after a 602-second worker-process timeout, and four successful final repairs. Workers made 36 manifest-bound validation calls, 29 passing and seven failing before in-attempt correction. No fallback, node validation repair, integration repair, exact-no-progress termination, budget exhaustion, internal failure, or manual code intervention occurred. This supports a 5/5 completed-run observation for the fixed repetition cohort, not a universal reliability claim; the corrected exact-no-progress causal branch remains untested.
 
+Pricing synchronization update (2026-08-26, no live result): current provider pricing now comes from a manually generated exact-ID snapshot of the official Doubleword model catalogue, including cache-read rates and source URL/retrieval-date/SHA-256 provenance. `deepseek-ai/DeepSeek-V4-Flash-0731` is recorded at realtime `$0.09/$0.02/$0.18`, async `$0.07/$0.01/$0.14`, and batch `$0.05/$0.01/$0.09` per million input/cache-read/output tokens. Historical benchmark costs below retain the rates used when those experiments ran and were not recalculated. Deterministic mocks are not native-usage or paid-canary evidence.
+
 ## Current baseline: B0 — Pi session traces, GLM 5.2 pricing
 
 Date: 2026-06-25

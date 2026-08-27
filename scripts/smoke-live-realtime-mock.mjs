@@ -10,6 +10,7 @@ const agentDir = join(dir, "agent");
 mkdirSync(agentDir, { recursive: true });
 writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ retry: { enabled: false } }));
 const requests = [];
+const modelId = "deepseek-ai/DeepSeek-V4-Flash-0731";
 const finalText = "Doubleword live realtime mock response.";
 const toolCallFinalText = "Doubleword live realtime mock tool call response.";
 const toolCallPromptText = "Read README.md and then answer with one line.";
@@ -47,6 +48,9 @@ function sendSse(res, events) {
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    if (req.method === "GET" && url.pathname === "/models") {
+      return sendJson(res, 200, { data: [{ id: modelId, name: "DeepSeek V4 Flash 0731", reasoning: true }] });
+    }
     if (req.method === "POST" && url.pathname === "/responses") {
       const body = JSON.parse(await readBody(req));
       requests.push({ method: req.method, path: url.pathname, body });
@@ -103,7 +107,7 @@ const server = createServer(async (req, res) => {
               { type: "reasoning", summary: [{ type: "summary_text", text: reasoningText }] },
               { type: "message", content: [{ type: "output_text", text: finalText }] },
             ],
-            usage: { input_tokens: 2, output_tokens: 5, total_tokens: 7 },
+            usage: { input_tokens: 2, output_tokens: 5, total_tokens: 7, input_tokens_details: { cached_tokens: 1 } },
           },
         }],
       ]);
@@ -123,7 +127,7 @@ function listen() {
 
 function runPi(baseUrl, prompt = "Respond 'hello', do not say anything else.") {
   return new Promise((resolve) => {
-    const child = spawn("pi", ["-e", ".", "--model", "doubleword/deepseek-ai/DeepSeek-V4-Flash", "-p", prompt], {
+    const child = spawn("pi", ["-e", ".", "--model", `doubleword/${modelId}`, "-p", prompt], {
       cwd: process.cwd(),
       env: {
         ...process.env,
@@ -196,9 +200,11 @@ try {
   assert(submit.body.background === undefined, `POST /responses should be blocking realtime: ${JSON.stringify(submit.body)}`);
 
   const events = readFileSync(logFile, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
-  const providerEnds = events.filter((event) => event.event === "provider_end" && event.provider === "doubleword" && event.model === "deepseek-ai/DeepSeek-V4-Flash" && event.tier === "realtime");
+  const providerEnds = events.filter((event) => event.event === "provider_end" && event.provider === "doubleword" && event.model === modelId && event.tier === "realtime");
   assert(providerEnds.length >= 2, `missing realtime provider_end events\n${readFileSync(logFile, "utf8")}`);
-  assert(providerEnds.every((event) => event.usageSource === "provider" && event.pricingSource === "doubleword-model-metadata"), `realtime provider_end missing usage provenance\n${readFileSync(logFile, "utf8")}`);
+  assert(providerEnds.every((event) => event.usageSource === "provider" && event.usageInputField === "input_tokens" && event.usageOutputField === "output_tokens" && event.pricingSource === "doubleword-model-metadata" && event.pricingSourceUrl === "https://docs.doubleword.ai/inference-api/models" && /^\d{4}-\d{2}-\d{2}$/.test(event.pricingRetrievedAt) && /^[a-f0-9]{64}$/.test(event.pricingSnapshotSha256)), `realtime provider_end missing native usage/pricing provenance\n${readFileSync(logFile, "utf8")}`);
+  assert(providerEnds.every((event) => event.usage.cost.input === event.usage.input * 0.09 / 1_000_000 && event.usage.cost.cacheRead === event.usage.cacheRead * 0.02 / 1_000_000 && event.usage.cost.output === event.usage.output * 0.18 / 1_000_000), `realtime provider_end used wrong 0731 prices\n${readFileSync(logFile, "utf8")}`);
+  assert(providerEnds.some((event) => event.usage.input === 1 && event.usage.cacheRead === 1 && event.usage.cost.input === 0.09 / 1_000_000 && event.usage.cost.cacheRead === 0.02 / 1_000_000), `realtime cached input was not normalized and priced separately\n${readFileSync(logFile, "utf8")}`);
   assert(providerEnds.some((event) => event.responseId === toolReplayResponseId), `missing tool-call final provider_end\n${readFileSync(logFile, "utf8")}`);
 
   console.log(`live realtime mock smoke passed (${requests.length} requests, ${events.length} events)`);

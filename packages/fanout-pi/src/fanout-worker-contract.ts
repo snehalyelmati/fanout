@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { DOUBLEWORD_PRICING_PROVENANCE, DOUBLEWORD_TIER_PRICING } from "../../doubleword-provider/src/pricing.ts";
 import { type WorkerMetrics, type WorkerMetricsValidationResult, validateWorkerMetrics } from "../../fanout-core/src/worker-metrics.ts";
 import { parseAttemptRecoveryContext, type AttemptRecoveryContext } from "../../fanout-core/src/recovery-evidence.ts";
 import { validateWorkContract, type WorkContractNode } from "../../fanout-core/src/work-contract.ts";
@@ -310,6 +311,7 @@ function pricingProvenance(
 		errors.push(`worker observability has ${ends.length} matching provider_end records for ${assistantUsage.length} assistant messages`);
 	}
 	const sources = new Set<string>();
+	const pricingSnapshots = new Set<string>();
 	const expectedProviderTier = assignedTier === "tier2" ? "async" : "realtime";
 	for (const [index, event] of ends.entries()) {
 		if (event.tier !== expectedProviderTier) {
@@ -319,15 +321,28 @@ function pricingProvenance(
 			usageVerified = false;
 			errors.push(`provider_end ${index + 1} usageSource must be provider, got ${String(event.usageSource ?? "missing")}`);
 		}
+		if (event.usageInputField !== "input_tokens" || event.usageOutputField !== "output_tokens") {
+			usageVerified = false;
+			errors.push(`provider_end ${index + 1} must use native input_tokens/output_tokens usage fields`);
+		}
 		const expectedUsage = assistantUsage[index];
 		if (!expectedUsage || !providerUsageMatches(event, expectedUsage, index, errors)) usageVerified = false;
+		if (!providerPricingMatches(event, model, expectedProviderTier, index, errors)) usageVerified = false;
 		const source = nonEmptyString(event.pricingSource);
 		if (!source) errors.push(`provider_end ${index + 1} is missing pricingSource`);
 		else if (source !== "doubleword-model-metadata") errors.push(`provider_end ${index + 1} pricingSource must be doubleword-model-metadata, got ${source}`);
 		else sources.add(source);
+		const sourceUrl = nonEmptyString(event.pricingSourceUrl);
+		const retrievedAt = nonEmptyString(event.pricingRetrievedAt);
+		const snapshotSha256 = nonEmptyString(event.pricingSnapshotSha256);
+		if (sourceUrl !== DOUBLEWORD_PRICING_PROVENANCE.sourceUrl) errors.push(`provider_end ${index + 1} pricingSourceUrl does not match the trusted Doubleword snapshot`);
+		if (retrievedAt !== DOUBLEWORD_PRICING_PROVENANCE.retrievedAt) errors.push(`provider_end ${index + 1} pricingRetrievedAt does not match the trusted Doubleword snapshot`);
+		if (snapshotSha256 !== DOUBLEWORD_PRICING_PROVENANCE.snapshotSha256) errors.push(`provider_end ${index + 1} pricingSnapshotSha256 does not match the trusted Doubleword snapshot`);
+		if (sourceUrl && retrievedAt && snapshotSha256) pricingSnapshots.add(`${sourceUrl}\n${retrievedAt}\n${snapshotSha256}`);
 	}
 	if (sources.size > 1) errors.push(`provider_end pricingSource values disagree: ${Array.from(sources).join(", ")}`);
-	return { pricingSource: sources.size === 1 ? Array.from(sources)[0] : undefined, usageVerified };
+	if (pricingSnapshots.size > 1) errors.push("provider_end pricing snapshot provenance values disagree");
+	return { pricingSource: sources.size === 1 && pricingSnapshots.size === 1 ? Array.from(sources)[0] : undefined, usageVerified };
 }
 
 function providerUsageMatches(event: Record<string, unknown>, expected: AssistantUsage, index: number, errors: string[]): boolean {
@@ -352,6 +367,33 @@ function providerUsageMatches(event: Record<string, unknown>, expected: Assistan
 			matches = false;
 			const path = field === "costTotal" ? "cost.total" : field;
 			errors.push(`provider_end ${index + 1} usage.${path} ${actual[field]} does not match assistant usage ${expected[field]}`);
+		}
+	}
+	return matches;
+}
+
+function providerPricingMatches(event: Record<string, unknown>, model: string, tier: "realtime" | "async", index: number, errors: string[]): boolean {
+	const rates = DOUBLEWORD_TIER_PRICING[model]?.[tier];
+	if (!rates) {
+		errors.push(`provider_end ${index + 1} model ${model} has no trusted ${tier} pricing`);
+		return false;
+	}
+	if (!isRecord(event.usage) || !isRecord(event.usage.cost)) return false;
+	const tokenCounts = [event.usage.input, event.usage.output, event.usage.cacheRead, event.usage.cacheWrite];
+	if (!tokenCounts.every(nonNegativeInteger)) return false;
+	const expected = {
+		input: rates.input / 1_000_000 * tokenCounts[0],
+		output: rates.output / 1_000_000 * tokenCounts[1],
+		cacheRead: rates.cacheRead / 1_000_000 * tokenCounts[2],
+		cacheWrite: 0,
+		total: 0,
+	};
+	expected.total = expected.input + expected.output + expected.cacheRead + expected.cacheWrite;
+	let matches = true;
+	for (const field of ["input", "output", "cacheRead", "cacheWrite", "total"] as const) {
+		if (event.usage.cost[field] !== expected[field]) {
+			matches = false;
+			errors.push(`provider_end ${index + 1} usage.cost.${field} ${String(event.usage.cost[field] ?? "missing")} does not match trusted ${model} ${tier} cost ${expected[field]}`);
 		}
 	}
 	return matches;

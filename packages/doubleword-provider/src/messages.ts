@@ -51,10 +51,11 @@ export function numberFrom(value: unknown, fallback = 0): number {
 
 export function usageFromResponse(model: Model<Api>, context: Context, outputText: string, response: Record<string, any>): Usage {
 	const raw = response.usage ?? {};
-	const input = numberFrom(raw.input_tokens ?? raw.prompt_tokens, countTokens([context.systemPrompt ?? "", ...context.messages.map((message) => textFrom(message.content))].join("\n")));
+	const reportedInput = numberFrom(raw.input_tokens ?? raw.prompt_tokens, countTokens([context.systemPrompt ?? "", ...context.messages.map((message) => textFrom(message.content))].join("\n")));
 	const output = numberFrom(raw.output_tokens ?? raw.completion_tokens, countTokens(outputText));
 	const cacheRead = numberFrom(raw.input_tokens_details?.cached_tokens ?? raw.prompt_tokens_details?.cached_tokens, 0);
 	const cacheWrite = numberFrom(raw.input_tokens_details?.cache_write_tokens ?? raw.prompt_tokens_details?.cache_write_tokens, 0);
+	const input = Math.max(0, reportedInput - cacheRead - cacheWrite);
 	return {
 		input,
 		output,
@@ -68,9 +69,16 @@ export function usageFromResponse(model: Model<Api>, context: Context, outputTex
 export function responseUsageSource(response: Record<string, any>): "provider" | "estimated" {
 	const raw = response.usage;
 	if (!raw || typeof raw !== "object") return "estimated";
-	const input = raw.input_tokens ?? raw.prompt_tokens;
-	const output = raw.output_tokens ?? raw.completion_tokens;
-	return typeof input === "number" && Number.isFinite(input) && typeof output === "number" && Number.isFinite(output) ? "provider" : "estimated";
+	return typeof raw.input_tokens === "number" && Number.isFinite(raw.input_tokens) && typeof raw.output_tokens === "number" && Number.isFinite(raw.output_tokens) ? "provider" : "estimated";
+}
+
+export function responseUsageFields(response: Record<string, any>): { usageInputField?: "input_tokens" | "prompt_tokens"; usageOutputField?: "output_tokens" | "completion_tokens" } {
+	const raw = response.usage;
+	if (!raw || typeof raw !== "object") return {};
+	return {
+		...(typeof raw.input_tokens === "number" ? { usageInputField: "input_tokens" as const } : typeof raw.prompt_tokens === "number" ? { usageInputField: "prompt_tokens" as const } : {}),
+		...(typeof raw.output_tokens === "number" ? { usageOutputField: "output_tokens" as const } : typeof raw.completion_tokens === "number" ? { usageOutputField: "completion_tokens" as const } : {}),
+	};
 }
 
 function inputContent(content: unknown): any[] {

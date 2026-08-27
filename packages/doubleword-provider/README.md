@@ -14,12 +14,14 @@ Doubleword's APIs are OpenAI-compatible and let you trade latency for lower cost
 - **Async / flex**: reduced pricing with background polling; Doubleword docs say submitted async work starts within about a minute.
 - **Batch**: lowest pricing for bulk jobs with a 24h SLA.
 
-Example published prices per 1M input/output tokens:
+Current published prices per 1M input/cache-read/output tokens:
 
 | Model | Realtime | Async | Batch |
 | --- | --- | --- | --- |
-| DeepSeek V4 Flash | $0.14 / $0.28 | $0.10 / $0.20 | $0.07 / $0.14 |
-| GLM 5.2 | $1.40 / $4.40 | $1.05 / $3.30 | $0.70 / $2.20 |
+| DeepSeek V4 Flash 0731 | $0.09 / $0.02 / $0.18 | $0.07 / $0.01 / $0.14 | $0.05 / $0.01 / $0.09 |
+| GLM 5.2 | $0.93 / $0.19 / $3.00 | $0.70 / $0.14 / $2.25 | $0.47 / $0.09 / $1.50 |
+
+Prices are synchronized manually from the [official model catalogue](https://docs.doubleword.ai/inference-api/models) into a reviewed snapshot; provider startup never scrapes pricing.
 
 This provider exposes realtime and async in Pi; batch is better suited for offline evals and bulk jobs.
 
@@ -33,7 +35,7 @@ pi install npm:@snehalyelmati/pi-doubleword-provider
 
 ```bash
 export DOUBLEWORD_API_KEY=...
-pi --model doubleword/deepseek-ai/DeepSeek-V4-Flash
+pi --model doubleword/deepseek-ai/DeepSeek-V4-Flash-0731
 ```
 
 Use `Alt+T` or `/doubleword-mode` to toggle realtime vs async execution for Doubleword models.
@@ -69,7 +71,7 @@ DOUBLEWORD_EXECUTION_MODE          realtime or async; defaults to realtime
 - Sends top-level Doubleword `reasoning_effort` for reasoning-capable models; OCR/embedding models are marked non-reasoning.
 - Converts Doubleword reasoning output into Pi thinking blocks.
 - Supports Responses function-call tool use.
-- Reports usage/cost metadata when returned by the provider.
+- Reports native usage and exact pricing-snapshot provenance when returned by the provider.
 - Best-effort cancels async background responses on timeout or user abort.
 
 ## Development
@@ -86,3 +88,4 @@ pi -e . --model doubleword-stub/deepseek-v4-flash
 
 - Live use requires a Doubleword API key.
 - Async responses are delivered after polling completes; token streaming before completion is not assumed.
+- The current Responses API path does not support prompt-cache writes. Nonzero cache-write usage has no trusted pricing provenance and is rejected by strict Fanout metrics admission.

@@ -3,8 +3,8 @@ import { performance } from "node:perf_hooks";
 import { createAssistantMessageEventStream, type Api, type AssistantMessageEventStream, type Context, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { ASYNC_SERVICE_TIER, DEFAULT_ASYNC_TIMEOUT_MS, DEFAULT_CANCEL_TIMEOUT_MS, DOUBLEWORD_API_BASE_URL, elapsedMs, envInt, envString, formatSeconds, maxOutputTokensFor, sleep, withTimeout } from "./config.ts";
 import { fetchJson, fetchJsonWithPollRetry, HttpError } from "./http.ts";
-import { assertCompletedResponse, emitResponseContent, emitResponseToolCalls, emptyMessage, endText, guardRepeatedOutput, pushTextDelta, responsesInput, responsesTools, responseUsageSource, startText, usageFromResponse } from "./messages.ts";
-import { DOUBLEWORD_THINKING_LEVEL_MAP, tierPricingSource } from "./models.ts";
+import { assertCompletedResponse, emitResponseContent, emitResponseToolCalls, emptyMessage, endText, guardRepeatedOutput, pushTextDelta, responsesInput, responsesTools, responseUsageFields, responseUsageSource, startText, usageFromResponse } from "./messages.ts";
+import { DOUBLEWORD_THINKING_LEVEL_MAP, tierPricingProvenance } from "./models.ts";
 import { durationMs, getDoublewordActiveTurnIndex, writeJsonl } from "./observability.ts";
 
 class AsyncTimeoutError extends Error {}
@@ -191,7 +191,8 @@ export function streamLiveRealtime(model: Model<Api>, context: Context, options?
 				durationMs: durationMs(started),
 				usage: output.usage,
 				usageSource: responseUsageSource(response),
-				pricingSource: tierPricingSource(model.id, "realtime"),
+				...responseUsageFields(response),
+				...tierPricingProvenance(model, "realtime", output.usage.cacheWrite),
 			});
 			stream.end();
 		} catch (error) {
@@ -363,7 +364,8 @@ export function streamLiveAsync(model: Model<Api>, context: Context, options?: S
 				pollCount: pollIndex,
 				usage: output.usage,
 				usageSource: responseUsageSource(response),
-				pricingSource: tierPricingSource(model.id, "async"),
+				...responseUsageFields(response),
+				...tierPricingProvenance(model, "async", output.usage.cacheWrite),
 			});
 			stream.end();
 		} catch (error) {
