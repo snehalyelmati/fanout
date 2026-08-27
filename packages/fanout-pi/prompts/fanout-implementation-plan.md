@@ -31,6 +31,16 @@ The submission tool schema is the structural authority. Use literal canonical re
 
 Choose implementation-item boundaries by independent authorability, acceptability, and repairability. First keep together changes that must be accepted or repaired together: when production and behavioral tests cannot be accepted or repaired independently, keep them in one item.
 
+Before submitting, evaluate every proposed item independently:
+
+- If every other item were permanently skipped, would this item still be complete, behaviorally validated, and acceptable?
+- If not, merge it with the items it requires.
+- Behavioral tests for production behavior introduced or changed by this plan must remain in the same item as that production change.
+- Do not separate acceptance-coupled runtime and test work using parallel items or a dependency edge.
+
+Wrong: runtime implementation || behavioral tests
+Right: runtime implementation + behavioral tests
+
 After preserving those boundaries, run a split pass. Give every remaining independently authorable and repairable change its own item so it can execute in parallel. Keep changes together when splitting would overlap write authority, when one side cannot be accepted or repaired independently, or when required behavior is not fixed by the accepted plan and planning baseline.
 
 Do not split by file count, file category, or step count alone. Do not invent reads or dependencies to force fusion or serialization.
