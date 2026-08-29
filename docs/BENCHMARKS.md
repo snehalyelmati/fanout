@@ -161,6 +161,8 @@ Across those repetitions, wall time had median 995.074s and range 631.296–1,53
 
 Pricing synchronization update (2026-08-26, no live result): current provider pricing now comes from a manually generated exact-ID snapshot of the official Doubleword model catalogue, including cache-read rates and source URL/retrieval-date/SHA-256 provenance. `deepseek-ai/DeepSeek-V4-Flash-0731` is recorded at realtime `$0.09/$0.02/$0.18`, async `$0.07/$0.01/$0.14`, and batch `$0.05/$0.01/$0.09` per million input/cache-read/output tokens. Historical benchmark costs below retain the rates used when those experiments ran and were not recalculated. Deterministic mocks are not native-usage or paid-canary evidence.
 
+Model-routing update (2026-08-29, no live result): `zai-org/GLM-5.3-Flash` replaces GLM 5.2 in the provider fallback/stub and Fanout Tier 2 default. The synchronized catalogue records realtime `$0.15/$0.03/$0.50`, async `$0.11/$0.02/$0.38`, and batch `$0.08/$0.02/$0.25` per million input/cache-read/output tokens. Historical GLM 5.2 benchmark commands, costs, and conclusions below remain unchanged; no GLM 5.3 latency, quality, reliability, or paid-cost result is claimed.
+
 ## Current baseline: B0 — Pi session traces, GLM 5.2 pricing
 
 Date: 2026-06-25

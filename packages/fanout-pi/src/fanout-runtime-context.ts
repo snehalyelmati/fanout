@@ -8,7 +8,7 @@ import { setDoublewordObservabilityFile } from "../../doubleword-provider/src/in
 import type { FanoutTierPlan, TierModelSummary } from "../../fanout-core/src/execution-packet.ts";
 import { RUN_ID, setObservabilityCwd, setObservabilityFile } from "../../fanout-core/src/observability.ts";
 
-const TIER2_DEFAULT = { provider: "doubleword", model: "zai-org/GLM-5.2-FP8", thinking: "medium" };
+export const TIER2_DEFAULT = { provider: "doubleword", model: "zai-org/GLM-5.3-Flash", thinking: "medium" };
 const doublewordModelMetadata = new Map<string, Record<string, unknown>>();
 
 export function fanoutDoublewordModel(provider: string, model: Record<string, unknown>): Record<string, unknown> & { fanout: { async: true; background: true; authReady: boolean } } {

@@ -76,6 +76,10 @@ try {
   assert(ocr?.reasoning === false, `OCR should not be reasoning-capable: ${JSON.stringify(ocr)}`);
   assert(embedding?.reasoning === false, `embedding should not be reasoning-capable: ${JSON.stringify(embedding)}`);
   assert(REALTIME_STUB_MODELS.every((model) => !("fanout" in model)), `stub models leaked Fanout metadata: ${JSON.stringify(REALTIME_STUB_MODELS)}`);
+  const glmStub = REALTIME_STUB_MODELS.find((model) => model.id === "glm-5-3-flash");
+  assert(glmStub?.pricingId === "zai-org/GLM-5.3-Flash" && glmStub.cost.input === 0.15 && glmStub.cost.cacheRead === 0.03 && glmStub.cost.output === 0.5, `stub did not use exact GLM 5.3 Flash pricing: ${JSON.stringify(glmStub)}`);
+  const asyncGlmStub = withTierCost(glmStub, "async");
+  assert(asyncGlmStub.cost.input === 0.11 && asyncGlmStub.cost.cacheRead === 0.02 && asyncGlmStub.cost.output === 0.38, `stub lost exact GLM 5.3 Flash async pricing: ${JSON.stringify(asyncGlmStub.cost)}`);
   const deepseekStub = REALTIME_STUB_MODELS.find((model) => model.id === "deepseek-v4-flash");
   assert(deepseekStub?.cost.input === 0.09 && deepseekStub.cost.cacheRead === 0.02 && deepseekStub.cost.output === 0.18, `stub did not use exact 0731 pricing: ${JSON.stringify(deepseekStub?.cost)}`);
   const asyncDeepseekStub = withTierCost(deepseekStub, "async");

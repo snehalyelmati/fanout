@@ -19,7 +19,7 @@ Current published prices per 1M input/cache-read/output tokens:
 | Model | Realtime | Async | Batch |
 | --- | --- | --- | --- |
 | DeepSeek V4 Flash 0731 | $0.09 / $0.02 / $0.18 | $0.07 / $0.01 / $0.14 | $0.05 / $0.01 / $0.09 |
-| GLM 5.2 | $0.93 / $0.19 / $3.00 | $0.70 / $0.14 / $2.25 | $0.47 / $0.09 / $1.50 |
+| GLM 5.3 Flash | $0.15 / $0.03 / $0.50 | $0.11 / $0.02 / $0.38 | $0.08 / $0.02 / $0.25 |
 
 Prices are synchronized manually from the [official model catalogue](https://docs.doubleword.ai/inference-api/models) into a reviewed snapshot; provider startup never scrapes pricing.
 

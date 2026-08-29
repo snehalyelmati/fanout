@@ -57,12 +57,12 @@ function tierCost(id: string, tier: "realtime" | "async"): ModelCost {
 }
 
 export const REALTIME_STUB_MODELS = [
-	{ ...stubModel("glm-5-2", "GLM-5.2-FP8", tierCost(LIVE_GLM_MODEL_ID, "realtime")), pricingId: LIVE_GLM_MODEL_ID, pricingEvidenceEligible: false },
+	{ ...stubModel("glm-5-3-flash", "GLM-5.3-Flash", tierCost(LIVE_GLM_MODEL_ID, "realtime")), pricingId: LIVE_GLM_MODEL_ID, pricingEvidenceEligible: false },
 	{ ...stubModel("deepseek-v4-flash", "DeepSeek-V4-Flash", tierCost("deepseek-ai/DeepSeek-V4-Flash-0731", "realtime")), pricingId: "deepseek-ai/DeepSeek-V4-Flash-0731", pricingEvidenceEligible: false },
 ];
 
 const fallbackLiveModels = (): ProviderModel[] => [
-	{ ...stubModel(LIVE_GLM_MODEL_ID, "GLM-5.2-FP8", ZERO_COST, DEFAULT_MAX_OUTPUT_TOKENS), pricingEvidenceEligible: false },
+	{ ...stubModel(LIVE_GLM_MODEL_ID, "GLM-5.3-Flash", ZERO_COST, DEFAULT_MAX_OUTPUT_TOKENS), pricingEvidenceEligible: false },
 	{ ...stubModel(LIVE_DEEPSEEK_MODEL_ID, "DeepSeek-V4-Flash", ZERO_COST, DEFAULT_MAX_OUTPUT_TOKENS), pricingEvidenceEligible: false },
 ];
 
