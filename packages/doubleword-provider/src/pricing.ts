@@ -6,8 +6,8 @@ export type DoublewordTierPrices = Partial<Record<DoublewordPricingTier, Doublew
 
 export const DOUBLEWORD_PRICING_PROVENANCE = {
 	"sourceUrl": "https://docs.doubleword.ai/inference-api/models",
-	"retrievedAt": "2026-08-27",
-	"snapshotSha256": "0f79b16b02d904c9f2671c4616e32509165e9381e3132c17fca6e806c55e1809"
+	"retrievedAt": "2026-08-29",
+	"snapshotSha256": "90536b05497cdaac1d9b9a1888dbf3f02cad098dee588186ac804f35abfec33f"
 } as const;
 
 export const DOUBLEWORD_TIER_PRICING: Readonly<Record<string, Readonly<DoublewordTierPrices>>> = {
@@ -511,6 +511,23 @@ export const DOUBLEWORD_TIER_PRICING: Readonly<Record<string, Readonly<Doublewor
 			"input": 0.47,
 			"cacheRead": 0.09,
 			"output": 1.5
+		}
+	},
+	"zai-org/GLM-5.3-Flash": {
+		"realtime": {
+			"input": 0.15,
+			"cacheRead": 0.03,
+			"output": 0.5
+		},
+		"async": {
+			"input": 0.11,
+			"cacheRead": 0.02,
+			"output": 0.38
+		},
+		"batch": {
+			"input": 0.08,
+			"cacheRead": 0.02,
+			"output": 0.25
 		}
 	}
 };

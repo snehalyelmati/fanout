@@ -1,5 +1,13 @@
 # Design Decisions
 
+## 2026-08-29
+
+### Default new work to GLM 5.3 Flash
+
+Decision: Replace GLM 5.2 with exact model `zai-org/GLM-5.3-Flash` in the standalone provider's minimal fallback list, development stub, and Fanout Tier 2 default/model-picker preference. Preserve historical GLM 5.2 benchmark inputs and results. Pricing remains generated from the official catalogue by the existing reviewed snapshot workflow.
+
+Reason: Doubleword now exposes GLM 5.3 Flash, and its official model page describes improved coding, tool-use, and general capability over GLM 5.2 at lower published prices. New provider and Fanout work should use the current model without rewriting historical evidence.
+
 ## 2026-08-26
 
 ### Synchronize exact Doubleword pricing into reviewed snapshots

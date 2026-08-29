@@ -12,7 +12,7 @@ Batch execution remains out of scope.
 
 Tier 1 always follows Pi's active model and thinking level. `/fanout-config tier1` changes Pi directly rather than storing a second Tier 1 override.
 
-Tier 2 defaults to `doubleword / zai-org/GLM-5.2-FP8` with `medium` thinking. It is usable only when the selected registry model advertises all three properties:
+Tier 2 defaults to `doubleword / zai-org/GLM-5.3-Flash` with `medium` thinking. It is usable only when the selected registry model advertises all three properties:
 
 ```ts
 model.fanout.async === true

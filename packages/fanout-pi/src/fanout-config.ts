@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { supportedThinkingLevels } from "./fanout-runtime-context.ts";
+import { supportedThinkingLevels, TIER2_DEFAULT } from "./fanout-runtime-context.ts";
 
 type ModelRole = "tier1" | "tier2" | "tier2Fallback";
 type TierSummary = { provider?: unknown; model?: unknown; thinking?: unknown; source?: unknown; status?: unknown; reason?: unknown };
@@ -215,7 +215,7 @@ async function configureRole(
 
 	const providerModels = models.filter((model) => stringField(model.provider) === provider);
 	const modelChoices = providerModels.map((model) => ({ value: modelId(model)!, label: modelLabel(model) }));
-	const preferredModel = role === "tier2" && provider === "doubleword" ? "zai-org/GLM-5.2-FP8" : provider === active.provider ? active.model : undefined;
+	const preferredModel = role === "tier2" && provider === TIER2_DEFAULT.provider ? TIER2_DEFAULT.model : provider === active.provider ? active.model : undefined;
 	modelChoices.sort((left, right) => left.value === preferredModel ? -1 : right.value === preferredModel ? 1 : left.value.localeCompare(right.value));
 	const modelChoice = await selectOption(ctx, `${displayRole(role)} model · Esc to go back`, modelChoices.map((choice) => choice.label));
 	const model = modelChoices.find((choice) => choice.label === modelChoice)?.value;
