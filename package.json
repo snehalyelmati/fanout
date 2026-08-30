@@ -34,6 +34,7 @@
     "smoke:fanout-config": "bun scripts/smoke-fanout-config.mjs",
     "smoke:fanout-execute": "node --disable-warning=ExperimentalWarning scripts/smoke-fanout-execute.mjs",
     "benchmark:traces": "node scripts/benchmark-traces.mjs",
+    "benchmark:doubleword-ttft": "node scripts/benchmark-doubleword-ttft.mjs",
     "benchmark:profiler": "bun scripts/benchmark-profiler.mjs",
     "eval:safe-work-units": "node scripts/eval-safe-work-units.mjs",
     "smoke:benchmarks": "node scripts/smoke-benchmarks.mjs"
