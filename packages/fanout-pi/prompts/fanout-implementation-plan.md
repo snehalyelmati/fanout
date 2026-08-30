@@ -29,17 +29,31 @@ Submit this body once with `fanout_submit_artifact`; output no envelope fields o
 
 The submission tool schema is the structural authority. Use literal canonical repository-relative file/directory paths. `writeResources` define maximum authority; declare only genuine typed reads. Put other dependencies in advisory notes (`rationale`, `risk`, `validation-intent`, `constraint`, or `context`), and submit `advisoryNotes: []` when none apply.
 
-Choose implementation-item boundaries by independent authorability, acceptability, and repairability. First keep together changes that must be accepted or repaired together: when production and behavioral tests cannot be accepted or repaired independently, keep them in one item.
+Choose the smallest independently authorable and repairable work units that
+expose safe parallelism.
 
-Before submitting, evaluate every proposed item independently:
+For each proposed item, ask:
 
-- If every other item were permanently skipped, would this item still be complete, behaviorally validated, and acceptable?
-- If not, merge it with the items it requires.
-- Behavioral tests for production behavior introduced or changed by this plan must remain in the same item as that production change.
-- Do not separate acceptance-coupled runtime and test work using parallel items or a dependency edge.
+- Given the frozen plan, contract, and planning baseline, can one worker complete
+  and validate this item without writing resources owned by another item?
+- If yes, keep it separate and concurrently executable.
+- If no, merge only the resources that must be changed or repaired together.
 
-Wrong: runtime implementation || behavioral tests
-Right: runtime implementation + behavioral tests
+A work item is a worker ownership and repair boundary, not a standalone release.
+It may rely on the eventual completion of other accepted plan items.
+
+Keep production behavior together with behavioral tests when a failing test may
+require repairing that production behavior. Otherwise, split disjoint work that
+can be authored, validated for its own scope, and repaired independently.
+
+If an item’s focused validation can reasonably fail in a way that requires
+repairing production code owned by another item, merge those repair-coupled
+resources. Do not use a dependency edge as a substitute for shared repair
+authority.
+
+Prefer parallel items whenever both resulting items retain sufficient validation
+and disjoint write authority. Do not merge items merely because they contribute
+to the same feature or would not be useful if released alone.
 
 After preserving those boundaries, run a split pass. Give every remaining independently authorable and repairable change its own item so it can execute in parallel. Keep changes together when splitting would overlap write authority, when one side cannot be accepted or repaired independently, or when required behavior is not fixed by the accepted plan and planning baseline.
 
