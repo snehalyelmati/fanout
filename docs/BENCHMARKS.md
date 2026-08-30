@@ -645,12 +645,14 @@ These are one local wall-clock observation, not a CI guarantee, provider benchma
 
 Status: two 100-call model cohorts completed on 2026-08-30 after two four-call live path validations.
 
-Purpose: isolate Doubleword endpoint latency from Pi startup and extension overhead for explicitly selected Doubleword model IDs. The script requires one or more unique model IDs with committed realtime pricing, makes 50 sequential calls per model, alternates model order by round, and uses the same Responses settings as the provider: realtime `priority`, streaming, medium reasoning, and a 16,384-token output cap. The fixed prompt is `Reply with exactly "OK" and nothing else.`
+Purpose: isolate Doubleword endpoint latency from Pi startup and extension overhead for explicitly selected Doubleword model IDs and prompt sizes. The script requires one or more unique model IDs with committed realtime pricing, makes 50 sequential calls per model by default, alternates model order by round, and uses the same Responses settings as the provider: realtime `priority`, streaming, medium reasoning, and a 16,384-token output cap. Workload `short-ok` asks for exactly `OK`; `long-context-qa` generates 12,000 numbered records, places access code `COBALT` in record `06000`, and asks for only that code.
 
-For each call it records response-header latency, first SSE-event latency, first-event-to-visible-text delay, visible output-text TTFT, total duration, status, response identity, streamed service tier, exact-output correctness, native token usage, and realtime cost from the committed exact-model pricing snapshot. Missing native usage produces `cost: null` rather than an estimate. Summaries report minimum, median, mean, p90, p95, and maximum for all calls and for calls 2–50, plus usage/cost coverage and observed aggregate cost. Results are written under ignored `runs/doubleword-ttft/`; failed calls or output mismatches make the command exit nonzero after preserving the complete result.
+For each call it records response-header latency, first SSE-event latency, first-event-to-visible-text delay, visible output-text TTFT, total duration, status, response identity, streamed service tier, exact-output correctness, native token usage, and realtime cost from the committed exact-model pricing snapshot. Missing native usage produces `cost: null` rather than an estimate. Summaries report minimum, median, mean, p90, p95, and maximum for all calls and separately after the first call, plus usage/cost coverage and observed aggregate cost. Results are written under ignored `runs/doubleword-ttft/`; failed calls or output mismatches make the command exit nonzero after preserving the complete result.
 
 ```bash
-rtk npm run benchmark:doubleword-ttft -- <doubleword-model-id> [additional-model-id...]
+rtk npm run benchmark:doubleword-ttft -- \
+  [--workload short-ok|long-context-qa] \
+  <doubleword-model-id> [additional-model-id...]
 ```
 
 The command requires `DOUBLEWORD_API_KEY`, performs 50 paid requests per supplied model by default, and is not part of normal validation. There is no default model cohort. `DOUBLEWORD_TTFT_CALLS` overrides the default 50 calls per model, and `DOUBLEWORD_TTFT_CALL_TIMEOUT_MS` overrides the 300-second per-call timeout. Run the offline parser/statistics check with:
@@ -661,7 +663,7 @@ rtk node scripts/benchmark-doubleword-ttft.mjs --self-test
 
 Two four-call checks validated the live path, SSE parser, exact-output check, native usage, and exact-snapshot cost calculation before the full runs. Requests sent `service_tier: "priority"`; streamed completion events reported `default`, while retrieval of the sampled response IDs reported `priority`. Streamed tier mismatches therefore remain diagnostic rather than failing the benchmark.
 
-The same protocol then ran 50 calls per model across two sequential alternating cohorts. All 200 calls completed with exact `OK` output, native usage, and exact-snapshot cost coverage; there were no failures.
+The `short-ok` workload then ran 50 calls per model across two sequential alternating cohorts. All 200 calls completed with exact `OK` output, native usage, and exact-snapshot cost coverage; there were no failures.
 
 | Model | Calls | TTFT min | Median | Mean | P90 | P95 | Max | Total tokens | Reasoning tokens | Cost |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -676,6 +678,28 @@ Raw full-run results:
 
 - DeepSeek/Qwen: ignored `runs/doubleword-ttft/2026-08-30T10-53-51.718Z.json`.
 - GLM/Kimi: ignored `runs/doubleword-ttft/2026-08-30T11-08-04.862Z.json`.
+
+The long-context Q&A workload then ran five calls per model:
+
+```bash
+DOUBLEWORD_TTFT_CALLS=5 rtk npm run benchmark:doubleword-ttft -- \
+  --workload long-context-qa \
+  deepseek-ai/DeepSeek-V4-Flash-0731 \
+  Qwen/Qwen3.8-27B-FP8 \
+  zai-org/GLM-5.3-Flash \
+  moonshotai/kimi-k3
+```
+
+All 20 calls returned exactly `COBALT` with native usage and exact-snapshot cost coverage. The identical generated prompt tokenized differently by model, yielding 96,109–144,082 native input tokens per call rather than exactly 100,000.
+
+| Model | Calls | Input tokens/call | TTFT min | Median | Mean | Max | Reported reasoning tokens | Cost |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| DeepSeek V4 Flash 0731 | 5 | 96,109 | 7,954.93 ms | 8,500.07 ms | 8,548.38 ms | 9,484.20 ms | 161 | `$0.04328253` |
+| Qwen 3.8 27B FP8 | 5 | 144,082 | 3,919.15 ms | 4,594.14 ms | 10,600.23 ms | 34,331.73 ms | 299 | `$0.32517150` |
+| GLM 5.3 Flash | 5 | 105,539 | 4,172.56 ms | 4,805.52 ms | 5,918.67 ms | 10,055.35 ms | 392 | `$0.07936275` |
+| Kimi K3 | 5 | 96,114 | 3,384.41 ms | 6,380.37 ms | 6,431.48 ms | 9,432.15 ms | 0 | `$1.44633000` |
+
+Combined exact-snapshot cost was `$1.89414678`. Relative to each short-prompt median, long-context median TTFT was about 11.9× for DeepSeek, 6.1× for Qwen, 2.8× for GLM, and 1.2× for Kimi. Qwen also had one 34.332-second outlier; with only five calls per model, these are diagnostic observations rather than stable tail distributions. Raw result: ignored `runs/doubleword-ttft/2026-08-30T11-19-47.435Z.json`.
 
 ## Hardened execution baseline
 
