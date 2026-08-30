@@ -4,18 +4,33 @@ import { join } from "node:path";
 import { DOUBLEWORD_PRICING_PROVENANCE, DOUBLEWORD_TIER_PRICING } from "../packages/doubleword-provider/src/pricing.ts";
 
 const DEFAULT_CALLS_PER_MODEL = 50;
-const PROMPT = 'Reply with exactly "OK" and nothing else.';
-const EXPECTED_OUTPUT = "OK";
 const SERVICE_TIER = "priority";
 const REASONING_EFFORT = "medium";
 const MAX_OUTPUT_TOKENS = 16_384;
 
-function selectedModels() {
-  const models = process.argv.slice(2);
+function longContextQaWorkload() {
+  const records = Array.from({ length: 12_000 }, (_, index) => `Record ${String(index + 1).padStart(5, "0")} says ${index === 5_999 ? "access code COBALT" : "status normal"}.`);
+  const prompt = `Context:\n${records.join("\n")}\n\nQuestion: What is the access code in record 06000? Answer with only the uppercase access code.`;
+  return { id: "long-context-qa", prompt, expectedOutput: "COBALT", recordCount: records.length, targetRecord: "06000" };
+}
+
+function selectedRun() {
+  const args = process.argv.slice(2);
+  let workloadName = "short-ok";
+  const models = [];
+  for (let index = 0; index < args.length; index++) {
+    if (args[index] === "--workload") {
+      workloadName = args[++index];
+      if (!workloadName) throw new Error("--workload requires a value");
+    } else if (args[index].startsWith("--")) throw new Error(`unknown option ${args[index]}`);
+    else models.push(args[index]);
+  }
   if (!models.length) throw new Error("provide at least one Doubleword model ID");
   if (new Set(models).size !== models.length) throw new Error("Doubleword model IDs must be unique");
   for (const model of models) if (!DOUBLEWORD_TIER_PRICING[model]?.realtime) throw new Error(`missing committed realtime pricing for ${model}`);
-  return models;
+  const workload = workloadName === "short-ok" ? { id: "short-ok", prompt: 'Reply with exactly "OK" and nothing else.', expectedOutput: "OK" } : workloadName === "long-context-qa" ? longContextQaWorkload() : undefined;
+  if (!workload) throw new Error(`unknown workload ${workloadName}`);
+  return { models, workload };
 }
 
 function positiveInteger(name, fallback) {
@@ -123,7 +138,7 @@ function summarize(records) {
   };
 }
 
-async function benchmarkCall({ baseUrl, apiKey, model, call, timeoutMs }) {
+async function benchmarkCall({ baseUrl, apiKey, model, call, timeoutMs, workload }) {
   const started = performance.now();
   let headersMs;
   let firstEventMs;
@@ -141,7 +156,7 @@ async function benchmarkCall({ baseUrl, apiKey, model, call, timeoutMs }) {
       signal: AbortSignal.timeout(timeoutMs),
       body: JSON.stringify({
         model,
-        input: [{ role: "user", content: [{ type: "input_text", text: PROMPT }] }],
+        input: [{ role: "user", content: [{ type: "input_text", text: workload.prompt }] }],
         service_tier: SERVICE_TIER,
         stream: true,
         reasoning_effort: REASONING_EFFORT,
@@ -189,7 +204,7 @@ async function benchmarkCall({ baseUrl, apiKey, model, call, timeoutMs }) {
     if (!completed) throw new Error("stream ended without response.completed");
     const usage = nativeUsage(rawUsage);
     const cost = usageCost(model, usage);
-    return { model, call, ok: true, responseId, status, serviceTierActual, outputText, outputCorrect: outputText.trim() === EXPECTED_OUTPUT, usage, cost, headersMs: rounded(headersMs), firstEventMs: rounded(firstEventMs), firstEventToTextMs: rounded(ttftMs - firstEventMs), ttftMs: rounded(ttftMs), totalMs: rounded(performance.now() - started) };
+    return { model, call, ok: true, responseId, status, serviceTierActual, outputText, outputCorrect: outputText.trim() === workload.expectedOutput, usage, cost, headersMs: rounded(headersMs), firstEventMs: rounded(firstEventMs), firstEventToTextMs: rounded(ttftMs - firstEventMs), ttftMs: rounded(ttftMs), totalMs: rounded(performance.now() - started) };
   } catch (error) {
     return { model, call, ok: false, responseId, status, serviceTierActual, headersMs: rounded(headersMs), firstEventMs: rounded(firstEventMs), ttftMs: rounded(ttftMs), totalMs: rounded(performance.now() - started), error: error instanceof Error ? error.message : String(error) };
   }
@@ -209,7 +224,9 @@ function selfTest() {
   const usage = nativeUsage({ input_tokens: 10, output_tokens: 3, total_tokens: 13, input_tokens_details: { cached_tokens: 2 }, output_tokens_details: { reasoning_tokens: 1 } });
   const cost = usageCost("Qwen/Qwen3.8-27B-FP8", usage);
   if (usage.input !== 8 || usage.cacheRead !== 2 || usage.reasoning !== 1 || Math.abs(cost.total - 0.00001268) > 1e-12 || nativeUsage({}) !== null || usageCost("deepseek-ai/DeepSeek-V4-Flash-0731", null) !== null) throw new Error("usage/cost self-test failed");
-  if (responseOutputText({ output: [{ content: [{ type: "output_text", text: "OK" }] }] }) !== EXPECTED_OUTPUT) throw new Error("output self-test failed");
+  if (responseOutputText({ output: [{ content: [{ type: "output_text", text: "OK" }] }] }) !== "OK") throw new Error("output self-test failed");
+  const longContext = longContextQaWorkload();
+  if (longContext.recordCount !== 12_000 || !longContext.prompt.includes("Record 06000 says access code COBALT.") || !longContext.prompt.endsWith("Answer with only the uppercase access code.")) throw new Error("long-context workload self-test failed");
   console.log("Doubleword TTFT benchmark self-test passed");
 }
 
@@ -218,7 +235,7 @@ if (process.argv.includes("--self-test")) {
 } else {
   const apiKey = process.env.DOUBLEWORD_API_KEY;
   if (!apiKey) throw new Error("DOUBLEWORD_API_KEY is required");
-  const models = selectedModels();
+  const { models, workload } = selectedRun();
   const baseUrl = (process.env.DOUBLEWORD_BASE_URL ?? "https://api.doubleword.ai/v1").replace(/\/$/, "");
   const callsPerModel = positiveInteger("DOUBLEWORD_TTFT_CALLS", DEFAULT_CALLS_PER_MODEL);
   const timeoutMs = positiveInteger("DOUBLEWORD_TTFT_CALL_TIMEOUT_MS", 300_000);
@@ -227,7 +244,7 @@ if (process.argv.includes("--self-test")) {
   for (let round = 1; round <= callsPerModel; round++) {
     const order = round % 2 === 1 ? models : [...models].reverse();
     for (const model of order) {
-      const record = await benchmarkCall({ baseUrl, apiKey, model, call: round, timeoutMs });
+      const record = await benchmarkCall({ baseUrl, apiKey, model, call: round, timeoutMs, workload });
       records.push(record);
       console.log(`${model} #${round}: ${record.ok ? `TTFT ${record.ttftMs} ms, total ${record.totalMs} ms, tier ${record.serviceTierActual ?? "missing"}, output ${record.outputCorrect ? "OK" : "MISMATCH"}, cost ${record.cost ? `$${record.cost.total.toFixed(8)}` : "unavailable"}` : `FAILED after ${record.totalMs} ms: ${record.error}`}`);
     }
@@ -237,7 +254,7 @@ if (process.argv.includes("--self-test")) {
   const result = {
     benchmark: "doubleword-realtime-ttft",
     createdAt: new Date().toISOString(),
-    request: { models, callsPerModel, scheduling: "sequential-alternating", prompt: PROMPT, serviceTier: SERVICE_TIER, reasoningEffort: REASONING_EFFORT, maxOutputTokens: MAX_OUTPUT_TOKENS, timeoutMs },
+    request: { models, callsPerModel, scheduling: "sequential-alternating", workload: { id: workload.id, expectedOutput: workload.expectedOutput, inputCharacters: workload.prompt.length, recordCount: workload.recordCount, targetRecord: workload.targetRecord }, serviceTier: SERVICE_TIER, reasoningEffort: REASONING_EFFORT, maxOutputTokens: MAX_OUTPUT_TOKENS, timeoutMs },
     pricing: { tier: "realtime", ...DOUBLEWORD_PRICING_PROVENANCE },
     records,
     summary,
