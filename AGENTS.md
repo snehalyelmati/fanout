@@ -5,6 +5,7 @@ This repo is a minimal Fanout monorepo:
 - `doubleword-provider`: standalone Doubleword model/provider integration.
 - `fanout-core`: agent-agnostic work splitting, scheduling, validation, and review policy.
 - `fanout-pi`: Pi adapter/install target that wires Fanout and Doubleword into Pi.
+- `fanout-profiler`: private offline, read-only execution evidence browser.
 
 ## Working rules
 
@@ -14,7 +15,7 @@ This repo is a minimal Fanout monorepo:
 - Build stubs before live Doubleword endpoints.
 - Make observability part of the first working version: timings, TTFT, token usage, cost, poll time, and tool timings.
 - Prefer prompt/template workflows before custom orchestrators.
-- Treat these product/runtime features as deferred until evidence says otherwise: DAG executor, in-extension subagents, model profiles, predictive index, and batch orchestration.
+- The bounded packet DAG executor and repository execution profiles are implemented. Keep in-extension subagents, model profiles, predictive indexes, and batch orchestration deferred until evidence justifies them.
 - Do not commit secrets or real API keys. Use environment variables for credentials.
 - Keep `docs/ROADMAP.md` updated when scope/order changes.
 - Keep `docs/DESIGN_DECISIONS.md` updated when design decisions are made or reversed.

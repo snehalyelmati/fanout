@@ -4,6 +4,10 @@ This is the primary running document for Doubleword cost/time experiments. Updat
 
 Benchmark procedure: [`docs/benchmarks/fanout-execution-benchmark-procedure.md`](benchmarks/fanout-execution-benchmark-procedure.md) defines the staged path from read-only Fanout DAG prompt experiments through `/fanout-execute` and TermBench-style execution benchmarks.
 
+## 2026-09-05 audit implementation boundary
+
+The [audit register](impl/fanout-audit-progress.md) records the new workflow and evidence generation. Repository acceptance now permits valid partial measurement evidence; unsupported comparisons/scenarios still require complete measurements. No benchmark, paid provider run, or efficiency improvement is claimed by this implementation. Historical inputs, prices, failures and results below are preserved. A new user-operated canary and separate release approval remain pending.
+
 ## P0 — Fanout prompt-DAG dry-run benchmark
 
 Date: 2026-07-07
@@ -89,7 +93,7 @@ Runbook: [`docs/benchmarks/p-map-abort-signal-manual-e2e.md`](benchmarks/p-map-a
 
 Live tracker: [`docs/benchmarks/p-map-abort-signal-canary-tracker.md`](benchmarks/p-map-abort-signal-canary-tracker.md)
 
-Reliability/latency investigation: [`docs/benchmarks/fanout-optimization-progress.md`](benchmarks/fanout-optimization-progress.md)
+Reliability/latency investigation: [`docs/benchmarks/fanout-speed-reliability.md`](benchmarks/fanout-speed-reliability.md)
 
 Purpose: exercise `/fanout-config` → `/fanout-plan` → `/fanout-execute --dry-run` → `/fanout-execute` manually against a fixed `sindresorhus/p-map` task before building a benchmark harness or routing variations. The run prioritizes correctness, UX, recovery, artifact quality, and observability. It uses local baseline `c3c261e2189f94d1a09724e8f03d5345af518017` and the decision-complete `pMapIterable` AbortSignal benchmark under `/Users/snehalyelmati/Documents/p-map-abort-signal`.
 

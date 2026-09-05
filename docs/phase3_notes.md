@@ -1,6 +1,6 @@
 # Phase 3 component notes (historical)
 
-This file preserves pre-cutover exploration and is not executable authority. The current pointer-v2/packet-v6/attempt-v3/event-v3/projection-v4 contract is maintained in [`docs/impl/phase-3-fanout-execute.md`](impl/phase-3-fanout-execute.md); legacy shapes below must not be implemented or accepted.
+This file preserves pre-cutover exploration and is not executable authority. The current pointer-v2/packet-v10/attempt-v6/event-v6/projection-v7 contract is maintained in [`docs/impl/phase-3-fanout-execute.md`](impl/phase-3-fanout-execute.md); legacy shapes below must not be implemented or accepted.
 
 Phase 3 component 1: Active packet loader
 
@@ -672,7 +672,7 @@ Deferred/skipped:
 ---
 Phase 3 component: Tier2 retry / tier1 fallback policy
 
-> **Historical schema-v3 note — superseded 2026-07-10.** The component text below preserves the original Tier2 → Tier1-control-model fallback decision for chronology; it is not the current execution contract. Schema v4 uses the packet's concrete realtime `tierPlan.tier2Fallback` model after retryable Tier 2 exhaustion, while typed validation and integration repairs remain on Tier 1. See [`docs/impl/phase-3-fanout-execute.md`](impl/phase-3-fanout-execute.md#component-7-tier2-retry-and-realtime-fallback-policy).
+> **Historical schema-v3 note — superseded 2026-07-10.** The component text below preserves the original Tier2 → Tier1-control-model fallback decision for chronology; it is not the current execution contract. Schema v4 uses the packet's concrete realtime `tierPlan.tier2Fallback` model after retryable Tier 2 exhaustion, while typed validation and integration repairs remain on Tier 1. See [`docs/impl/phase-3-fanout-execute.md`](TIER_MODEL_RESOLUTION.md#execution-routing).
 
 ```text
 Design alignment:
