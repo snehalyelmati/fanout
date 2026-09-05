@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { publishProjectExecutionProfile } from "../packages/fanout-pi/src/project-execution-profile.ts";
 
+const tier = { provider: "doubleword-stub", model: "deepseek-v4-flash", thinking: "low", source: "test", status: "available", reason: "test" };
 const profileIdentity = { path: "project-execution-profile.json", sha256: "a".repeat(64), byteLength: 1 };
 
 export async function extensionHarness(root, extension, scenario, queued, modelAvailable = true, invocation = "Test planning boundary", seedMessages = []) {
@@ -54,9 +55,18 @@ export async function extensionHarness(root, extension, scenario, queued, modelA
   publishProjectExecutionProfile({ schema: "fanout.project-execution-profile", version: 1, profileId: "test", createdAt: new Date(0).toISOString(), ...validProfile() }, projectArtifactRoot, activeProfilePath);
   mkdirSync(dirname(activePointerPath), { recursive: true });
   writeFileSync(activePointerPath, '{"legacy":"selection"}\n');
+  if (scenario.startsWith("dirty-")) {
+    writeFileSync(join(ctx.cwd, scenario === "dirty-untracked" ? "new.txt" : "README.md"), "User changes\n");
+    if (scenario === "dirty-staged") execFileSync("git", ["add", "README.md"], { cwd: ctx.cwd });
+  }
   await commands.get("fanout-plan").handler(invocation, ctx);
   assert(!existsSync(activePointerPath), `${scenario}: /fanout-plan did not invalidate the prior active selection before planning`);
-  if (modelAvailable) assert(messages[0]?.content === (invocation.startsWith("--refresh-profile") ? "Build and submit the Fanout Project Execution Profile." : "Prepare and submit the Fanout implementation plan."), `${scenario}: initial planning trigger was not phase-scoped`);
+  if (queued) {
+    assert(messages.length === 0, "busy planning invocation bypassed phase start through follow-up queue");
+    await handlers.get("agent_settled")({}, ctx);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  if (modelAvailable && !scenario.startsWith("dirty-")) assert(messages[0]?.content === (invocation.startsWith("--refresh-profile") ? "Build and submit the Fanout Project Execution Profile." : "Prepare and submit the Fanout implementation plan."), `${scenario}: initial planning trigger was not phase-scoped`);
   const submit = {
     get parameters() { return tools.get("fanout_submit_artifact").parameters; },
     async execute(...args) {
@@ -93,7 +103,7 @@ export function phaseState(_repository, artifactRoot, artifactDir, phase) {
     runId: "run-1",
     invocation: "test",
     objective: "Test planning boundary",
-    context: { projectArtifactRoot: artifactRoot, planningBase: { headCommit: "1".repeat(40), tree: "1".repeat(40) } },
+    context: { projectArtifactRoot: artifactRoot, resolvedTierPlan: { tier1: tier, tier2: tier, tier2Fallback: tier }, planningBase: { headCommit: "1".repeat(40), tree: "1".repeat(40) } },
     metrics: {},
     approvedProfile: { identity: profileIdentity, profile: { schema: "fanout.project-execution-profile", version: 1, profileId: "test", createdAt: new Date(0).toISOString(), ...validProfile() } },
     artifactDir,
@@ -134,4 +144,28 @@ export function expectThrows(fn, pattern, label) {
 
 export function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+export async function sdkPlanningSession(root, scenario, extension, extraExtension, settings = {}) {
+  const { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, ModelRuntime } = await import("@earendil-works/pi-coding-agent");
+  const { InMemoryCredentialStore } = await import("@earendil-works/pi-ai");
+  const cwd = join(root, `sdk-${scenario}`);
+  mkdirSync(cwd);
+  for (const args of [["init", "-q"], ["config", "user.email", "fanout@example.invalid"], ["config", "user.name", "Fanout Test"]]) execFileSync("git", args, { cwd });
+  writeFileSync(join(cwd, "README.md"), "# Test\n");
+  execFileSync("git", ["add", "."], { cwd });
+  execFileSync("git", ["commit", "-qm", "fixture"], { cwd });
+  const projectId = `${basename(cwd)}-${createHash("sha1").update(resolve(cwd)).digest("hex").slice(0, 12)}`;
+  process.env.FANOUT_ARTIFACT_DIR = join(root, "sdk-artifacts");
+  const projectArtifactRoot = join(process.env.FANOUT_ARTIFACT_DIR, projectId);
+  publishProjectExecutionProfile({ schema: "fanout.project-execution-profile", version: 1, profileId: scenario, createdAt: new Date(0).toISOString(), ...validProfile() }, projectArtifactRoot, join(projectArtifactRoot, "active-profile.json"));
+  const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: true, maxRetries: 1, baseDelayMs: 1 }, ...settings });
+  const modelRuntime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null, allowModelNetwork: false });
+  modelRuntime.registerProvider("fanout-sdk-test", { baseUrl: "http://localhost.invalid", apiKey: "test-only", api: "openai-completions", models: [{ id: "scripted", name: "scripted", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 1000 }] });
+  const agentDir = join(root, `sdk-agent-${scenario}`);
+  const resourceLoader = new DefaultResourceLoader({ cwd, agentDir, settingsManager, noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true, extensionFactories: [extension, extraExtension] });
+  await resourceLoader.reload();
+  const sessionManager = SessionManager.inMemory(cwd);
+  const { session } = await createAgentSession({ cwd, agentDir, modelRuntime, model: modelRuntime.getModel("fanout-sdk-test", "scripted"), settingsManager, sessionManager, resourceLoader });
+  return { session, sessionManager, cwd, projectArtifactRoot, activePointerPath: join(projectArtifactRoot, "active-packet.json") };
 }

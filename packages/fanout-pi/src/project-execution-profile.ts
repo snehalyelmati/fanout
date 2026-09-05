@@ -129,7 +129,8 @@ export async function validateProjectExecutionProfile(
 		phase = "normalization";
 		normalization = await normalizeCandidate({ attemptId: `profile-${profile.profileId}`, worktreePath, commands: profile.candidateNormalization.map((entry) => entry.command), expectedPlatform: process.platform, timeoutMs: options.timeoutMs ?? 600_000, inheritedEnv: process.env });
 		if (normalization.failure) throw new Error(`profile candidate normalization failed on the clean baseline: ${normalization.failure.detail ?? normalization.failure.code}`);
-		const afterNormalization = captureRepositoryState(worktreePath);
+		const afterNormalization = normalization.after;
+		if (!afterNormalization) throw new Error("profile normalization did not capture its final repository state");
 		assertUnchanged(setup.afterReadiness, afterNormalization, "candidate normalization");
 		phase = "final-gate";
 		preflightValidationCommands(profile.requiredFinalGates.map((entry) => entry.command), { checkoutRoot: worktreePath, expectedPlatform: process.platform });
@@ -202,7 +203,7 @@ export async function prepareProjectWorktree(
 	options: { worktreePath: string; artifactRoot: string; evidencePath: string; scopeId: string; timeoutMs?: number; signal?: AbortSignal },
 ): Promise<{ evidence: ProjectWorktreePreparationEvidence; artifact: ArtifactIdentity }> {
 	const setup = await runPreparationAndReadiness(profile, options.worktreePath, options.scopeId, options.timeoutMs, options.signal);
-	const after = captureRepositoryState(options.worktreePath);
+	const after = setup.error ? captureRepositoryState(options.worktreePath) : setup.afterReadiness;
 	const evidence: ProjectWorktreePreparationEvidence = {
 		schema: "fanout.project-worktree-preparation",
 		version: 1,

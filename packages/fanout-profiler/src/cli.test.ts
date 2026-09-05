@@ -32,7 +32,7 @@ beforeAll(async () => {
 	writeFileSync(join(artifactRoot, "profiles", "planning-only.json"), profile);
 	mkdirSync(join(artifactRoot, "planning-only"), { recursive: true });
 	writeFileSync(join(artifactRoot, "planning-only", "implementation-plan.json"), `${JSON.stringify({
-		schema: "fanout.implementation-plan", version: 3, planId: "planning-only", createdAt: "2026-07-20T00:00:00.000Z", planningHost: { platform: process.platform }, planningBase: { headCommit: git, tree: git }, profile: artifactIdentity("profiles/planning-only.json", Buffer.from(profile)),
+		schema: "fanout.implementation-plan", version: 4, planId: "planning-only", createdAt: "2026-07-20T00:00:00.000Z", planningHost: { platform: process.platform }, planningBase: { headCommit: git, tree: git }, profile: artifactIdentity("profiles/planning-only.json", Buffer.from(profile)),
 		objective: "Keep <script>alert('artifact')</script> as text", userContext: [], discoveredRepoFacts: [], assumptions: [],
 		implementationItems: [{ id: "work", goals: ["Do work"], writeResources: [{ kind: "file", path: "src/work.ts" }], readResources: [], forbiddenWrites: [], semanticReviewCriteria: ["Works"], advisoryNotes: [] }],
 	})}\n`);

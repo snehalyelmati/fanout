@@ -19,13 +19,15 @@ export function renderExecutionReport(projection: ExecutionRunProjection): strin
 		"",
 		"| Node | Status | Attempts | Cause |",
 		"| --- | --- | ---: | --- |",
-		...projection.nodes.map((node) => `| ${cell(node.id)} | ${node.status} | ${node.attemptIds.length} | ${cell(node.causalAttemptId ?? node.causalUpstreamNodeId ?? "—")} |`),
+		...projection.nodes.map((node) => `| ${cell(node.id)} | ${node.status} | ${node.attemptIds.length} | ${cell(node.failFastCause ? `fail-fast: ${node.failFastCause.nodeId} / ${node.failFastCause.attemptId}` : node.causalAttemptId ?? node.causalUpstreamNodeId ?? "—")} |`),
 		"",
 		"## Totals",
 		"",
 		`- Attempts: ${projection.totals.attempts}`,
-		`- Tokens: ${projection.totals.totalTokens} (${projection.totals.inputTokens} in / ${projection.totals.outputTokens} out / ${projection.totals.cacheReadTokens} cache read / ${projection.totals.cacheWriteTokens} cache write)`,
-		`- Estimated cost: $${projection.totals.estimatedCostUsd.toFixed(6)}`,
+		`- Tokens: ${number(projection.totals.totalTokens)} (${number(projection.totals.inputTokens)} in / ${number(projection.totals.outputTokens)} out / ${number(projection.totals.cacheReadTokens)} cache read / ${number(projection.totals.cacheWriteTokens)} cache write)`,
+		`- Estimated cost: ${projection.totals.estimatedCostUsd === null ? "unavailable" : `$${projection.totals.estimatedCostUsd.toFixed(6)}`}`,
+		`- Observed cost (may be partial): $${projection.totals.observedCostUsd.toFixed(6)}`,
+		`- Final controller command time (all rounds): ${number(projection.totals.finalValidationDurationMs)} ms`,
 		`- Worker/tool/poll time: ${number(projection.totals.workerDurationMs)} / ${number(projection.totals.toolDurationMs)} / ${number(projection.totals.pollDurationMs)} ms`,
 		`- Accepted patch: ${projection.totals.filesChanged} files, +${projection.totals.insertions}/-${projection.totals.deletions}`,
 		`- Run duration: ${number(projection.totals.runDurationMs)} ms`,
@@ -52,7 +54,8 @@ export function renderExecutionReport(projection: ExecutionRunProjection): strin
 	return lines.join("\n");
 }
 
-function number(value: number): string {
+function number(value: number | null): string {
+	if (value === null) return "unavailable";
 	return String(Math.round(value * 1000) / 1000);
 }
 

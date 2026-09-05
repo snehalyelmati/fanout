@@ -69,6 +69,14 @@ export function capturePlanningBase(repoRoot: string): PlanningBase {
 	};
 }
 
+export function captureCleanPlanningBase(repoRoot: string): PlanningBase {
+	const state = captureRepositoryState(repoRoot);
+	if (!state.indexMatchesHead || state.tree !== state.headTree || gitText(repoRoot, ["status", "--porcelain=v1", "--untracked-files=all"])) {
+		throw new Error("Fanout planning requires a clean committed repository: commit or stash your changes yourself, or use a separate clean worktree (which excludes uncommitted changes), then rerun /fanout-plan");
+	}
+	return { headCommit: state.headCommit, tree: state.tree };
+}
+
 export function captureRepositoryState(repoRoot: string): RepositoryStateIdentity {
 	const headCommit = parseGitCommitId(gitText(repoRoot, ["rev-parse", "--verify", "HEAD^{commit}"]));
 	const headTree = parseGitTreeId(gitText(repoRoot, ["rev-parse", "--verify", "HEAD^{tree}"]));

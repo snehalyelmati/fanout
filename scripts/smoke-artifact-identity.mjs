@@ -1,3 +1,5 @@
+import { compileWorkContracts } from "../packages/fanout-core/src/work-contract-compiler.ts";
+import { checkContractOwnership } from "../packages/fanout-pi/src/fanout-git.ts";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -38,6 +40,7 @@ import {
 const root = mkdtempSync(join(tmpdir(), "fanout-identity-"));
 
 try {
+  runLiteralPaths();
   runA4();
   runA5();
   runPlanningBaseChecks();
@@ -47,6 +50,31 @@ try {
   console.log("artifact identity smoke passed (A4, A5, A8)");
 } finally {
   rmSync(root, { recursive: true, force: true });
+}
+
+function runLiteralPaths() {
+  const source = join(root, "literal-source");
+  const artifacts = join(root, "literal-artifacts");
+  initRepo(source);
+  for (const name of ["[slug]", "s"]) {
+    mkdirSync(join(source, "app", name), { recursive: true });
+    writeFileSync(join(source, "app", name, "page.tsx"), "export const page = 0;\n");
+  }
+  git(source, ["add", "."]);
+  git(source, ["commit", "-m", "literal route base"]);
+  const base = capturePlanningBase(source);
+  const resource = { kind: "file", path: "app/[slug]/page.tsx" };
+  const command = { executable: "node", args: ["--version"] };
+  const compiled = compileWorkContracts([{ id: "route", goals: ["Update route."], writeResources: [resource], readResources: [], forbiddenWrites: [], semanticReviewCriteria: ["Route works."], advisoryNotes: [] }], [{ id: "route", kind: "implement", changes: [{ kind: "modify", target: { resource, sourcePlanIds: ["route"] }, intent: "Update literal route.", anchors: [{ kind: "symbol", symbol: "page" }] }], readDependencies: [], validationCommands: [command], advisoryNotes: [] }], [command]);
+  assert(compiled.ok, `literal route planning failed: ${JSON.stringify(compiled.errors)}`);
+  writeFileSync(join(source, resource.path), "export const page = 1;\n");
+  const patch = capturePatchCandidate(source, base, artifacts, "route.patch");
+  assert(patch.changedPaths.length === 1 && patch.changedPaths[0] === resource.path, "Git capture expanded or altered literal path");
+  assert(checkContractOwnership(compiled.nodes[0].workContract, patch, artifacts, source).ok, "literal route lost contract ownership");
+  const receiver = join(root, "literal-receiver");
+  git(root, ["clone", "--quiet", source, receiver]);
+  applyAcceptedTransition(receiver, artifacts, { patch });
+  assert(readFileSync(join(receiver, resource.path), "utf8") === "export const page = 1;\n" && readFileSync(join(receiver, "app/s/page.tsx"), "utf8") === "export const page = 0;\n", "literal apply changed a glob-matching sibling");
 }
 
 function runRepairSeedOverlay() {

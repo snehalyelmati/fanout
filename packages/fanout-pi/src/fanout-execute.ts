@@ -8,7 +8,7 @@ import { runDag, type DagRunResult, type DagNodeState } from "../../fanout-core/
 import type { FanoutExecutionPacket } from "../../fanout-core/src/execution-packet.ts";
 import type { PreflightCommandEvidence, PreflightComparison, PreflightEvidence, PreflightIssue } from "../../fanout-core/src/execution-event.ts";
 import type { ExecutionRunProjection } from "../../fanout-core/src/execution-projection.ts";
-import type { FinalValidationResult } from "../../fanout-core/src/final-validation.ts";
+import type { FinalControllerResult } from "../../fanout-core/src/final-validation.ts";
 import type { ValidationCommand } from "../../fanout-core/src/validation-command.ts";
 import type { ProjectExecutionProfile } from "../../fanout-core/src/project-execution-profile.ts";
 import { contractWriteResources } from "../../fanout-core/src/work-contract.ts";
@@ -23,7 +23,6 @@ import { SHARED_WORKTREE_PATHS_ENV } from "./worktree-preparation.ts";
 export interface ExecuteFanoutOptions {
 	cwd: string;
 	activePointerPath: string;
-	activeProfilePointerPath?: string;
 	projectArtifactRoot: string;
 	extensionEntry: string;
 	confirm?: (title: string, message: string) => boolean | Promise<boolean>;
@@ -44,7 +43,7 @@ export interface ExecuteFanoutResult {
 	paths: ExecutionRecorderPaths;
 	snapshot: Readonly<ExecutionRunProjection>;
 	dag?: DagRunResult;
-	finalValidation?: FinalValidationResult;
+	finalValidation?: FinalControllerResult;
 	error?: string;
 	dryRun?: boolean;
 }
@@ -55,6 +54,9 @@ export async function executeFanout(options: ExecuteFanoutOptions): Promise<Exec
 	if (process.env[SHARED_WORKTREE_PATHS_ENV] !== undefined || Object.hasOwn(options, "worktreeSharedPaths")) throw new Error(`${SHARED_WORKTREE_PATHS_ENV} and shared worktree paths are unsupported; refresh the Project Execution Profile`);
 	const loadedProfile = loadProjectExecutionProfile(loaded.packet.profile, options.projectArtifactRoot);
 	rejectArtifactStorageInsideWorktree(options.cwd, loaded.projectArtifactRoot, loaded.artifactDir);
+	const admission = inspectPlanningBase(options, loaded.packet);
+	if (admission.issues.length) throw new Error(`Fanout preflight failed: ${admission.issues.map((issue) => issue.detail).join("; ")}`);
+	if (!loaded.packet.nodes.at(-1)!.workContract.validationCommands.length && !loadedProfile.profile.requiredFinalGates.length) throw new Error("final validation requires at least one packet or profile gate; rerun /fanout-plan");
 	const runId = options.runId === undefined ? executionRunId() : canonicalRunId(options.runId);
 	const { maxConcurrency, failFast, fallbackAllowed } = loaded.packet.runtimePolicy;
 	const runDir = join(loaded.artifactDir, "executions", runId);
@@ -63,7 +65,7 @@ export async function executeFanout(options: ExecuteFanoutOptions): Promise<Exec
 	let executor: FanoutNodeExecutor | undefined;
 	const started = Date.now();
 	let dag: DagRunResult | undefined;
-	let finalValidation: FinalValidationResult | undefined;
+	let finalValidation: FinalControllerResult | undefined;
 	try {
 		recorder = new RuntimeEventRecorder(runDir, runId);
 		const profileValidation = await validateProjectExecutionProfile(loadedProfile.profile, { repoRoot: options.cwd, runDir, planningBase: loaded.packet.planningBase, profileIdentity: loadedProfile.identity, timeoutMs: options.validationTimeoutMs });
@@ -83,7 +85,7 @@ export async function executeFanout(options: ExecuteFanoutOptions): Promise<Exec
 		if (preflight.issues.length) return await finish(recorder, executor, loaded, started, "failed", { kind: "event", eventSequence: projection.preflight!.eventSequence, code: "preflight-failed" }, { error: `Fanout preflight failed: ${preflight.issues.map((issue) => issue.detail).join("; ")}` });
 		if (options.dryRun) return await finish(recorder, executor, loaded, started, "dry-run-completed", { kind: "event", eventSequence: projection.preflight!.eventSequence, code: "dry-run" }, { dryRun: true });
 
-		const confirmed = options.confirm ? await options.confirm("Execute Fanout packet", confirmationSummary(loaded.packet, loaded.pointer.packet, loadedProfile.profile, maxConcurrency, runDir)) : false;
+		const confirmed = options.confirm ? await options.confirm("Execute Fanout packet", confirmationSummary(loaded.packet, loaded.pointer.packet, loaded.packetPath, loadedProfile.profile, maxConcurrency, runDir)) : false;
 		projection = await recorder.record("confirmation-decided", { decision: confirmed ? "accepted" : "declined" });
 		if (!confirmed) return await finish(recorder, executor, loaded, started, "aborted", { kind: "event", eventSequence: projection.confirmationEventSequence!, code: "confirmation-declined" });
 
@@ -105,19 +107,25 @@ export async function executeFanout(options: ExecuteFanoutOptions): Promise<Exec
 		const finalCommands = executor.finalValidationCommands(finalNode.workContract.validationCommands);
 		projection = await recorder.record("final-validation-started", { commandIdentities: finalCommands.map(commandIdentity), expectedTree });
 		finalValidation = await executor.runFinalValidation(finalNode.workContract.validationCommands);
-		const validatedTree = finalValidation.evidence.expectedValidationTree;
+		const round = finalValidation.lastRound;
 		projection = await recorder.record("final-validation-completed", {
 			status: finalValidation.status,
-			commandCount: finalValidation.commandCount,
-			durationMs: finalValidation.durationMs,
-			evidence: finalValidation.evidenceArtifact,
-			expectedTree: validatedTree,
-			beforeTree: finalValidation.evidence.validation.before.tree,
-			afterTree: finalValidation.evidence.validation.after.tree,
+			lastRound: round ? {
+				status: round.status,
+				commandCount: round.commandCount,
+				durationMs: round.durationMs,
+				evidence: round.evidenceArtifact,
+				expectedTree: round.evidence.expectedValidationTree,
+				beforeTree: round.evidence.validation.before.tree,
+				afterTree: round.evidence.validation.after.tree,
+			} : null,
+			totalCommandDurationMs: finalValidation.totalCommandDurationMs,
+			...(finalValidation.failure ? { failure: finalValidation.failure } : {}),
 		});
 		if (finalValidation.status !== "passed") return await finish(recorder, executor, loaded, started, "failed", { kind: "event", eventSequence: projection.finalValidation.disposition === "failed" ? projection.finalValidation.completionSequence : 0, code: "final-validation-failed" }, { dag, finalValidation, error: "final validation failed" });
 		return await finish(recorder, executor, loaded, started, "completed", { kind: "event", eventSequence: projection.finalValidation.disposition === "passed" ? projection.finalValidation.completionSequence : 0, code: "final-validation-passed" }, { dag, finalValidation });
 	} catch (error) {
+		if (recorder?.store.projection()?.acceptedLedger.length) executor?.retainMutationLock();
 		if (!recorder?.store.projection()) throw error;
 		const projection = recorder.projection();
 		if (projection.terminalOutcome) throw error;
@@ -138,6 +146,10 @@ async function recordNodeCompletion(recorder: RuntimeEventRecorder, node: DagNod
 		if (!node.result?.attemptId) throw new Error(`node ${node.id} completed without a causal attempt`);
 		await recorder.record("node-completed", { nodeId: node.id, status: node.status, cause: { attemptId: node.result.attemptId } });
 	} else if (node.status === "skipped") {
+		if (node.failFastCause) {
+			await recorder.record("node-completed", { nodeId: node.id, status: "skipped", cause: { policy: "fail-fast", triggerNodeId: node.failFastCause.nodeId, triggerAttemptId: node.failFastCause.attemptId } });
+			return;
+		}
 		if (!node.upstreamNodeId) throw new Error(`skipped node ${node.id} has no upstream cause`);
 		await recorder.record("node-completed", { nodeId: node.id, status: "skipped", cause: { upstreamNodeId: node.upstreamNodeId } });
 	}
@@ -162,7 +174,7 @@ async function finish(recorder: RuntimeEventRecorder, executor: FanoutNodeExecut
 	} as ExecuteFanoutResult;
 }
 
-function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPacket, profile: ProjectExecutionProfile): { repoRoot?: string; tree: string; issues: PreflightIssue[]; evidence: PreflightEvidence } {
+function inspectPlanningBase(options: ExecuteFanoutOptions, packet: FanoutExecutionPacket) {
 	const issues: PreflightIssue[] = [];
 	const top = command("git", ["rev-parse", "--show-toplevel"], options.cwd);
 	const repoRoot = top.status === 0 ? resolve(top.stdout.trim()) : undefined;
@@ -180,6 +192,11 @@ function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPack
 		catch (error) { issues.push({ code: "controller-failure", detail: message(error) }); }
 	}
 	if (packet.planningHost.platform !== process.platform) issues.push({ code: "platform-mismatch", detail: `packet was planned for ${packet.planningHost.platform}, running ${process.platform}; rerun /fanout-plan` });
+	return { issues, repoRoot, actualCommit, actualTree };
+}
+
+function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPacket, profile: ProjectExecutionProfile): { repoRoot?: string; tree: string; issues: PreflightIssue[]; evidence: PreflightEvidence } {
+	const { issues, repoRoot, actualCommit, actualTree } = inspectPlanningBase(options, packet);
 	const requestedExtension = resolve(options.extensionEntry);
 	let resolvedExtension: string | null = null;
 	try {
@@ -284,10 +301,10 @@ function comparison(expected: string, actual: string | null): PreflightCompariso
 	return { expected, actual, status: actual === null ? "unavailable" : actual === expected ? "matched" : "mismatched" };
 }
 
-function confirmationSummary(packet: FanoutExecutionPacket, packetIdentity: ArtifactIdentity, profile: ProjectExecutionProfile, maxConcurrency: number, runDir: string): string {
+function confirmationSummary(packet: FanoutExecutionPacket, packetIdentity: ArtifactIdentity, packetPath: string, profile: ProjectExecutionProfile, maxConcurrency: number, runDir: string): string {
 	const writes = [...new Set(packet.nodes.flatMap((node) => contractWriteResources(node.workContract).map((resource) => `${resource.kind}:${resource.path}`)))];
 	const normalizers = profile.candidateNormalization.map((entry) => JSON.stringify(entry.command));
-	return [`Objective: ${packet.objective}`, `Packet: ${packetIdentity.sha256.slice(0, 12)} / base ${packet.planningBase.tree}`, `Project Execution Profile: ${profile.profileId}`, `Work nodes: ${packet.nodes.length - 1}`, `Maximum concurrency: ${maxConcurrency}`, `Typed writes: ${writes.join(", ") || "none"}`, `Preparation commands: ${profile.preparation.length}`, `Readiness commands: ${profile.readiness.length}`, `Candidate normalization manifests: ${normalizers.join(", ") || "none"}`, `Validation manifests: ${packet.nodes.reduce((sum, node) => sum + node.workContract.validationCommands.length, 0) + profile.requiredFinalGates.length}`, WORKER_TRUST_BOUNDARY, `Audit artifacts: ${runDir}`].join("\n");
+	return [`Objective: ${packet.objective}`, `Packet: ${packetPath}`, `SHA-256: ${packetIdentity.sha256}`, `Bytes: ${packetIdentity.byteLength}`, `Planning base: ${packet.planningBase.tree}`, "Invocation already authorized exact profile validation, including possible external/network effects. Confirmation authorizes workers and active apply.", `Project Execution Profile: ${profile.profileId}`, `Work nodes: ${packet.nodes.length - 1}`, `Maximum concurrency: ${maxConcurrency}`, `Typed writes: ${writes.join(", ") || "none"}`, `Preparation commands: ${profile.preparation.length}`, `Readiness commands: ${profile.readiness.length}`, `Candidate normalization manifests: ${normalizers.join(", ") || "none"}`, `Validation manifests: ${packet.nodes.reduce((sum, node) => sum + node.workContract.validationCommands.length, 0) + profile.requiredFinalGates.length}`, WORKER_TRUST_BOUNDARY, `Audit artifacts: ${runDir}`].join("\n");
 }
 
 function command(executable: string, args: string[], cwd: string) { const result = spawnSync(executable, executable === "git" ? ["-c", "core.fsmonitor=false", ...args] : args, { cwd, encoding: "utf8", timeout: 30_000 }); return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" }; }

@@ -26,8 +26,7 @@
     "./work-contract": "./src/work-contract.ts",
     "./work-contract-compiler": "./src/work-contract-compiler.ts",
     "./work-contract-graph": "./src/work-contract-graph.ts",
-    "./work-contract-views": "./src/work-contract-views.ts",
-    "./worker-metrics": "./src/worker-metrics.ts"
+    "./work-contract-views": "./src/work-contract-views.ts"
   },
   "dependencies": {
     "typebox": "^1.3.10"

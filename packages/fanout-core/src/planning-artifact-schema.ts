@@ -8,9 +8,11 @@ export const PROJECT_EXECUTION_PROFILE_VERSION = 1;
 export const ACTIVE_PROJECT_EXECUTION_PROFILE_SCHEMA = "fanout.active-project-execution-profile";
 export const ACTIVE_PROJECT_EXECUTION_PROFILE_VERSION = 1;
 export const IMPLEMENTATION_PLAN_SCHEMA = "fanout.implementation-plan";
-export const IMPLEMENTATION_PLAN_VERSION = 3;
+export const IMPLEMENTATION_PLAN_VERSION = 4;
 export const IMPLEMENTATION_DETAILS_SCHEMA = "fanout.implementation-details";
-export const IMPLEMENTATION_DETAILS_VERSION = 6;
+export const IMPLEMENTATION_DETAILS_VERSION = 7;
+
+export const ORDINARY_WORK_KINDS = ["implement", "test", "docs", "inspect", "validate-shard", "review-shard"] as const;
 
 const closed = { additionalProperties: false } as const;
 const semanticText = Type.String({ minLength: 1 });
@@ -153,7 +155,7 @@ export const ReadDependencySchema = Type.Object({
 
 const detailItemProperties = {
 	id: canonicalText,
-	kind: canonicalText,
+	kind: Type.Enum(ORDINARY_WORK_KINDS),
 	changes: Type.Array(ChangeIntentSchema),
 	readDependencies: Type.Array(ReadDependencySchema),
 	validationCommands: Type.Array(DirectArgvCommandSchema, { minItems: 1 }),
@@ -169,7 +171,7 @@ const detailsItemArtifact = Type.Object({
 
 export const ImplementationDetailsBodySchema = Type.Object({
 	items: Type.Array(detailsItemBody, { minItems: 1 }),
-	finalValidationCommands: Type.Array(DirectArgvCommandSchema, { minItems: 1 }),
+	finalValidationCommands: Type.Array(DirectArgvCommandSchema),
 }, closed);
 
 export const ImplementationDetailsArtifactSchema = Type.Object({
@@ -179,7 +181,7 @@ export const ImplementationDetailsArtifactSchema = Type.Object({
 	createdAt: semanticText,
 	plan: ArtifactIdentitySchema,
 	items: Type.Array(detailsItemArtifact, { minItems: 1 }),
-	finalValidationCommands: Type.Array(DirectArgvCommandSchema, { minItems: 1 }),
+	finalValidationCommands: Type.Array(DirectArgvCommandSchema),
 }, closed);
 
 export const ProfileSubmissionParametersSchema = Type.Object({ artifact: ProjectExecutionProfileBodySchema }, closed);

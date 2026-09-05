@@ -1,7 +1,7 @@
 import { deriveExecutionGraph, validateExecutionPacket, type FanoutExecutionPacket, type FanoutPacketNode } from "./execution-packet.ts";
 
 export interface DagNodeResult { ok: boolean; error?: string; attemptId?: string; }
-export interface DagNodeState { id: string; status: "pending" | "running" | "succeeded" | "failed" | "skipped"; result?: DagNodeResult; error?: string; upstreamNodeId?: string; }
+export interface DagNodeState { id: string; status: "pending" | "running" | "succeeded" | "failed" | "skipped"; result?: DagNodeResult; error?: string; upstreamNodeId?: string; failFastCause?: { nodeId: string; attemptId: string }; }
 export interface DagRunResult { ok: boolean; status: "succeeded" | "failed"; nodes: DagNodeState[]; }
 export interface RunDagOptions {
 	maxConcurrency: number;
@@ -20,7 +20,7 @@ export async function runDag(packet: FanoutExecutionPacket, options: RunDagOptio
 	const states = new Map(nodes.map((node) => [node.id, { id: node.id, status: "pending" as const } as DagNodeState]));
 	const running = new Map<string, Promise<{ id: string; result: DagNodeResult }>>();
 	const halt = new AbortController();
-	let stopped = false;
+	let stopped: { nodeId: string; attemptId: string } | undefined;
 
 	const complete = async (state: DagNodeState) => { await options.onNodeCompleted?.({ ...state }); };
 	const skipDependents = async (upstreamNodeId: string) => {
@@ -43,13 +43,13 @@ export async function runDag(packet: FanoutExecutionPacket, options: RunDagOptio
 		const done = await Promise.race(running.values()); running.delete(done.id);
 		const state = states.get(done.id)!; state.result = done.result; state.status = done.result.ok ? "succeeded" : "failed"; state.error = done.result.error;
 		await complete(state);
-		if (!done.result.ok) { await skipDependents(done.id); if (options.failFast) stopped = true; }
+		if (!done.result.ok) { await skipDependents(done.id); if (options.failFast && !stopped) { if (!done.result.attemptId) throw new Error("fail-fast failure omitted its causal attempt"); stopped = { nodeId: done.id, attemptId: done.result.attemptId }; } }
 	} } catch (error) {
 		halt.abort(error);
 		await Promise.allSettled(running.values());
 		throw error;
 	}
-	if (stopped) for (const state of states.values()) if (state.status === "pending") { state.status = "skipped"; state.upstreamNodeId = [...states.values()].find((item) => item.status === "failed")?.id; state.error = "fail-fast stopped scheduling"; await complete(state); }
+	if (stopped) for (const state of states.values()) if (state.status === "pending") { state.status = "skipped"; state.failFastCause = stopped; state.error = "fail-fast stopped scheduling"; await complete(state); }
 	const ordered = nodes.map((node) => states.get(node.id)!);
 	return { ok: ordered.every((node) => node.status === "succeeded"), status: ordered.every((node) => node.status === "succeeded") ? "succeeded" : "failed", nodes: ordered };
 }

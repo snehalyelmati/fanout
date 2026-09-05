@@ -115,12 +115,12 @@ function createFixture() {
 		id: nodeId(node), goals: [`Implement benchmark work ${node}`], writeResources: [{ kind: "file", path: `src/work-${String(node).padStart(2, "0")}.ts` }], readResources: [], forbiddenWrites: [], semanticReviewCriteria: ["Work is visible"], advisoryNotes: [],
 	}));
 	const plan = {
-		schema: "fanout.implementation-plan", version: 3, planId: lineageId, createdAt: isoTimestamp(baseTime), planningHost: { platform: process.platform }, planningBase: { headCommit: BASE_TREE, tree: BASE_TREE }, profile: profileIdentity, objective: `Benchmark ${lineageId}`, userContext: [], discoveredRepoFacts: [], assumptions: [], implementationItems,
+		schema: "fanout.implementation-plan", version: 4, planId: lineageId, createdAt: isoTimestamp(baseTime), planningHost: { platform: process.platform }, planningBase: { headCommit: BASE_TREE, tree: BASE_TREE }, profile: profileIdentity, objective: `Benchmark ${lineageId}`, userContext: [], discoveredRepoFacts: [], assumptions: [], implementationItems,
 	};
 	const planBytes = bytes(plan);
 	const planIdentity = artifactIdentity("implementation-plan.json", planBytes);
 	const details = {
-		schema: "fanout.implementation-details", version: 6, detailsId: lineageId, createdAt: isoTimestamp(baseTime + 1), plan: planIdentity,
+		schema: "fanout.implementation-details", version: 7, detailsId: lineageId, createdAt: isoTimestamp(baseTime + 1), plan: planIdentity,
 		items: implementationItems.map((item) => ({ id: item.id, kind: "implement", changes: [{ kind: "create", target: { resource: item.writeResources[0], sourcePlanIds: [item.id] }, contentIntent: "benchmark work" }], readDependencies: [], validationCommands: [command], advisoryNotes: [] })),
 		finalValidationCommands: [command],
 	};
@@ -154,7 +154,7 @@ function writeLineage(index, fixture) {
 
 function executionEvents(packet, packetIdentity, lineageId, runId, baseTime) {
 	const events = [];
-	const emit = (event, payload) => events.push({ schema: "fanout.execution-event", version: 5, runId, sequence: events.length + 1, occurredAt: isoTimestamp(baseTime + events.length), event, payload });
+	const emit = (event, payload) => events.push({ schema: "fanout.execution-event", version: 6, runId, sequence: events.length + 1, occurredAt: isoTimestamp(baseTime + events.length), event, payload });
 	const commandEvidence = packet.nodes.map((node, packetNodeIndex) => ({ packetNodeIndex, nodeId: node.id, commandIndex: 0, manifest: { executable: "bun", args: ["--version"], cwd: null }, resolution: { status: "available", resolvedExecutable: process.execPath, resolvedCwd: process.cwd() } }));
 	const preflightEvidence = {
 		planningCommit: { expected: BASE_TREE, actual: BASE_TREE, status: "matched" }, repositoryTree: { expected: BASE_TREE, actual: BASE_TREE, status: "matched" }, platform: { expected: process.platform, actual: process.platform, status: "matched" },
@@ -183,7 +183,7 @@ function executionEvents(packet, packetIdentity, lineageId, runId, baseTime) {
 		emit("node-completed", { nodeId: node.id, status: "succeeded", cause: { attemptId: acceptedAttemptId } });
 	}
 	emit("final-validation-started", { commandIdentities: ["final-validation:0"], expectedTree: BASE_TREE });
-	emit("final-validation-completed", { status: "passed", commandCount: 1, durationMs: 1, evidence: { path: `${lineageId}/executions/${runId}/final-validation/rounds/1.json`, sha256: "a".repeat(64), byteLength: 1 }, expectedTree: BASE_TREE, beforeTree: BASE_TREE, afterTree: BASE_TREE });
+	emit("final-validation-completed", { status: "passed", totalCommandDurationMs: 1, lastRound: { status: "passed", commandCount: 1, durationMs: 1, evidence: { path: `${lineageId}/executions/${runId}/final-validation/rounds/000-initial.json`, sha256: "a".repeat(64), byteLength: 1 }, expectedTree: BASE_TREE, beforeTree: BASE_TREE, afterTree: BASE_TREE } });
 	emit("run-finished", { outcome: "completed", durationMs: events.length, cleanupDurationMs: 0, cause: { kind: "event", eventSequence: events.length, code: "final-validation-passed" } });
 	return events;
 }

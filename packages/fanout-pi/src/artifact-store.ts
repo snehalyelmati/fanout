@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import {
 	artifactIdentity,
@@ -26,16 +26,25 @@ export function readVerifiedArtifact(root: string, identityValue: unknown): Buff
 	return bytes;
 }
 
-export function writeArtifactAtomically(root: string, relativePath: string, input: Uint8Array): ArtifactIdentity {
+export function reserveArtifactDirectory(root: string, relativePath: string): void {
+	mkdirSync(artifactPath(root, relativePath, true));
+}
+
+export class ArtifactPublicationError extends Error {}
+
+export function writeArtifactAtomically(root: string, relativePath: string, input: Uint8Array, options: { noClobber?: boolean } = {}): ArtifactIdentity {
 	const path = artifactPath(root, relativePath, true);
 	const bytes = Buffer.from(input);
 	const temporary = resolve(dirname(path), `.${randomUUID()}.tmp`);
 	try {
 		writeFileSync(temporary, bytes, { flag: "wx" });
-		renameSync(temporary, path);
+		if (options.noClobber) {
+			linkSync(temporary, path);
+			rmSync(temporary);
+		} else renameSync(temporary, path);
 	} catch (error) {
 		rmSync(temporary, { force: true });
-		throw error;
+		throw new ArtifactPublicationError(`artifact publication failed: ${relativePath}`, { cause: error });
 	}
 	return artifactIdentity(relativePath, bytes);
 }

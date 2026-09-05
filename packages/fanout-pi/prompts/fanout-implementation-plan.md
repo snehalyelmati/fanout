@@ -27,16 +27,15 @@ Submit this body once with `fanout_submit_artifact`; output no envelope fields o
 }
 ```
 
-The submission tool schema is the structural authority. Use literal canonical repository-relative file/directory paths. `writeResources` define maximum authority; declare only genuine typed reads. Put other dependencies in advisory notes (`rationale`, `risk`, `validation-intent`, `constraint`, or `context`), and submit `advisoryNotes: []` when none apply.
+The submission tool schema is the structural authority. Use literal canonical repository-relative file/directory paths. `writeResources` define maximum write authority; `readResources` declare known reads and approve the maximum post-change read scope. Phase B may discover additional canonical repository-local baseline-context reads with source attribution; reads describe provenance and scheduling, not a confidentiality boundary. Put other dependencies in advisory notes (`rationale`, `risk`, `validation-intent`, `constraint`, or `context`), and submit `advisoryNotes: []` when none apply.
 
-Choose the smallest independently authorable and repairable work units that
-expose safe parallelism.
+Choose independently authorable and repairable work units that expose useful parallelism while accounting for worker setup, repeated context, and validation overhead.
 
 For each proposed item, ask:
 
 - Given the frozen plan, contract, and planning baseline, can one worker complete
   and validate this item without writing resources owned by another item?
-- If yes, keep it separate and concurrently executable.
+- If yes, keep it separate when the useful independent work justifies the additional setup, context, and validation.
 - If no, merge only the resources that must be changed or repaired together.
 
 A work item is a worker ownership and repair boundary, not a standalone release.
@@ -55,7 +54,7 @@ Prefer parallel items whenever both resulting items retain sufficient validation
 and disjoint write authority. Do not merge items merely because they contribute
 to the same feature or would not be useful if released alone.
 
-After preserving those boundaries, run a split pass. Give every remaining independently authorable and repairable change its own item so it can execute in parallel. Keep changes together when splitting would overlap write authority, when one side cannot be accepted or repaired independently, or when required behavior is not fixed by the accepted plan and planning baseline.
+After preserving those boundaries, review granularity. Group small related changes when repeated setup, context, and validation would outweigh useful parallel work. Keep substantial independent work separate. Keep changes together when splitting would overlap write authority, when one side cannot be accepted or repaired independently, or when required behavior is not fixed by the accepted plan and planning baseline.
 
 Do not split by file count, file category, or step count alone. Do not invent reads or dependencies to force fusion or serialization.
 

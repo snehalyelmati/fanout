@@ -24,7 +24,7 @@ function write(path: string, value: unknown): void {
 	writeFileSync(path, typeof value === "string" ? value : `${JSON.stringify(value)}\n`);
 }
 
-function plan(id: string, version = 3): Record<string, unknown> {
+function plan(id: string, version = 4): Record<string, unknown> {
 	const git = "1".repeat(40);
 	return {
 		schema: "fanout.implementation-plan",
@@ -50,7 +50,7 @@ function plan(id: string, version = 3): Record<string, unknown> {
 	};
 }
 
-function event(runId: string, occurredAt: string, version = 5): Record<string, unknown> {
+function event(runId: string, occurredAt: string, version = 6): Record<string, unknown> {
 	return { schema: "fanout.execution-event", version, runId, sequence: 1, occurredAt, event: "run-started", payload: {} };
 }
 
@@ -62,7 +62,7 @@ function currentLineage(artifactRoot: string, id = "packet"): { packetIdentity: 
 	const planIdentity = artifactIdentity("implementation-plan.json", planBytes);
 	const command = { executable: "node", args: ["--version"] };
 	const details = {
-		schema: "fanout.implementation-details", version: 6, detailsId: id, createdAt: "2026-07-19T00:01:00.000Z", plan: planIdentity,
+		schema: "fanout.implementation-details", version: 7, detailsId: id, createdAt: "2026-07-19T00:01:00.000Z", plan: planIdentity,
 		items: [{ id: "work", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "src/work.ts" }, sourcePlanIds: ["work"] }, contentIntent: "work" }], readDependencies: [], validationCommands: [command], advisoryNotes: [] }],
 		finalValidationCommands: [command],
 	};
@@ -98,7 +98,7 @@ function currentLineage(artifactRoot: string, id = "packet"): { packetIdentity: 
 	return {
 		packetIdentity,
 		started: (runId, occurredAt) => ({
-			schema: "fanout.execution-event", version: 5, runId, sequence: 1, occurredAt, event: "run-started",
+			schema: "fanout.execution-event", version: 6, runId, sequence: 1, occurredAt, event: "run-started",
 			payload: { mode: "dry-run", packet: packetIdentity, profile: profileIdentity, profileValidation: profileValidationIdentity, planningBaseTree: "1".repeat(40), nodeIds: ["work"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false }, preflightEvidence: evidence },
 		}),
 	};
@@ -314,7 +314,7 @@ test("catalog keeps nonterminal and rejected Event Log evidence honest and newes
 	write(join(artifactRoot, "packet", "executions", "run-gap", "events.jsonl"), `${JSON.stringify({ ...current, runId: "run-gap", occurredAt: "2026-07-19T00:00:00.000Z" })}\n${JSON.stringify({ ...current, runId: "run-gap", sequence: 3, occurredAt: "2026-07-19T00:00:00.001Z", event: "preflight-completed" })}\n`);
 	write(join(artifactRoot, "packet", "executions", "run-mixed", "events.jsonl"), `${JSON.stringify({ ...current, runId: "run-mixed", occurredAt: "2026-07-18T00:00:00.000Z" })}\n${JSON.stringify({ ...current, runId: "run-mixed", version: 2, sequence: 2 })}\n`);
 	write(join(artifactRoot, "packet", "executions", "run-identity", "events.jsonl"), `${JSON.stringify({ ...current, runId: "other", occurredAt: "2026-07-17T00:00:00.000Z" })}\n`);
-	write(join(artifactRoot, "packet", "executions", "run-future", "events.jsonl"), event("run-future", "2026-07-16T00:00:00.000Z", 6));
+	write(join(artifactRoot, "packet", "executions", "run-future", "events.jsonl"), event("run-future", "2026-07-16T00:00:00.000Z", 7));
 	const legacy = event("run-legacy", "2026-07-15T00:00:00.000Z", 4);
 	write(join(artifactRoot, "packet", "executions", "run-legacy", "events.jsonl"), `${JSON.stringify(legacy)}\n${JSON.stringify({ ...legacy, sequence: 2, occurredAt: "2026-07-15T00:00:00.001Z", event: "preflight-completed" })}\n`);
 	const mismatched = lineage.started("run-packet-mismatch", "2026-07-14T00:00:00.000Z");
@@ -337,4 +337,16 @@ test("catalog keeps nonterminal and rejected Event Log evidence honest and newes
 	]);
 	expect(runs.slice(1).every(({ projection }) => projection === null)).toBe(true);
 	expect(runs.find(({ id }) => id === "run-legacy")).toMatchObject({ admission: "Legacy", reason: "recognized older Execution Event generation", updatedAt: "2026-07-15T00:00:00.001Z" });
+});
+
+
+test("catalog browses ordered final rounds and historical round filenames", async () => {
+	const artifactRoot = root();
+	write(join(artifactRoot, "packet", "executions", "run", "execution-run.json"), { schema: "fanout.execution-run", version: 6, runId: "run" });
+	const names = ["initial.json", "repair-abcdef123456-accepted.json", "000-initial.json", "001-repair-abcdef123456.json", "002-repair-abcdef123456-accepted.json"];
+	for (const name of names) write(join(artifactRoot, "packet", "executions", "run", "final-validation", "rounds", name), `${name}\n`);
+	const catalog = new ProfilerCatalog(artifactRoot);
+	const evidence = catalog.snapshot().supportingEvidence;
+	expect(evidence.map(({ label }) => label)).toEqual(names.sort().map((name) => `final-validation/rounds/${name}`));
+	for (const item of evidence) expect((await catalog.readEvidencePage(item.source!.id)).rows).toEqual([item.label.split("/").at(-1)!]);
 });

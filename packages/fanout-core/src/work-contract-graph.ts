@@ -1,4 +1,4 @@
-import { resourcesOverlap } from "./repository-resource.ts";
+import { resourceOwnerIndexes, resourcesOverlap } from "./repository-resource.ts";
 import { contractWriteResources, validateWorkContract, type WorkContractIssue, type WorkContractNode } from "./work-contract.ts";
 
 export interface WorkContractGraph {
@@ -20,7 +20,7 @@ export function validateWorkContractNodes(value: unknown): { ok: boolean; errors
 		for (const field of Object.keys(node)) if (!["id", "kind", "workContract"].includes(field)) add(errors, "unknown-field", `unknown field ${field}`, `${path}.${field}`);
 		const id = canonical(node.id, `${path}.id`, errors);
 		const kind = canonical(node.kind, `${path}.kind`, errors);
-		const validation = validateWorkContract(node.workContract, { finalValidation: kind === "final-validation" });
+		const validation = validateWorkContract(node.workContract, { finalValidation: kind === "final-validation", allowEmptyValidation: kind === "final-validation" });
 		for (const issue of validation.errors) errors.push({ ...issue, path: issue.path ? `${path}.workContract.${issue.path}` : `${path}.workContract` });
 		return validation.contract ? [{ id, kind, workContract: validation.contract }] : [];
 	});
@@ -31,7 +31,7 @@ export function validateWorkContractNodes(value: unknown): { ok: boolean; errors
 
 export function deriveWorkContractWarnings(nodes: readonly WorkContractNode[]): WorkContractIssue[] {
 	return nodes.flatMap((node) => node.workContract.readDependencies.flatMap((read, index) => read.timingSource === "sequential-fallback"
-		? [{ code: "sequential-fallback", message: `${node.id} conservatively waits for ${read.resource.kind}:${read.resource.path}`, path: `nodes.${node.id}.workContract.readDependencies[${index}]` }]
+		? [{ code: "sequential-fallback", message: `${node.id} conservatively waits for ${read.resource.kind}:${read.resource.path}: ${read.reason}`, path: `nodes.${node.id}.workContract.readDependencies[${index}]` }]
 		: []));
 }
 
@@ -44,7 +44,7 @@ export function deriveWorkContractGraph(nodes: readonly WorkContractNode[]): { g
 		else ids.add(node.id);
 		if (node.kind === "final-validation" && node.id !== FINAL_VALIDATION_NODE_ID) add(errors, "invalid-final-validation-id", `final-validation node must use reserved id ${FINAL_VALIDATION_NODE_ID}`, `nodes[${index}].id`);
 		if (node.kind !== "final-validation" && node.id === FINAL_VALIDATION_NODE_ID) add(errors, "reserved-node-id", `ordinary node cannot use reserved id ${FINAL_VALIDATION_NODE_ID}`, `nodes[${index}].id`);
-		const validation = validateWorkContract(node.workContract, { finalValidation: node.kind === "final-validation" });
+		const validation = validateWorkContract(node.workContract, { finalValidation: node.kind === "final-validation", allowEmptyValidation: node.kind === "final-validation" });
 		for (const issue of validation.errors) errors.push({ ...issue, path: issue.path ? `nodes.${node.id}.workContract.${issue.path}` : `nodes.${node.id}.workContract` });
 	}
 	const finals = nodes.filter((node) => node.kind === "final-validation");
@@ -57,7 +57,7 @@ export function deriveWorkContractGraph(nodes: readonly WorkContractNode[]): { g
 	const edgeKeys = new Set<string>();
 	for (const reader of ordinary) for (const [index, read] of reader.workContract.readDependencies.entries()) {
 		if (read.timing === "baseline-context") continue;
-		const owners = ordinary.filter((owner) => contractWriteResources(owner.workContract).some((write) => resourcesOverlap(write, read.resource)));
+		const owners = resourceOwnerIndexes(read.resource, ordinary.map((owner) => contractWriteResources(owner.workContract))).map((index) => ordinary[index]);
 		if (owners.length === 0) add(errors, "ownerless-post-change-read", `${reader.id} post-change read ${read.resource.kind}:${read.resource.path} has no owner`, `nodes.${reader.id}.workContract.readDependencies[${index}]`);
 		for (const owner of owners) if (owner.id !== reader.id) pushEdge(edges, edgeKeys, owner.id, reader.id);
 	}

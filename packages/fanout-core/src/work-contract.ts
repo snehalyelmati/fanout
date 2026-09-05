@@ -2,7 +2,7 @@ import { parseResource, resourcesOverlap, type Resource } from "./repository-res
 import { parseValidationCommands, type ValidationCommand } from "./validation-command.ts";
 
 export const WORK_CONTRACT_SCHEMA = "fanout.work-contract";
-export const WORK_CONTRACT_VERSION = 4;
+export const WORK_CONTRACT_VERSION = 5;
 
 export type WorkAnchor =
 	| { kind: "symbol"; symbol: string }
@@ -91,7 +91,8 @@ const CHANGE_FIELDS = {
 	move: new Set(["kind", "from", "to", "intent"]),
 };
 
-export function validateWorkContract(value: unknown, options: { finalValidation?: boolean } = {}): { ok: boolean; errors: WorkContractIssue[]; contract?: WorkContract } {
+// Empty commands require caller-verified profile-backed final validation or derived final-repair context.
+export function validateWorkContract(value: unknown, options: { finalValidation?: boolean; allowEmptyValidation?: boolean } = {}): { ok: boolean; errors: WorkContractIssue[]; contract?: WorkContract } {
 	const errors: WorkContractIssue[] = [];
 	if (!isRecord(value)) return { ok: false, errors: [{ code: "contract-not-object", message: "work contract must be an object" }] };
 	unknownFields(value, CONTRACT_FIELDS, "", errors);
@@ -112,10 +113,11 @@ export function validateWorkContract(value: unknown, options: { finalValidation?
 	if (semanticReviewCriteria.length === 0) add(errors, "missing-criterion", "work contract needs at least one source-linked semantic review criterion", "semanticReviewCriteria");
 	if (options.finalValidation) {
 		if (changes.length) add(errors, "final-validation-writes", "final-validation contract must not contain changes", "changes");
-		if (validationCommands.length === 0) add(errors, "missing-final-validation", "final-validation contract needs commands", "validationCommands");
-	} else if (changes.length > 0 && validationCommands.length === 0) {
+		if (validationCommands.length === 0 && !options.allowEmptyValidation) add(errors, "missing-final-validation", "final-validation contract needs commands", "validationCommands");
+	} else if (changes.length > 0 && validationCommands.length === 0 && !options.allowEmptyValidation) {
 		add(errors, "missing-validation", "a mutating work contract needs validation commands", "validationCommands");
 	}
+	validateChangeExistence(changes, errors);
 	const writeResources = changeWriteResources(changes);
 	for (const [index, forbidden] of forbiddenWrites.entries()) if (writeResources.some((write) => resourcesOverlap(write, forbidden.resource))) {
 		add(errors, "write-forbidden-overlap", `${show(forbidden.resource)} overlaps a typed change endpoint`, `forbiddenWrites[${index}]`);
@@ -134,7 +136,7 @@ export function contractWriteResources(contract: WorkContract): Resource[] {
 
 function changeIntents(value: unknown, path: string, errors: WorkContractIssue[]): ChangeIntent[] {
 	if (!Array.isArray(value)) { add(errors, "invalid-change-list", "changes must be an array", path); return []; }
-	return value.flatMap((change, index) => {
+	return value.flatMap<ChangeIntent>((change, index) => {
 		const current = `${path}[${index}]`;
 		if (!isRecord(change) || typeof change.kind !== "string" || !(change.kind in CHANGE_FIELDS)) { add(errors, "invalid-change-kind", "change kind must be modify, create, delete, or move", current); return []; }
 		unknownFields(change, CHANGE_FIELDS[change.kind as keyof typeof CHANGE_FIELDS], current, errors);
@@ -151,6 +153,21 @@ function changeIntents(value: unknown, path: string, errors: WorkContractIssue[]
 		if (from.resource.kind === to.resource.kind && from.resource.path === to.resource.path) add(errors, "move-same-endpoint", "move endpoints must be distinct", current);
 		return [{ kind: "move" as const, from, to, intent: semanticText(change.intent, `${current}.intent`, errors) }];
 	});
+}
+
+function validateChangeExistence(changes: readonly ChangeIntent[], errors: WorkContractIssue[]): void {
+	const requirements = new Map<string, [boolean, boolean]>();
+	for (const [index, change] of changes.entries()) {
+		const endpoints: Array<[Resource, boolean, boolean]> = change.kind === "move"
+			? [[change.from.resource, true, false], [change.to.resource, false, true]]
+			: [[change.target.resource, change.kind !== "create", change.kind !== "delete"]];
+		for (const [resource, before, after] of endpoints) {
+			const key = `${resource.kind}\0${resource.path}`;
+			const previous = requirements.get(key);
+			if (previous && (previous[0] !== before || previous[1] !== after)) add(errors, "contradictory-change-intent", `${show(resource)} has incompatible before/after existence requirements`, `changes[${index}]`);
+			else requirements.set(key, [before, after]);
+		}
+	}
 }
 
 function endpoint(value: unknown, path: string, errors: WorkContractIssue[]): AuthorizedEndpoint {
@@ -196,7 +213,7 @@ function anchorList(value: unknown, path: string, errors: WorkContractIssue[]): 
 			if (!Number.isInteger(anchor.start) || !Number.isInteger(anchor.end) || Number(anchor.start) < 1 || Number(anchor.end) < Number(anchor.start)) add(errors, "invalid-line-range", "line range must use positive ordered integers", current);
 			return [{ kind: "line-range-hint" as const, start: Number(anchor.start), end: Number(anchor.end) }];
 		}
-		const field = anchor.kind === "stable-text" ? "text" : anchor.kind;
+		const field = anchor.kind === "stable-text" ? "text" : anchor.kind as "symbol" | "section";
 		unknownFields(anchor, new Set(["kind", field]), current, errors);
 		return [{ kind: anchor.kind, [field]: semanticText(anchor[field], `${current}.${field}`, errors) } as WorkAnchor];
 	});

@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { writeJsonl } from "../../fanout-core/src/observability.ts";
 import { artifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
 import { parseProjectExecutionProfile } from "../../fanout-core/src/project-execution-profile.ts";
 import {
@@ -18,9 +19,10 @@ import {
 	ProjectExecutionProfileBodySchema,
 	planningSchemaErrors,
 } from "../../fanout-core/src/planning-artifact-schema.ts";
-import { validateImplementationDetailsArtifact, validateImplementationPlan } from "../../fanout-core/src/fanout-compiler.ts";
+import { compileExecutionPacket, type CompileExecutionPacketResult, validateImplementationDetailsArtifact, validateImplementationPlan } from "../../fanout-core/src/fanout-compiler.ts";
 import { writeArtifactAtomically } from "./artifact-store.ts";
 import { type FanoutPhaseState } from "./fanout-plan-orchestration.ts";
+import { positiveIntegerSetting, recordField } from "./fanout-runtime-context.ts";
 
 export const FANOUT_SUBMIT_TOOL = "fanout_submit_artifact";
 export const FANOUT_PLANNING_TOOLS = ["read", "grep", "find", "ls", "ask_user_question", FANOUT_SUBMIT_TOOL];
@@ -52,12 +54,16 @@ export function planningSubmissionBatchBlockReason(toolName: string, toolCallId:
 	return "Fanout planning requires fanout_submit_artifact to be the only tool call in its assistant message; inspect first, then submit alone.";
 }
 
-export function submitPlanningArtifact(state: FanoutPhaseState, artifact: unknown, cwd: string): { path: string; phase: FanoutPhaseState["phase"]; identity: ReturnType<typeof artifactIdentity> } {
+export function submitPlanningArtifact(state: FanoutPhaseState, artifact: unknown, cwd: string): { path: string; phase: FanoutPhaseState["phase"]; identity: ReturnType<typeof artifactIdentity>; compiled?: CompileExecutionPacketResult } {
+	let compiled: CompileExecutionPacketResult | undefined;
 	const root = stringField(state.context.projectArtifactRoot);
 	const destination = state.phase === "profile" ? state.projectExecutionProfilePath : state.phase === "implementation" ? state.implementationPlanPath : state.implementationDetailsPath;
 	assertControllerDestination(root, destination, cwd);
 	const planIdentity = state.phase === "details" ? acceptedPlanIdentity(state) : undefined;
 	const submitted = controllerEnvelope(state, artifact, planIdentity);
+	const relativePath = relative(resolve(root), resolve(destination)).split(sep).join("/");
+	const bytes = Buffer.from(`${JSON.stringify(submitted, null, 2)}\n`);
+	const identity = artifactIdentity(relativePath.split("/").at(-1)!, bytes);
 	if (state.phase === "profile") {
 		const validation = profileValidation(submitted);
 		if (!validation.ok) throw new Error(validation.errors.join("; "));
@@ -67,12 +73,21 @@ export function submitPlanningArtifact(state: FanoutPhaseState, artifact: unknow
 	} else {
 		const validation = validateImplementationDetailsArtifact(submitted, { planIdentity, plan: acceptedPlan(state), profile: approvedProfile(state) });
 		if (!validation.ok || !validation.details) throw new Error(validation.errors.join("; "));
+		compiled = compileExecutionPacket({
+			implementationPlan: readAcceptedImplementationPlan(state.implementationPlanPath, planIdentity!), implementationDetails: submitted, planIdentity: planIdentity!, detailsIdentity: identity,
+			profile: approvedProfile(state), tierPlan: state.context.resolvedTierPlan as any,
+			runtimePolicy: { maxConcurrency: positiveIntegerSetting(recordField(state.context.executionDefaults).maxConcurrency, 2), failFast: false, fallbackAllowed: true },
+			sequentialReadFallback: state.repairAttempted === true,
+		});
+		writeJsonl("fanout_compiler_validation", { planRunId: state.runId, phase: "details", artifactDir: state.artifactDir, repairAttempted: state.repairAttempted === true, ok: compiled.ok, errors: compiled.errors, warnings: compiled.warnings }, cwd);
+		if (!compiled.ok) {
+			if (compiled.issues.length && compiled.issues.every((issue) => issue.code === "planned-read-not-grounded")) state.repairAttempted = true;
+			throw new Error(JSON.stringify({ error: "Phase B draft failed compiler admission; correct these issues and resubmit", issues: compiled.issues }));
+		}
 	}
 
-	const relativePath = relative(resolve(root), resolve(destination)).split(sep).join("/");
-	const bytes = Buffer.from(`${JSON.stringify(submitted, null, 2)}\n`);
 	writeArtifactAtomically(root, relativePath, bytes);
-	return { path: destination, phase: state.phase, identity: artifactIdentity(relativePath.split("/").at(-1)!, bytes) };
+	return { path: destination, phase: state.phase, identity, ...(compiled ? { compiled } : {}) };
 }
 
 export function readAcceptedImplementationPlan(path: string, expected: ReturnType<typeof artifactIdentity>): unknown {
