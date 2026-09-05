@@ -1,5 +1,17 @@
 # Design Decisions
 
+## 2026-09-05
+
+### Apply the approved Fanout audit cutover
+
+Decision: Implement the [approved audit plan](impl/fanout-audit-implementation-plan.md) with plan 4, details 7, contract 5, packet 10, outcome/event 6 and projection 7. Profiles/pointers and per-round final evidence retain their generations; old execution records remain descriptive Legacy evidence. The [register](impl/fanout-audit-progress.md) records validation and review.
+
+This supersedes exhaustive Phase A baseline-read membership, forced fine-grained splitting, initiating-message-only implicit context, accepting Phase B before compilation, complete-measurement acceptance (including the strict-worker pricing restriction on 2026-08-26), and requiring nonempty additional packet-final commands. Writes/post-change scope remain Phase A bounded; profile-only final validation requires nonempty exact combined gates. Canonical measurement evidence needs positive observed assignment identity and rejects supplied contradictions; missing fields yield unavailable totals rather than rejection or fabricated zeros.
+
+Phases advance at Pi settlement. Fail-fast drains already-running work and records policy skips separately from dependency skips. Event outcomes are the sole terminal attempt records. Final-controller status, immutable latest round, all-round command time and typed failure remain distinct; post-mutation publication failures retain the reconciliation lock. Invocation keeps standing authorization for bound-profile commands even in dry-run and before live confirmation; disclosures state possible external/network effects.
+
+Reason: Preserve exact repository authority while removing redundant admission and fixing lifecycle, replay and evidence semantics. Two phases, safe fusion, direct argv and atomic whole-log replacement remain; predictive scheduling, command caching and broader efficiency claims remain deferred. Offline regressions are not live E2E or performance evidence.
+
 ## 2026-08-29
 
 ### Default new work to GLM 5.3 Flash

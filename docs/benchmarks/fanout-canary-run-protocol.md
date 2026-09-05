@@ -130,13 +130,13 @@ Before execution, verify:
 
 Record SHA-256 and byte length for the task, plan, details, packet, profile, and active pointer. These artifacts are immutable for the run.
 
-## 7. Prove the dry run is inert
+## 7. Verify dry-run boundaries
 
 ```text
 /fanout-execute --dry-run
 ```
 
-Require zero workers, model/provider calls, attempts, tokens, cost, accepted transitions, and repository mutations. Recheck the target status and tree. Any dry-run work or mutation is a hard failure.
+Require zero Fanout workers, worker provider calls, allocated attempts, worker tokens/cost, accepted transitions, and active repository mutations. Standing-approved profile validation executes preparation, readiness and clean-baseline normalization before confirmation, including in dry-run; it resolves required final-gate argv without running the final suite. Executed commands may have their disclosed network/external effects. Record those commands and effects separately; dry-run is not an inert operation. Recheck target status and tree. Worker launch or active repository mutation is a hard failure.
 
 ## 8. Run one live canary
 
@@ -183,7 +183,7 @@ Record:
 - task, plan, details, packet, profile, and pointer identities;
 - baseline and final trees;
 - routing, concurrency, platform, and profile identity;
-- dry-run zero-work proof;
+- dry-run worker/active-mutation boundary proof and profile-command effects;
 - changed-path authority and actual changes;
 - attempts, retries, repairs, fallbacks, reconciliation, recovery, and terminal dispositions;
 - worker-summary continuity and completeness;
