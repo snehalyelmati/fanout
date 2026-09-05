@@ -108,7 +108,7 @@ interface PacketContext { packet: FanoutExecutionPacket; identity: ArtifactIdent
 
 const PLAN_FILES = new Set(["implementation-plan.json", "implementation-details.json", "execution-packet.json", "executions"]);
 const ATTEMPT_EVIDENCE_FILES = new Set(["stdout.log", "stderr.log", "observability.jsonl", "result.json", "preparation.json", "candidate-normalization.json", "validation.json", "ownership-check.json", "apply-check.json", "reconciliation.json", "attempt-outcome.json"]);
-const FINAL_VALIDATION_EVIDENCE = /^(?:initial|repair-[0-9a-f]{12})(?:-accepted)?\.json$/;
+const FINAL_VALIDATION_EVIDENCE = /^(?:[0-9]{3,}-)?(?:initial|repair-[0-9a-f]{12})(?:-accepted)?\.json$/;
 const MAX_EVIDENCE_ROWS = 500;
 const MAX_EVIDENCE_LINE_BYTES = 1024 * 1024;
 

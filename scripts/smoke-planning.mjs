@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { BATCHING_DISCIPLINE, BATCHING_DISCIPLINE_MARKER, PLANNING_BATCHING_DISCIPLINE } from "../packages/fanout-core/src/batching-discipline.ts";
 import { IMPLEMENTATION_DETAILS_SCHEMA, IMPLEMENTATION_DETAILS_VERSION, validateImplementationDetailsArtifact } from "../packages/fanout-core/src/fanout-compiler.ts";
 import { DirectArgvCommandSchema, ImplementationDetailsBodySchema, ImplementationPlanBodySchema, planningSchemaErrors } from "../packages/fanout-core/src/planning-artifact-schema.ts";
-import { buildImplementationDetailsPrompt, buildImplementationDetailsRepairPrompt, buildImplementationPlanPrompt, buildProjectExecutionProfilePrompt, createFanoutPlanRun } from "../packages/fanout-pi/src/fanout-plan-orchestration.ts";
+import { buildImplementationDetailsPrompt, buildImplementationPlanPrompt, buildProjectExecutionProfilePrompt, createFanoutPlanRun } from "../packages/fanout-pi/src/fanout-plan-orchestration.ts";
 
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 const phaseA = readFileSync("packages/fanout-pi/prompts/fanout-implementation-plan.md", "utf8");
@@ -58,8 +58,5 @@ assert(profilePrompt.startsWith("Build and submit the Project Execution Profile"
 assert(!profilePrompt.includes("artifactDir") && !planPrompt.includes("artifactDir") && !planPrompt.includes("resolvedTierPlan"), "planning prompt retained irrelevant generated runtime context");
 assert(detailsPrompt.includes(planIdentity.sha256) && detailsPrompt.includes(acceptedPlan.profile.sha256) && !detailsPrompt.includes('"artifactTargets"') && !detailsPrompt.includes('"profileIdentity"'), "Phase B prompt lost provenance or retained duplicate generated context");
 assert(detailsPrompt.includes("post-change-required") && detailsPrompt.includes('"readResource"'), "typed Phase B read checklist missing");
-const repairPrompt = buildImplementationDetailsRepairPrompt("Typed plan", {}, detailsRun, [{ code: "planned-read-not-grounded", message: "diagnostic wording", path: "planned[0].readResources[0]" }]);
-assert(repairPrompt.startsWith("Repair the compiler-reported read-classification failures") && !repairPrompt.includes("Ground the verified") && !repairPrompt.includes("active-packet.json"), "repair prompt does not prioritize its repair action");
-assert(repairPrompt.includes(detailsIdentity.sha256) && repairPrompt.includes(planIdentity.sha256) && repairPrompt.includes('"code": "planned-read-not-grounded"') && repairPrompt.includes('"path": "planned[0].readResources[0]"') && !repairPrompt.includes("planned-read-not-grounded:") && !repairPrompt.includes("forbidden writes"), "repair prompt lost identities, flattened issues, or retained Phase B forbidden writes");
 
-console.log("planning prompt smoke passed (profile v1/plan v3/details v6 controller envelopes)");
+console.log("planning prompt smoke passed (profile v1/plan v4/details v7 controller envelopes)");

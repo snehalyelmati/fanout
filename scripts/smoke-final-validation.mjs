@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { artifactIdentity } from "../packages/fanout-core/src/artifact-identity.ts";
 import { classifyFinalValidationFailure, deriveFinalRepairWorkContract, FINAL_VALIDATION_TRUST_BOUNDARY, parseFinalValidationEvidence } from "../packages/fanout-core/src/final-validation.ts";
 import { assertFinalValidationRecoverySource, parseAttemptRecoveryContext } from "../packages/fanout-core/src/recovery-evidence.ts";
-import { FIXED_WORKER_CAPABILITIES, WORK_CONTRACT_SCHEMA, WORK_CONTRACT_VERSION } from "../packages/fanout-core/src/work-contract.ts";
+import { FIXED_WORKER_CAPABILITIES, validateWorkContract, WORK_CONTRACT_SCHEMA, WORK_CONTRACT_VERSION } from "../packages/fanout-core/src/work-contract.ts";
 import { checkContractOwnership, checkFinalRepairOwnership, ownershipViolationFactCode } from "../packages/fanout-pi/src/fanout-git.ts";
 import { recordAcceptedFinalRepair, runFinalValidation, runFinalValidationRound } from "../packages/fanout-pi/src/final-validation.ts";
 import { buildCanonicalWorkerPrompt } from "../packages/fanout-pi/src/fanout-worker-contract.ts";
@@ -152,11 +152,82 @@ try {
       transition: (candidate) => candidate,
       authorize: async () => true,
       reject: async () => false,
-      apply: async () => false,
+      apply: async () => ({ ok: false, attemptId: "final-validation:apply-failed" }),
+      retainMutationLock: () => {},
     },
   });
-  assert(rejectedRepair.status === "failed" && rejectedRepair.commandCount === 2 && rejectedRepair.commands[1].outcome === "unexecuted", "fail-fast final validation did not retain the full launched command manifest");
-  assert(rejectedRepair.evidence.expectedValidationTree === acceptedTree && !rejectedRepair.evidence.candidate, "rejected final-repair candidate escaped into accepted-tree completion evidence");
+  assert(rejectedRepair.status === "failed" && rejectedRepair.lastRound.commandCount === 2 && rejectedRepair.lastRound.commands[1].outcome === "unexecuted", "fail-fast final validation did not retain the full launched command manifest");
+  assert(rejectedRepair.lastRound.evidence.candidate?.patch.artifact.sha256 === ignoredResidue.patch.artifact.sha256 && rejectedRepair.failure.attemptId === "final-validation:000001", "rejected repair lost the latest immutable round or exact attempt cause");
+
+  const repeatedRecoveries = [];
+  let repeats = 0;
+  const repeated = await runFinalValidation({
+    repoRoot: repo, runDir, planningBase, ledger: [accepted], commands: repairContract.validationCommands,
+    expectedValidationTree: acceptedTree, expectedActiveTree: acceptedTree,
+    repair: { ...repairContext, workContract: repairContract, acceptedLedger: [], available: () => repeats < 2,
+      launch: async (recovery) => { repeatedRecoveries.push(recovery); return { attemptId: `repeat:${++repeats}`, candidate: ignoredResidue, continue: true }; },
+      transition: (candidate) => candidate, authorize: async () => true, reject: async () => true,
+      apply: async () => ({ ok: false, attemptId: "unexpected" }), retainMutationLock: () => {},
+    },
+  });
+  const repeatedRounds = [...repeatedRecoveries.map((entry) => entry.failedRound), repeated.lastRound.evidence];
+  assert(new Set(repeatedRounds.map((entry) => entry.roundId)).size === 3, "same-digest repair overwrote a prior executed round");
+  assert(repeated.totalCommandDurationMs === Math.round(repeatedRounds.reduce((sum, entry) => sum + entry.durationMs, 0) * 1000) / 1000, "controller duration omitted an executed failed round");
+  for (const recovery of repeatedRecoveries) assert(readFileSync(join(runDir, recovery.sourceFinalValidationEvidence.path), "utf8") === `${JSON.stringify(recovery.failedRound, null, 2)}\n`, "subsequent round changed exact recovery source bytes");
+  let clobberRejected = false;
+  try { await round("restored", [node("process.exit(0)")]); } catch { clobberRejected = true; }
+  assert(clobberRejected && readFileSync(join(runDir, restored.evidenceArtifact.path), "utf8") === `${JSON.stringify(restored.evidence, null, 2)}\n`, "duplicate round publication clobbered immutable evidence");
+
+  const profileCommands = [node("if(readFileSync('source.txt','utf8')!=='coordinated\\n')process.exit(1)", "readFileSync")];
+  const profileOnlyFinal = { ...finalContract, validationCommands: [] };
+  const profileRepair = deriveFinalRepairWorkContract(upstreamWorkContracts.map((entry) => entry.workContract), profileOnlyFinal, profileCommands);
+  assert(!validateWorkContract(profileRepair).ok, "ordinary mutating contract admitted zero validation commands");
+  assertThrows(() => deriveFinalRepairWorkContract(upstreamWorkContracts.map((entry) => entry.workContract), profileOnlyFinal), "zero combined final gates were admitted");
+  let profileRecovery;
+  let retainLock = false;
+  const applyOptions = {
+    repoRoot: repo, runDir, planningBase, ledger: [accepted], commands: profileCommands,
+    expectedValidationTree: acceptedTree, expectedActiveTree: acceptedTree,
+    repair: { ...repairContext, finalValidationContract: { ...finalContract, validationCommands: profileCommands }, workContract: profileRepair, acceptedLedger: [], available: () => true,
+      launch: async (recovery) => { profileRecovery = parseAttemptRecoveryContext(recovery); return { attemptId: "profile:repair", candidate: coordinated, continue: true }; },
+      transition: (candidate) => candidate, authorize: async () => true, reject: async () => false,
+      apply: async () => ({ ok: false, attemptId: "profile:apply-failed" }), retainMutationLock: () => { retainLock = true; },
+    },
+  };
+  const applyFailed = await runFinalValidation(applyOptions);
+  assert(applyFailed.status === "failed" && applyFailed.lastRound.status === "passed" && applyFailed.failure.attemptId === "profile:apply-failed", "failed apply replaced passing candidate round or lost failed attempt identity");
+  assert(profileRecovery.workContract.validationCommands.length === 0 && profileRecovery.commands.length === 1, "profile-only repair duplicated or lost authoritative gates");
+  const publicationFailed = await runFinalValidation({ ...applyOptions, repair: { ...applyOptions.repair, apply: async (candidate, result) => {
+    applyAcceptedTransition(repo, runDir, candidate);
+    writeFileSync(join(runDir, `final-validation/rounds/${result.evidence.roundId}-accepted.json`), "existing immutable evidence");
+    return { ok: true, attemptId: "profile:accepted" };
+  } } });
+  assert(publicationFailed.status === "failed" && publicationFailed.lastRound.status === "passed" && publicationFailed.failure.code === "publication-failure" && retainLock, "accepted evidence publication failure lost passing round or mutation lock");
+  assert(readFileSync(join(repo, "source.txt"), "utf8") === "coordinated\n", "post-mutation publication failure rolled back accepted changes");
+  writeFileSync(join(repo, "source.txt"), "accepted\n");
+  writeFileSync(join(repo, "other.txt"), "base\n");
+
+  const profilePassed = await runFinalValidation({ ...applyOptions, repair: { ...applyOptions.repair, apply: async (candidate) => {
+    applyAcceptedTransition(repo, runDir, candidate);
+    return { ok: true, attemptId: "profile:accepted-success" };
+  } } });
+  assert(profilePassed.status === "passed" && profilePassed.lastRound.evidence.acceptedRepair?.transition.patch.resultTree === coordinated.patch.resultTree && !profilePassed.failure, "profile-only final repair could not complete controller-authoritative validation and apply");
+  parseFinalValidationEvidence(profilePassed.lastRound.evidence);
+  writeFileSync(join(repo, "source.txt"), "accepted\n");
+  writeFileSync(join(repo, "other.txt"), "base\n");
+  const profileRejected = await runFinalValidation({ ...applyOptions, repair: { ...applyOptions.repair, launch: async (recovery) => {
+    parseAttemptRecoveryContext(recovery);
+    return { attemptId: "profile:rejected", candidate: ignoredResidue, continue: true };
+  } } });
+  assert(profileRejected.status === "failed" && profileRejected.lastRound.status === "failed" && profileRejected.failure.attemptId === "profile:rejected", "profile-only final repair failed rerun lost its exact failure");
+  writeFileSync(join(runDir, "final-validation/rounds/json-collision.json"), "immutable round");
+  let jsonCollisionRejected = false;
+  try { await round("json-collision", [node("process.exit(0)")]); } catch { jsonCollisionRejected = true; }
+  assert(jsonCollisionRejected && readFileSync(join(runDir, "final-validation/rounds/json-collision.json"), "utf8") === "immutable round", "round JSON collision overwrote prior evidence");
+  const zeroGates = await runFinalValidation({ ...applyOptions, commands: [] });
+  assert(zeroGates.status === "failed" && zeroGates.lastRound === null, "final controller admitted zero combined gates");
+  const unpublished = await runFinalValidation({ ...applyOptions, prepareWorktree: () => { throw new Error("preparation capture failed"); } });
+  assert(unpublished.status === "failed" && unpublished.lastRound === null && unpublished.totalCommandDurationMs === null && unpublished.failure.kind === "controller", "unpublished round fabricated prior evidence or a known zero total");
 
   const promptRecoveries = [];
   const promptSeeds = [];
@@ -185,7 +256,8 @@ try {
       transition: (candidate) => candidate,
       authorize: async () => true,
       reject: async () => true,
-      apply: async () => false,
+      apply: async () => ({ ok: false, attemptId: "final-validation:apply-failed" }),
+      retainMutationLock: () => {},
     },
   });
   assert(promptRecoveries.length === 3 && !promptRecoveries[0].failedRound.candidate && promptRecoveries[1].failedRound.candidate?.patch.artifact.sha256 === ignoredResidue.patch.artifact.sha256, "first/subsequent final-repair contexts lost failed-round candidate identity");
@@ -235,10 +307,11 @@ try {
       transition: (candidate) => candidate,
       authorize: async () => true,
       reject: async () => false,
-      apply: async () => false,
+      apply: async () => ({ ok: false, attemptId: "final-validation:apply-failed" }),
+      retainMutationLock: () => {},
     },
   });
-  assert(timeoutResult.repairable && timeoutRecoveries.length === 1 && timeoutRecoveries[0].commands[0].status === "timeout" && timeoutRecoveries[0].commands[0].signal === null, "real final-validation timeout could not produce admitted repair evidence");
+  assert(timeoutResult.lastRound.repairable && timeoutRecoveries.length === 1 && timeoutRecoveries[0].commands[0].status === "timeout" && timeoutRecoveries[0].commands[0].signal === null, "real final-validation timeout could not produce admitted repair evidence");
   buildCanonicalWorkerPrompt({ objective: "repair timeout", userContext: [], discoveredRepoFacts: [], assumptions: [] }, { id: "final-validation", kind: "implement", workContract: timeoutContract }, [], timeoutRecoveries[0]);
   const timeoutFactMismatch = structuredClone(timeoutRecoveries[0]);
   timeoutFactMismatch.commands[0].timeoutMs += 1;

@@ -27,13 +27,13 @@ runA9();
 console.log("repository resource smoke passed (A1, A2, A3, A9)");
 
 function runA2() {
-  for (const value of ["README.md", "docs/interior space.md", "src/naïve/文件.ts", "unicode/é.ts"]) {
+  for (const value of ["README.md", "docs/interior space.md", "src/naïve/文件.ts", "unicode/é.ts", "app/[slug]/page.tsx", "src/routes/[...rest]/+page.svelte", "*.ts", "a?.ts", "a[b].ts", "a{b}.ts"]) {
     assert(parseRepoPath(value) === value, `RepoPath changed valid input ${JSON.stringify(value)}`);
     assert(parseResource({ kind: "file", path: value }).path === value, `Resource changed valid input ${JSON.stringify(value)}`);
   }
   for (const value of [
     "", "/absolute", "C:/drive", "//server/share", "a/../b", "./a", "a/./b", ".git/config", "a/.git/b",
-    "a\u0000b", "a\u001fb", "a\u007fb", "a\\b", "a/", "*.ts", "a?.ts", "a[b].ts", "a{b}.ts", "a//b",
+    "a\u0000b", "a\u001fb", "a\u007fb", "a\\b", "a/", "a//b",
     " leading", "trailing ", "\u0085edge", "edge\u0085", "a/ leading", "a/trailing ", "\ud800", "\udc00",
   ]) {
     expectThrows(() => parseRepoPath(value), `RepoPath accepted ${JSON.stringify(value)}`);
@@ -99,6 +99,12 @@ function runAuthorityChecks() {
 }
 
 function runReadChecks() {
+  expectOk(compileRepositoryAuthority([plan("context", [file("out.ts")])], [detail(["context"], [file("out.ts")], [read(file("package.json"), "baseline-context")])]), "discovered baseline read");
+  expectError(compileRepositoryAuthority([plan("context", [file("out.ts")])], [detail(["missing"], [file("out.ts")], [read(file("package.json"), "baseline-context")])]), "unknown-source-plan-id", "baseline source attribution");
+  expectError(compileRepositoryAuthority([plan("self", [file("self.ts")])], [detail(["self"], [file("self.ts")], [read(file("self.ts"), "post-change-required")])]), "self-post-change-read", "raw self read");
+  const internal = compileRepositoryAuthority([plan("joint", [file("a.ts"), file("b.ts")])], [detail(["joint"], [file("a.ts")]), detail(["joint"], [file("b.ts")], [read(file("a.ts"), "post-change-required")])]);
+  expectOk(internal, "group internal read");
+  assert(internal.ownershipGroups.length === 1 && internal.readEdges.length === 0, "direct compiler lost joint ownership or retained internal edges");
   const plans = [
     plan("owner-a", [file("packages/a.ts")]),
     plan("owner-b", [file("packages/b.ts")]),
@@ -125,7 +131,7 @@ function runReadChecks() {
       [plan("reader", [file("tests/all.test.ts")], [file("missing.ts")])],
       [detail(["reader"], [file("tests/all.test.ts")], [read(file("missing.ts"), "post-change-required")])],
     ),
-    "post-change-read-ownerless",
+    "ownerless-post-change-read",
     "ownerless post-change read",
   );
   expectError(
@@ -140,7 +146,7 @@ function runReadChecks() {
   expectError(
     compileRepositoryAuthority(
       [plan("reader", [file("tests/all.test.ts")], [file("allowed.ts")])],
-      [detail(["reader"], [file("tests/all.test.ts")], [read(file("other.ts"), "baseline-context")])],
+      [detail(["reader"], [file("tests/all.test.ts")], [read(file("other.ts"), "post-change-required")])],
     ),
     "read-not-authorized",
     "same-source read authorization",

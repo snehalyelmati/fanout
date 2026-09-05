@@ -104,6 +104,10 @@ assert(fallback.ok && fallback.warnings.some((warning) => warning.code === "sequ
 assert(fallback.nodes.find((node) => node.id === "reader").workContract.readDependencies.some((read) => read.resource.path === "src/shared.ts" && read.timing === "post-change-required" && read.timingSource === "sequential-fallback"), "sequential fallback did not persist typed conservative ordering");
 
 const context = { objective: "Compile canonical contracts", userContext: ["user"], discoveredRepoFacts: ["fact"], assumptions: ["assumption"] };
+const fallbackBytes = JSON.stringify(fallback.nodes);
+const fallbackMarkdown = renderWorkContractMarkdown(context, fallback.nodes);
+assert(fallbackMarkdown.includes("conservatively waits") && fallbackMarkdown.includes("reduce parallelism"), "fallback review omitted its scheduling consequence");
+assert(JSON.stringify(fallback.nodes) === fallbackBytes, "rendering fallback warnings changed contract authority");
 const markdown = renderWorkContractMarkdown(context, compiled.nodes);
 const mermaid = renderWorkContractMermaid(compiled.nodes);
 const summary = renderWorkContractLaunchSummary(context, compiled.nodes);
@@ -166,7 +170,7 @@ const selfOwned = compileWorkContracts(
   [grounded("self", [{ kind: "modify", target: endpoint(file("self.ts"), "self"), intent: "Update self.", anchors: [{ kind: "symbol", symbol: "self" }] }], { readDependencies: [{ resource: file("self.ts"), timing: "post-change-required", timingSource: "phase-b", sourcePlanIds: ["self"], reason: "Read this node's own output." }] })],
   [command("node", ["check.js"])],
 );
-assert(selfOwned.ok && !selfOwned.graph.edges.some(([from, to]) => from === "self" && to === "self"), `self-owned post-change read failed: ${JSON.stringify(selfOwned.errors)}`);
+expectCode(selfOwned, "self-post-change-read");
 
 const bridgePlans = [plan("first", [file("x")]), plan("second", [file("y")]), plan("bridge", [file("x"), file("y")])];
 const bridge = compileWorkContracts(bridgePlans, [
@@ -199,7 +203,7 @@ expectCompileCode(
 );
 expectCompileCode(
   [plan("read", [file("out")], [file("allowed")])],
-  [grounded("read", [{ kind: "create", target: endpoint(file("out"), "read"), contentIntent: "Create." }], { readDependencies: [{ resource: file("other"), timing: "baseline-context", timingSource: "phase-b", sourcePlanIds: ["read"], reason: "Read." }] })],
+  [grounded("read", [{ kind: "create", target: endpoint(file("out"), "read"), contentIntent: "Create." }], { readDependencies: [{ resource: file("other"), timing: "post-change-required", timingSource: "phase-b", sourcePlanIds: ["read"], reason: "Read." }] })],
   "read-not-authorized",
 );
 expectCompileCode(
@@ -207,6 +211,49 @@ expectCompileCode(
   [grounded("ownerless", [{ kind: "create", target: endpoint(file("out"), "ownerless"), contentIntent: "Create." }], { readDependencies: [{ resource: file("external"), timing: "post-change-required", timingSource: "phase-b", sourcePlanIds: ["ownerless"], reason: "Wait." }] })],
   "ownerless-post-change-read",
 );
+// One Phase A ownership boundary survives multiple grounded rows; read citations do not merge it with another owner.
+const modify = (path, source) => ({ kind: "modify", target: endpoint(file(path), source), intent: "Update.", anchors: [{ kind: "symbol", symbol: "value" }] });
+const classifiedRead = (resource, source, timing = "baseline-context") => ({ resource, sourcePlanIds: [source], timing, timingSource: "phase-b", reason: "Required input." });
+const jointPlans = [plan("joint", [file("runtime.ts"), file("test.ts")]), plan("independent", [file("docs.ts")])];
+const jointInputs = [grounded("runtime", [modify("runtime.ts", "joint")]), grounded("test", [modify("test.ts", "joint")]), grounded("docs", [modify("docs.ts", "independent")], { readDependencies: [classifiedRead(file("package.json"), "joint")] })];
+const joint = compileWorkContracts(jointPlans, jointInputs, finalCommands);
+assert(joint.ok && joint.nodes.length === 3 && joint.nodes[0].workContract.changes.length === 2, `Phase A repair boundary split or read citation merged workers: ${JSON.stringify(joint.errors)}`);
+const internalInputs = structuredClone(jointInputs);
+internalInputs[1].readDependencies = [classifiedRead(file("runtime.ts"), "joint", "post-change-required")];
+const internal = compileWorkContracts(jointPlans, internalInputs, finalCommands);
+assert(internal.ok && internal.graph.edges.length === 2, `group-internal read rejected: ${JSON.stringify(internal.errors)}`);
+const mixedKinds = structuredClone(jointInputs); mixedKinds[1].kind = "test";
+expectCode(compileWorkContracts(jointPlans, mixedKinds, finalCommands), "mixed-node-kind");
+const unknownRead = structuredClone(jointInputs); unknownRead[2].readDependencies[0].sourcePlanIds = ["unknown"];
+expectCode(compileWorkContracts(jointPlans, unknownRead, finalCommands), "unknown-source-plan-id");
+
+const multiPlans = [plan("owner-a", [file("packages/a.ts")]), plan("owner-b", [file("packages/b.ts")]), plan("reader", [file("reader.ts")], [directory("packages")])];
+const multiInputs = [grounded("a", [modify("packages/a.ts", "owner-a")]), grounded("b", [modify("packages/b.ts", "owner-b")]), grounded("reader", [modify("reader.ts", "reader")], { readDependencies: [classifiedRead(file("packages/a.ts"), "reader")] })];
+expectCode(compileWorkContracts(multiPlans, multiInputs, finalCommands), "planned-read-not-grounded");
+multiInputs[2].readDependencies.push(classifiedRead(file("packages/b.ts"), "reader", "post-change-required"));
+const mixedTiming = compileWorkContracts(multiPlans, multiInputs, finalCommands);
+assert(mixedTiming.ok && mixedTiming.graph.edges.some(([from, to]) => from === "b" && to === "reader") && !mixedTiming.graph.edges.some(([from, to]) => from === "a" && to === "reader"), "per-owner mixed timing lost its exact edge");
+multiInputs[2].readDependencies = [classifiedRead(directory("packages"), "reader")];
+assert(compileWorkContracts(multiPlans, multiInputs, finalCommands).ok, "broad classification did not cover both owners");
+const wideOwnerPlans = [plan("owner", [directory("packages")]), plan("reader", [file("reader.ts")], [directory("packages")])];
+expectCode(compileWorkContracts(wideOwnerPlans, [grounded("owner", [{ kind: "modify", target: endpoint(directory("packages"), "owner"), intent: "Update packages.", anchors: [] }]), grounded("reader", [modify("reader.ts", "reader")], { readDependencies: [classifiedRead(file("packages/a.ts"), "reader")] })], finalCommands), "planned-read-not-grounded");
+
+const cyclicPlans = [plan("a", [file("a.ts")], [file("b.ts")]), plan("b", [file("b.ts")], [file("a.ts")])];
+const cyclicInputs = [grounded("a", [modify("a.ts", "a")], { readDependencies: [classifiedRead(file("b.ts"), "a", "post-change-required")] }), grounded("b", [modify("b.ts", "b")], { readDependencies: [classifiedRead(file("a.ts"), "b", "post-change-required")] })];
+expectCode(compileWorkContracts(cyclicPlans, cyclicInputs, finalCommands), "cycle");
+const internallyOwnedFallback = compileWorkContracts([plan("a", [file("shared.ts")], [file("shared.ts")]), plan("b", [file("shared.ts")])], [grounded("combined", [{ ...modify("shared.ts", "a"), target: endpoint(file("shared.ts"), "a", "b") }])], finalCommands, { sequentialReadFallback: true });
+assert(internallyOwnedFallback.ok, `compiler-generated internal fallback was treated as a model self read: ${JSON.stringify(internallyOwnedFallback.errors)}`);
+const changeVariants = [modify("same.ts", "x"), { kind: "create", target: endpoint(file("same.ts"), "x"), contentIntent: "Create." }, { kind: "delete", target: endpoint(file("same.ts"), "x"), reason: "Delete." }, { kind: "move", from: endpoint(file("same.ts"), "x"), to: endpoint(file("other.ts"), "x"), intent: "Move away." }, { kind: "move", from: endpoint(file("other.ts"), "x"), to: endpoint(file("same.ts"), "x"), intent: "Move here." }];
+for (let left = 0; left < changeVariants.length; left++) for (let right = left + 1; right < changeVariants.length; right++) {
+  if (left === 1 && right === 4 || left === 2 && right === 3) continue; // Matching exact before/after existence requirements.
+  expectContractCode({ ...shared.workContract, changes: [changeVariants[left], changeVariants[right]] }, "contradictory-change-intent");
+}
+assert(validateWorkContract({ ...shared.workContract, changes: [modify("same.ts", "x"), modify("same.ts", "x")] }).ok, "compatible repeated modifies were rejected");
+const splitConflict = compileWorkContracts([plan("x", [file("same.ts")])], [grounded("create", [changeVariants[1]]), grounded("modify", [changeVariants[0]])], finalCommands);
+expectCode(splitConflict, "contradictory-change-intent");
+expectCode(compileWorkContracts(jointPlans, jointInputs, []), "missing-final-validation");
+const profileOnly = compileWorkContracts(jointPlans, jointInputs, [], { profileFinalGateCount: 1 });
+assert(profileOnly.ok && profileOnly.nodes.at(-1).workContract.validationCommands.length === 0, "profile-only final contract was rejected");
 console.log("work contract smoke passed");
 
 function expectContractCode(contract, code) {

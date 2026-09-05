@@ -1,4 +1,5 @@
 import { deepFreeze } from "../../fanout-core/src/contract-value";
+import { deriveAttemptMetricTotals } from "../../fanout-core/src/attempt-metrics";
 import type { AttemptProjection, ExecutionRunProjection } from "../../fanout-core/src/execution-projection";
 import type { StageFact } from "../../fanout-core/src/execution-attempt";
 import type { AcceptedPatch } from "../../fanout-core/src/artifact-identity";
@@ -111,6 +112,15 @@ export function queryScenario(snapshot: CatalogSnapshot, request: ScenarioReques
 	});
 	const confirmation = confirmationEvent(run, projection);
 	const observedBoundaryMs = authoritativeBoundary(run, projection, confirmation);
+	const partialAttempts = projection.attempts.filter(({ outcome }) => outcome && !outcome.metrics.complete);
+	if (partialAttempts.length) {
+		const knownCosts = projection.attempts.flatMap(({ outcome }) => outcome && outcome.metrics.turns.some((turn) => turn.costUsd !== undefined || outcome.metrics.responses.some((response) => response.turnId === turn.turnId && response.costUsd !== undefined)) ? [deriveAttemptMetricTotals(outcome.metrics).observedCostUsd] : []);
+		return deepFreeze({ status: "partial", statement: STATEMENT, configuration, observedBoundaryMs, scenarioBoundaryMs: null, deltaMs: null,
+			cost: { status: knownCosts.length ? "partial" : "unavailable", observedUsd: knownCosts.length ? Math.round(knownCosts.reduce((total, cost) => total + cost, 0) * 1e12) / 1e12 : null, scenarioUsd: null, deltaUsd: null },
+			coverage: { kind: "recorded-prefix", lastEventSequence: projection.lastEventSequence }, preserved, schedule: emptySchedule(), completionChain: [],
+			receipt: receipt(partialAttempts.map(({ allocation }) => `complete Attempt measurements: ${allocation.attemptId}`), ["Partial measurements do not support schedule alternatives or comparable totals; recorded evidence remains inspectable"]),
+		});
+	}
 	const complete = projection.terminalOutcome?.outcome === "completed";
 	const recorded = recordedNodes(run, projection, lineage.graph.edges, confirmation, observedBoundaryMs);
 	const observed = observedSchedule(recorded, run, projection, confirmation);

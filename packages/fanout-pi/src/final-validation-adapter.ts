@@ -2,7 +2,7 @@ import { relative } from "node:path";
 import type { AcceptedPatch, ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
 import type { AttemptOutcome, StageFact } from "../../fanout-core/src/execution-attempt.ts";
 import type { FanoutExecutionPacket, FanoutWorkUnit } from "../../fanout-core/src/execution-packet.ts";
-import { deriveFinalRepairWorkContract, type FinalValidationResult } from "../../fanout-core/src/final-validation.ts";
+import { deriveFinalRepairWorkContract, type FinalValidationResult, type FinalControllerResult } from "../../fanout-core/src/final-validation.ts";
 import type { AcceptedLedgerProvenance, AttemptRecoveryContext, FinalValidationRecoveryContext } from "../../fanout-core/src/recovery-evidence.ts";
 import type { ValidationCommand } from "../../fanout-core/src/validation-command.ts";
 import type { ProjectExecutionProfile } from "../../fanout-core/src/project-execution-profile.ts";
@@ -32,15 +32,16 @@ export async function runExecutorFinalValidation(options: {
 	launchRepair: (unit: FanoutWorkUnit, recovery: FinalValidationRecoveryContext, source: { attemptId?: string; evidence?: ArtifactIdentity }, seed?: WorkerAttempt) => Promise<WorkerAttempt>;
 	completeTerminal: (attempt: WorkerAttempt) => Promise<WorkerAttempt>;
 	terminalOutcome: (attempt: WorkerAttempt) => AttemptOutcome;
-	applyRepair: (unit: FanoutWorkUnit, attempt: WorkerAttempt, result: FinalValidationResult) => Promise<boolean>;
-}): Promise<FinalValidationResult> {
+	applyRepair: (unit: FanoutWorkUnit, attempt: WorkerAttempt, result: FinalValidationResult) => Promise<{ ok: boolean; attemptId: string }>;
+	retainMutationLock: () => void;
+}): Promise<FinalControllerResult> {
 	const initialTree = options.acceptedLedger.at(-1)?.patch.resultTree ?? options.planningBase.tree;
 	const finalUnit = options.packet.nodes.find((unit) => unit.kind === "final-validation");
 	const finalContract = finalUnit?.workContract;
 	const authoritativeCommands = finalValidationCommands(options.packet, options.profile, finalContract?.validationCommands ?? options.commands);
 	const upstreamUnits = options.packet.nodes.filter((unit) => unit.kind !== "final-validation");
 	const effectiveFinalContract = finalContract ? { ...finalContract, validationCommands: authoritativeCommands } : undefined;
-	const repairContract = finalContract ? deriveFinalRepairWorkContract(upstreamUnits.map((unit) => unit.workContract), finalContract) : undefined;
+	const repairContract = finalContract ? deriveFinalRepairWorkContract(upstreamUnits.map((unit) => unit.workContract), finalContract, authoritativeCommands) : undefined;
 	const repairUnit = finalUnit && repairContract ? { ...finalUnit, kind: "implement" as const, workContract: repairContract } : undefined;
 	return await runFinalValidation<WorkerAttempt>({
 		repoRoot: options.repoRoot,
@@ -94,6 +95,7 @@ export async function runExecutorFinalValidation(options: {
 				return options.terminalOutcome(completed).action === "validation-repair";
 			},
 			apply: async (attempt, result) => options.applyRepair(repairUnit, attempt, result),
+			retainMutationLock: options.retainMutationLock,
 		} } : {}),
 	});
 }

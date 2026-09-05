@@ -14,7 +14,7 @@ function fixture(): CatalogSnapshot {
 			nodeId, attemptId, action, startedAt: at(start), finishedAt: at(end), durationMs: end - start,
 			terminalFact: { stage: "apply", code: action === "accept" ? "applied" : "failed" },
 			metrics: {
-				complete: true,
+				status: "complete", issues: [], complete: true,
 				turns: [{ attemptId, turnId: `${attemptId}:turn`, terminal: "completed", provider: "provider", model: "model", tier, requestedAt: at(start + 5), firstOutputAt: at(start + 15), finishedAt: at(end - 5), durationMs: end - start - 10, inputTokens: 100, outputTokens: 10, cacheReadTokens: 20, cacheWriteTokens: 30, totalTokens: 110, costUsd: 0.1, pricingSource: "fixture", responseIds: [], toolCallIds: [`${attemptId}:tool`] }],
 				responses: [], polls: [],
 				tools: [{ turnId: `${attemptId}:turn`, toolCallId: `${attemptId}:tool`, name: "edit", startedAt: at(start + 20), finishedAt: at(start + 30), durationMs: 10 }],
@@ -84,7 +84,7 @@ test("fixed-behavior scenarios preserve evidence while varying only bounded Fano
 	const observed = queryScenario(state, { concurrency: { mode: "observed" } });
 	expect(observed).toMatchObject({ status: "available", configuration: { mode: "observed", limit: 2 }, observedBoundaryMs: 160, scenarioBoundaryMs: 160, deltaMs: 0, statement: expect.stringContaining("fixed recorded behavior") });
 	expect(observed.schedule.nodes).toContainEqual(expect.objectContaining({ nodeId: "b", executionEndMs: 50, completedMs: 100, acceptanceGateWaitMs: 50 }));
-	expect(observed.receipt).toMatchObject({ evidenceClass: "Scenario", artifactGeneration: "Event v5 / Projection v6", profileIdentity: { path: "profiles/default.json" }, sourceReferences: expect.arrayContaining([expect.objectContaining({ id: "packet" }), expect.objectContaining({ id: "events" })]) });
+	expect(observed.receipt).toMatchObject({ evidenceClass: "Scenario", artifactGeneration: "Event v6 / Projection v7", profileIdentity: { path: "profiles/default.json" }, sourceReferences: expect.arrayContaining([expect.objectContaining({ id: "packet" }), expect.objectContaining({ id: "events" })]) });
 
 	const sequential = queryScenario(state, { concurrency: { mode: "sequential" } });
 	expect(sequential).toMatchObject({ status: "available", observedBoundaryMs: 160, scenarioBoundaryMs: 210, deltaMs: 50, configuration: { mode: "sequential", limit: 1 } });
@@ -225,7 +225,6 @@ test("Provider Profiles independently apply fixed timing, FIFO capacity, and cac
 test("Provider Profiles schedule every Response, shift interleaved Tools, and identify the FIFO constraint", () => {
 	const state = fixture();
 	const attempt = state.executionRuns[0]!.projection!.attempts.find(({ allocation }) => allocation.attemptId === "a:1")!.outcome!.metrics as any;
-	attempt.complete = false; // Cost strength depends on usage fields, not unrelated envelope completeness.
 	attempt.responses = [
 		{ turnId: "a:1:turn", responseId: "a:r1", requestedAt: at(5), firstTokenAt: at(10), finishedAt: at(25), durationMs: 20, inputTokens: 40, outputTokens: 4, cacheReadTokens: 10, cacheWriteTokens: 5, costUsd: 0.04 },
 		{ turnId: "a:1:turn", responseId: "a:r2", requestedAt: at(35), firstTokenAt: at(40), finishedAt: at(65), durationMs: 30, inputTokens: 60, outputTokens: 6, cacheReadTokens: 10, cacheWriteTokens: 25, costUsd: 0.06 },
@@ -292,4 +291,30 @@ test("Provider Profile input is tier-wide, closed, and bounded", () => {
 		{ tier1: { mode: "observed" }, tier2: { ...fixed, pricesPerMillion: { ...prices, cacheRead: -1 } } },
 		{ tier1: { mode: "observed" }, tier2: { mode: "cold-warm", name: "Warm", capacity: 1, warmthScope: "run", coldTtftMs: 1, warmTtftMs: 0, outputTokensPerSecond: 1, pricesPerMillion: prices, reset: { warmCallLimit: 0 } } },
 	] as any[]) expect(() => queryScenario(fixture(), { concurrency: { mode: "observed" }, providerProfiles })).toThrow();
+});
+
+
+test("partial measurements suppress scenario arithmetic while retaining recorded identities and spend", () => {
+	for (const concurrency of [{ mode: "observed" }, { mode: "sequential" }] as const) {
+		const state = fixture();
+		const metrics = state.executionRuns[0]!.projection!.attempts[0]!.outcome!.metrics;
+		metrics.complete = false; metrics.status = "partial"; metrics.issues = [];
+		delete metrics.turns[0]!.requestedAt;
+		const result = queryScenario(state, { concurrency });
+		expect(result).toMatchObject({ status: "partial", scenarioBoundaryMs: null, deltaMs: null, cost: { status: "partial", observedUsd: 0.4, scenarioUsd: null, deltaUsd: null } });
+		expect(result.schedule.turns).toEqual([]);
+		expect(result.preserved.turnIds).toContain("a:1:turn");
+		expect(result.receipt.missingInputs).toContain("complete Attempt measurements: a:1");
+	}
+});
+
+test("partial scenarios retain response-only spend without adding it twice to known turn costs", () => {
+	const state = fixture();
+	const metrics = state.executionRuns[0]!.projection!.attempts[0]!.outcome!.metrics;
+	metrics.complete = false; metrics.status = "partial";
+	delete metrics.turns[0]!.costUsd;
+	metrics.responses = [{ responseId: "response-1", turnId: "a:1:turn", costUsd: 0.2 }] as any;
+	expect(queryScenario(state, { concurrency: { mode: "observed" } }).cost).toMatchObject({ status: "partial", observedUsd: 0.5, scenarioUsd: null });
+	metrics.turns[0]!.costUsd = 0.2;
+	expect(queryScenario(state, { concurrency: { mode: "observed" } }).cost.observedUsd).toBe(0.5);
 });

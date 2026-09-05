@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { parseArtifactIdentity, type ArtifactIdentity } from "./artifact-identity.ts";
-import { correlateAttemptMetrics, isCorrelatedAttemptMetrics, validateAttemptMetricEnvelope, type CorrelatedAttemptMetrics } from "./attempt-metrics.ts";
+import { parseCorrelatedAttemptMetrics, isCorrelatedAttemptMetrics, validateAttemptMetricEnvelope, type CorrelatedAttemptMetrics } from "./attempt-metrics.ts";
 import {
 	canonicalTimestamp,
 	contractIdentity as requiredIdentity,
@@ -16,7 +16,7 @@ import { parseAttemptRecoveryContext, type AttemptRecoveryContext } from "./reco
 import { repairStateDigest, type RepairStateDigest } from "./repair-state.ts";
 
 export const ATTEMPT_OUTCOME_SCHEMA = "fanout.attempt-outcome";
-export const ATTEMPT_OUTCOME_VERSION = 5;
+export const ATTEMPT_OUTCOME_VERSION = 6;
 
 export type AttemptKind = "original" | "retry" | "fallback" | "validation-repair" | "integration-repair";
 export type ControllerAction = "accept" | "retry" | "fallback" | "validation-repair" | "integration-repair" | "fail" | "abort";
@@ -225,9 +225,9 @@ export function prepareAttemptCompletion(allocation: AttemptAllocation, input: C
 	let action = routeAttempt(terminalFact, { kind: allocation.kind, assignment: allocation.assignment, fallbackAllowed: input.fallbackAllowed, remaining: remainingAttemptBudgets(input.state) });
 	if (input.metrics.attemptId !== allocation.attemptId) throw new Error(`metrics attempt ${input.metrics.attemptId} does not match allocation ${allocation.attemptId}`);
 	if (!isCorrelatedAttemptMetrics(input.metrics)) throw new Error("attempt metrics were not produced by the correlation gate");
-	validateAttemptMetricEnvelope(input.metrics, startedAt, finishedAt);
-	if (input.metrics.turns.some((turn) => turn.provider !== allocation.assignment.provider || turn.model !== allocation.assignment.model || turn.tier !== allocation.assignment.tier)) throw new Error("metric turn assignment does not match attempt allocation");
-	if (action === "accept" && !input.metrics.complete) throw new Error("accepted attempt requires complete correlated metrics");
+	if (input.metrics.status !== "invalid") validateAttemptMetricEnvelope(input.metrics, startedAt, finishedAt);
+	if (input.metrics.status !== "invalid" && input.metrics.turns.some((turn) => turn.provider !== allocation.assignment.provider || turn.model !== allocation.assignment.model || turn.tier !== allocation.assignment.tier)) throw new Error("metric turn assignment does not match attempt allocation");
+	if (action === "accept" && (input.metrics.status === "invalid" || !input.metrics.turns.length)) throw new Error("accepted attempt requires valid observed assignment metrics");
 	const recovery = input.recovery ? parseAttemptRecoveryContext(input.recovery) : undefined;
 	const validationFailure = terminalFact.stage === "validation" && ["program-failure", "timeout", "signal"].includes(terminalFact.code);
 	const integrationFailure = terminalFact.stage === "apply" && ["check-conflict", "apply-failure", "post-tree-mismatch"].includes(terminalFact.code);
@@ -260,7 +260,7 @@ export function prepareAttemptCompletion(allocation: AttemptAllocation, input: C
 	if (input.disposition === "deterministic-reconciliation" && action !== "accept") throw new Error("deterministic reconciliation disposition requires an accepted attempt");
 	const disposition: ControllerDisposition = input.disposition
 		?? (repairProgress && !repairProgress.progressed ? "exact-no-progress"
-			: action === "fail" && (validationFailure || integrationFailure) ? "budget-exhausted"
+			: action === "fail" && (validationFailure && remainingAttemptBudgets(input.state).validationRepair === 0 || integrationFailure && terminalFact.code !== "post-tree-mismatch" && remainingAttemptBudgets(input.state).integrationRepair === 0) ? "budget-exhausted"
 				: repairProgress?.progressed ? "changed"
 				: "ordinary");
 	const evidenceRefs = input.evidenceRefs ?? [];
@@ -352,19 +352,8 @@ export function parseAttemptOutcome(value: unknown): AttemptOutcome {
 	const finishedAt = canonicalTimestamp(item.finishedAt, "finishedAt");
 	const durationMs = finiteNonNegative(item.durationMs, "attempt durationMs");
 	if (Date.parse(finishedAt) - Date.parse(startedAt) !== durationMs) throw new TypeError("attempt durationMs must equal its timestamp interval");
-	if (!record(item.metrics)) throw new TypeError("attempt metrics must be an object");
-	const serializedMetrics = item.metrics;
-	const metricsInput = { ...serializedMetrics };
-	delete metricsInput.complete;
-	const correlated = correlateAttemptMetrics(metricsInput);
-	const parsedMetrics = correlated.ok ? correlated.metrics : correlated.partialMetrics;
-	const serializedWithoutComplete = { ...serializedMetrics };
-	delete serializedWithoutComplete.complete;
-	const parsedWithoutComplete: Record<string, unknown> = { ...parsedMetrics };
-	delete parsedWithoutComplete.complete;
-	if (!parsedMetrics || typeof serializedMetrics.complete !== "boolean" || serializedMetrics.complete && !correlated.ok || !isDeepStrictEqual(serializedWithoutComplete, parsedWithoutComplete)) throw new TypeError("attempt metrics are not a canonical correlated record");
-	const metrics: CorrelatedAttemptMetrics = serializedMetrics.complete ? parsedMetrics : deepFreeze({ ...parsedMetrics, complete: false });
-	validateAttemptMetricEnvelope(metrics, startedAt, finishedAt);
+	const metrics = parseCorrelatedAttemptMetrics(item.metrics);
+	if (metrics.status !== "invalid") validateAttemptMetricEnvelope(metrics, startedAt, finishedAt);
 	const action = item.action as ControllerAction;
 	if (!["accept", "retry", "fallback", "validation-repair", "integration-repair", "fail", "abort"].includes(String(action))) throw new TypeError("attempt action is invalid");
 	const disposition = item.disposition as ControllerDisposition;
@@ -399,7 +388,9 @@ export function parseAttemptOutcome(value: unknown): AttemptOutcome {
 		...(item.diagnostic === undefined ? {} : { diagnostic: requiredString(item.diagnostic, "diagnostic") }),
 	};
 	parseAttemptAllocation({ runId: outcome.runId, nodeId: outcome.nodeId, attemptId: outcome.attemptId, attemptNumber: outcome.attemptNumber, kind: outcome.kind, assignment: outcome.assignment, ...(outcome.sourceAttemptId ? { sourceAttemptId: outcome.sourceAttemptId } : {}), ...(outcome.sourceFinalValidationEvidence ? { sourceFinalValidationEvidence: outcome.sourceFinalValidationEvidence } : {}), budgetTransition: outcome.budgetTransition });
-	if (outcome.action === "accept" && !outcome.metrics.complete) throw new TypeError("accepted attempt requires complete correlated metrics");
+	if (outcome.metrics.attemptId !== outcome.attemptId || outcome.metrics.status !== "invalid" && outcome.metrics.turns.some((turn) => !sameAssignment(turn, outcome.assignment))) throw new TypeError("metric assignment does not match attempt allocation");
+	if (outcome.action === "accept" && (outcome.metrics.status === "invalid" || !outcome.metrics.turns.length)) throw new TypeError("accepted attempt requires valid observed assignment metrics");
+	if (outcome.disposition === "budget-exhausted" && outcome.terminalFact.stage === "apply" && outcome.terminalFact.code === "post-tree-mismatch") throw new TypeError("post-tree mismatch is a hard failure, not budget exhaustion");
 	const validationFailure = outcome.terminalFact.stage === "validation" && ["program-failure", "timeout", "signal"].includes(outcome.terminalFact.code);
 	const integrationFailure = outcome.terminalFact.stage === "apply" && ["check-conflict", "apply-failure", "post-tree-mismatch"].includes(outcome.terminalFact.code);
 	const validationRecoveryMismatch = outcome.recovery && (outcome.recovery.kind === "validation" ? outcome.recovery.sourceAttemptId !== outcome.attemptId : outcome.recovery.kind === "final-validation" ? !outcome.sourceFinalValidationEvidence && !outcome.sourceAttemptId : true);
@@ -499,7 +490,7 @@ export function parseStageFact(value: unknown): StageFact {
 	if (value.stage === "candidate-normalization" && value.commandIndex !== undefined && (!Number.isSafeInteger(value.commandIndex) || Number(value.commandIndex) < 0)) throw new TypeError("candidate-normalization commandIndex must be a non-negative safe integer");
 	if (value.stage === "validation" && value.failedCommandIndexes !== undefined) {
 		if (!Array.isArray(value.failedCommandIndexes) || value.failedCommandIndexes.some((index) => !Number.isSafeInteger(index) || Number(index) < 0)) throw new TypeError("validation failedCommandIndexes must be non-negative integers");
-		if (new Set(value.failedCommandIndexes).size !== value.failedCommandIndexes.length || value.failedCommandIndexes.some((index, position) => position > 0 && Number(index) <= Number(value.failedCommandIndexes?.[position - 1]))) throw new TypeError("validation failedCommandIndexes must be unique and ordered");
+		if (new Set(value.failedCommandIndexes).size !== value.failedCommandIndexes.length || value.failedCommandIndexes.some((index, position, indexes) => position > 0 && Number(index) <= Number(indexes[position - 1]))) throw new TypeError("validation failedCommandIndexes must be unique and ordered");
 	}
 	return structuredClone(value) as StageFact;
 }

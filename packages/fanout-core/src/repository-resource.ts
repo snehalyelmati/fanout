@@ -75,7 +75,6 @@ export function parseRepoPath(value: unknown): RepoPath {
 	if (value.startsWith("/") || /^[A-Za-z]:/.test(value) || value.startsWith("\\")) throw new TypeError("repository path must be relative");
 	if (value.includes("\\")) throw new TypeError("repository path must use forward slashes");
 	if (value.endsWith("/")) throw new TypeError("repository path must not have a trailing slash");
-	if (/[*?\[\]{}]/u.test(value)) throw new TypeError("repository path must not contain glob syntax");
 	if (/[\u0000-\u001f\u007f]/u.test(value)) throw new TypeError("repository path must not contain controls");
 	if (hasUnpairedSurrogate(value)) throw new TypeError("repository path must not contain unpaired surrogates");
 	const segments = value.split("/");
@@ -102,7 +101,11 @@ export function resourcesOverlap(left: Resource, right: Resource): boolean {
 		|| (right.kind === "directory" && left.path.startsWith(`${right.path}/`));
 }
 
-export function authorizeResourceForSources(resource: Resource, sourcePlanIds: readonly string[], planned: readonly PlannedResourceScope[], access: "write" | "read"): ResourceAuthorityIssue[] {
+export function resourceOwnerIndexes(resource: Resource, ownership: readonly (readonly Resource[])[]): number[] {
+	return ownership.flatMap((writes, index) => writes.some((write) => resourcesOverlap(write, resource)) ? [index] : []);
+}
+
+export function authorizeResourceForSources(resource: Resource, sourcePlanIds: readonly string[], planned: readonly PlannedResourceScope[], access: "write" | "read" | "baseline-context"): ResourceAuthorityIssue[] {
 	const errors: ResourceAuthorityIssue[] = [];
 	const plans = new Map(planned.map((scope) => [scope.id, scope]));
 	authorizeForSources(resource, sourcePlanIds, plans, access, errors);
@@ -112,7 +115,7 @@ export function authorizeResourceForSources(resource: Resource, sourcePlanIds: r
 export function groupConnectedResourceScopes(scopes: readonly ResourceScope[]): OwnershipGroup[] {
 	const groups: OwnershipGroup[] = [];
 	for (const [index, scope] of scopes.entries()) {
-		const matches = groups.filter((group) => group.resources.some((left) => scope.resources.some((right) => resourcesOverlap(left, right))));
+		const matches = groups.filter((group) => group.resources.some((left) => scope.resources.some((right) => resourcesOverlap(left, right))) || group.resources.length > 0 && scope.resources.length > 0 && group.sourcePlanIds.some((id) => scope.sourcePlanIds.includes(id)));
 		if (matches.length === 0) {
 			groups.push({ memberIndexes: [index], resources: uniqueResources(scope.resources), sourcePlanIds: [...new Set(scope.sourcePlanIds)] });
 			continue;
@@ -146,12 +149,18 @@ export function compileRepositoryAuthority(plannedInput: readonly PlannedResourc
 		if (scope.sourcePlanIds.length === 0) add(errors, "missing-source-plan-id", "grounded scope must cite at least one source plan", `grounded[${index}].sourcePlanIds`);
 		if (scope.ownedResources.length === 0) add(errors, "missing-owned-resource", "grounded scope must own at least one resource", `grounded[${index}].ownedResources`);
 		for (const resource of scope.ownedResources) authorizeForSources(resource, scope.sourcePlanIds, plans, "write", errors, `grounded[${index}].ownedResources`);
-		for (const dependency of scope.readDependencies) authorizeForSources(dependency.resource, scope.sourcePlanIds, plans, "read", errors, `grounded[${index}].readDependencies`);
+		for (const dependency of scope.readDependencies) authorizeForSources(dependency.resource, scope.sourcePlanIds, plans, dependency.timing === "baseline-context" ? "baseline-context" : "read", errors, `grounded[${index}].readDependencies`);
 	}
 
 	for (const source of planned) for (const resource of source.writeResources) {
 		const covered = grounded.some((scope) => scope.sourcePlanIds.includes(source.id) && scope.ownedResources.some((candidate) => resourceCovers(resource, candidate)));
 		if (!covered) add(errors, "planned-write-not-grounded", `${show(resource)} from ${source.id} has no same-source grounding`);
+	}
+
+	for (const [readerIndex, scope] of grounded.entries()) for (const dependency of scope.readDependencies) {
+		if (dependency.timing !== "post-change-required") continue;
+		const owners = resourceOwnerIndexes(dependency.resource, grounded.map((entry) => entry.ownedResources));
+		if (owners.length === 1 && owners[0] === readerIndex) add(errors, "self-post-change-read", `${show(dependency.resource)} only belongs to the submitting scope`);
 	}
 
 	const forbiddenWriteResources = uniqueResources([...planned.flatMap((scope) => scope.forbiddenWriteResources), ...grounded.flatMap((scope) => scope.forbiddenWriteResources)]);
@@ -170,9 +179,10 @@ export function compileRepositoryAuthority(plannedInput: readonly PlannedResourc
 				add(errors, "invalid-read-timing", `invalid read timing ${String(dependency.timing)}`);
 				continue;
 			}
-			const owners = ownershipGroups.flatMap((owner, ownerIndex) => ownerIndex !== readerIndex && owner.resources.some((resource) => resourcesOverlap(resource, dependency.resource)) ? [ownerIndex] : []);
-			if (owners.length === 0) add(errors, "post-change-read-ownerless", `${show(dependency.resource)} has no other ownership group`);
+			const owners = resourceOwnerIndexes(dependency.resource, ownershipGroups.map((owner) => owner.resources));
+			if (owners.length === 0) add(errors, "ownerless-post-change-read", `${show(dependency.resource)} has no ownership group`);
 			for (const ownerIndex of owners) {
+				if (ownerIndex === readerIndex) continue;
 				const key = `${ownerIndex}\0${readerIndex}\0${resourceKey(dependency.resource)}`;
 				if (!edgeKeys.has(key)) {
 					edgeKeys.add(key);
@@ -283,13 +293,14 @@ function groupOwnership(scopes: GroundedResourceScope[]): OwnershipGroup[] {
 	return groupConnectedResourceScopes(scopes.map((scope) => ({ resources: scope.ownedResources, sourcePlanIds: scope.sourcePlanIds })));
 }
 
-function authorizeForSources(resource: Resource, sourcePlanIds: readonly string[], plans: Map<string, PlannedResourceScope>, access: "write" | "read", errors: ResourceAuthorityIssue[], path?: string): void {
+function authorizeForSources(resource: Resource, sourcePlanIds: readonly string[], plans: Map<string, PlannedResourceScope>, access: "write" | "read" | "baseline-context", errors: ResourceAuthorityIssue[], path?: string): void {
 	for (const sourceId of sourcePlanIds) {
 		const source = plans.get(sourceId);
 		if (!source) {
 			add(errors, "unknown-source-plan-id", `unknown source plan id ${sourceId}`, path);
 			continue;
 		}
+		if (access === "baseline-context") continue;
 		const authorities = access === "write" ? source.writeResources : [...source.readResources, ...source.writeResources];
 		if (!authorities.some((authority) => resourceCovers(authority, resource))) add(errors, `${access}-not-authorized`, `${show(resource)} is not authorized by source ${sourceId}`, path);
 	}

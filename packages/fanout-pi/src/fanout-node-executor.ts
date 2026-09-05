@@ -17,7 +17,6 @@ import {
 import { assertFinalValidationRecoverySource, type AcceptedLedgerProvenance, type AttemptRecoveryContext } from "../../fanout-core/src/recovery-evidence.ts";
 import { executionPacketBytes, type FanoutExecutionPacket, type FanoutWorkUnit } from "../../fanout-core/src/execution-packet.ts";
 import type { DagNodeResult } from "../../fanout-core/src/dag-scheduler.ts";
-import type { WorkerMetrics } from "../../fanout-core/src/worker-metrics.ts";
 import type { ProjectExecutionProfile } from "../../fanout-core/src/project-execution-profile.ts";
 import {
 	artifactSegment,
@@ -37,9 +36,8 @@ import {
 	verifyPatchCandidate,
 	type PlanningBase,
 } from "./repository-identity.ts";
-import { writeArtifactAtomically } from "./artifact-store.ts";
 import { runValidationCommands, type ValidationRunResult } from "./validation-runner.ts";
-import type { FinalValidationResult } from "../../fanout-core/src/final-validation.ts";
+import type { FinalControllerResult } from "../../fanout-core/src/final-validation.ts";
 import type { ValidationCommand } from "../../fanout-core/src/validation-command.ts";
 import {
 	attemptEvidenceRefs,
@@ -55,7 +53,6 @@ interface GatedAttempt extends WorkerAttempt {
 	ok: true;
 	worktreePath: string;
 	base: PlanningBase;
-	metrics: WorkerMetrics;
 	patch: AcceptedPatch;
 	validation: ValidationRunResult;
 }
@@ -123,6 +120,7 @@ export class FanoutNodeExecutor {
 	#applyTail: Promise<void> = Promise.resolve();
 	#worktrees = new Set<string>();
 	#manualReconciliationRequired = false;
+	#eventPublicationFailed = false;
 
 	constructor(options: FanoutNodeExecutorOptions) {
 		this.#packet = options.packet;
@@ -143,6 +141,7 @@ export class FanoutNodeExecutor {
 	}
 
 	get manualReconciliationRequired(): boolean { return this.#manualReconciliationRequired; }
+	retainMutationLock(): void { this.#manualReconciliationRequired = true; }
 
 	finalValidationCommands(fallback: readonly ValidationCommand[]): ValidationCommand[] {
 		return finalValidationCommands(this.#packet, this.#profile, fallback);
@@ -158,7 +157,7 @@ export class FanoutNodeExecutor {
 		if (failure) throw failure;
 	}
 
-	async runFinalValidation(commands: readonly ValidationCommand[]): Promise<FinalValidationResult> {
+	async runFinalValidation(commands: readonly ValidationCommand[]): Promise<FinalControllerResult> {
 		return await runExecutorFinalValidation({
 			packet: this.#packet,
 			packetIdentity: this.#packetIdentity,
@@ -179,7 +178,11 @@ export class FanoutNodeExecutor {
 			}),
 			completeTerminal: async (attempt) => await this.#completeTerminalAttempt(attempt),
 			terminalOutcome: (attempt) => this.#terminalOutcome(attempt),
-			applyRepair: async (unit, attempt, result) => (await this.#apply(unit, { ...attempt, validation: { status: "passed", executedCount: result.commandCount, durationMs: result.durationMs, commands: [] } } as GatedAttempt)).ok,
+			applyRepair: async (unit, attempt, result) => {
+				const applied = await this.#apply(unit, { ...attempt, validation: { status: "passed", executedCount: result.commandCount, durationMs: result.durationMs, commands: [] } } as GatedAttempt);
+				return { ok: applied.ok, attemptId: applied.attemptId };
+			},
+			retainMutationLock: () => this.retainMutationLock(),
 		});
 	}
 
@@ -302,7 +305,7 @@ export class FanoutNodeExecutor {
 	}
 
 	async #gateOwnershipAndValidation(unit: FanoutWorkUnit, attempt: WorkerAttempt, signal?: AbortSignal): Promise<GatedAttempt | WorkerAttempt> {
-		if (!attempt.ok || !attempt.worktreePath || !attempt.base || !attempt.metrics || !attempt.patch) return attempt;
+		if (!attempt.ok || !attempt.worktreePath || !attempt.base || !attempt.correlatedMetrics || !attempt.patch) return attempt;
 		if (signal?.aborted) return await this.#completeAbortedAttempt(attempt, signal.reason);
 		let ownership;
 		try {
@@ -471,6 +474,7 @@ export class FanoutNodeExecutor {
 					return attempt;
 				} catch (error) {
 					this.#manualReconciliationRequired = true;
+					if (this.#eventPublicationFailed) throw error;
 					const failedAttempt = {
 						...attempt,
 						ok: false,
@@ -482,6 +486,7 @@ export class FanoutNodeExecutor {
 					return this.#outcomes.some((outcome) => outcome.attemptId === attempt.attemptId) ? failedAttempt : await this.#completeTerminalAttempt(failedAttempt);
 				}
 			} catch (error) {
+				if (this.#eventPublicationFailed) throw error;
 				const message = errorMessage(error);
 				if (error instanceof AmbiguousApplyError) {
 					this.#manualReconciliationRequired = true;
@@ -585,6 +590,7 @@ export class FanoutNodeExecutor {
 		acceptedTransition?: AcceptedStateTransition,
 		disposition?: "deterministic-reconciliation",
 	): Promise<AttemptOutcome> {
+		if (this.#eventPublicationFailed) throw new Error("attempt publication stopped; inspect the last durable event prefix");
 		const existing = this.#outcomes.find((outcome) => outcome.attemptId === attempt.attemptId);
 		if (existing) return existing;
 		const state = this.#attemptStates.get(attempt.allocation.nodeId);
@@ -602,16 +608,16 @@ export class FanoutNodeExecutor {
 			evidenceRefs: attemptEvidenceRefs(this.#runDir, attempt),
 			...(attempt.error ? { diagnostic: attempt.error } : {}),
 		});
-		const artifactPath = `${relative(this.#runDir, attempt.attemptDir).split("\\").join("/")}/attempt-outcome.json`;
 		try {
-			writeArtifactAtomically(this.#runDir, artifactPath, Buffer.from(`${JSON.stringify(prepared.outcome, null, 2)}\n`));
+			await this.#recorder.recordAttemptCompleted(prepared.outcome, acceptedTransition);
 		} catch (error) {
+			this.#eventPublicationFailed = true;
+			if (acceptedTransition || this.#acceptedLedger.length) this.#manualReconciliationRequired = true;
 			discardPreparedAttemptCompletion(prepared);
 			throw error;
 		}
 		const outcome = commitAttemptCompletion(prepared);
 		this.#outcomes = appendTerminalOutcome(this.#outcomes, outcome);
-		await this.#recorder.recordAttemptCompleted(outcome, acceptedTransition);
 		return outcome;
 	}
 

@@ -68,7 +68,11 @@ export function loadWorkerValidationContext(env: NodeJS.ProcessEnv = process.env
 	return context;
 }
 
-export function registerWorkerValidationTool(pi: Pick<ExtensionAPI, "registerTool">, context: WorkerValidationContext): void {
+export function registerWorkerValidationTool(pi: Pick<ExtensionAPI, "registerTool" | "on">, context: WorkerValidationContext): void {
+	pi.on("tool_result", (event) => {
+		if (event.toolName !== FANOUT_VALIDATE_TOOL || !isRecord(event.details)) return;
+		if (event.details.error || isRecord(event.details.result) && event.details.result.status !== "passed") return { isError: true };
+	});
 	pi.registerTool({
 		name: FANOUT_VALIDATE_TOOL,
 		label: "Fanout Validate",
@@ -172,6 +176,7 @@ function parseManifest(value: unknown): WorkerValidationManifest {
 }
 
 function formatResult(result: ValidationRunResult): string {
+	if (!result.commands.length) return "fanout_validate: No focused validation commands are declared for this attempt. The controller still runs the combined authoritative final gates.";
 	const lines = [`fanout_validate ${result.status}: ${result.executedCount}/${result.commands.length} commands executed in ${result.durationMs}ms.`];
 	for (const command of result.commands) {
 		lines.push(`[${command.index}] ${command.outcome} (exit ${command.exitCode ?? "none"}, ${command.durationMs}ms)`);

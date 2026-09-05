@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { canonicalTimestamp, deepFreeze } from "./contract-value.ts";
 
 export type MetricCompatibility = "generic" | "instrumented";
@@ -9,17 +10,18 @@ export interface TurnMetricEvidence {
 	provider: string;
 	model: string;
 	tier: "tier1" | "tier2";
+	tierSource?: "controller-launch";
 	requestedAt?: string;
 	firstOutputAt?: string;
 	finishedAt?: string;
 	durationMs?: number;
-	inputTokens: number;
-	outputTokens: number;
-	cacheReadTokens: number;
-	cacheWriteTokens: number;
-	totalTokens: number;
-	costUsd: number;
-	pricingSource: string;
+	inputTokens?: number;
+	outputTokens?: number;
+	cacheReadTokens?: number;
+	cacheWriteTokens?: number;
+	totalTokens?: number;
+	costUsd?: number;
+	pricingSource?: string;
 	responseIds: string[];
 	toolCallIds: string[];
 }
@@ -36,13 +38,13 @@ export interface ResponseMetricEvidence {
 	finishedAt?: string;
 	durationMs?: number;
 	pollIds: string[];
-	inputTokens: number;
-	outputTokens: number;
-	cacheReadTokens: number;
-	cacheWriteTokens: number;
-	totalTokens: number;
-	costUsd: number;
-	pricingSource: string;
+	inputTokens?: number;
+	outputTokens?: number;
+	cacheReadTokens?: number;
+	cacheWriteTokens?: number;
+	totalTokens?: number;
+	costUsd?: number;
+	pricingSource?: string;
 }
 
 export interface PollMetricEvidence {
@@ -77,23 +79,27 @@ export interface AttemptMetricEvidence {
 }
 
 export interface AttemptMetricTotals {
-	inputTokens: number;
-	outputTokens: number;
-	cacheReadTokens: number;
-	cacheWriteTokens: number;
-	totalTokens: number;
-	costUsd: number;
-	pollCount: number;
-	pollDurationMs: number;
-	toolDurationMs: number;
+	inputTokens: number | null;
+	outputTokens: number | null;
+	cacheReadTokens: number | null;
+	cacheWriteTokens: number | null;
+	totalTokens: number | null;
+	costUsd: number | null;
+	observedCostUsd: number;
+	pollCount: number | null;
+	pollDurationMs: number | null;
+	toolDurationMs: number | null;
 }
 
 export interface CorrelatedAttemptMetrics extends AttemptMetricEvidence {
 	complete: boolean;
+	status: "complete" | "partial" | "invalid";
+	issues: MetricIssue[];
 }
 
 export interface MetricIssue {
 	code:
+		| "missing-measurement"
 		| "malformed-input"
 		| "missing-identity"
 		| "correlation-mismatch"
@@ -117,14 +123,14 @@ export interface CorrelateAttemptMetricsResult {
 }
 
 const EVIDENCE_FIELDS = new Set(["attemptId", "compatibility", "turns", "responses", "polls", "tools", "workerFirstOutputMs", "workerDurationMs"]);
-const TURN_FIELDS = new Set(["attemptId", "turnId", "terminal", "provider", "model", "tier", "requestedAt", "firstOutputAt", "finishedAt", "durationMs", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "costUsd", "pricingSource", "responseIds", "toolCallIds"]);
+const TURN_FIELDS = new Set(["attemptId", "turnId", "terminal", "provider", "model", "tier", "tierSource", "requestedAt", "firstOutputAt", "finishedAt", "durationMs", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "costUsd", "pricingSource", "responseIds", "toolCallIds"]);
 const RESPONSE_FIELDS = new Set(["attemptId", "turnId", "responseId", "provider", "model", "terminal", "requestedAt", "firstTokenAt", "finishedAt", "durationMs", "pollIds", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "costUsd", "pricingSource"]);
 const POLL_FIELDS = new Set(["attemptId", "turnId", "responseId", "pollId", "status", "durationMs"]);
 const TOOL_FIELDS = new Set(["attemptId", "turnId", "toolCallId", "name", "terminal", "startedAt", "finishedAt", "durationMs"]);
 const correlatedMetrics = new WeakSet<object>();
 
-export function correlateAttemptMetrics(value: unknown): CorrelateAttemptMetricsResult {
-	const errors: MetricIssue[] = [];
+export function correlateAttemptMetrics(value: unknown, sourceIssues: MetricIssue[] = [], envelope?: { startedAt: string; finishedAt: string }): CorrelateAttemptMetricsResult {
+	const errors: MetricIssue[] = sourceIssues.map(parseMetricIssue);
 	const record = parseRecord(value, "metrics", EVIDENCE_FIELDS, errors);
 	const attemptId = identity(record?.attemptId, "metrics.attemptId", errors);
 	const compatibility = record?.compatibility === "generic" || record?.compatibility === "instrumented"
@@ -157,7 +163,7 @@ export function correlateAttemptMetrics(value: unknown): CorrelateAttemptMetrics
 		uniqueClaims(turn.responseIds, `metrics.turns[${index}].responseIds`, errors);
 		uniqueClaims(turn.toolCallIds, `metrics.turns[${index}].toolCallIds`, errors);
 		if (compatibility === "generic" && turn.responseIds.length) add(errors, "provider-evidence-mismatch", `metrics.turns[${index}].responseIds`, "generic turns cannot claim provider responses");
-		if (compatibility === "instrumented" && !turn.responseIds.length) add(errors, "missing-identity", `metrics.turns[${index}].responseIds`, "instrumented turns require provider response identities");
+		if (compatibility === "instrumented" && !turn.responseIds.length) add(errors, "missing-measurement", `metrics.turns[${index}].responseIds`, "instrumented turns require provider response identities");
 	}
 	for (const [index, response] of responses.entries()) {
 		uniqueClaims(response.pollIds, `metrics.responses[${index}].pollIds`, errors);
@@ -176,7 +182,7 @@ export function correlateAttemptMetrics(value: unknown): CorrelateAttemptMetrics
 		else if (!contains(turn.requestedAt, turn.finishedAt, tool.startedAt, tool.finishedAt)) add(errors, "correlation-mismatch", `metrics.tools[${index}]`, "tool interval is not contained by its parent turn");
 	}
 	for (const [index, turn] of turns.entries()) {
-		for (const responseId of turn.responseIds) if (!responseIds.has(responseId)) add(errors, "missing-identity", `metrics.turns[${index}].responseIds`, `missing response ${responseId}`);
+		for (const responseId of turn.responseIds) if (!responseIds.has(responseId)) add(errors, "missing-measurement", `metrics.turns[${index}].responseIds`, `missing response ${responseId}`);
 		for (const toolCallId of turn.toolCallIds) if (!toolIds.has(toolCallId)) add(errors, "missing-tool", `metrics.turns[${index}].toolCallIds`, `missing tool result ${toolCallId}`);
 		if (compatibility === "instrumented") compareInstrumentedTurn(turn, responses.filter((response) => response.turnId === turn.turnId), index, errors);
 	}
@@ -196,6 +202,7 @@ export function correlateAttemptMetrics(value: unknown): CorrelateAttemptMetrics
 		.filter((poll) => partialResponses.some((response) => response.turnId === poll.turnId && response.responseId === poll.responseId && response.pollIds.includes(poll.pollId)));
 	const partialTools = firstBy(tools, (tool) => tool.toolCallId)
 		.filter((tool) => partialTurns.some((turn) => turn.turnId === tool.turnId && turn.toolCallIds.includes(tool.toolCallId)));
+	if (envelope) validateAttemptMetricEnvelope({ turns: partialTurns, responses: partialResponses, tools: partialTools }, envelope.startedAt, envelope.finishedAt, errors);
 	const partialMetrics: CorrelatedAttemptMetrics = {
 		attemptId,
 		compatibility,
@@ -206,10 +213,13 @@ export function correlateAttemptMetrics(value: unknown): CorrelateAttemptMetrics
 		...(workerFirstOutputMs === undefined ? {} : { workerFirstOutputMs }),
 		...(workerDurationMs === undefined ? {} : { workerDurationMs }),
 		complete: errors.length === 0,
+		status: errors.some(isInvalidMetricIssue) ? "invalid" : errors.length ? "partial" : "complete",
+		issues: errors,
 	};
+	for (const records of [partialMetrics.turns, partialMetrics.responses, partialMetrics.polls, partialMetrics.tools]) for (const record of records) for (const [key, value] of Object.entries(record)) if (value === undefined) Reflect.deleteProperty(record, key);
 	deepFreeze(partialMetrics);
 	correlatedMetrics.add(partialMetrics);
-	return errors.length ? { ok: false, errors, partialMetrics } : { ok: true, errors, metrics: partialMetrics, partialMetrics };
+	return { ok: partialMetrics.status !== "invalid", errors, metrics: partialMetrics, partialMetrics };
 }
 
 export function isCorrelatedAttemptMetrics(value: CorrelatedAttemptMetrics): boolean {
@@ -217,18 +227,29 @@ export function isCorrelatedAttemptMetrics(value: CorrelatedAttemptMetrics): boo
 }
 
 export function deriveAttemptMetricTotals(metrics: CorrelatedAttemptMetrics): AttemptMetricTotals {
-	return totals(metrics.turns, metrics.polls, metrics.tools);
+	const result = totals(metrics.turns, metrics.polls, metrics.tools);
+	result.observedCostUsd = metrics.turns.reduce((total, turn) => total + (turn.costUsd ?? metrics.responses.filter((response) => response.turnId === turn.turnId).reduce((sum, response) => sum + (response.costUsd ?? 0), 0)), 0);
+	if (metrics.status === "invalid") for (const field of Object.keys(result) as (keyof AttemptMetricTotals)[]) if (field !== "observedCostUsd") result[field] = null;
+	if (metrics.issues.some((issue) => issue.code === "missing-poll" || issue.code === "missing-measurement" && issue.path.includes("response"))) { result.pollCount = null; result.pollDurationMs = null; }
+	if (metrics.issues.some((issue) => issue.code === "missing-tool")) result.toolDurationMs = null;
+	return result;
 }
 
-export function deriveSummedResponseTtftMs(metrics: CorrelatedAttemptMetrics): number {
+export function deriveSummedResponseTtftMs(metrics: CorrelatedAttemptMetrics): number | null {
+	if (metrics.status === "invalid" || !metrics.responses.length || metrics.responses.some((response) => !response.requestedAt || !response.firstTokenAt)) return null;
 	return metrics.responses.reduce((total, response) => total + intervalMs(response.requestedAt, response.firstTokenAt), 0);
 }
 
-export function validateAttemptMetricEnvelope(metrics: CorrelatedAttemptMetrics, startedAt: string, finishedAt: string): void {
-	for (const [kind, records] of [["turn", metrics.turns], ["response", metrics.responses], ["tool", metrics.tools]] as const) {
-		for (const record of records) {
-			const start = kind === "tool" ? record.startedAt : record.requestedAt;
-			if (start !== undefined && record.finishedAt !== undefined && !contains(startedAt, finishedAt, start, record.finishedAt)) throw new TypeError(`${kind} interval must be contained within its Attempt envelope`);
+export function validateAttemptMetricEnvelope(metrics: Pick<AttemptMetricEvidence, "turns" | "responses" | "tools">, startedAt: string, finishedAt: string, issues?: MetricIssue[]): void {
+	for (const [kind, records] of [["turns", metrics.turns], ["responses", metrics.responses], ["tools", metrics.tools]] as const) {
+		for (const [index, record] of records.entries()) {
+			for (const field of ["requestedAt", "startedAt", "firstOutputAt", "firstTokenAt", "finishedAt"] as const) {
+				const value = field in record ? record[field as keyof typeof record] : undefined;
+				if (typeof value !== "string" || Date.parse(value) >= Date.parse(startedAt) && Date.parse(value) <= Date.parse(finishedAt)) continue;
+				const message = `${kind} timestamp must be contained within its Attempt envelope`;
+				if (!issues) throw new TypeError(message);
+				add(issues, "correlation-mismatch", `metrics.${kind}[${index}].${field}`, message);
+			}
 		}
 	}
 }
@@ -245,18 +266,19 @@ function parseTurn(value: unknown, index: number, errors: MetricIssue[]): TurnMe
 		provider: identity(record.provider, `${path}.provider`, errors),
 		model: identity(record.model, `${path}.model`, errors),
 		tier: record.tier === "tier1" || record.tier === "tier2" ? record.tier : (add(errors, "malformed-input", `${path}.tier`, "tier must be tier1 or tier2"), "tier1"),
+		...(record.tierSource === undefined ? {} : record.tierSource === "controller-launch" ? { tierSource: "controller-launch" as const } : (add(errors, "malformed-input", `${path}.tierSource`, "tier source must be controller-launch"), {})),
 		...intervalFields(record, path, "requestedAt", "firstOutputAt", "finishedAt", errors),
-		inputTokens: parseNonNegativeNumber(record.inputTokens, `${path}.inputTokens`, errors, true),
-		outputTokens: parseNonNegativeNumber(record.outputTokens, `${path}.outputTokens`, errors, true),
-		cacheReadTokens: parseNonNegativeNumber(record.cacheReadTokens, `${path}.cacheReadTokens`, errors, true),
-		cacheWriteTokens: parseNonNegativeNumber(record.cacheWriteTokens, `${path}.cacheWriteTokens`, errors, true),
-		totalTokens: parseNonNegativeNumber(record.totalTokens, `${path}.totalTokens`, errors, true),
-		costUsd: parseNonNegativeNumber(record.costUsd, `${path}.costUsd`, errors),
-		pricingSource: identity(record.pricingSource, `${path}.pricingSource`, errors),
+		inputTokens: measurementNumber(record.inputTokens, `${path}.inputTokens`, errors, true),
+		outputTokens: measurementNumber(record.outputTokens, `${path}.outputTokens`, errors, true),
+		cacheReadTokens: measurementNumber(record.cacheReadTokens, `${path}.cacheReadTokens`, errors, true),
+		cacheWriteTokens: measurementNumber(record.cacheWriteTokens, `${path}.cacheWriteTokens`, errors, true),
+		totalTokens: measurementNumber(record.totalTokens, `${path}.totalTokens`, errors, true),
+		costUsd: measurementNumber(record.costUsd, `${path}.costUsd`, errors),
+		...(record.pricingSource === undefined ? (add(errors, "missing-measurement", `${path}.pricingSource`, "pricing source is unavailable"), {}) : { pricingSource: identity(record.pricingSource, `${path}.pricingSource`, errors) }),
 		responseIds: identities(record.responseIds, `${path}.responseIds`, errors),
 		toolCallIds: identities(record.toolCallIds, `${path}.toolCallIds`, errors),
 	};
-	if (result.totalTokens < result.inputTokens + result.outputTokens) add(errors, "usage-mismatch", `${path}.totalTokens`, "totalTokens must include input and output tokens");
+	if (result.totalTokens !== undefined && result.inputTokens !== undefined && result.outputTokens !== undefined && result.totalTokens < result.inputTokens + result.outputTokens) add(errors, "usage-mismatch", `${path}.totalTokens`, "totalTokens must include input and output tokens");
 	const intervalStatus = checkInterval(result.requestedAt, result.firstOutputAt, result.finishedAt, result.durationMs, path, errors, true);
 	return intervalStatus !== "invalid" && recordUsable(errors, before, path) ? [result] : [];
 }
@@ -275,15 +297,15 @@ function parseResponse(value: unknown, index: number, errors: MetricIssue[]): Re
 		terminal: record.terminal === "completed" ? "completed" : (add(errors, "malformed-input", `${path}.terminal`, "response terminal must be completed"), "completed"),
 		...intervalFields(record, path, "requestedAt", "firstTokenAt", "finishedAt", errors),
 		pollIds: identities(record.pollIds, `${path}.pollIds`, errors),
-		inputTokens: parseNonNegativeNumber(record.inputTokens, `${path}.inputTokens`, errors, true),
-		outputTokens: parseNonNegativeNumber(record.outputTokens, `${path}.outputTokens`, errors, true),
-		cacheReadTokens: parseNonNegativeNumber(record.cacheReadTokens, `${path}.cacheReadTokens`, errors, true),
-		cacheWriteTokens: parseNonNegativeNumber(record.cacheWriteTokens, `${path}.cacheWriteTokens`, errors, true),
-		totalTokens: parseNonNegativeNumber(record.totalTokens, `${path}.totalTokens`, errors, true),
-		costUsd: parseNonNegativeNumber(record.costUsd, `${path}.costUsd`, errors),
-		pricingSource: identity(record.pricingSource, `${path}.pricingSource`, errors),
+		inputTokens: measurementNumber(record.inputTokens, `${path}.inputTokens`, errors, true),
+		outputTokens: measurementNumber(record.outputTokens, `${path}.outputTokens`, errors, true),
+		cacheReadTokens: measurementNumber(record.cacheReadTokens, `${path}.cacheReadTokens`, errors, true),
+		cacheWriteTokens: measurementNumber(record.cacheWriteTokens, `${path}.cacheWriteTokens`, errors, true),
+		totalTokens: measurementNumber(record.totalTokens, `${path}.totalTokens`, errors, true),
+		costUsd: measurementNumber(record.costUsd, `${path}.costUsd`, errors),
+		...(record.pricingSource === undefined ? (add(errors, "missing-measurement", `${path}.pricingSource`, "pricing source is unavailable"), {}) : { pricingSource: identity(record.pricingSource, `${path}.pricingSource`, errors) }),
 	};
-	if (result.totalTokens < result.inputTokens + result.outputTokens) add(errors, "usage-mismatch", `${path}.totalTokens`, "totalTokens must include input and output tokens");
+	if (result.totalTokens !== undefined && result.inputTokens !== undefined && result.outputTokens !== undefined && result.totalTokens < result.inputTokens + result.outputTokens) add(errors, "usage-mismatch", `${path}.totalTokens`, "totalTokens must include input and output tokens");
 	const intervalStatus = checkInterval(result.requestedAt, result.firstTokenAt, result.finishedAt, result.durationMs, path, errors, true);
 	return intervalStatus !== "invalid" && recordUsable(errors, before, path) ? [result] : [];
 }
@@ -324,10 +346,10 @@ function parseTool(value: unknown, index: number, errors: MetricIssue[]): ToolMe
 function compareInstrumentedTurn(turn: TurnMetricEvidence, responses: ResponseMetricEvidence[], index: number, errors: MetricIssue[]): void {
 	const path = `metrics.turns[${index}]`;
 	for (const field of ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "costUsd"] as const) {
-		const observed = responses.reduce((sum, response) => sum + response[field], 0);
-		if (turn[field] !== observed) add(errors, "usage-mismatch", `${path}.${field}`, `${field} does not equal correlated provider response evidence`);
+		const observed = responses.reduce((sum, response) => sum + (response[field] ?? 0), 0);
+		if (turn[field] !== undefined && (observed > turn[field] || turn.responseIds.length > 0 && turn.responseIds.every((id) => responses.some((response) => response.responseId === id && response[field] !== undefined)) && turn[field] !== observed)) add(errors, "usage-mismatch", `${path}.${field}`, `${field} does not equal correlated provider response evidence`);
 	}
-	if (responses.some((response) => response.pricingSource !== turn.pricingSource)) add(errors, "pricing-mismatch", `${path}.pricingSource`, "pricing source does not match correlated provider response evidence");
+	if (responses.some((response) => response.pricingSource !== undefined && turn.pricingSource !== undefined && response.pricingSource !== turn.pricingSource)) add(errors, "pricing-mismatch", `${path}.pricingSource`, "pricing source does not match correlated provider response evidence");
 	if (responses.some((response) => response.provider !== turn.provider || response.model !== turn.model)) add(errors, "provider-evidence-mismatch", path, "provider or model does not match correlated response evidence");
 }
 
@@ -339,13 +361,15 @@ function totals(turns: TurnMetricEvidence[], polls: PollMetricEvidence[], tools:
 		cacheWriteTokens: sum(turns, "cacheWriteTokens"),
 		totalTokens: sum(turns, "totalTokens"),
 		costUsd: sum(turns, "costUsd"),
+		observedCostUsd: turns.reduce((total, turn) => total + (turn.costUsd ?? 0), 0),
 		pollCount: polls.length,
 		pollDurationMs: sum(polls, "durationMs"),
 		toolDurationMs: sum(tools, "durationMs"),
 	};
 }
 
-function sum<T>(values: T[], field: keyof T): number {
+function sum<T>(values: T[], field: keyof T): number | null {
+	if (!values.length && field !== "durationMs" || values.some((value) => value[field] === undefined)) return null;
 	return values.reduce((total, value) => total + (typeof value[field] === "number" ? Number(value[field]) : 0), 0);
 }
 
@@ -393,27 +417,28 @@ function intervalFields(record: Record<string, unknown>, path: string, startFiel
 }
 
 function metricTimestamp(value: unknown, path: string, errors: MetricIssue[]): string | undefined {
-	try { return canonicalTimestamp(value, path); } catch { add(errors, "missing-timing", path, `${path} must be a canonical timestamp`); return undefined; }
+	if (value === undefined) { add(errors, "missing-timing", path, `${path} is unavailable`); return undefined; }
+	try { return canonicalTimestamp(value, path); } catch { add(errors, "malformed-input", path, `${path} must be a canonical timestamp`); return undefined; }
 }
 
 function checkInterval(start: string | undefined, first: string | undefined, finish: string | undefined, duration: number | undefined, path: string, errors: MetricIssue[], requireFirst = false): "complete" | "missing" | "invalid" {
+	if (start !== undefined && first !== undefined && Date.parse(first) < Date.parse(start) || first !== undefined && finish !== undefined && Date.parse(first) > Date.parse(finish) || start !== undefined && finish !== undefined && Date.parse(finish) < Date.parse(start)) {
+		add(errors, "correlation-mismatch", path, `${path} timestamps must be ordered`);
+		return "invalid";
+	}
+	if (start !== undefined && finish !== undefined && duration !== undefined && intervalMs(start, finish) !== duration) {
+		add(errors, "correlation-mismatch", `${path}.durationMs`, "durationMs must equal its timestamp interval");
+		return "invalid";
+	}
 	if (start === undefined || finish === undefined || duration === undefined || requireFirst && first === undefined) {
 		add(errors, "missing-timing", path, `${path} requires complete interval timing`);
 		return "missing";
-	}
-	if (first !== undefined && Date.parse(first) < Date.parse(start) || first !== undefined && Date.parse(first) > Date.parse(finish) || Date.parse(finish) < Date.parse(start)) {
-		add(errors, "missing-timing", path, `${path} timestamps must be ordered`);
-		return "invalid";
-	}
-	if (intervalMs(start, finish) !== duration) {
-		add(errors, "missing-timing", `${path}.durationMs`, "durationMs must equal its timestamp interval");
-		return "invalid";
 	}
 	return "complete";
 }
 
 function recordUsable(errors: MetricIssue[], before: number, path: string): boolean {
-	return errors.slice(before).every((error) => error.code === "missing-timing" || error.code === "missing-identity" && error.path === `${path}.name`);
+	return errors.slice(before).every((error) => error.code === "missing-timing" || error.code === "missing-measurement" || error.code === "missing-identity" && error.path === `${path}.name`);
 }
 
 function intervalMs(start: string | undefined, finish: string | undefined): number {
@@ -421,7 +446,7 @@ function intervalMs(start: string | undefined, finish: string | undefined): numb
 }
 
 function contains(parentStart: string | undefined, parentFinish: string | undefined, childStart: string | undefined, childFinish: string | undefined): boolean {
-	return parentStart !== undefined && parentFinish !== undefined && childStart !== undefined && childFinish !== undefined && Date.parse(parentStart) <= Date.parse(childStart) && Date.parse(childFinish) <= Date.parse(parentFinish);
+	return [childStart, childFinish].every((value) => value === undefined || (parentStart === undefined || Date.parse(parentStart) <= Date.parse(value)) && (parentFinish === undefined || Date.parse(value) <= Date.parse(parentFinish)));
 }
 
 function uniqueIdentities<T>(values: T[], get: (value: T) => string, path: string, errors: MetricIssue[]): Set<string> {
@@ -471,4 +496,35 @@ function firstBy<T>(values: T[], key: (value: T) => string): T[] {
 
 function add(errors: MetricIssue[], code: MetricIssue["code"], path: string, message: string): void {
 	errors.push({ code, path, message });
+}
+
+function measurementNumber(value: unknown, path: string, errors: MetricIssue[], integer = false): number | undefined {
+	if (value === undefined) { add(errors, "missing-measurement", path, `${path} is unavailable`); return undefined; }
+	return parseNonNegativeNumber(value, path, errors, integer);
+}
+
+function isInvalidMetricIssue(issue: MetricIssue): boolean {
+	return !["missing-measurement", "missing-timing", "missing-poll", "missing-tool"].includes(issue.code);
+}
+
+function parseMetricIssue(value: MetricIssue): MetricIssue {
+	const codes = ["missing-measurement", "malformed-input", "missing-identity", "correlation-mismatch", "duplicate-identity", "usage-mismatch", "pricing-mismatch", "missing-timing", "missing-poll", "missing-tool", "invalid-number", "provider-evidence-mismatch"];
+	if (!value || Object.keys(value).sort().join() !== "code,message,path" || !codes.includes(value.code) || typeof value.path !== "string" || !value.path || typeof value.message !== "string" || !value.message) throw new TypeError("invalid measurement issue");
+	return { ...value };
+}
+
+export function parseCorrelatedAttemptMetrics(value: unknown): CorrelatedAttemptMetrics {
+	if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError("attempt measurements must be an object");
+	const { complete, status, issues, ...evidence } = value as CorrelatedAttemptMetrics;
+	if (!Array.isArray(issues)) throw new TypeError("attempt measurement issues must be an array");
+	const retainedIssues = issues.map(parseMetricIssue);
+	const parsed = correlateAttemptMetrics(evidence).partialMetrics;
+	const { complete: ignoredComplete, status: ignoredStatus, issues: derivedIssues, ...parsedEvidence } = parsed;
+	if (!isDeepStrictEqual(evidence, parsedEvidence)) throw new TypeError("attempt metrics are not a canonical correlated record");
+	if (derivedIssues.some((issue) => !retainedIssues.some((retained) => isDeepStrictEqual(issue, retained)))) throw new TypeError("attempt measurement issues omit derived evidence gaps");
+	const expectedStatus = retainedIssues.some(isInvalidMetricIssue) ? "invalid" : retainedIssues.length ? "partial" : "complete";
+	if (status !== expectedStatus || complete !== (status === "complete")) throw new TypeError("attempt measurement classification contradicts its issues");
+	const result = deepFreeze({ ...parsedEvidence, complete, status, issues: retainedIssues }) as CorrelatedAttemptMetrics;
+	correlatedMetrics.add(result);
+	return result;
 }
