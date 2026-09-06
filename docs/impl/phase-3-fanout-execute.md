@@ -75,3 +75,7 @@ Each execution directory contains authoritative `events.jsonl`, derived `executi
 ## Release gates
 
 Do not claim live readiness, latency, cost, routing, or provider behavior from offline checks. Release requires an explicitly authorized macOS p-map canary using the immutable candidate, inspection of its event/projection/patch/final-validation evidence, and repository-owner approval of the same commit.
+
+## 2026-09-06 efficiency update
+
+Workers receive bounded source context from the planning and reconstructed attempt trees. Manifest v2 carries typed endpoint permissions; edit/write checks reject out-of-contract mutations immediately, while the final patch audit remains unchanged. Final repairs retain complete recovery evidence on disk and send only effective authority plus diagnostics/provenance to the model. See [efficiency progress](fanout-efficiency-progress.md) for checks and p-map measurements.

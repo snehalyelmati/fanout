@@ -19,6 +19,7 @@ import {
 	type PlanningBase,
 } from "./repository-identity.ts";
 import { WORKER_MODEL_TOOLS } from "./worker-capabilities.ts";
+import { buildWorkerSourceContext } from "./worker-context.ts";
 import { publishWorkerValidationManifest } from "./worker-validation.ts";
 
 export interface WorkerTier {
@@ -109,6 +110,7 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 		const stderrPath = join(attemptDir, "stderr.log");
 		const observabilityPath = join(attemptDir, "observability.jsonl");
 		const sessionDir = join(attemptDir, "session");
+		if (options.recovery) writeJson(join(attemptDir, "recovery.json"), options.recovery);
 		writeFileSync(promptPath, buildCanonicalWorkerPrompt(
 			{
 				objective: packet.objective,
@@ -120,6 +122,7 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 			collectRepositoryInstructions(worktreePath, unit),
 			options.recovery,
 			options.precedingWorkerSummary,
+			buildWorkerSourceContext(worktreePath, options.planningBase.tree, contract),
 		), "utf8");
 		writeFileSync(observabilityPath, "", { encoding: "utf8", flag: "wx" });
 		mkdirSync(sessionDir);
@@ -130,6 +133,8 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 			worktreeRoot: worktreePath,
 			platform: packet.planningHost.platform,
 			commands: contract.validationCommands,
+			writeResources: contractWriteResources(contract),
+			forbiddenWrites: contract.forbiddenWrites.map((entry) => entry.resource),
 			timeoutMs: options.validationTimeoutMs,
 		});
 
