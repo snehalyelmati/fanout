@@ -12,12 +12,13 @@ import {
 } from "../packages/fanout-pi/src/planning-capabilities.ts";
 import { renderWorkContractMarkdown } from "../packages/fanout-core/src/work-contract-views.ts";
 import { FANOUT_ORCHESTRATION_MARKER } from "../packages/fanout-pi/src/fanout-plan-orchestration.ts";
-import { assert, expectThrows, extensionHarness, phaseState, profileGateCommand, validDetails, validPlan, validProfile, sdkPlanningSession } from "./planning-boundary-fixtures.mjs";
+import { assert, expectThrows, extensionHarness, phaseState, profileGateCommand, validDetails, validPlan, validProfile, validSubmission, sdkPlanningSession } from "./planning-boundary-fixtures.mjs";
 import { testPlanningPresentation } from "./smoke-planning-presentation.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "fanout-planning-boundary-"));
 try {
   testToolProfile();
+  testCombinedSubmission();
   testArtifactSubmission();
   await testPlanningLifecycle();
   await testRealPlanningRuntime();
@@ -40,6 +41,21 @@ function testToolProfile() {
   assert(!planningToolBlockReason("bash", false), "normal turns inherited the planning gate");
 }
 
+function testCombinedSubmission() {
+  const repository = join(root, "combined-repo");
+  mkdirSync(repository);
+  const state = phaseState(repository, join(root, "combined-artifacts"), join(root, "combined-artifacts", "run"), "implementation");
+  const draft = { plan: validPlan(), details: validDetails() };
+  const invalid = structuredClone(draft);
+  invalid.details.items[0].changes[0].target.resource.path = "unowned.md";
+  expectThrows(() => submitPlanningArtifact(state, invalid, repository), /write-not-authorized/, "combined compiler admission");
+  assert(!existsSync(state.implementationPlanPath) && !existsSync(state.implementationDetailsPath), "invalid combined draft published one half");
+  const accepted = submitPlanningArtifact(state, draft, repository);
+  assert(accepted.compiled?.ok && accepted.planIdentity, "combined submission did not compile both artifacts");
+  assert(JSON.stringify(JSON.parse(readFileSync(state.implementationDetailsPath)).plan) === JSON.stringify(accepted.planIdentity), "combined details lost exact plan identity");
+  assert(JSON.stringify(accepted.compiled.packet.sourceArtifacts) === JSON.stringify({ plan: accepted.planIdentity, details: accepted.identity }), "combined compiler result is not bound to both artifacts");
+}
+
 function testArtifactSubmission() {
   const repository = join(root, "repo");
   const artifactRoot = join(root, "artifacts");
@@ -48,64 +64,51 @@ function testArtifactSubmission() {
   const submittedProfile = submitPlanningArtifact(phaseState(repository, artifactRoot, artifactDir, "profile"), validProfile(), repository);
   const profile = JSON.parse(readFileSync(submittedProfile.path, "utf8"));
   const state = { ...phaseState(repository, artifactRoot, artifactDir, "implementation"), approvedProfile: { identity: submittedProfile.identity, profile } };
-  const plan = validPlan(artifactDir);
-  const submittedPlan = submitPlanningArtifact(state, plan, repository);
-  assert(submittedPlan.path === state.implementationPlanPath, "controller did not select the Phase A destination");
-  assert(JSON.parse(readFileSync(submittedPlan.path, "utf8")).objective === plan.objective, "Phase A artifact was not atomically published");
-
-  expectThrows(() => submitPlanningArtifact(state, { ...plan, artifactDir: join(root, "wrong-run") }, repository), /additional properties/, "caller-selected Phase A envelope");
-  expectThrows(() => submitPlanningArtifact(state, { schema: "wrong" }, repository), /additional properties|required properties/, "malformed Phase A");
-
-	const details = validDetails(state, plan.objective);
-	const acceptedPlanBytes = readFileSync(submittedPlan.path);
-	const detailsState = { ...state, phase: "details", planIdentity: submittedPlan.identity, acceptedPlan: JSON.parse(acceptedPlanBytes.toString("utf8")) };
-  writeFileSync(submittedPlan.path, Buffer.concat([acceptedPlanBytes, Buffer.from(" ")]));
-  expectThrows(() => submitPlanningArtifact(detailsState, details, repository), /accepted implementation-plan bytes changed/, "mutated accepted Phase A bytes");
-  writeFileSync(submittedPlan.path, acceptedPlanBytes);
+  const draft = validSubmission();
+  expectThrows(() => submitPlanningArtifact(state, { ...draft, artifactDir: join(root, "wrong") }, repository), /additional properties/, "caller-selected envelope");
+  expectThrows(() => submitPlanningArtifact(state, { schema: "wrong" }, repository), /additional properties|required properties/, "malformed draft");
   const profileGate = profile.requiredFinalGates[0].command;
-  expectThrows(() => submitPlanningArtifact(detailsState, { ...details, items: details.items.map((item, index) => index ? item : { ...item, validationCommands: [profileGate] }) }, repository), /items\[0\]\.validationCommands\[0\].*requiredFinalGates\[0\].*remove.*focused.*resubmit/, "duplicate node profile gate draft");
-  expectThrows(() => submitPlanningArtifact(detailsState, { ...details, finalValidationCommands: [profileGate] }, repository), /finalValidationCommands\[0\].*requiredFinalGates\[0\].*remove.*focused.*resubmit/, "duplicate packet-final profile gate draft");
-  expectThrows(() => submitPlanningArtifact(detailsState, { ...details, finalValidationCommands: [{ ...profileGate, env: { FIRST: "1", SECOND: "2" } }] }, repository), /finalValidationCommands\[0\].*requiredFinalGates\[0\]/, "duplicate profile gate with reordered environment");
-  assert(!existsSync(state.implementationDetailsPath), "rejected duplicate Phase B draft was published");
-  const omittedNotes = structuredClone(details);
-  delete omittedNotes.items[0].advisoryNotes;
-  const submittedDetails = submitPlanningArtifact(detailsState, omittedNotes, repository);
-  assert(submittedDetails.path === state.implementationDetailsPath, "controller did not select the Phase B destination");
-  assert(JSON.parse(readFileSync(submittedDetails.path, "utf8")).items[0].advisoryNotes.length === 0, "omitted Phase B advisoryNotes did not persist canonically as []");
-  expectThrows(() => submitPlanningArtifact(detailsState, { ...details, items: [{ ...details.items[0], advisoryNotes: null }] }, repository), /advisoryNotes/, "null Phase B advisoryNotes");
-  expectThrows(() => submitPlanningArtifact(detailsState, plan, repository), /additional properties|required properties/, "wrong-phase artifact");
-  expectThrows(() => submitPlanningArtifact(detailsState, { ...details, sourcePlanPath: join(root, "wrong-run.json") }, repository), /additional properties/, "caller-selected Phase B envelope");
+  for (const details of [
+    { ...draft.details, items: draft.details.items.map((item) => ({ ...item, validationCommands: [profileGate] })) },
+    { ...draft.details, finalValidationCommands: [profileGate] },
+    { ...draft.details, finalValidationCommands: [{ ...profileGate, env: { FIRST: "1", SECOND: "2" } }] },
+  ]) expectThrows(() => submitPlanningArtifact(state, { ...draft, details }, repository), /requiredFinalGates.*remove.*focused.*resubmit/, "duplicate profile gate");
+  assert(!existsSync(state.implementationPlanPath) && !existsSync(state.implementationDetailsPath), "invalid combined draft published artifacts");
+  const omittedNotes = structuredClone(draft);
+  delete omittedNotes.details.items[0].advisoryNotes;
+  const accepted = submitPlanningArtifact(state, omittedNotes, repository);
+  assert(JSON.parse(readFileSync(accepted.path)).items[0].advisoryNotes.length === 0, "omitted notes did not persist as []");
+  expectThrows(() => submitPlanningArtifact(state, { ...draft, details: { ...draft.details, items: [{ ...draft.details.items[0], advisoryNotes: null }] } }, repository), /advisoryNotes/, "null notes");
+  expectThrows(() => submitPlanningArtifact(state, validPlan(), repository), /additional properties|required properties/, "old single-half submission");
 
   const fallbackState = { ...state, ...phaseState(repository, artifactRoot, join(artifactRoot, "fallback"), "implementation") };
-  const fallbackPlan = validPlan();
-  fallbackPlan.implementationItems.push({ ...structuredClone(fallbackPlan.implementationItems[0]), id: "reader", writeResources: [{ kind: "file", path: "reader.ts" }], readResources: [{ kind: "file", path: "README.md" }] });
-  const fallbackPlanSubmission = submitPlanningArtifact(fallbackState, fallbackPlan, repository);
-  const fallbackDetailsState = { ...fallbackState, phase: "details", planIdentity: fallbackPlanSubmission.identity, acceptedPlan: JSON.parse(readFileSync(fallbackPlanSubmission.path, "utf8")) };
-  const fallbackDetails = validDetails();
-  fallbackDetails.items.push({ ...structuredClone(fallbackDetails.items[0]), id: "reader", kind: "implement", changes: [{ kind: "modify", target: { resource: { kind: "file", path: "reader.ts" }, sourcePlanIds: ["reader"] }, intent: "Update reader", anchors: [{ kind: "symbol", symbol: "reader" }] }] });
-  const badWrite = structuredClone(fallbackDetails);
-  badWrite.items[1].changes[0].target.resource.path = "unowned.ts";
-  expectThrows(() => submitPlanningArtifact(fallbackDetailsState, badWrite, repository), /write-not-authorized/, "provisional ownership rejection");
-  assert(!fallbackDetailsState.repairAttempted && !existsSync(fallbackDetailsState.implementationDetailsPath), "unrelated compiler errors armed fallback or published details");
-  expectThrows(() => submitPlanningArtifact(fallbackDetailsState, fallbackDetails, repository), /planned-read-not-grounded/, "first read ambiguity rejection");
-  assert(fallbackDetailsState.repairAttempted && !existsSync(fallbackDetailsState.implementationDetailsPath), "read draft rejection failed to preserve the bounded fallback opportunity");
-  const acceptedFallback = submitPlanningArtifact(fallbackDetailsState, fallbackDetails, repository);
-  assert(JSON.stringify(acceptedFallback.compiled.packet.sourceArtifacts.details) === JSON.stringify(acceptedFallback.identity), "provisional compile was not bound to persisted details bytes");
+  const fallback = validSubmission();
+  fallback.plan.implementationItems.push({ ...structuredClone(fallback.plan.implementationItems[0]), id: "reader", writeResources: [{ kind: "file", path: "reader.ts" }], readResources: [{ kind: "file", path: "README.md" }] });
+  fallback.details.items.push({ ...structuredClone(fallback.details.items[0]), id: "reader", kind: "implement", changes: [{ kind: "modify", target: { resource: { kind: "file", path: "reader.ts" }, sourcePlanIds: ["reader"] }, intent: "Update reader", anchors: [{ kind: "symbol", symbol: "reader" }] }] });
+  const badWrite = structuredClone(fallback);
+  badWrite.details.items[1].changes[0].target.resource.path = "unowned.ts";
+  expectThrows(() => submitPlanningArtifact(fallbackState, badWrite, repository), /write-not-authorized/, "provisional ownership rejection");
+  assert(!fallbackState.repairAttempted, "unrelated error armed fallback");
+  expectThrows(() => submitPlanningArtifact(fallbackState, fallback, repository), /planned-read-not-grounded/, "first read ambiguity");
+  assert(fallbackState.repairAttempted && !existsSync(fallbackState.implementationPlanPath), "ambiguous draft published a half or lost fallback");
+  const changedPlan = structuredClone(fallback);
+  changedPlan.plan.objective = "Different plan";
+  expectThrows(() => submitPlanningArtifact(fallbackState, changedPlan, repository), /planned-read-not-grounded/, "new plan inherited previous fallback");
+  expectThrows(() => submitPlanningArtifact(fallbackState, fallback, repository), /planned-read-not-grounded/, "returning plan inherited unrelated fallback");
+  const acceptedFallback = submitPlanningArtifact(fallbackState, fallback, repository);
   const beforeView = JSON.stringify(acceptedFallback.compiled.packet);
   const review = renderWorkContractMarkdown(acceptedFallback.compiled.packet, acceptedFallback.compiled.packet.nodes);
-  assert(review.includes("conservatively waits") && review.includes("reduce parallelism"), "fallback warning is absent from planning review");
-  assert(JSON.stringify(acceptedFallback.compiled.packet) === beforeView, "warning rendering changed packet authority");
+  assert(review.includes("conservatively waits") && review.includes("reduce parallelism"), "fallback warning absent");
+  assert(JSON.stringify(acceptedFallback.compiled.packet) === beforeView, "warning changed authority");
 
   const repositoryArtifact = join(repository, ".fanout", "run");
-  expectThrows(() => submitPlanningArtifact(phaseState(repository, join(repository, ".fanout"), repositoryArtifact, "implementation"), plan, repository), /cannot be submitted into the repository/, "repository destination");
-  assert(!existsSync(join(repository, ".fanout")), "repository destination rejection mutated the repository");
-
+  expectThrows(() => submitPlanningArtifact(phaseState(repository, join(repository, ".fanout"), repositoryArtifact, "implementation"), draft, repository), /cannot be submitted into the repository/, "repository destination");
+  assert(!existsSync(join(repository, ".fanout")), "destination rejection mutated repository");
   const outside = join(root, "symlink-outside");
   const linkedRoot = join(root, "linked-artifacts");
   mkdirSync(outside);
   symlinkSync(outside, linkedRoot, "dir");
-  const linkedDir = join(linkedRoot, "run");
-  submitPlanningArtifact(phaseState(repository, linkedRoot, linkedDir, "implementation"), plan, repository);
+  submitPlanningArtifact(phaseState(repository, linkedRoot, join(linkedRoot, "run"), "implementation"), draft, repository);
 }
 
 async function testPlanningLifecycle() {
@@ -130,79 +133,42 @@ async function testPlanningLifecycle() {
     assert(published ? harness.notifications.some(({ message }) => message.includes("Profile approved")) && harness.messages.at(-1)?.content === "Prepare and submit the Fanout implementation plan." : harness.messages.length === 1, `${scenario}: refresh lifecycle advanced incorrectly: ${JSON.stringify(harness.messages)}`);
   }
   for (const scenario of ["success", "failure", "unsubmitted-file", "mutated-submission", "mutated-details-submission", "duplicate-details-resubmission", "cancellation", "clarification", "queued-transition"]) {
-      const harness = await extensionHarness(root, extension, scenario, scenario === "queued-transition" || scenario === "mutated-details-submission");
-      const before = harness.handler("before_agent_start");
-      const baseTools = [...harness.activeTools];
-      const started = before({ prompt: harness.messages[0].content, systemPrompt: scenario === "clarification" ? `base\n\n${BATCHING_DISCIPLINE_MARKER}` : "base" }, harness.ctx);
-    assert(started.systemPrompt.indexOf("Inspect the repository and submit exactly one") < started.systemPrompt.indexOf(BATCHING_DISCIPLINE_MARKER) && started.systemPrompt.split(BATCHING_DISCIPLINE_MARKER).length - 1 === 1, `${scenario}: phase action was buried or batching duplicated`);
-    assert(!started.systemPrompt.includes("Fanout runtime context"), `${scenario}: planning prompt retained irrelevant runtime metadata`);
-    const runId = /"runId":"([^"]+)"/.exec(started?.systemPrompt ?? "")?.[1];
-    const artifactDir = runId ? join(dirname(harness.activeProfilePath), runId) : undefined;
-    assert(artifactDir, `${scenario}: internal phase prompt omitted its run identity`);
-    assert(JSON.stringify(harness.activeTools) === JSON.stringify(FANOUT_PLANNING_TOOLS), `${scenario}: planning profile was not activated`);
-    const externalRead = harness.handler("tool_call")({ toolName: "read", toolCallId: "external-read", input: { path: join(root, "external-context.md") } }, harness.ctx);
-    assert(externalRead === undefined, `${scenario}: planning blocked Pi-native external read scope`);
+    const harness = await extensionHarness(root, extension, scenario, scenario === "queued-transition");
+    const before = harness.handler("before_agent_start");
+    const baseTools = [...harness.activeTools];
+    const started = before({ prompt: harness.messages[0].content, systemPrompt: scenario === "clarification" ? `base\n\n${BATCHING_DISCIPLINE_MARKER}` : "base" }, harness.ctx);
+    assert(started.systemPrompt.indexOf("Inspect the repository and submit exactly one") < started.systemPrompt.indexOf(BATCHING_DISCIPLINE_MARKER) && started.systemPrompt.split(BATCHING_DISCIPLINE_MARKER).length - 1 === 1, "planning action buried or batching duplicated");
+    assert(!started.systemPrompt.includes("Fanout runtime context") && !started.systemPrompt.includes(harness.activePointerPath), "planning included unpublished/runtime context");
+    assert(started.systemPrompt.includes('"projectExecutionProfile"') && started.systemPrompt.includes("full-check"), "combined planning omitted approved profile");
+    const runId = /"runId":"([^"]+)"/.exec(started.systemPrompt)?.[1];
+    const artifactDir = join(dirname(harness.activeProfilePath), runId);
+    assert(JSON.stringify(harness.activeTools) === JSON.stringify(FANOUT_PLANNING_TOOLS), "planning tools not activated");
+    assert(harness.handler("tool_call")({ toolName: "read", toolCallId: "read", input: { path: join(root, "external-context.md") } }, harness.ctx) === undefined, "Pi-native read blocked");
     const gate = harness.handler("tool_call")({ toolName: scenario === "clarification" ? "ask_user_question" : "bash", toolCallId: "call", input: {} }, harness.ctx);
-    if (scenario === "clarification") assert(gate === undefined, "clarification tool was blocked");
-    else assert(gate?.block === true, `${scenario}: blocked tool reached execution`);
-
-    if (scenario === "success" || scenario === "queued-transition" || scenario === "mutated-submission" || scenario === "mutated-details-submission" || scenario === "duplicate-details-resubmission") {
-      await harness.submit.execute("submit", { artifact: validPlan(artifactDir) }, undefined, undefined, harness.ctx);
+    assert(scenario === "clarification" ? gate === undefined : gate?.block === true, "tool authority changed");
+    if (scenario === "duplicate-details-resubmission") {
+      const draft = validSubmission();
+      draft.details.finalValidationCommands = [profileGateCommand()];
+      await rejects(() => harness.submit.execute("invalid", { artifact: draft }, undefined, undefined, harness.ctx), /requiredFinalGates.*remove.*focused.*resubmit/);
+      assert(!existsSync(join(artifactDir, "implementation-plan.json")), "invalid combined draft published plan");
+    }
+    if (["success", "queued-transition", "mutated-submission", "mutated-details-submission", "duplicate-details-resubmission"].includes(scenario)) {
+      const submitted = await harness.submit.execute("submit", { artifact: validSubmission() }, undefined, undefined, harness.ctx);
+      assert(submitted.terminate === true, "combined submission did not terminate");
     }
     if (scenario === "mutated-submission") writeFileSync(join(artifactDir, "implementation-plan.json"), "{");
-    if (scenario === "unsubmitted-file") {
-      mkdirSync(artifactDir, { recursive: true });
-      writeFileSync(join(artifactDir, "implementation-plan.json"), `${JSON.stringify(validPlan(artifactDir))}\n`);
-    }
+    if (scenario === "mutated-details-submission") writeFileSync(join(artifactDir, "implementation-details.json"), "{");
+    if (scenario === "unsubmitted-file") { mkdirSync(artifactDir, { recursive: true }); writeFileSync(join(artifactDir, "implementation-plan.json"), JSON.stringify(validPlan())); }
     if (scenario === "cancellation") harness.handler("session_shutdown")({}, harness.ctx);
-    else harness.handler("agent_settled")({}, harness.ctx);
+    else await harness.handler("agent_settled")({}, harness.ctx);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert(JSON.stringify(harness.activeTools) === JSON.stringify(baseTools), `${scenario}: exact prior profile was not restored`);
-    if (scenario === "unsubmitted-file") assert(harness.messages.length === 1, "an unsubmitted Phase A file advanced planning");
-    if (scenario === "failure") assert(!existsSync(harness.activePointerPath) && harness.notifications.some((entry) => entry.message.includes("prior active packet selection remains invalidated")), "planning failure contradicted or recreated the invalidated active selection");
-    if (scenario === "mutated-submission") {
-      assert(harness.messages.length === 1, "malformed post-submission Phase A bytes advanced planning");
-      const resumed = before({ prompt: "unrelated", systemPrompt: "base" }, harness.ctx);
-      assert(!resumed.systemPrompt.includes(FANOUT_ORCHESTRATION_MARKER) && JSON.stringify(harness.activeTools) === JSON.stringify(baseTools), "malformed post-submission Phase A bytes left planning wedged");
-    }
-
-    if (scenario === "mutated-details-submission") {
-      const phaseBPrompt = harness.messages.at(-1);
-      assert(harness.messages.length === 2 && phaseBPrompt.options === undefined && !phaseBPrompt.queuedWhileStreaming, "Phase B was queued inside agent_end and bypassed before_agent_start");
-      assert(phaseBPrompt.content === "Ground the accepted Phase A plan without changing the repository; submit implementation details with `fanout_submit_artifact`.", "Phase B trigger was not action-first or echoed model-authored context");
-      before({ prompt: phaseBPrompt.content, systemPrompt: "base" }, harness.ctx);
-      assert(JSON.stringify(harness.activeTools) === JSON.stringify(FANOUT_PLANNING_TOOLS), "details mutation regression did not activate the Phase B profile");
-      await harness.submit.execute("submit", { artifact: validDetails() }, undefined, undefined, harness.ctx);
-      writeFileSync(join(artifactDir, "implementation-details.json"), "{");
-      harness.handler("agent_settled")({}, harness.ctx);
-      assert(JSON.stringify(harness.activeTools) === JSON.stringify(baseTools), "malformed post-submission Phase B bytes did not restore the exact prior profile");
-      assert(harness.messages.length === 2, "malformed post-submission Phase B bytes advanced planning");
-      const resumed = before({ prompt: "unrelated", systemPrompt: "base" }, harness.ctx);
-      assert(!resumed.systemPrompt.includes(FANOUT_ORCHESTRATION_MARKER) && JSON.stringify(harness.activeTools) === JSON.stringify(baseTools), "malformed post-submission Phase B bytes left planning wedged");
-    }
-
-    if (scenario === "duplicate-details-resubmission") {
-      const phaseBPrompt = harness.messages.at(-1);
-      const phaseBStarted = before({ prompt: phaseBPrompt.content, systemPrompt: "base" }, harness.ctx);
-      const duplicate = { ...validDetails(), finalValidationCommands: [profileGateCommand()] };
-      await rejects(() => harness.submit.execute("submit", { artifact: duplicate }, undefined, undefined, harness.ctx), /finalValidationCommands\[0\].*requiredFinalGates\[0\].*remove.*focused.*resubmit/, "duplicate Phase B tool submission");
-      assert(!existsSync(join(artifactDir, "implementation-details.json")), "duplicate Phase B tool submission published an artifact");
-      assert(phaseBStarted.systemPrompt.includes('"projectExecutionProfile"') && phaseBStarted.systemPrompt.includes('"requiredFinalGates"') && phaseBStarted.systemPrompt.includes("full-check") && phaseBStarted.systemPrompt.includes("Do not repeat"), "Phase B omitted exact profile context or validation-scope protocol");
-      await harness.submit.execute("submit", { artifact: validDetails() }, undefined, undefined, harness.ctx);
-      harness.handler("agent_settled")({}, harness.ctx);
-      assert(harness.notifications.some(({ message }) => message.includes("Fanout plan ready")), "corrected Phase B draft did not complete the preserved planning session");
-    }
-
-    if (scenario === "queued-transition") {
-      const phaseBPrompt = harness.messages.at(-1);
-      assert(harness.messages.length === 2 && phaseBPrompt.options === undefined && !phaseBPrompt.queuedWhileStreaming, "Phase B was queued inside agent_end and bypassed before_agent_start");
-      const phaseBStarted = before({ prompt: phaseBPrompt.content, systemPrompt: "base" }, harness.ctx);
-      assert(!phaseBStarted.systemPrompt.includes(harness.activePointerPath), "Phase B exposed the unpublished active packet as apparent input");
-      assert(phaseBStarted.systemPrompt.includes("Submit grounded Fanout implementation details now") && phaseBStarted.systemPrompt.includes("controller creates them after submission"), "Phase B did not distinguish its output from prerequisites");
-      assert(JSON.stringify(harness.activeTools) === JSON.stringify(FANOUT_PLANNING_TOOLS), "queued Phase B profile was not activated");
-      harness.handler("session_before_switch")({}, harness.ctx);
-      assert(JSON.stringify(harness.activeTools) === JSON.stringify(baseTools), "session switch did not restore the queued Phase B profile");
-    }
+    assert(JSON.stringify(harness.activeTools) === JSON.stringify(baseTools), "planning did not restore tools");
+    assert(harness.messages.length === 1, "combined planning launched a second investigation");
+    const success = ["success", "queued-transition", "duplicate-details-resubmission"].includes(scenario);
+    assert(existsSync(harness.activePointerPath) === success, `${scenario}: incorrect publication`);
+    if (success) assert(harness.notifications.some(({ message }) => message.includes("Fanout plan ready")), "successful corrected draft did not finish");
+    const resumed = before({ prompt: "unrelated", systemPrompt: "base" }, harness.ctx);
+    assert(!resumed.systemPrompt.includes(FANOUT_ORCHESTRATION_MARKER), `${scenario}: planning remained wedged`);
   }
   for (const scenario of ["dirty-staged", "dirty-unstaged", "dirty-untracked"]) {
     const harness = await extensionHarness(root, extension, scenario, false);
@@ -225,29 +191,25 @@ async function testPlanningContextIsolation(extension) {
   ];
   const explicit = await extensionHarness(root, extension, "context-explicit", false, true, "Explicit objective", prior);
   explicit.handler("before_agent_start")({ prompt: explicit.messages[0].content, systemPrompt: "base" }, explicit.ctx);
-  assert(explicit.submit.parameters.properties.artifact.properties.implementationItems && !explicit.submit.parameters.properties.artifact.properties.items, "Phase A did not register its exact submission schema");
+  assert(explicit.submit.parameters.properties.artifact.properties.plan && explicit.submit.parameters.properties.artifact.properties.details, "Phase A did not register its exact submission schema");
   let filtered = explicit.handler("context")({ messages: structuredClone(explicit.sessionMessages) }, explicit.ctx).messages;
   assert(filtered.length === 1 && filtered[0].content === "Prepare and submit the Fanout implementation plan.", "explicit /fanout-plan retained earlier conversation");
   assert(Buffer.byteLength(JSON.stringify(filtered)) < Buffer.byteLength(JSON.stringify(explicit.sessionMessages)), "explicit planning context did not shrink deterministically");
   explicit.sessionMessages.push({ role: "assistant", content: [
     { type: "toolCall", id: "batched-read", name: "read", arguments: { path: "README.md" } },
-    { type: "toolCall", id: "batched-submit", name: "fanout_submit_artifact", arguments: { artifact: validPlan() } },
+    { type: "toolCall", id: "batched-submit", name: "fanout_submit_artifact", arguments: { artifact: validSubmission() } },
   ] });
-  const batched = explicit.handler("tool_call")({ toolName: "fanout_submit_artifact", toolCallId: "batched-submit", input: { artifact: validPlan() } }, explicit.ctx);
+  const batched = explicit.handler("tool_call")({ toolName: "fanout_submit_artifact", toolCallId: "batched-submit", input: { artifact: validSubmission() } }, explicit.ctx);
   assert(batched?.block === true, "batched planning submission was admitted");
-  explicit.sessionMessages.push({ role: "assistant", content: [{ type: "toolCall", id: "lone-submit", name: "fanout_submit_artifact", arguments: { artifact: validPlan() } }] });
-  const lone = explicit.handler("tool_call")({ toolName: "fanout_submit_artifact", toolCallId: "lone-submit", input: { artifact: validPlan() } }, explicit.ctx);
+  explicit.sessionMessages.push({ role: "assistant", content: [{ type: "toolCall", id: "lone-submit", name: "fanout_submit_artifact", arguments: { artifact: validSubmission() } }] });
+  const lone = explicit.handler("tool_call")({ toolName: "fanout_submit_artifact", toolCallId: "lone-submit", input: { artifact: validSubmission() } }, explicit.ctx);
   assert(lone === undefined, "lone planning submission was blocked");
-  const submitted = await explicit.submit.execute("submit", { artifact: validPlan() }, undefined, undefined, explicit.ctx);
+  const submitted = await explicit.submit.execute("submit", { artifact: validSubmission() }, undefined, undefined, explicit.ctx);
   assert(submitted.terminate === true, "successful planning submission was not terminating");
   assert((submitted.terminate ? 1 : 2) === 1, "successful submission retained the deterministic post-submit provider call");
   await explicit.handler("agent_settled")({}, explicit.ctx);
   await new Promise((resolve) => setTimeout(resolve, 0));
-  explicit.handler("before_agent_start")({ prompt: explicit.messages.at(-1).content, systemPrompt: "base" }, explicit.ctx);
-  assert(explicit.submit.parameters.properties.artifact.properties.items && !explicit.submit.parameters.properties.artifact.properties.objective, "Phase B did not register its exact submission schema");
-  filtered = explicit.handler("context")({ messages: structuredClone(explicit.sessionMessages) }, explicit.ctx).messages;
-  assert(filtered.length === 1 && filtered[0].content.startsWith("Ground the accepted Phase A plan"), "Phase B retained Phase A messages or tool results");
-  assert(Buffer.byteLength(JSON.stringify(filtered)) < Buffer.byteLength(JSON.stringify(explicit.sessionMessages)), "Phase B serialized context did not shrink deterministically");
+  assert(explicit.messages.length === 1 && existsSync(explicit.activePointerPath), "combined plan restarted investigation instead of publishing");
 
   const implicit = await extensionHarness(root, extension, "context-implicit", false, true, "", prior);
   implicit.handler("before_agent_start")({ prompt: implicit.messages[0].content, systemPrompt: "base" }, implicit.ctx);
@@ -298,22 +260,21 @@ async function testRealPlanningRuntime(implicitObjective = false) {
     assert(!context.tools.some((tool) => tool.name === "bash"), `SDK request ${calls} restored write tools before settled`);
     if (calls <= 4) assert(context.systemPrompt.includes('"phase":"implementation"'), `SDK request ${calls} advanced before settlement`);
     const result = { role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id, usage: usage(), timestamp: Date.now(), stopReason: "stop" };
-    if (calls === 1 || calls === 2 || calls === 5) { result.stopReason = "error"; result.errorMessage = calls === 1 ? "503 service overloaded" : "maximum context length exceeded"; }
+    if (calls === 1 || calls === 2) { result.stopReason = "error"; result.errorMessage = calls === 1 ? "503 service overloaded" : "maximum context length exceeded"; }
     else if (calls === 3) result.content = [{ type: "text", text: "continue planning EXCLUDED_PHASE_A" }];
-    else result.content = [{ type: "toolCall", id: `submit-${calls}`, name: "fanout_submit_artifact", arguments: { artifact: calls === 4 ? validPlan() : calls === 6 ? { ...validDetails(), items: [{ ...validDetails().items[0], changes: [{ ...validDetails().items[0].changes[0], target: { resource: { kind: "file", path: "unowned.md" }, sourcePlanIds: ["code"] } }] }] } : validDetails() } }];
-    if (calls >= 4 && calls !== 5) result.stopReason = "toolUse";
+    else result.content = [{ type: "toolCall", id: `submit-${calls}`, name: "fanout_submit_artifact", arguments: { artifact: calls === 4 ? { plan: validPlan(), details: { ...validDetails(), items: [{ ...validDetails().items[0], changes: [{ ...validDetails().items[0].changes[0], target: { resource: { kind: "file", path: "unowned.md" }, sourcePlanIds: ["code"] } }] }] } } : validSubmission() } }];
+    if (calls >= 4) result.stopReason = "toolUse";
     const stream = createAssistantMessageEventStream();
     stream.push(result.stopReason === "error" ? { type: "error", reason: "error", error: result } : { type: "done", reason: result.stopReason, message: result });
     return stream;
   };
   try {
     await session.prompt(implicitObjective ? "/fanout-plan" : "/fanout-plan Implement option B");
-    await waitFor(() => settled === 2);
-    assert(calls === 7 && compacted === 2 && queued, `SDK branches not exercised: calls=${calls}, compactions=${compacted}, queued=${queued}`);
+    await waitFor(() => settled === 1);
+    assert(calls === 5 && compacted === 1 && queued, `SDK branches not exercised: calls=${calls}, compactions=${compacted}, queued=${queued}`);
     assert(!JSON.stringify(observed[2].messages).includes("EXCLUDED_"), "explicit objective regained excluded history after SDK compaction");
-    assert(!/EXCLUDED_|BARE_OBJECTIVE_DECISION/.test(JSON.stringify(observed[5].messages)), "Phase B regained previous-phase history after SDK compaction");
     if (implicitObjective) assert(JSON.stringify(observed[2].messages).includes("BARE_OBJECTIVE_DECISION"), "bare objective lost its admitted conversation after compaction");
-    assert(observed[6].messages.some((message) => message.role === "toolResult" && message.isError && JSON.stringify(message).includes("write-not-authorized")), "compiler draft failure did not return through the real tool retry loop");
+    assert(observed[4].messages.some((message) => message.role === "toolResult" && message.isError && JSON.stringify(message).includes("write-not-authorized")), "compiler draft failure did not return through the real tool retry loop");
     assert(existsSync(runtime.activePointerPath), "SDK corrected details did not publish a packet");
     assert(session.getActiveToolNames().includes("bash"), "SDK settled success did not restore prior tools");
   } finally { session.dispose(); }
