@@ -1,11 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { convertToLlm, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { artifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
-import { buildRequiredReadClassifications, validateImplementationPlan } from "../../fanout-core/src/fanout-compiler.ts";
 import { writeJsonl } from "../../fanout-core/src/observability.ts";
 import { invalidateActiveSelection } from "./artifact-store.ts";
 import {
-	buildImplementationDetailsPrompt,
 	buildImplementationPlanPrompt,
 	buildProjectExecutionProfilePrompt,
 	createFanoutPlanRun,
@@ -145,7 +143,7 @@ export class FanoutPlanningController {
 		this.#toolsBefore = undefined;
 		const finished = this.#pending;
 		const phaseTurnStarted = finished !== undefined && this.#started?.runId === finished.runId && this.#started.phase === finished.phase;
-		const expectedSubmissionPath = finished?.phase === "profile" ? finished.projectExecutionProfilePath : finished?.phase === "implementation" ? finished.implementationPlanPath : finished?.implementationDetailsPath;
+		const expectedSubmissionPath = finished?.phase === "profile" ? finished.projectExecutionProfilePath : finished?.implementationDetailsPath;
 		const phaseSubmitted = phaseTurnStarted && finished?.acceptedSubmission?.runId === finished.runId && finished.acceptedSubmission.phase === finished.phase && finished.acceptedSubmission.path === expectedSubmissionPath;
 		this.#started = undefined;
 		if (finished?.phase === "profile") {
@@ -169,31 +167,9 @@ export class FanoutPlanningController {
 				return this.#fail(ctx, finished, "profile", [message(error)]);
 			}
 		}
-		if (finished?.phase === "implementation") {
-			if (!existsSync(finished.implementationPlanPath) && !phaseTurnStarted) return;
-			if (!phaseSubmitted) return this.#fail(ctx, finished, "implementation", ["implementation plan was not accepted by fanout_submit_artifact"]);
-			let implementationPlan: unknown;
-			const planIdentity = finished.acceptedSubmission.identity;
-			try { implementationPlan = readAcceptedImplementationPlan(finished.implementationPlanPath, planIdentity); }
-			catch (error) { return this.#fail(ctx, finished, "implementation", [message(error)]); }
-			const validation = validateImplementationPlan(implementationPlan);
-			writeJsonl("fanout_implementation_plan_validation", { planRunId: finished.runId, phase: "implementation", artifactDir: finished.artifactDir, ...validation }, ctx.cwd);
-			if (!validation.ok) return this.#fail(ctx, finished, "implementation", validation.errors);
-			const objective = isRecord(implementationPlan) ? stringField(implementationPlan.objective) : "unknown";
-			const requiredReadClassifications = buildRequiredReadClassifications(implementationPlan);
-			finishPlanningPhase(finished.metrics, "implementation");
-			startPlanningPhase(finished.metrics);
-			const detailsState = { ...finished, phase: "details" as const, acceptedSubmission: undefined, planIdentity, acceptedPlan: validation.plan, objective, objectiveContextMessages: [], requiredReadClassifications, phaseContextStart: contextMessages(ctx).length };
-			this.#pending = { ...detailsState, systemPrompt: buildImplementationDetailsPrompt(objective, finished.context, detailsState, requiredReadClassifications) };
-			writeJsonl("fanout_required_read_classifications", { planRunId: finished.runId, phase: "implementation", objective, artifactDir: finished.artifactDir, count: requiredReadClassifications.length, requiredReadClassifications }, ctx.cwd);
-			ctx.ui.notify("Implementation plan validated; grounding edit details.", "info");
-			this.#startTurn(this.#pending, "Ground the accepted Phase A plan without changing the repository; submit implementation details with `fanout_submit_artifact`.");
+		if (!finished || !phaseSubmitted) {
+			if (finished) this.#fail(ctx, finished, "implementation", ["combined planning artifacts were not accepted by fanout_submit_artifact"]);
 			return;
-		}
-		if (finished?.phase !== "details") return;
-		if (!phaseSubmitted) {
-			if (!phaseTurnStarted) return;
-			return this.#fail(ctx, finished, "details", ["implementation details were not accepted by fanout_submit_artifact"]);
 		}
 		if (!existsSync(finished.implementationDetailsPath)) {
 			const errors = [`missing ${finished.implementationDetailsPath}`];
@@ -213,7 +189,7 @@ export class FanoutPlanningController {
 			if (JSON.stringify(compiled.packet?.sourceArtifacts) !== JSON.stringify({ plan: planIdentity, details: detailsIdentity }) || JSON.stringify(compiled.packet?.profile) !== JSON.stringify(finished.approvedProfile.identity)) throw new Error("accepted compiler artifact identities changed; restart /fanout-plan");
 			if (!compiled.ok || !compiled.packet) return this.#fail(ctx, finished, "compiler", compiled.errors);
 			const artifacts = publishExecutionPacket(compiled.packet, stringField(finished.context.projectArtifactRoot), finished.artifactDir, stringField(finished.context.activePointerPath));
-			finishPlanningPhase(finished.metrics, "details");
+			finishPlanningPhase(finished.metrics, "implementation");
 			writeJsonl("fanout_plan_end", { planRunId: finished.runId, invocation: finished.invocation, objective: finished.objective, phase: "complete", artifactDir: finished.artifactDir, packetPath: artifacts.packetPath, activePointerPath: artifacts.activePointerPath, warnings: compiled.warnings, ...planningMetricsSummary(finished.metrics, this.#options.activeThinking()) }, ctx.cwd);
 			displayFanoutPlanReport(this.#pi, this.#options.reportPresentationAvailable, ctx.cwd, finished.runId, finished.artifactDir, artifacts);
 			ctx.ui.notify(`Fanout plan ready ✅\nArtifacts: ${finished.artifactDir}`, "info");
@@ -296,7 +272,7 @@ export class FanoutPlanningController {
 				if (!state || this.#pending?.runId !== state.runId || this.#pending.phase !== state.phase || this.#pending.acceptedSubmission) throw new Error("No matching Fanout planning phase is awaiting submission");
 				const submitted = submitPlanningArtifact(state, params.artifact, ctx.cwd);
 				const acceptedSubmission = { runId: state.runId, phase: state.phase, path: submitted.path, identity: submitted.identity };
-				this.#started = { ...state, acceptedSubmission, acceptedCompilation: submitted.compiled };
+				this.#started = { ...state, acceptedSubmission, planIdentity: submitted.planIdentity, acceptedCompilation: submitted.compiled };
 				this.#pending = this.#started;
 				return { content: [{ type: "text" as const, text: `${submitted.phase} artifact accepted: ${submitted.path}` }], details: { path: submitted.path, phase: submitted.phase, identity: submitted.identity }, terminate: true };
 			},

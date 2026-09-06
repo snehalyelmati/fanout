@@ -120,6 +120,8 @@ export function validPlan() {
   };
 }
 
+export function validSubmission() { return { plan: validPlan(), details: validDetails() }; }
+
 export function validProfile() {
   const declaration = (command, purpose) => ({ command, purpose, expectedMutations: "none", networkAccess: false, lifecycleScripts: false });
   return { preparation: [], readiness: [declaration({ executable: "rtk", args: ["npm", "run", "ready"] }, "Verify project readiness")], candidateNormalization: [], requiredFinalGates: [declaration(profileGateCommand(), "Run required final gate")] };

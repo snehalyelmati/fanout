@@ -1,6 +1,6 @@
 import { performance } from "node:perf_hooks";
 
-export type FanoutPlanPhase = "implementation" | "details";
+export type FanoutPlanPhase = "profile" | "implementation";
 
 export interface PlanningMetrics {
 	started: number;
@@ -19,7 +19,7 @@ export interface PlanningMetrics {
 	model?: string;
 	ttftMs?: number;
 	implementationDurationMs?: number;
-	detailsDurationMs?: number;
+	profileDurationMs?: number;
 }
 
 export function createPlanningMetrics(): PlanningMetrics {
@@ -47,7 +47,7 @@ export function startPlanningPhase(metrics: PlanningMetrics): void {
 export function finishPlanningPhase(metrics: PlanningMetrics, phase: FanoutPlanPhase): void {
 	const elapsed = roundedDuration(metrics.phaseStarted);
 	if (phase === "implementation") metrics.implementationDurationMs = elapsed;
-	else metrics.detailsDurationMs = (metrics.detailsDurationMs ?? 0) + elapsed;
+	else metrics.profileDurationMs = (metrics.profileDurationMs ?? 0) + elapsed;
 }
 
 export function recordPlanningToolInterval(metrics: PlanningMetrics, started: number, ended: number): void {
@@ -108,7 +108,7 @@ export function planningMetricsSummary(metrics: PlanningMetrics, thinking: unkno
 		toolDurationMs: metrics.toolDurationMs,
 		nonToolDurationMs: Math.max(0, Math.round((durationMs - metrics.toolDurationMs) * 1000) / 1000),
 		implementationDurationMs: metrics.implementationDurationMs,
-		detailsDurationMs: metrics.detailsDurationMs,
+		profileDurationMs: metrics.profileDurationMs,
 	};
 }
 

@@ -187,6 +187,8 @@ export const ImplementationDetailsArtifactSchema = Type.Object({
 export const ProfileSubmissionParametersSchema = Type.Object({ artifact: ProjectExecutionProfileBodySchema }, closed);
 export const ImplementationPlanSubmissionParametersSchema = Type.Object({ artifact: ImplementationPlanBodySchema }, closed);
 export const ImplementationDetailsSubmissionParametersSchema = Type.Object({ artifact: ImplementationDetailsBodySchema }, closed);
+export const CombinedPlanningBodySchema = Type.Object({ plan: ImplementationPlanBodySchema, details: ImplementationDetailsBodySchema }, closed);
+export const CombinedPlanningSubmissionParametersSchema = Type.Object({ artifact: CombinedPlanningBodySchema }, closed);
 
 export type RepositoryResourceStructure = Static<typeof RepositoryResourceSchema>;
 export type ArtifactIdentityStructure = Static<typeof ArtifactIdentitySchema>;
