@@ -41,7 +41,7 @@ Fanout should preserve developer velocity by using slower tiers only where laten
 
 ### Efficiency work in progress
 
-The approved [efficiency tracker](impl/fanout-efficiency-progress.md) records combined model planning, prepared worker context, early ownership feedback, and focused repair improvements. The matched p-map AbortSignal pilot is complete; Execa remains historical evidence. Improved Fanout is cheaper but slower than raw Pi, including planning. One sample per mode does not establish reliability; the next candidate-submission experiment awaits approval.
+The approved [efficiency tracker](impl/fanout-efficiency-progress.md) records combined model planning, prepared worker context, early ownership feedback, and focused repair improvements. The matched p-map AbortSignal pilot and one reverse-order repeat are complete; Execa remains historical evidence. Improved Fanout was cheaper but slower in the first pilot, and costlier and slower in the repeat. Both repeat candidates failed supplemental semantic acceptance. Further canaries are authorized; reliability remains unproven and the candidate-submission design change awaits approval.
 
 ### End-to-end hardening
 

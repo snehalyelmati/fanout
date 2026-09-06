@@ -4,6 +4,8 @@
 
 The user-authorized [2026-09-06 p-map efficiency pilot](benchmarks/p-map-efficiency-pilot.md) compares raw Pi, current Fanout and improved Fanout with fixed Codex routing and full E2E accounting. All three passed the initial acceptance, but a subsequent pending-source-value audit found current Fanout incorrect; raw Pi and improved Fanout passed both audits. Improved Fanout took 393.781s/$0.5128764 versus raw Pi 307.421s/$0.627699 and current Fanout 486.832s/$0.8119022, with planning included. Cost improved, but latency remains worse than raw Pi; one sample does not establish reliability. This pilot replaces Execa for the current optimization investigation.
 
+An authorized reverse-order repeat on unchanged source measured improved Fanout at 369.965s/$0.5307096 and raw Pi at 255.175s/$0.514409. Both repeat candidates failed the supplemental pending-value abort check despite passing their full suites. Fanout consumed 45.0% more time and 3.2% more estimated cost; these are failed-task resource measurements. The initial cost advantage did not repeat. Detailed evidence and limitations are in the same pilot report.
+
 This is the primary running document for Doubleword cost/time experiments. Update it whenever workflow changes, routing changes, pricing changes, or benchmark datasets change.
 
 Benchmark procedure: [`docs/benchmarks/fanout-execution-benchmark-procedure.md`](benchmarks/fanout-execution-benchmark-procedure.md) defines the staged path from read-only Fanout DAG prompt experiments through `/fanout-execute` and TermBench-style execution benchmarks.

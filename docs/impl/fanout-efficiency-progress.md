@@ -1,6 +1,6 @@
 # Fanout efficiency progress
 
-Status: blocked pending approval for the proposed candidate-submission experiment. The user directly authorized commits; approved implementation and bounded p-map measurements are complete. The high-latency E2E objective remains unmet.
+Status: the authorized additional matched p-map canary pair is complete. Both repeat candidates fail the supplemental semantic check; Fanout is slower and costlier in the repeat. The high-latency E2E objective remains unmet; the proposed candidate-submission workflow is not implemented.
 
 ## Objective and authorization
 
@@ -39,6 +39,8 @@ Run focused planning, worker-pipeline, contract, recovery and final-validation c
 Use clean isolated p-map baselines for raw Pi, current Fanout and improved Fanout. Keep current/improved Fanout on the same worker provider/model, thinking and concurrency; record the normal raw-Pi configuration. Use identical task and independent acceptance checks. Count planning, workers, rejected attempts, repairs and final checks; record human waits separately. Report outcome, observed cost, wall time, sequential model calls and repair demand. A single pilot is accounting and feasibility evidence, not a reliability rate or tail estimate. Distinguish observed provider latency from fixed-60-second counterfactuals.
 
 User-selected pilot routing: `openai-codex/gpt-5.6-sol` medium for raw Pi and Tier 1; `openai-codex/gpt-5.6-terra` medium for the Tier 2 fallback; async Tier 2 disabled. This measures Codex workflow performance. Any 60-second-per-request scenario must be explicitly labeled counterfactual, not a Doubleword/provider forecast.
+
+Observed routing: planning/raw Pi used Sol medium; every ordinary Fanout worker in the initial and repeated runs used Terra medium immediately because async Tier 2 was disabled. Native allocations call this realtime assignment `tier1`; it is the configured Tier 2 fallback model, not a Sol worker or a reactive fallback after failure.
 
 Preserved baseline source snapshot: `/private/tmp/fanout-efficiency-baseline-07db63f`. The existing p-map checkout has a user modification in `readme.md`; use isolated clones from its fixed baseline and leave that checkout untouched.
 
@@ -93,3 +95,15 @@ The approval boundary has persisted across three consecutive goal turns: the ini
 ## Commit authorization resolved
 
 The user subsequently said “You can commit,” resolving the commit authorization blocker. Reviewed implementation is committed as `a7b5ef6` (combined planning) and `b6a6fab` (prepared worker sources and early ownership checks). Source/test bytes remain identical to the tested improved snapshot. Benchmark findings and this tracker accompany the implementation in a separate documentation commit. The proposed candidate-submission experiment still requires approval; commit authorization does not change that scope.
+
+## Additional canary authorization
+
+The user subsequently authorized canary runs. Revalidated the clean committed worktree, both benchmark source snapshots, the public p-map baseline and the exact Codex routing. Completed one fresh reverse-order pair: improved Fanout, then raw Pi. Both clean baselines passed all 51 tests. This tests variability in the existing implementation without changing worker behavior; the initial three-mode measurements remain intact.
+
+- Improved repeat: 369.965s including 80.007s planning, $0.5307096 estimated token cost, two planning and 20 worker requests. Runtime consumed 17 requests and six advisory validations. Native execution completed without controller repairs; independent full suite passed 55 tests.
+- Raw repeat: 255.175s, $0.514409, 12 requests; independent full suite passed 54 tests.
+- Both passed initial acceptance but failed the same supplemental pending-value abort case. Neither failed candidate was repaired after measurement. The 45.0% time and 3.2% cost disadvantage for Fanout compares consumed resources, not successful completion.
+- Both original and repeated Fanout runtime traces validate before completing behavioral tests. Stopping on the first green advisory check remains unsafe. Configured controller gates missed the semantic failure, so no repair budget was invoked.
+- All run/audit processes exited. Evidence and SHA-256 receipts are preserved in `runs/p-map-efficiency-repeat-20260906-01/`; temporary credentials were removed. Human waits are zero; independent audits remain outside measured E2E with their own recorded durations.
+- Further canaries are authorized. The candidate-submission design change remains pending; the user was asked to distinguish prototype implementation from running the existing workflow. No product code changed during this repeat.
+- Documentation review against `6d10a08`: Standards 0 residual findings; Spec 0 residual findings after clarifying observed Terra worker routing. Verified all 93 original repeat evidence receipts, exact E2E timestamps, unchanged pinned inputs and source bytes. `git diff --check` passes; the original p-map checkout retains only its pre-existing readme change.

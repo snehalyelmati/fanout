@@ -1,8 +1,8 @@
 # p-map efficiency pilot — 2026-09-06
 
-Status: all three controller runs completed. Raw Pi and improved Fanout pass the initial and supplemental semantic audits; current Fanout fails the supplemental pending-value abort case. Improved Fanout is cheaper but still slower than raw Pi; the high-latency goal remains unmet.
+Status: the initial three controller runs and an additional reverse-order pair completed. In the initial pilot, raw Pi and improved Fanout pass both semantic audits while current Fanout fails the pending-value abort case. Both candidates in the repeat fail that case; improved Fanout is slower and costlier in the repeat. The high-latency and reliability goals remain unmet.
 
-The user approved implementation and measurement using p-map, and selected Codex Sol medium for Tier 1/raw Pi with Terra medium as Tier 2 fallback. This scoped pilot supersedes the historical manual-only/no-automation restrictions for these three runs. It does not authorize a repetition cohort or a provider switch.
+The user approved implementation and measurement using p-map, and selected Codex Sol medium for Tier 1/raw Pi with Terra medium as Tier 2 fallback. This scoped pilot supersedes the historical manual-only/no-automation restrictions for these three runs. The user subsequently authorized further canary runs; the bounded reverse-order repeat below uses the same routing. No provider switch is included.
 
 ## Frozen inputs
 
@@ -10,6 +10,7 @@ The user approved implementation and measurement using p-map, and selected Codex
 - p-map baseline: `c3c261e2189f94d1a09724e8f03d5345af518017`; three independent local clones under `/private/tmp/fanout-pmap-pilot-20260906/{raw,current,improved}`. User checkout `readme.md` remains untouched.
 - Fanout current: exact archived revision `07db63f` at `/private/tmp/fanout-efficiency-baseline-07db63f`. Improved: frozen reviewed source snapshot `/private/tmp/fanout-efficiency-improved-source`; `improved-source-manifest.json` SHA-256 `2d287205591c864bc397b125a6f8d03e55e44609c5f0cd8bf322d54a354b1746`. Byte identities establish the measured source. Following direct user commit authorization, implementation was committed as `a7b5ef6` and `b6a6fab`; source/test bytes match that frozen snapshot.
 - Routing: `openai-codex/gpt-5.6-sol` medium controller/raw Pi, async Tier 2 disabled, `openai-codex/gpt-5.6-terra` medium Tier 2 fallback, concurrency 4. Fixed product recovery budgets unchanged.
+- Observed routing in both the initial pilot and repeat: every ordinary Fanout worker ran **Terra medium from its first attempt**, while planning and raw Pi ran Sol medium. Disabled async Tier 2 resolves directly to the configured realtime fallback; native worker allocations label this `tier1`. That label does not mean those workers used Sol, and no failed Sol attempt preceded them. This compares Sol-controlled/Terra-worker Fanout with raw Sol, not an all-Sol Fanout run.
 - Reused approved profile: `20260727-161147660-read-users-snehalyelmati-documents-p-map` from prior p-map run. Identical bytes for both Fanout modes: `npm ci --ignore-scripts`; `npm ls --depth=0`; existing XO normalization; final `npm test` and `git diff --check`. No paid profile discovery. Profile preparation/validation during execution remains charged to E2E.
 - Node 26.5.0. Exact lockfile dependencies installed independently. Each clean baseline passed all 51 tests.
 - Pi SDK drives the ordinary session and extension commands; no custom worker loop. Isolated settings omit unrelated global extensions/skills for all modes, including subprocesses. Raw Pi receives the same task with ordinary built-in tools. Explicit approval text avoids artificial human waits. Confirmation decisions are logged with user authorization. No decomposition override.
@@ -109,3 +110,24 @@ The intermediate improved candidate after response 9 also starts one mapper afte
 Raw/improved E2E and cost measurements are unchanged. Current Fanout's native controller outcome remains `completed`, but the task-level semantic audit is **failed**; comparisons against it describe resource use, not equal successful outcomes. No failed candidate was repaired after measurement. The additional checks and replay ran outside the measured provider runs and are excluded from all three E2E values.
 
 Evidence: `replay-runtime-candidates.mjs`, `runtime-replay-results.json`, `acceptance-pending-value.mjs`, `supplemental-final-acceptance.json`, `audit-last-runtime-fix.mjs` and `last-runtime-fix-audit.json` in the durable evidence directory. The original frozen acceptance script and its recorded results remain unchanged.
+
+## Authorized reverse-order repeat
+
+The user said “You're free to do canary runs.” One additional improved-Fanout/raw-Pi pair completed, in that order, using fresh clones at the same p-map baseline, task, profile, acceptance scripts and model settings. All 140 source/test files match the first improved pilot's frozen manifest. Both fresh baselines passed all 51 tests before measurement. This repeat changes no product code and does not implement the proposed candidate-submission workflow.
+
+Temporary evidence root: `/private/tmp/fanout-pmap-repeat-20260906-01`; durable evidence: `runs/p-map-efficiency-repeat-20260906-01/` (ignored by Git). The runner, setup and summarizer are reused with the isolated root and two-mode order changed; the original evidence remains untouched. Full measured E2E still includes planning, execution and native final checks. Both independent acceptance scripts and the full suite audited both final candidates outside measured E2E, consistently with the first pilot. This repeat also records those audit durations separately. Human wait is zero in both runs. Both run processes and audits exited; the isolated credential copy was removed and excluded from durable evidence.
+
+| Mode | E2E including planning | Planning | Estimated token cost | Model requests | Independent audit |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Improved Fanout, repeat | 369.965s | 80.007s | $0.5307096 | 2 planning + 20 workers | Initial checks/55 tests passed; pending-value abort failed |
+| Raw Pi, repeat | 255.175s | In ordinary loop | $0.514409 | 12 | Initial checks/54 tests passed; pending-value abort failed |
+
+Fanout consumed **45.0% more time and 3.2% more estimated cost** in this pair. Both are failed task outcomes, so this is a resource comparison, not a comparison of the cost/time to successful completion. Neither candidate was repaired after measurement. The initial pilot's cost advantage did not repeat; two observations per mode are too few for a reliable rate, tail estimate or causal attribution. Across the two attempts for each mode, one candidate passes the recorded semantic audits and one fails; this is an observed count, not a success-rate estimate.
+
+The repeated Fanout planning cost was $0.245810; workers cost $0.2848996. The public API worker again used three requests. Runtime used 17 requests and six advisory validations, two of which failed. Its first passing validation (response 6) preceded adding behavioral tests (response 7). Subsequent responses corrected tests and runtime behavior but still left `mapper(await value, currentIndex)` without a post-value-await abort guard. Raw Pi independently left the same gap. Both supplemental checks observe one mapper start after abort. Green model-written tests alone are insufficient to establish task correctness.
+
+Both Fanout original attempts were accepted, no controller repair was launched, and native final validation passed in 8.088867s. Accepted tree: `76bee95de629cc502fbf0d0626d5427da898de42`. Thus controller repair budgets cannot help with semantic failures that the configured gates do not detect. The fixed-60-second lower bound for this observed worker graph is `80.007 + 17 × 60 = 1100.007s` (18.33 minutes), before generation and local overhead. This remains a counterfactual, not an actual slow-provider measurement.
+
+Next experiments need both fewer dependent worker requests and acceptance that catches the task's asynchronous boundaries before success is reported. The proposed candidate-submission experiment must retain independent semantic acceptance and bounded repair; early termination on an advisory pass is contradicted by both traces. Further canaries are authorized, but the deferred candidate-submission workflow still awaits its separate design approval.
+
+Receipts: `summary.json`, `protocol.json`, `runtime-request-audit.json`, both `*-audit.json` and `*-supplemental.json` files, complete SDK/native event logs, candidate patches and `evidence-manifest.json` in the repeat evidence directory. The source, task, profile and acceptance identities remain pinned to the initial pilot.
