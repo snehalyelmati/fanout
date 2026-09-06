@@ -248,7 +248,7 @@ export default async function (pi: ExtensionAPI) {
 		const reason = planning.blockReason(event.toolName, event.toolCallId, messages)
 			?? workerValidationBatchBlockReason(event.toolName, event.toolCallId, messages, Boolean(workerValidation));
 		if (reason) return { block: true, reason };
-		const workerReason = workerToolBlockReason(event.toolName, event.input, process.env.FANOUT_WORKTREE_ROOT);
+		const workerReason = workerToolBlockReason(event.toolName, event.input, process.env.FANOUT_WORKTREE_ROOT, workerValidation);
 		if (workerReason) return { block: true, reason: workerReason };
 	});
 

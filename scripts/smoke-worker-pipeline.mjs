@@ -8,6 +8,8 @@ import { DOUBLEWORD_PRICING_PROVENANCE } from "../packages/doubleword-provider/s
 import { deriveAttemptMetricTotals } from "../packages/fanout-core/src/attempt-metrics.ts";
 import { correlatedWorkerMetrics } from "../packages/fanout-pi/src/attempt-evidence.ts";
 import { extractWorkerSummary } from "../packages/fanout-pi/src/fanout-worker-contract.ts";
+import { buildWorkerSourceContext } from "../packages/fanout-pi/src/worker-context.ts";
+import { capturePlanningBase } from "../packages/fanout-pi/src/repository-identity.ts";
 import {
   WORKER_MODEL_TOOLS,
   WORKER_TRUST_BOUNDARY,
@@ -37,7 +39,7 @@ try {
   assert(workerToolBlockReason(FANOUT_VALIDATE_TOOL, {}, worktree) === undefined, "contract-bound validation was blocked");
   assert(workerToolBlockReason("bash", { command: "true" }, worktree)?.includes("unavailable"), "A7 bash remained model-callable");
   assert(workerToolBlockReason("extension_tool", {}, worktree)?.includes("unavailable"), "A7 extension tool remained model-callable");
-  assert(workerToolBlockReason("write", { path: "src/new.txt" }, worktree) === undefined, "valid worker write was blocked");
+  assert(workerToolBlockReason("write", { path: "src/new.txt" }, worktree)?.includes("manifest"), "worker write without verified ownership was admitted");
 
   for (const path of ["../outside.txt", ".git/config", "src/../outside.txt", join(worktree, "absolute.txt"), "escape/mutated.txt"]) {
     const reason = workerToolBlockReason("write", { path }, worktree);
@@ -48,6 +50,7 @@ try {
 
   await testWorkerValidation(root, worktree);
   await testNormalizedWorkerValidation(root, worktree);
+  testWorkerSourceContext();
 
   for (const phrase of ["ignored files", "external paths", "network", "processes", "outside Fanout containment"]) {
     assert(WORKER_TRUST_BOUNDARY.includes(phrase), `A20 trust boundary omitted ${phrase}`);
@@ -133,6 +136,53 @@ try {
   rmSync(root, { recursive: true, force: true });
 }
 
+function testWorkerSourceContext() {
+  const cwd = join(root, "source-context");
+  mkdirSync(cwd);
+  const git = (...args) => {
+    const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+    assert(result.status === 0, result.stderr);
+    return result.stdout.trim();
+  };
+  git("init", "-q");
+  git("config", "user.email", "fanout@example.invalid");
+  git("config", "user.name", "Fanout Test");
+  writeFileSync(join(cwd, "owned.txt"), "ORIGINAL_OWNED\n");
+  writeFileSync(join(cwd, "dependency.txt"), "BASELINE_DEPENDENCY\n");
+  writeFileSync(join(cwd, "binary.dat"), Buffer.from([0, 1, 2]));
+  writeFileSync(join(cwd, "large.txt"), "x".repeat(70_000));
+  symlinkSync("/outside", join(cwd, "link"));
+  git("add", ".");
+  git("commit", "-qm", "fixture");
+  const baselineTree = capturePlanningBase(cwd).tree;
+  writeFileSync(join(cwd, "owned.txt"), "REPAIR_CANDIDATE\n");
+  writeFileSync(join(cwd, "dependency.txt"), "ACCEPTED_DEPENDENCY\n");
+  const resource = (path) => ({ kind: "file", path });
+  const contract = {
+    changes: [{ kind: "modify", target: { resource: resource("owned.txt") } }, { kind: "create", target: { resource: resource("new.txt") } }],
+    readDependencies: [
+      { resource: resource("dependency.txt"), timing: "baseline-context" },
+      { resource: resource("dependency.txt"), timing: "post-change-required" },
+      ...["owned.txt", "binary.dat", "large.txt", "link"].map((path) => ({ resource: resource(path), timing: "post-change-required" })),
+    ],
+  };
+  const context = buildWorkerSourceContext(cwd, baselineTree, contract);
+  assert(context.files.some((file) => file.path === "owned.txt" && file.text === "REPAIR_CANDIDATE\n"), "worker did not receive current repair bytes");
+  assert(context.files.filter((file) => file.path === "owned.txt").length === 1, "worker source context duplicated a read/write file");
+  assert(context.files.some((file) => file.path === "dependency.txt" && file.text === "BASELINE_DEPENDENCY\n" && file.tree === baselineTree), "baseline dependency used accepted bytes");
+  assert(context.files.some((file) => file.path === "dependency.txt" && file.text === "ACCEPTED_DEPENDENCY\n"), "post-change dependency used baseline bytes");
+  for (const path of ["new.txt", "binary.dat", "large.txt", "link"]) assert(context.omitted.some((entry) => entry.path === path), `omitted source ${path} was silently hidden`);
+  assert(context.files.every((file) => file.blob && file.tree), "source context lacks exact Git identity");
+  const overlap = buildWorkerSourceContext(cwd, baselineTree, { ...contract, readDependencies: [{ resource: resource("owned.txt"), timing: "baseline-context" }] });
+  assert(overlap.files.find((file) => file.tree === overlap.baselineTree)?.text === "ORIGINAL_OWNED\n", "baseline owned source is ambiguous");
+  assert(overlap.files.find((file) => file.tree === overlap.currentTree)?.text === "REPAIR_CANDIDATE\n", "current owned source is ambiguous");
+  mkdirSync(join(cwd, "wide"));
+  for (let index = 0; index < 300; index++) writeFileSync(join(cwd, "wide", `${index}.txt`), "");
+  const wide = buildWorkerSourceContext(cwd, baselineTree, { changes: [], readDependencies: [{ resource: { kind: "directory", path: "wide" }, timing: "post-change-required" }] });
+  assert(wide.files.length <= 128 && wide.omitted.length === 1 && JSON.stringify(wide).length < 192 * 1024, "wide empty-file directory bypassed context ceiling");
+
+}
+
 async function testWorkerValidation(root, worktree) {
   const attemptDir = join(root, "attempt");
   mkdirSync(attemptDir);
@@ -142,6 +192,7 @@ async function testWorkerValidation(root, worktree) {
     nodeId: "node-1",
     attemptId: "node-1:000001",
     worktreeRoot: worktree,
+    writeResources: [{ kind: "directory", path: "src" }], forbiddenWrites: [{ kind: "file", path: "src/blocked.txt" }],
     platform: process.platform,
     commands: [command],
     timeoutMs: 5_000,
@@ -156,6 +207,10 @@ async function testWorkerValidation(root, worktree) {
   };
   const context = loadWorkerValidationContext(env, worktree);
   assert(context, "verified worker validation context was not loaded");
+  assert(workerToolBlockReason("edit", { path: "src/value.txt" }, worktree, context) === undefined, "owned edit was blocked");
+  assert(workerToolBlockReason("write", { path: "src/blocked.txt" }, worktree, context)?.includes("forbidden"), "forbidden write was admitted");
+  assert(workerToolBlockReason("write", { path: "docs/api.md" }, worktree, context)?.includes("ownership"), "out-of-contract write was admitted");
+  assert(!existsSync(join(worktree, "docs/api.md")), "early ownership check wrote outside scope");
   const lone = [{ role: "assistant", content: [{ type: "toolCall", id: "validate-1", name: FANOUT_VALIDATE_TOOL }] }];
   const mixed = [{ role: "assistant", content: [{ type: "toolCall", id: "validate-1", name: FANOUT_VALIDATE_TOOL }, { type: "toolCall", id: "read-1", name: "read" }] }];
   assert(workerValidationBatchBlockReason(FANOUT_VALIDATE_TOOL, "validate-1", lone, true) === undefined, "lone worker validation was blocked");
@@ -184,6 +239,7 @@ async function testWorkerValidation(root, worktree) {
     nodeId: "node-1",
     attemptId: "node-1:000001",
     worktreeRoot: worktree,
+    writeResources: [{ kind: "directory", path: "src" }], forbiddenWrites: [{ kind: "file", path: "src/blocked.txt" }],
     platform: process.platform,
     commands: bulkCommands,
     timeoutMs: 5_000,
@@ -209,7 +265,7 @@ function testDiscoveredExtensionWithFixedProfile(root) {
   const attemptDir = join(root, "discovery-attempt");
   mkdirSync(join(repo, ".pi", "extensions"), { recursive: true });
   mkdirSync(attemptDir);
-  const manifest = publishWorkerValidationManifest(attemptDir, { runId: "discovery", nodeId: "node", attemptId: "node:000001", worktreeRoot: repo, platform: process.platform, commands: [], timeoutMs: 5_000 });
+  const manifest = publishWorkerValidationManifest(attemptDir, { runId: "discovery", nodeId: "node", attemptId: "node:000001", worktreeRoot: repo, writeResources: [], forbiddenWrites: [], platform: process.platform, commands: [], timeoutMs: 5_000 });
   writeFileSync(join(repo, ".pi", "extensions", "discovered.ts"), `import { writeFileSync } from "node:fs";\nexport default function discovered(pi) {\n  pi.registerTool({ name: "discovered_tool", label: "Discovered", description: "Must remain unavailable", parameters: { type: "object", properties: {} }, async execute() { return { content: [{ type: "text", text: "unexpected" }] }; } });\n  pi.on("session_start", () => writeFileSync(${JSON.stringify(marker)}, JSON.stringify(pi.getActiveTools())));\n}\n`);
   const sessionDir = join(root, "sessions");
   const result = spawnSync("pi", [
@@ -257,7 +313,7 @@ async function testNormalizedWorkerValidation(root, worktree) {
   for (const mode of ["pass", "program", "tamper", "publication", "empty"]) {
     const attemptRoot = join(root, `sdk-${mode}`);
     mkdirSync(attemptRoot);
-    const identity = publishWorkerValidationManifest(attemptRoot, { runId: "sdk", nodeId: "node", attemptId: "node:000001", worktreeRoot: worktree, platform: process.platform, commands: mode === "empty" ? [] : [{ executable: process.execPath, args: ["-e", mode === "program" ? "console.error('program failed');process.exit(7)" : "process.exit(0)"] }], timeoutMs: 5000 });
+    const identity = publishWorkerValidationManifest(attemptRoot, { runId: "sdk", nodeId: "node", attemptId: "node:000001", worktreeRoot: worktree, writeResources: [], forbiddenWrites: [], platform: process.platform, commands: mode === "empty" ? [] : [{ executable: process.execPath, args: ["-e", mode === "program" ? "console.error('program failed');process.exit(7)" : "process.exit(0)"] }], timeoutMs: 5000 });
     const context = loadWorkerValidationContext({ FANOUT_RUN_ID: "sdk", FANOUT_NODE_ID: "node", FANOUT_ATTEMPT_ID: "node:000001", FANOUT_WORKER_DIR: attemptRoot, FANOUT_WORKTREE_ROOT: worktree, FANOUT_VALIDATION_MANIFEST: JSON.stringify(identity) }, worktree);
     if (mode === "tamper") writeFileSync(join(attemptRoot, identity.path), "{}\n");
     if (mode === "publication") writeFileSync(join(attemptRoot, "worker-validation"), "blocked");
