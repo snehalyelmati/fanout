@@ -1,5 +1,21 @@
 # Design Decisions
 
+## 2026-09-06
+
+### Optimize sequential provider requests with combined planning and prepared workers
+
+Decision: The approved [efficiency work](impl/fanout-efficiency-progress.md) merges Phase A/B model planning into one context and combined submission, followed by deterministic validation and compilation. Keep the existing persisted plan/details/packet semantics and identity links; their logical semantic/grounding halves no longer require separate model investigations. Reuse existing profiles and user context. Prepare bounded actual worker source context, add verified pre-edit/write ownership feedback while retaining final patch audits, align validation with repair ownership, and remove duplicated model-facing repair material while keeping complete audit evidence.
+
+This supersedes the requirement for two separate planning model phases. Pi worker tools, candidate continuity, Tier 1 validation repairs, fixed budgets and independent controller acceptance remain. The per-attempt worker manifest will bind write resources and bans with a local format revision; execution outcome/event generations do not change for prompt or pre-tool feedback alone.
+
+Reason: A one-minute request latency is paid on each dependent model call. Recent traces spend calls rediscovering context and pay for rejected ownership or unrepairable validation. These changes target that repeated work without weakening accepted repository authority. One-shot completion and performance gains remain hypotheses to measure.
+
+### Use p-map for the efficiency pilot
+
+Decision: Compare raw Pi, baseline Fanout and improved Fanout on the same p-map AbortSignal task, clean baseline and independent acceptance checks. Record all planning, execution, failure, repair and final-check costs/time, with human waits separate. Begin with the three-mode pilot; larger cohorts remain pending. Keep Execa results historical.
+
+Reason: p-map's shorter full suite makes workflow overhead easier and cheaper to investigate. A pilot establishes accounting and feasibility, not reliable tail performance or a universal speed claim.
+
 ## 2026-09-05
 
 ### Apply the approved Fanout audit cutover

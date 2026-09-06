@@ -39,9 +39,13 @@ Fanout should preserve developer velocity by using slower tiers only where laten
 
 ## Current Fanout workflow roadmap
 
+### Efficiency work in progress
+
+The approved [efficiency tracker](impl/fanout-efficiency-progress.md) records combined model planning, prepared worker context, early ownership feedback, and focused repair improvements. The matched p-map AbortSignal pilot is complete; Execa remains historical evidence. Improved Fanout is cheaper but slower than raw Pi, including planning. One sample per mode does not establish reliability; the next candidate-submission experiment awaits approval.
+
 ### End-to-end hardening
 
-Status: The current closed generation is Project Execution Profile v1, plan v4, details v7, packet v10, pointer v2, work contract v5, Attempt Outcome v6, final evidence v2, Event v6, Projection v7, and presentation entry v1. Planning uses canonical TypeBox structures, compiler-validated phase-specific submission tools advancing at settlement, phase-specific compaction-aware provider context, Pi-native read-only filesystem access, and Phase A-only global forbidden writes. Workers have six file tools plus manifest-bound advisory `fanout_validate`; controller validation remains authoritative. Work contract v3 and packet v8 require replanning; older execution evidence remains descriptive Legacy data.
+Status: The current closed generation is Project Execution Profile v1, plan v4, details v7, packet v10, pointer v2, work contract v5, Attempt Outcome v6, final evidence v2, Event v6, Projection v7, and presentation entry v1. Planning uses canonical TypeBox structures, a compiler-validated combined plan/details submission publishing at settlement, one compaction-aware implementation context, Pi-native read-only filesystem access, and Phase A-only global forbidden writes. Workers have six file tools plus manifest-bound advisory `fanout_validate`; controller validation remains authoritative. Work contract v3 and packet v8 require replanning; older execution evidence remains descriptive Legacy data.
 
 Live `/fanout-execute` remains blocked from release until the explicitly authorized macOS p-map canary, fresh review, and repository-owner approval pass for the same immutable commit. Offline readiness does not satisfy those external gates.
 
@@ -61,7 +65,7 @@ Acceptance criteria:
 
 ### Phase 2: Execution packet via `/fanout-plan`
 
-Status: Phase 2B now publishes plan v4/details v7 and compiles work-contract v5 nodes into profile-bound packet v10. A separately approved profile v1 owns preparation, readiness, normalization, and required final gates. Phase-specific structural schemas reject malformed submissions before tool execution, while contextual semantic checks retain plan membership, profile-gate, resource, identity, and graph policy. Provider context is isolated by phase without altering session history. Phase A alone owns global forbidden writes; Phase B keeps node validation focused on owned changes and reserves packet-final commands for additional task-specific integration. `/fanout-plan --refresh-profile` validates replacement before pointer publication; failed refresh preserves the prior profile. Live canary evidence remains a release gate, not an offline implementation claim.
+Status: Phase 2B now publishes plan v4/details v7 and compiles work-contract v5 nodes into profile-bound packet v10. A separately approved profile v1 owns preparation, readiness, normalization, and required final gates. The combined submission schema rejects malformed plan/details bodies before tool execution, while contextual semantic checks retain plan membership, profile-gate, resource, identity, and graph policy. Profile creation remains separate; implementation planning and grounding share one provider context without altering session history. Phase A alone owns global forbidden writes; Phase B keeps node validation focused on owned changes and reserves packet-final commands for additional task-specific integration. `/fanout-plan --refresh-profile` validates replacement before pointer publication; failed refresh preserves the prior profile. Live canary evidence remains a release gate, not an offline implementation claim.
 
 P0 prompt-DAG dry-run benchmarking graduated `combined-general-conflict-proof` as the current best DAG prompt candidate across known and heldout tasks. The hardened `/fanout-execute` offline smoke matrix now covers the public dry-run and live seams, repair, integration, final validation, event replay, and cleanup. Treating the prompt as a released runtime default still requires the explicitly authorized macOS p-map canary and repository-owner approval.
 
@@ -81,7 +85,7 @@ Build the smallest useful packet first:
 3. **Prepare implementation-plan artifact**
    - Define implementation items, behavior/contracts, likely writable files/resources, read-only context, semantic dependencies, validation intent, acceptance criteria, risks, and forbidden scope.
    - Draw item boundaries around independently acceptable and repairable changes, keeping inseparable production behavior and its behavioral tests in one item; declare genuine shared reads without padding for fusion.
-   - Do not choose anchors, worker ownership, parallelism, execution dependencies, or tiers in this phase; semantic dependencies are traceability/planning context, not DAG edges.
+   - Keep anchors in the details body; do not choose worker ownership, parallelism, execution dependencies, or tiers; semantic dependencies are traceability/planning context, not DAG edges.
 4. **Prepare implementation-details artifact**
    - Ground Phase A items in exact files/resources, stable anchors, edit intent, new-file content shape, read-dependency classification, and the narrowest meaningful task-specific validation commands for each node's owned changes; Phase A remains the sole source of global forbidden writes, while shared infrastructure, configuration, build, and test-harness changes may require broader checks.
    - Treat the exact approved profile as guaranteed: do not repeat its commands, and use packet-final commands only for additional task-specific integrated checks before profile-owned project-wide gates.
@@ -407,3 +411,5 @@ Only build these if the simpler system fails benchmarks:
 - Whether any tier supports true streaming before completion.
 - Whether Doubleword's Responses cancel endpoint has any provider-specific caveats beyond OpenAI-compatible background response cancellation.
 - Which Doubleword models should be exposed first.
+
+The [2026-09-06 p-map pilot](benchmarks/p-map-efficiency-pilot.md) measured lower cost but higher full E2E time than raw Pi after the approved changes. The high-latency target remains open; a terminating candidate-submission prototype is proposed but not approved. Existing deferred-work decisions remain in force.
