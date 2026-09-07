@@ -1,5 +1,30 @@
 # Benchmark Metrics
 
+## Current experiment ordering — Codex first
+
+The bounded qs transfer is complete. The approved sequence now prioritizes a concrete task coverage matrix, then fixed-configuration Codex comparisons across real fast tasks. Keep Sol medium raw/planning and Terra medium initial/fallback assignments, valid frozen references, independent acceptance and all failed work. Task coverage must distinguish inherent useful width/depth from the generated graph and include volume, coupling, reasoning difficulty and measured validation duration. Doubleword credits are scarce: actual provider pilots are deferred until repeated relevant Codex wins and plausible high-latency headroom justify them. Missing credentials do not block this phase. Timing replay is screening evidence only; the full realtime/async matrix remains later work. This ordering supersedes immediate-async-next statements in historical notes without changing any measured result.
+
+### Fixed qs complete-edit-batch transfer — 2026-09-07
+
+The one predeclared transfer trial passed all required gates and manual task-quality review. It held the earlier whole-task configuration fixed: exact task source preparation, Terra medium initial reasoning/native edit batch, then normal Sol medium recovery with at most two correction prompts. It added no planner, submission tool or hard edit-only guard. Task-specific qs gates and the corrected completion-v2 checker remained authoritative.
+
+| Observation | Task E2E | Estimated token cost | Initial Terra / Sol responses | Corrections | Final result |
+| --- | --- | --- | --- | --- | --- |
+| Fixed batch transfer-01 | 174.992s | $0.564940 | 1 / 4 | 1 | 877 assertions, all six gates and manual review pass |
+| Existing valid raw-01 | 265.166s | $0.754926 | 0 / 18 | 0 | Native/independent gates and manual review pass |
+
+This is **34.01% faster and 25.17% cheaper** than the single valid raw observation. It is a positive transfer signal, not repeatability or an isolated orchestration effect. Initial model, 130,002 bytes of prepared sources, tool policy and termination differ from ordinary Pi. Raw-01 used completion-v1; the corrected v2 is timed in this transfer and passed raw-01 offline. The biased qs raw pair mean remains excluded. P-map and qs still provide limited task-shape coverage.
+
+The one Terra response cost $0.136455 and emitted four edits. Its candidate passed all seven independent semantic groups, lint, README, diff and completion presence, but failed four existing native expectations for the intentionally changed default. It also lacked the required focused test updates. Sol used four responses/$0.428485 to finish that work. Final tree `e7fc20d85ad5af3e181ba9b3adfdcfba0b4221ef`, patch SHA-256 `d2265eb3045f103de50df372a5aa08028e0aeba5aadf50c066cd97736259b49f`, has both merge orders, dot notation, prototype-sensitive values, null-prototype assertions and legacy-mode tests. Manual review found no remaining task gap; the independent checker supplies the reverse dot-order case not separately added to the repository tests. Completion text presence alone remains insufficient evidence of test quality.
+
+**Predeclared hypothetical replay:** replacing the one Terra complete-response interval with 60/300/600 seconds yields **198.138/438.138/738.138s**. Replacing its local first-update interval instead yields **231.919/471.919/771.919s**. The 60-second scenarios have time headroom against raw-01; the longer waits fail that reference. These retain observed generation where applicable, tool work, all realtime Sol recovery, checks, costs and outcome. They cannot establish Doubleword latency, quality, repair frequency, tokens, billing or viability.
+
+The task clock includes source loading and construction, all model/tool work, both gate rounds, correction and session disposal. Planning is absent. Separately measured clone/install/setup commands total 10.214s and initialization is 1.012s; adding them gives 186.218s, without claiming a matched cold-start comparison. Human wait inside task E2E is zero. Estimated token cost is distinct from cash billing and provider cost.
+
+Evidence: `runs/qs-whole-transfer-v1-20260907/`, frozen protocol SHA-256 `b75a164ab1b7b117389f076d172922dde021718c471599178f6aa27193bb7518`, driver `87347341c8f4aab504f921427a27eee7a7d5723b7e49054dfd1f25071fa9067d`, source `3b86640`, 113 unchanged runtime/input hashes. Batch/ownership/repair smoke, zero-provider routing and base-fail/reference-pass six-gate checks passed on the final driver before freeze. The reference wrapper took 6.665s; its six command durations sum to 5.468s. The sole live handle ended exit 0, auth was removed, and exact events/results, every candidate round patch, ownership, offline/setup evidence and quality review are retained. No rerun or replacement occurred.
+
+Decision: continue Codex screening with the fixed promising configuration across deliberate task contrasts before tuning or spending scarce Doubleword credits. The [coverage inventory](benchmarks/fanout-high-latency-study.md#small-varied-task-set) records pinned tasks, measured gate scope, readiness and missing work-depth/volume/width contrasts. One qs pass cannot establish repeatable cross-profile savings.
+
 ### Native Pi continuation decision — 2026-09-07
 
 The two predeclared native-continuation trials are complete. Initial Terra used the normal Pi tool-result loop until a natural final reply, with exact sources preloaded and edit/write-only calls enforced. Both required one normal Sol correction. No new raw runs were made.
@@ -20,7 +45,7 @@ The task clock includes source-context construction, all model/tool work, failed
 
 Evidence: `runs/p-map-native-continuation-v1-20260907/`, frozen protocol SHA-256 `9b9ee3b91ff2685743da047fff0510d7ca53506df0952764942bd5fa10094123`, source `01b3ab4`, driver SHA-256 `3db19036b11635efb7932627aa348274ffa45a789936d96ce3dd9629196cf10d`. All 111 runtime/input hashes and protocol identity remained unchanged. Both live handles ended with exit 0; isolated auth was removed. The archive retains exact events, final results, every gate-round patch, console output, ownership evidence, setup/offline checks and manual reviews. Full offline replay preceded two final admission/error-classification fixes; exact final branches and zero-provider SDK initialization were checked separately.
 
-**Next decision:** stop further p-map prompt, architectural and harness variants unless a concrete validity defect blocks evaluation. Use the strongest existing complete-edit-batch configuration for the smallest actual async pilot and one fixed qs transfer trial. Known Doubleword environment/Pi auth access is still absent; do not substitute more realtime p-map runs. Use qs raw-01 only as one valid reference observation (265.166s/$0.754926), never the biased qs pair mean. Keep actual provider results, transfer and first-principles timing screens separate before deciding continue/change-direction/reject.
+**Decision at the native-continuation checkpoint (qs is now complete above):** stop further p-map prompt, architectural and harness variants unless a concrete validity defect blocks evaluation. Use the strongest existing complete-edit-batch configuration for one fixed qs transfer trial and deliberate Codex task coverage. The subsequent user-approved Codex-first sequence defers actual async until the evidence justifies scarce credits; credential absence is not a current blocker. Use qs raw-01 only as one valid reference observation (265.166s/$0.754926), never the biased qs pair mean. Keep actual provider results, transfer and first-principles timing screens separate before deciding continue/change-direction/reject.
 
 
 ## Active high-latency study
