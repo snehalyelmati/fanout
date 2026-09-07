@@ -147,6 +147,10 @@ For the completed prompt pair, the local derivation `runs/p-map-prompt-v2-202609
 
 For the whole-task batch trial, `runs/p-map-single-batch-v1-20260907/analysis/whole-01-analysis.json` replaces only the measured 5.359s initial Terra start-to-first-local-update interval with 60s. The resulting 212.821s holds the observed continuation, five realtime Sol responses, repairs, gates, cleanup, outcome and `$0.3086735` cost fixed. It is not evidence for async latency or unchanged quality under another service.
 
+The two subsequent predeclared whole-task repeats passed at 190.539s/$0.346216 and 171.873s/$0.314870, with mean 181.206s/$0.330543. All three whole-task observations, including the exploratory first trial, used both correction prompts. Keep the exploratory-inclusive mean separate and reuse the existing raw reference. Their initial Terra local first-update intervals replaced with 60s yield 246.594s and 228.321s; observed work, realtime Sol repairs, outcome and cost remain fixed. See the benchmark index for full provenance and model/workflow differences.
+
+The next feedback experiment is motivated by an offline replay: running XO, AVA and tsd independently on whole-02's initial tree exposed the same two AVA failures previously hidden until lint passed. A new runner may collect complete diagnostics before repair while preserving the conjunction of all required gates, candidate integrity and the two-correction budget. This replay does not establish a reduction in model rounds. The standalone Doubleword async adapter also passed a fake-transport smoke through the real SDK and native batch tools; actual provider quality, availability and cost remain unmeasured. The qs strict-merge task passed independent red/green preflight and its separately timed successful native/acceptance gates sum to 6.64s. Freeze its resolved lock for future cohorts and retain the known-public-task contamination caveat; no model trial has run.
+
 ## Provider hypotheses and economic constraints
 
 | Hypothesis | Potential benefit | Required evidence / risk |
