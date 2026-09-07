@@ -8,6 +8,12 @@ Decision: Adopt the [high-latency study protocol](benchmarks/fanout-high-latency
 
 Reason: Repeated p-map runs did not establish reliable cost/time benefit and exposed semantic failures despite green suites. The investigation must identify operating limits rather than assume Fanout wins. Fast continuation windows, shared caches and provider scheduling changes remain hypotheses; no provider architecture is adopted by this decision.
 
+### Preserve the current prompt after the first controlled canary
+
+Decision: Do not adopt the complete-before-validation wording as a performance optimization from this pair. Both arms passed acceptance v2, but the changed arm used 13 runtime responses versus 12 and more time/cost. Investigate an explicit complete-candidate submission/finishing experiment and execution overhead next; native Pi tool-result termination is a possible implementation seam. Unconditional stopping at the first green advisory check remains unsafe, and no new product workflow is adopted here.
+
+Reason: Prompt wording changed validation order but did not establish reduced request depth or user benefit. Fresh-plan variation and the small sample constrain causal/reliability claims.
+
 ### Reuse a calibrated raw-Pi reference
 
 Decision: After a small raw-Pi calibration cohort, reuse its arithmetic mean across Fanout iterations. Preserve the individual trials, sample count and failure evidence. Run raw Pi again when task/model/environment/measurement changes make the reference stale, rather than pairing an unchanged raw arm with every optimization. The current v2 reference uses its two comparable trials; do not pool historical runs whose acceptance/E2E boundaries differ.
