@@ -1,6 +1,6 @@
 # Fanout efficiency progress
 
-Status: active under the broader [study protocol](../benchmarks/fanout-high-latency-study.md). Completed implementation and both p-map pilot pairs remain evidence; the cost/time/correctness target is unmet. Independent acceptance v2 is implemented; current work establishes correct ordinary-Pi baselines and prepares a controlled prompt experiment. Candidate submission remains an optional experiment; polished presentation is deferred.
+Status: active under the broader [study protocol](../benchmarks/fanout-high-latency-study.md). Completed implementation and both p-map pilot pairs remain evidence; the cost/time/correctness target is unmet. Independent acceptance v2 and two successful ordinary-Pi baseline trials are complete; current work prepares a controlled prompt experiment. Candidate submission remains an optional experiment; polished presentation is deferred.
 
 ## Objective and authorization
 
@@ -31,8 +31,8 @@ Baseline Fanout revision: `07db63f`. Preserve historical runs and benchmark pric
 | 2 — Prepared worker context | Implemented, focused checks pass | Baseline/current repair bytes, omissions, wide-directory bounds | Public-contract worker starts with edits; runtime still rereads |
 | 3 — Ownership and repair efficiency | Implemented | Manifest v2 immediate writes, scoped validation guidance, compact final repair plus recovery.json | Full executor checks pass; no live ownership/recovery event in pilot |
 | 4 — Initial p-map measurement | Complete | Initial raw/improved pass both audits; current and both repeat candidates fail pending-value abort | Preserved historical evidence; not a reliable win |
-| 5 — Study protocol and stronger acceptance | Implemented; baseline preparation in progress | Full framework documented; acceptance v2 passes two known good candidates and rejects three faulty candidates plus baseline | Correct-completion ordinary-Pi baseline with required semantic gates |
-| 6 — Controlled workflow experiment | Next | Complete implementation and behavioral tests before first advisory validation | Measure request depth, correctness and repair demand with fixed settings |
+| 5 — Study protocol, acceptance and raw baseline | Complete for initial two-trial cohort | Acceptance v2 checked offline; raw trials pass at 274.137s/$0.547710 and 324.892s/$0.697646, including required gates | Compare existing and changed worker prompts under the same acceptance boundary |
+| 6 — Controlled workflow experiment | Preparation in progress; no live result | Complete implementation and behavioral tests before first advisory validation | Measure request depth, correctness and repair demand with fixed settings |
 | 7 — Varied tasks and real async service | Planned | Fast-task shortlist and trace-screening precede paid expansion | Keep task selection, live results and provider hypotheses separate |
 
 Update each row after implementation and checks. Record failures and limitations here; never mark a stage measured from offline checks alone.
@@ -125,3 +125,10 @@ The user subsequently authorized canary runs. Revalidated the clean committed wo
 - Implemented `scripts/benchmarks/p-map-raw-canary-v2.mjs`: required acceptance/full-suite checks and up to two predeclared correction prompts share one E2E clock. It freezes candidate identity across all gates, records configuration/environment and final patch provenance, and rejects mutations of benchmark inputs. This changes the benchmark protocol, not Fanout's production recovery limits. No new baseline result is claimed until the verified driver and checker are run.
 - Provenance inspection found project SDK 0.83.0 and global Pi CLI 0.84.4. The new driver pins `piSdkVersion` explicitly; later Fanout comparisons must record the actual worker executable/version rather than infer all roles from a single CLI version string.
 - Fast-task research produced provisional pi-mono parser, coupled API/caller and width/state candidates. Exact parent commits, independent acceptance and clean timing checks are outstanding; shared-repository/known-trace bias and missing natural width coverage are explicit selection gaps. Execa's inspected 240s timeout is not treated as the cause of its recorded successful 252–300s suites.
+
+### Ordinary-Pi v2 baseline completed
+
+- Committed reviewed helpers as `6dd0f04` and the study protocol as `438b42d`. `npm run typecheck` and full `npm run check` passed; local stub-server binding required the already-authorized sandbox escalation. Known-candidate acceptance replay and simulated repair, exhaustion and gate-mutation flows passed. Offline driver receipts are under `runs/p-map-raw-driver-v2-offline-20260907/`.
+- Executed both predeclared fresh raw trials in order under the same frozen protocol: 274.137s/$0.547710/15 responses and 324.892s/$0.697646/19 responses. Both passed all six semantic/scope cases, 54 repository tests and whitespace validation with zero external correction prompts. Internal fixes and required gates are included in E2E; provisioned setup and driver/session initialization remain separately reported.
+- Archived full provenance and both final candidates under `runs/p-map-raw-v2-baseline-20260907/`; temporary auth removed after completion. These two passes establish usable observations, not reliability or a Fanout win. Historical post-hoc-audit measurements keep their original accounting.
+- Preparing a minimal existing-versus-changed Fanout worker-prompt pilot in ignored run artifacts. Acceptance v2 joins the native final gate; planning and all native repair work remain inside E2E. Pin both SDK and worker CLI to project version 0.83.0. No product prompt change or live prompt-comparison result is claimed yet.
