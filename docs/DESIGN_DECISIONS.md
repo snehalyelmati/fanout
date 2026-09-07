@@ -2,6 +2,12 @@
 
 ## 2026-09-07
 
+### Admit the bounded Pi rendering fixture without claiming broad task coverage
+
+Decision: Keep Pi issue 764 limited to the pinned 56-column reproduction. Its offline acceptance and full read-only repository check expansion plus focused tests pass in 5.073s. Use it as a very small narrow-edit/overhead contrast when the fixed-configuration cohort is prepared. Preserve the complete 78-column guidance and empty-state behavior; accept valid shorter truncation. No product change or live configuration is adopted.
+
+Reason: Reference `588399594c36cf4ee5bb04d4ab9e8220adc66b5f` fixes the header at 56, not every narrow width. Historical debugging length does not establish inherent investigation difficulty or task-work depth. Separately pin PR 787 as a possible shared-contract contrast, but require an independent evaluator, timing and source-context fit before admission. Its 505,568-byte snapshot is source volume, not implementation volume or useful width. Coverage v2 supersedes the inventory without changing frozen v1 or prior benchmarks.
+
 ### Screen fixed orchestration with Codex before spending async credits
 
 Decision: Follow the user-approved Codex-first study sequence and replacement stored goal. The approved sequence called for the bounded qs transfer (now complete below), then a concrete task coverage matrix and evaluate the fixed promising configuration against ordinary realtime Pi across contrasting real fast tasks before task-specific tuning. Preserve fixed Codex assignments, small declared cohorts, budgets, independent acceptance, full E2E and all failures. Reuse valid raw references; never adopt the biased qs mean.
