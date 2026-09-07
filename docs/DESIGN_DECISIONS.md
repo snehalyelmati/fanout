@@ -28,6 +28,14 @@ Decision: Preserve the two predeclared whole-task repeats and the existing raw m
 
 Reason: The initial `xo && ava && tsd` command stopped at lint in all three trials. Offline replay of whole-02's initial tree showed that running AVA independently exposed both later test failures before the first repair. This supports an experiment about feedback timing; it does not establish a saved model round or performance benefit. Standalone async-provider/native-tool compatibility passed with fake transport, while actual async quality and latency remain unmeasured. Broader task and provider validation are still required before adoption.
 
+### Require complete-task acceptance before more whole-task trials
+
+Decision: Do not adopt supplemental diagnostics as a performance optimization from its two-trial follow-up. Both passed at a mean 326.352s/$0.5050845, slower than both the earlier whole-task repeats and the frozen raw mean. Preserve the fixed cohorts and separate candidate variation from the diagnostic change. Add a separate benchmark completion gate for public signal typing and required tests/documentation before further p-map whole-task trials, leaving acceptance-v2 unchanged. Review artifact quality as well as presence.
+
+Reason: Both initial one-response Terra submissions changed only runtime code; Sol completed required types, tests and documentation. The runtime checker and unchanged suite could pass that incomplete work, so one-response termination and fewer correction prompts are inadequate success measures. The second trial used one correction prompt but eight Sol responses. Continue varied-task and actual async evaluation after acceptance readiness; no product workflow is adopted.
+
+Implementation evidence: completion prototype v2 now rejects the clean base, runtime-only initial candidate and a widened-signal type regression while accepting seven archived final candidates, with identities unchanged. V1 and its narrower type-probe limitation remain preserved separately. It adds public type compilation and relevant test/type-test/documentation additions; artifact quality remains a review responsibility. These offline audits do not change historical E2E or acceptance-v2, and the gate must be bound into the next frozen cohort.
+
 ### Reuse a calibrated raw-Pi reference
 
 Decision: After a small raw-Pi calibration cohort, reuse its arithmetic mean across Fanout iterations. Preserve the individual trials, sample count and failure evidence. Run raw Pi again when task/model/environment/measurement changes make the reference stale, rather than pairing an unchanged raw arm with every optimization. The current v2 reference uses its two comparable trials; do not pool historical runs whose acceptance/E2E boundaries differ.
