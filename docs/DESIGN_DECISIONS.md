@@ -8,6 +8,12 @@ Decision: Adopt the [high-latency study protocol](benchmarks/fanout-high-latency
 
 Reason: Repeated p-map runs did not establish reliable cost/time benefit and exposed semantic failures despite green suites. The investigation must identify operating limits rather than assume Fanout wins. Fast continuation windows, shared caches and provider scheduling changes remain hypotheses; no provider architecture is adopted by this decision.
 
+### Reuse a calibrated raw-Pi reference
+
+Decision: After a small raw-Pi calibration cohort, reuse its arithmetic mean across Fanout iterations. Preserve the individual trials, sample count and failure evidence. Run raw Pi again when task/model/environment/measurement changes make the reference stale, rather than pairing an unchanged raw arm with every optimization. The current v2 reference uses its two comparable trials; do not pool historical runs whose acceptance/E2E boundaries differ.
+
+Reason: The user explicitly requested baseline reuse on 2026-09-07 to avoid repeated unchanged control runs. More calibration samples are useful only when their uncertainty affects a decision.
+
 ### Strengthen acceptance and broaden the fast task set
 
 Decision: Version independent acceptance and make required semantic checks and their repairs part of future full E2E for both ordinary Pi and Fanout. Preserve historical post-hoc-audit measurements without relabeling their accounting. Start with correct-completion baselines and a small prompt experiment using existing Sol/Terra settings. Expand p-map with roughly three varied fast-validating tasks; retain Execa for occasional stress runs. Task selection is not complete, and no artificial DAG shape is required.
