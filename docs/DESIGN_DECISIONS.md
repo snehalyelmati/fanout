@@ -1,5 +1,21 @@
 # Design Decisions
 
+## 2026-09-07
+
+### Evaluate correct completion across orchestration and provider service
+
+Decision: Adopt the [high-latency study protocol](benchmarks/fanout-high-latency-study.md). Preserve completed optimizations and measured failures. Ordinary realtime Pi remains the baseline; investigate both orchestration for today's high latency on every request and complementary provider changes. Prefer controlled prompt changes before custom candidate submission. Tier 1 may identify scope/context and local code may collect existing sources; the cheap worker must perform implementation reasoning rather than only apply Tier 1's completed solution.
+
+Reason: Repeated p-map runs did not establish reliable cost/time benefit and exposed semantic failures despite green suites. The investigation must identify operating limits rather than assume Fanout wins. Fast continuation windows, shared caches and provider scheduling changes remain hypotheses; no provider architecture is adopted by this decision.
+
+### Strengthen acceptance and broaden the fast task set
+
+Decision: Version independent acceptance and make required semantic checks and their repairs part of future full E2E for both ordinary Pi and Fanout. Preserve historical post-hoc-audit measurements without relabeling their accounting. Start with correct-completion baselines and a small prompt experiment using existing Sol/Terra settings. Expand p-map with roughly three varied fast-validating tasks; retain Execa for occasional stress runs. Task selection is not complete, and no artificial DAG shape is required.
+
+This supersedes the p-map-only scope of the initial efficiency pilot. Routine engineering/canary work and atomic reviewed commits follow the user's updated global instructions; the previous blanket plan-before-write gate is superseded. Existing authority, isolation, provider/core boundaries and fixed repair budgets remain. Polished presentation, broad model sweeps and Pi-with-subagents comparisons are deferred so useful execution evidence comes first.
+
+Reason: Correct completion is the user outcome. Failed-run time is not a successful-completion baseline; task difficulty, work volume and useful parallelism are independent dimensions. Measured results, trace-based counterfactuals and hypothetical provider designs require distinct evidence labels.
+
 ## 2026-09-06
 
 ### Optimize sequential provider requests with combined planning and prepared workers

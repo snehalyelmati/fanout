@@ -2,6 +2,8 @@
 
 Status: the initial three controller runs and an additional reverse-order pair completed. In the initial pilot, raw Pi and improved Fanout pass both semantic audits while current Fanout fails the pending-value abort case. Both candidates in the repeat fail that case; improved Fanout is slower and costlier in the repeat. The high-latency and reliability goals remain unmet.
 
+Current direction (2026-09-07): the [high-latency study protocol](fanout-high-latency-study.md) broadens task/provider investigation and prioritizes stronger acceptance, correct-completion ordinary-Pi baselines and a small prompt experiment. The candidate-submission proposal below remains historical experimental reasoning, not an adopted architecture or the mandatory next step. Preserve this report's measurements and accounting boundaries.
+
 The user approved implementation and measurement using p-map, and selected Codex Sol medium for Tier 1/raw Pi with Terra medium as Tier 2 fallback. This scoped pilot supersedes the historical manual-only/no-automation restrictions for these three runs. The user subsequently authorized further canary runs; the bounded reverse-order repeat below uses the same routing. No provider switch is included.
 
 ## Frozen inputs
