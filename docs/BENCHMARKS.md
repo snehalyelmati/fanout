@@ -6,6 +6,21 @@ The [study protocol](benchmarks/fanout-high-latency-study.md) records the agreed
 
 Acceptance protocol `p-map-iterable-abort-acceptance` v2 is now implemented in `scripts/benchmarks/p-map-acceptance-v2.mjs`. Offline replay passes the original raw/improved candidates and rejects original current Fanout, both repeat candidates, and the clean baseline. It includes the promised-source-value case and compares changed paths with the pinned task baseline even when candidate changes are committed. Receipt paths: `runs/p-map-acceptance-v2-20260907/summary.json` and `verified-supervisor-integrity-matrix.json`; final runner SHA-256 `0c85118a707707ade1fb4ffeefa5a63c51e03cde9562c56b73f058e5968d0d10`. These are checker regression results, not new provider performance measurements. Future v2 runs include these required checks and corrections in E2E.
 
+### Required-acceptance ordinary-Pi baseline — 2026-09-07
+
+Two predeclared, sequential Sol medium trials completed under acceptance v2. Both passed all six independent cases, `npm test` (54 tests), and `git diff --check` on one unchanged candidate across gates. Neither needed an external correction prompt; internal exploration, failed commands and fixes remain inside E2E.
+
+| Trial | Full E2E | Estimated token cost | Observed responses / serial depth | External corrections | Outcome |
+| --- | --- | --- | --- | --- | --- |
+| raw-01 | 274.137s | $0.547710 | 15 / 15 | 0 | Pass |
+| raw-02 | 324.892s | $0.697646 | 19 / 19 | 0 | Pass |
+
+The two-sample median is 299.515s / $0.622678; total estimated cost is $1.245356. This establishes two observed correct completions, not a reliability rate, tail estimate or Fanout improvement. Costs are SDK token-price estimates rather than billed cash. Required final gate time was about 7.4s and 7.2s, included in E2E. Common preprovisioning was excluded (17.435s and 12.481s setup receipts); driver/session initialization was separately excluded at 0.952s and 0.910s. Human wait was zero.
+
+Frozen source commit `438b42da403158a8f17aa77279b51a1d679557ce`, source tree `4fce1ad879e6c59b7ecc309ba3d513b23e11466e`, driver SHA-256 `de635d4b5ca3d244eeea69dbe45ece083b9218100a90bb9906e5de06ad786313`; Node 26.5.0, npm 11.17.0, Pi SDK 0.83.0, Codex Sol medium. Protocol, task/checker/settings identities, full events/results, final candidate patches and checksums are archived under `runs/p-map-raw-v2-baseline-20260907/`, indexed by `summary.json` and `SHA256SUMS`. Credentials were excluded and the temporary credential copy removed after both runs. Original user checkout remains unchanged apart from its pre-existing `readme.md` edit.
+
+This protocol includes required independent acceptance and any resulting corrections in E2E; historical pilot audits were outside E2E. Do not silently compare those boundaries. The next controlled Fanout experiment uses this acceptance boundary, fixed Sol/Terra routing and matched SDK/worker CLI versions, changing only the worker instruction about completing implementation and tests before its first advisory validation.
+
 ### Completed p-map pilot evidence
 
 The user-authorized [2026-09-06 p-map efficiency pilot](benchmarks/p-map-efficiency-pilot.md) compares raw Pi, current Fanout and improved Fanout with fixed Codex routing and planning included. All three passed the initial acceptance, but a subsequent pending-source-value audit found current Fanout incorrect; raw Pi and improved Fanout passed both audits. Improved Fanout took 393.781s/$0.5128764 versus raw Pi 307.421s/$0.627699 and current Fanout 486.832s/$0.8119022. Cost improved, but latency remained worse than raw Pi; one sample did not establish reliability. Its independent post-run audits were excluded from E2E. The strengthened study will include required independent acceptance and any resulting repairs; preserve this protocol distinction.
