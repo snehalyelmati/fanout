@@ -14,6 +14,14 @@ Decision: Do not adopt the complete-before-validation wording as a performance o
 
 Reason: Prompt wording changed validation order but did not establish reduced request depth or user benefit. Fresh-plan variation and the small sample constrain causal/reliability claims.
 
+### Test complete candidate batching without changing product authority
+
+Decision: Run an authorized benchmark-only complete-edit-batch experiment: first ask Terra for one whole candidate, then run the modified initial-worker Fanout arm with Sol planning and Terra workers. Successful native edit/write results may terminate the Pi turn; the unchanged external gates determine completeness and correctness. Errors, truncation or guard failure continue normally. Count all continuation and repair responses, and retain Fanout's existing Sol repair budgets. Do not add a product capability schema, recovery rule or adopted workflow.
+
+Reason: The prompt-only pair left 12–13 runtime responses. A bounded experiment can test whether explicit complete submission removes turns without weakening validation or expanding permanent architecture.
+
+Result: The single whole-task trial passed all required gates in 158.180s at `$0.3086735`, after one Terra response and five Sol correction responses. Both modified Fanout original workers met the one-response target, but one Sol validation repair used nine responses; total observed time/cost were 490.575s/`$0.7992885`. Fanout's native candidate and final gates passed, while the harness remains archived as an error because a post-run reporting check queried a nonexistent thinking field. A separate evidence audit confirms the configured Sol/Terra medium assignments, although exact worker argv was not persisted. A second audit found the canonical single-batch prompt branch inactive; normal canonical validation/final-response text and the active extension batch instruction conflicted, and the assembled provider system prompt was not persisted. Do not attribute the observed depth to the inactive canonical change, rerun this frozen cohort or adopt the prototype. Repeat the whole-task configuration across p-map and varied tasks; test actual async service only with a separately frozen runner revision whose reporting and prompt activation are fixed.
+
 ### Reuse a calibrated raw-Pi reference
 
 Decision: After a small raw-Pi calibration cohort, reuse its arithmetic mean across Fanout iterations. Preserve the individual trials, sample count and failure evidence. Run raw Pi again when task/model/environment/measurement changes make the reference stale, rather than pairing an unchanged raw arm with every optimization. The current v2 reference uses its two comparable trials; do not pool historical runs whose acceptance/E2E boundaries differ.
