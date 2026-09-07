@@ -2,6 +2,20 @@
 
 ## 2026-09-07
 
+### Screen fixed orchestration with Codex before spending async credits
+
+Decision: Follow the user-approved Codex-first study sequence and replacement stored goal. The approved sequence called for the bounded qs transfer (now complete below), then a concrete task coverage matrix and evaluate the fixed promising configuration against ordinary realtime Pi across contrasting real fast tasks before task-specific tuning. Preserve fixed Codex assignments, small declared cohorts, budgets, independent acceptance, full E2E and all failures. Reuse valid raw references; never adopt the biased qs mean.
+
+Change to prior ordering: actual async was the immediate next step alongside qs. It is now deferred until repeatable Codex savings across relevant profiles and plausible trace-based latency headroom justify a small bounded Doubleword pilot. Doubleword credits are scarce, and missing credentials must not block Codex screening. The tradeoff is postponing direct provider evidence; simulated timing remains explicitly unable to establish provider quality, repairs, tokens or billing. The full realtime/async matrix and provider hypotheses remain later work.
+
+Validation: the new stored goal was created and verified after the user removed the paused predecessor. The task matrix must identify pins, independent checks, measured validation duration, readiness and coverage gaps across width/depth/volume/coupling/reasoning; file/worker counts do not establish width. Execa stays an occasional stress case. A defensible limited or negative result is acceptable; no new orchestration layer, broad model sweep or more p-map tuning is authorized by this scheduling change.
+
+### Retain the fixed batch configuration after one positive qs transfer
+
+Decision: Keep the configuration fixed for further Codex screening. The single declared qs transfer passed all required gates and manual review in 174.992s/$0.56494, using one Terra and four Sol responses, versus the one valid raw observation of 265.166s/$0.754926. This supports continued evaluation, not adoption or repeatability. No qs tuning, biased raw average or new orchestration is justified by this one result.
+
+Reason: The initial candidate implemented the required runtime behavior but left native expectation/test work for Sol. The measured recovery is part of both time and cost. Sixty-second request substitutions leave plausible headroom; 5/10-minute substitutions do not. These scenarios cannot predict actual provider quality or economics. The coverage inventory explicitly leaves narrow/deep work, a volume contrast, useful loose width and fast shared-contract width unproven or unready; fill those gaps with pinned real tasks before judging generality.
+
 ### Evaluate correct completion across orchestration and provider service
 
 Decision: Adopt the [high-latency study protocol](benchmarks/fanout-high-latency-study.md). Preserve completed optimizations and measured failures. Ordinary realtime Pi remains the baseline; investigate both orchestration for today's high latency on every request and complementary provider changes. Prefer controlled prompt changes before custom candidate submission. Tier 1 may identify scope/context and local code may collect existing sources; the cheap worker must perform implementation reasoning rather than only apply Tier 1's completed solution.
@@ -48,7 +62,7 @@ Implementation evidence: qs completion-v2 now passes seven offline cases, includ
 
 Decision: Preserve the completed native-continuation pair without adopting its configuration. Both final candidates pass, but the mean 355.666s/$0.60843225 is slower than raw Pi for only 2.29% estimated savings, and initial Terra chains require 8/13 sequential responses. At an assumed minute per slow request these chains fail the time budget before other work. Both still needed Sol to fix a real promised-value abort defect.
 
-Reason: The objective is correct completion per unit time and cost, not more parallel workers or cheaper individual turns. Stop further p-map prompt, architecture and harness variants unless a validity defect prevents the next decision. Prioritize the strongest existing complete-edit-batch configuration in actual async service and one fixed qs transfer trial. Keep its routing and two-repair budget fixed; use only the valid qs raw-01 observation, not the biased pair mean. Structured submission tools, fast provider continuation and broader architecture remain deferred hypotheses.
+Reason: The objective is correct completion per unit time and cost, not more parallel workers or cheaper individual turns. Stop further p-map prompt, architecture and harness variants unless a validity defect prevents the next decision. The immediate async/qs ordering at this checkpoint was superseded by the Codex-first decision above; qs is now complete and actual async is deferred. Keep its routing and two-repair budget fixed; use only the valid qs raw-01 observation, not the biased pair mean. Structured submission tools, fast provider continuation and broader architecture remain deferred hypotheses.
 
 ### Reuse a calibrated raw-Pi reference
 
