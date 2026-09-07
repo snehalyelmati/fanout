@@ -12,7 +12,7 @@ Build Fanout as a planning-to-execution bridge, plus a standalone Doubleword pro
 Fanout's workflow is split into three phases:
 
 1. **Research and planning by the user**: users bring whatever research, planning notes, specs, or repo context they prefer. Fanout does not own this phase.
-2. **Execution packet**: `/fanout-plan [objective]` runs two explicit prompts plus a compiler: first a solve/plan artifact, then repo-grounded implementation details, then deterministic packet/DAG compilation.
+2. **Execution packet**: `/fanout-plan [objective]` produces a combined implementation plan and grounded details in one model context, then validates and deterministically compiles the packet/DAG. Profile creation remains separate.
 3. **Execution**: `/fanout-execute` runs the active accepted packet with worker management, validation, patch integration, and summary metrics.
 
 The Doubleword provider adapts to these inference tiers:
@@ -39,9 +39,13 @@ Fanout should preserve developer velocity by using slower tiers only where laten
 
 ## Current Fanout workflow roadmap
 
-### Efficiency work in progress
+### High-latency study in progress
 
-The approved [efficiency tracker](impl/fanout-efficiency-progress.md) records combined model planning, prepared worker context, early ownership feedback, and focused repair improvements. The matched p-map AbortSignal pilot and one reverse-order repeat are complete; Execa remains historical evidence. Improved Fanout was cheaper but slower in the first pilot, and costlier and slower in the repeat. Both repeat candidates failed supplemental semantic acceptance. Further canaries are authorized; reliability remains unproven and the candidate-submission design change awaits approval.
+The [study protocol](benchmarks/fanout-high-latency-study.md) expands the investigation to orchestration for today's per-request latency and complementary provider designs, including bounded fast continuations, context reuse and economical scheduling. The [progress tracker](impl/fanout-efficiency-progress.md) preserves completed combined planning, source preparation, ownership and repair improvements and the p-map pilot evidence. The initial improved pair was cheaper but slower; the repeat was costlier and slower, and both repeat candidates failed supplemental semantic acceptance.
+
+Stronger independent acceptance is implemented and checked offline. Next: establish correct ordinary-Pi completion under those gates, then test a minimal complete-implementation-and-tests-before-validation prompt change. Candidate submission remains a possible experiment if prompting is insufficient, not an adopted architecture. Select p-map plus roughly three varied fast-validating tasks; keep Execa for occasional stress runs. Use trace replay to screen configurations, then actual high-TTFT trials and repeated varied tasks for performance claims. Do not move implementation reasoning into Tier 1 merely to make cheap workers apply precomputed edits.
+
+Compare ordinary Pi and Fanout under realtime and async service with explicit routing and acceptance boundaries. Current latency applies to every request; fast continuation windows are a hypothetical provider improvement. Broader model sweeps, Pi-with-subagents comparisons and the final interactive report/slides are deferred until useful execution evidence exists.
 
 ### End-to-end hardening
 
@@ -412,4 +416,4 @@ Only build these if the simpler system fails benchmarks:
 - Whether Doubleword's Responses cancel endpoint has any provider-specific caveats beyond OpenAI-compatible background response cancellation.
 - Which Doubleword models should be exposed first.
 
-The [2026-09-06 p-map pilot](benchmarks/p-map-efficiency-pilot.md) measured lower cost but higher full E2E time than raw Pi after the approved changes. The high-latency target remains open; a terminating candidate-submission prototype is proposed but not approved. Existing deferred-work decisions remain in force.
+The [2026-09-06 p-map pilot](benchmarks/p-map-efficiency-pilot.md) and repeat did not establish the cost/time/correctness target. The current [study protocol](benchmarks/fanout-high-latency-study.md) prioritizes stronger acceptance and a controlled prompt experiment before considering candidate submission. Provider continuation designs and custom candidate transport remain hypotheses rather than product commitments.

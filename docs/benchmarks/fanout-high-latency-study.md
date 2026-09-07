@@ -1,0 +1,172 @@
+# Coding agents on high-latency, low-cost inference
+
+Status: active engineering study, 2026-09-07. This protocol carries the direction transferred from the side conversation into the main task. Existing implementation and historical evidence remain intact. A presentation is deferred until useful results exist.
+
+## Objective and decision labels
+
+Develop and evaluate orchestration that achieves correct coding-task completion at lower full end-to-end user cost and similar or lower time than ordinary realtime Pi, while preserving the provider's economic advantage. Investigate both orchestration for today's service and complementary provider improvements; Fanout need not win on every task. Identify where it helps, where it does not, and why.
+
+Labels used throughout:
+
+- **Agreed direction**: work the user wants pursued; an experimental sequence, not a claim that it will work.
+- **Measured**: actual recorded execution, outcome and resource evidence.
+- **Hypothesis**: a proposed mechanism or architecture requiring validation.
+- **Open question**: an unresolved fact or tradeoff.
+- **Deferred**: excluded from the immediate work, with its reason stated.
+
+**Agreed direction:** improve execution and obtain useful data first. Keep engineering docs and evidence current now. Prefer the normal Pi loop and prompt changes before a custom workflow. Ordinary Pi is the baseline; the user's label “RPE” is retained without assuming an expansion. Pi-with-subagents comparisons are deferred because Fanout has not yet beaten ordinary Pi and those workflows also incur context and integration costs.
+
+**Current service condition, explicitly confirmed by the user:** every request pays the high latency. An initial wait followed by immediate followups is a proposed provider improvement, not a description of current behavior. Distinguish time to first streamed output from time until a non-streamed response becomes available.
+
+## Starting evidence and completed work
+
+Combined planning, exact prepared worker sources, early ownership checks and compact repair prompts are implemented. Preserve commits `a7b5ef6`, `b6a6fab`, `6d10a08` and `023b5ba`; do not redo them. The [p-map pilot](p-map-efficiency-pilot.md) and its immutable local receipts remain the detailed source.
+
+| Observation | Fanout E2E / estimated cost | Raw Pi E2E / estimated cost | Semantic audit |
+| --- | --- | --- | --- |
+| Initial improved pair | 393.781s / $0.5128764 | 307.421s / $0.627699 | Both pass recorded checks |
+| Reverse-order repeat | 369.965s / $0.5307096 | 255.175s / $0.514409 | Both fail pending-source-value abort |
+
+**Measured:** Fanout's longest worker branch used 13 and 17 sequential responses. Planning/raw Pi used Sol medium; all ordinary Fanout workers immediately used Terra medium via disabled-async Tier 2 fallback. Native allocations call this realtime assignment `tier1`; that does not mean Sol workers or a failed-Sol reactive fallback. Costs are reported token-price estimates, not subscription cash billing.
+
+The failed 255.175s run is resource-use evidence, not a correct-completion target. A green generated suite did not imply semantic acceptance. Neither observed cost savings nor near-baseline E2E are reliable conclusions from these samples. Historical post-run audits were outside measured E2E; the strengthened protocol below changes that boundary explicitly, without rewriting old numbers.
+
+## Five layers of explanation
+
+| Layer | Questions and dimensions |
+| --- | --- |
+| User | Was the task completed correctly? Total time, total cost, predictability and usability? |
+| Task | Reasoning difficulty, work volume, dependency depth, available width and coupling? |
+| Harness / orchestrator | Planning, source preparation, scheduling, tools, integration and recovery overhead? |
+| Model | Capability, required tokens and requests, mistakes, and repair demand? |
+| Provider | Admission/queue delay, inference/generation speed, caching, batching, continuation scheduling and prices? |
+
+Long work is not necessarily parallelizable. Reasoning difficulty is separate from the quantity of edits. Record task-level opportunities and the actual generated execution graph separately; do not force a wide DAG to satisfy the study's premise.
+
+## Two tracks, one evaluation
+
+**Orchestrator track:** reduce serial remote requests, repeated context and control overhead under today's per-request latency while maintaining complete authority and acceptance. Tier 1 may identify scope and relevant context; local code collects existing source bytes. The cheap worker must reason about and implement the change. If Tier 1 already generates the actual implementation, a cheap worker that merely applies files does not establish the intended benefit.
+
+**Provider track:** investigate bounded fast continuation sessions, context reuse and economical scheduling/batching. The grouping proposal concerns dependent requests in one coding session, including gaps for local tools; it is not merely co-arriving independent requests. Fast continuation service might make the ordinary iterative Pi loop preferable to aggressive one-response work. The two tracks may complement or substitute for each other.
+
+## Workflow comparison matrix
+
+| ID | Configuration | Async coverage to record |
+| --- | --- | --- |
+| 1 | Ordinary Pi / RPE, realtime | No async model calls |
+| 2 | Ordinary Pi / RPE, async | Ordinarily every model request; disclose exceptions |
+| 3 | Fanout Pi / RPE, realtime workers | Realtime planning, workers and repairs; record each actual assignment |
+| 4 | Fanout Pi / RPE, async workers | Declare exactly which workers are async and which planning/repair calls remain realtime |
+
+| Comparison | Question |
+| --- | --- |
+| 1 vs 2 | What latency/cost tradeoff does async introduce into ordinary Pi? |
+| 1 vs 3 | What is Fanout's net effect under realtime service? |
+| 1 vs 4 | Can the complete Fanout-plus-async configuration benefit the user? |
+| 2 vs 4 | Does Fanout make async useful near realtime completion times? |
+| 3 vs 4 | What async economics remain on top of Fanout? |
+
+**Attribution rule:** product-configuration comparisons answer user-facing questions; controlled experiments isolate a particular mechanism. If configuration 4 keeps fast planning while configuration 2 sends every request through async, their comparison changes both orchestration and planning service. If model assignments differ, it also changes capability and pricing. Do not label either a pure orchestration effect. Keep models, task, acceptance, budgets and other settings constant for each small mechanism experiment.
+
+## Immediate experiment sequence
+
+1. **Version independent acceptance.** Promote the known promised-source-value abort case alongside existing p-map semantics and path scope. Preserve old checkers, results and identities. Make the complete semantic checker, repository suite and scope checks required for both workflows. Check known good and bad candidates offline before paying for more work.
+2. **Establish correct-completion baselines.** Run a small predeclared set of ordinary-Pi trials under the strengthened checks and fixed recovery limits. Retain every failed trial and all incurred resources. A failed trial cannot be replaced silently by another until the table looks green.
+3. **Test the smallest prompt change.** Require complete implementation and behavioral tests before the first advisory validation, with independent edits batched where possible. Compare the existing and changed normal worker prompt on the same protocol and models. Traces show premature validation and incremental edits; this is a falsifiable hypothesis, not a guarantee of fewer requests.
+4. **Consider bounded candidate submission only if needed.** A possible experiment asks the cheap worker to submit implementation, tests and summary together, followed by local application/validation and fast repair under existing budgets. Investigate one or two cheap requests on the critical path. Measure missing context, larger outputs, malformed submissions and repair cost. It is an option, not a selected permanent architecture or a file-write optimization.
+5. **Replay before expanding live runs.** Reject obviously uncompetitive request graphs under 1/5/10-minute waits and plausible price ranges. Select promising configurations for actual high-TTFT provider measurements against ordinary realtime Pi. Codex realtime measurements and timing simulations cannot establish async viability.
+6. **Repeat promising configurations across task shapes.** Expand after correctness and a plausible cost/time margin exist. Report distributions and failures with sample counts. More unchanged canaries without a specific uncertainty to resolve, broad model sweeps, and polished presentation work are deferred.
+
+For each experiment freeze the question, independent variable, source/task/checker hashes, configuration, run order, repetition count, timeouts, recovery allowances and stop rule before launch. Identify exploratory tuning versus subsequent verification. Use fresh task baselines; retain failed/cancelled prefixes. Any configuration change gets a new protocol/run identity rather than editing previous evidence.
+
+Record SDK and worker CLI versions separately. On 2026-09-07 the installed project Pi SDK is 0.83.0 while the global `pi` executable reports 0.84.4. The new raw driver explicitly pins its SDK version. Earlier environment notes recorded a single `pi` version, so they cannot alone prove every role used identical library versions. Future Fanout runs must pin the actual worker executable/version and disclose any SDK/CLI difference alongside model differences.
+
+The initial controlled model settings stay Sol medium for planning/raw Pi and Terra medium for realtime worker fallback. A later real-async trial must declare its exact provider, model, endpoint/service, reasoning settings and current prices. Frontier, open-weight and smaller models in either tier are later dimensions; capability, request count and repair demand must be measured, not transferred from another model's trace.
+
+Implementation checkpoint: `scripts/benchmarks/p-map-acceptance-v2.mjs [targetCwd]` implements `p-map-iterable-abort-acceptance` v2; target defaults to the current directory. It retains the original semantic coverage, adds the promised-value regression and pins scope to task baseline `c3c261e2189f94d1a09724e8f03d5345af518017`. The offline historical-candidate matrix and edge-case receipts are indexed in `docs/BENCHMARKS.md`. The full repository suite remains a separate required gate; the checker does not replace it.
+
+## Small varied task set
+
+**Agreed direction:** retain p-map and select roughly three additional fast tasks. Selection remains open; the rows below are coverage criteria, not selected repositories or mandatory separate tasks. A task can cover more than one row.
+
+| Shape | What it exposes |
+| --- | --- |
+| Small mostly serial parser/validation bug | Fixed orchestration overhead and when to avoid Fanout |
+| Async behavioral change, initially p-map | Ordering, cancellation, cleanup and correctness across await boundaries |
+| Coupled runtime/API/types/caller change | Genuine dependencies, shared contracts and integration costs |
+| Several independent adapter/formatter changes | Useful work width without artificial decomposition |
+| Investigation-heavy state/transformation bug | Reasoning difficulty and limits of preparation |
+
+Prefer deterministic acceptance and minimal setup. A meaningful full-validation time around 15–30 seconds or less on the pinned environment is a selection target, not a measured guarantee. Measure fresh setup separately and required in-run preparation inside the run. Pin repository revision, lockfile, environment and task specification. Establish a red-capable independent check before model comparison; do not weaken tests or shorten timeouts to manufacture speed.
+
+Keep Execa as an occasional stress task. Inspection of the local fixture found AVA `concurrency: 1`, `workerThreads: false` and a `240s` timeout; the [recorded successful full suites](execa-web-streams-manual-e2e.md) took 252.3s and 295.261–300.326s. This supports using a faster inner-loop task, but a configured timeout alone does not explain successful-run duration. The suite includes async/subprocess work; precise attribution still requires command/test timings rather than assuming the run waited for a timeout.
+
+A preliminary read-only shortlist found historical pi-mono session-query parsing, coupled `navigateTree` API/caller changes and terminal-width/state fixes. They are not selected tasks: parent revisions, independent acceptance and clean validation timings still need to be pinned. They also share a repository and existing solution traces, creating correlation/contamination risks, and do not yet supply a clearly independent multi-adapter width case. Keep those gaps visible when selecting the final small set; historical command-internal timing is not a fresh full-validation measurement.
+
+## Acceptance and full E2E accounting
+
+Independent means defined and maintained outside the candidate implementation, not necessarily secret from an agent. Freeze checker bytes and treat their outputs as diagnostics, never new write authority. Expose the same required criteria and available commands to compared workflows. Keep evaluation files outside candidate-owned paths and verify their identities before and after each run.
+
+Success requires the declared semantic checks, full repository validation and authorized-path checks on the final candidate. Generated tests supplement these checks. Record acceptance version, case outcomes, candidate tree/patch identity and any checker limitation. A check suite is bounded evidence rather than proof of every edge case. The current checker assumes non-adversarial task implementations: candidate JavaScript runs in its evaluator process and could deliberately forge results or monkeypatch assertions. Process supervision bounds hangs and cleans up descendants; it is not a security sandbox against malicious candidate code. Stronger adversarial execution isolation is outside this pilot, and observed tampering invalidates a trial.
+
+The strengthened E2E clock starts before the first task model request (before Fanout planning) and ends after required acceptance, integration/final checks and controller cleanup. Include rejected work and every repair. If an independent check triggers correction, the original clock continues through the correction and revalidation. Freeze and record raw-Pi correction limits and Fanout's existing budget semantics; do not imply different recovery mechanics are identical. Exhaustion produces a failed run, not a new budget.
+
+Common preprovisioning may be excluded only when identical and explicitly reported for all modes. Required in-run profile preparation remains included. Record human waits separately without hiding other orchestration gaps; report both gross wall time and any explicitly derived human-wait-adjusted value. Additional post-run research audits may be outside E2E, but their discoveries still affect task outcome and must be disclosed. Never silently compare the old post-hoc-audit boundary with a new required-acceptance boundary.
+
+| Metric group | Required record |
+| --- | --- |
+| Outcome | Independent acceptance/version, failure stage, budget exhaustion, cancellation, incomplete work |
+| User time | Full E2E, human waits, excluded setup/audits with reasons |
+| Cost | All-run resources including failures; estimated token cost, billed cost and provider economics separately |
+| Work graph | Total model requests, critical-path request depth, actual dependencies and available concurrency |
+| Tokens | Input, output, cache read/write and missing usage evidence per actual model assignment |
+| Timing | Planning, preparation, observable queue/first-output/generation, tools, validation, integration, repair and cleanup |
+| Provenance | Task/source/checker/profile/config identities, model/provider/reasoning, environment, event logs and final candidate |
+
+Only report timing components actually observable. A client-side request-to-first-output interval may include queueing, inference and transport; do not claim it isolates queue time. Polling cadence affects observed completion availability. Missing telemetry is unavailable, not zero. Reuse native identity verification and event replay where valid; record catalog/measurement limitations instead of changing admission merely to obtain a chart.
+
+## Simulation, continuation and caching rules
+
+Keep three evidence classes visible in every derived result:
+
+| Class | What it can establish |
+| --- | --- |
+| Measured | Observed quality, requests, tokens, time, costs and work graph for that run |
+| Trace-based counterfactual | Alternative timing/pricing applied to the same observed work, graph and outcome |
+| Hypothetical provider design | Consequences under an explicitly assumed unimplemented scheduling/cache/session policy |
+
+Replay a few immutable real traces; copies of a trace are not independent observations. Where evidence supports it, sweep per-request latency at 1/5/10 minutes; an initial wait followed by N fast continuations; concurrency, queue delay, prices and cache assumptions. Preserve dependencies, fixed recovery work and outcomes. Report break-even regions and sensitivities with all assumptions and omitted costs visible.
+
+Simulation cannot determine another model's success, mistakes, repairs, tokens, decomposition or request count, nor how a changed interactive workflow would adapt. Those need live measurements. A failed trace remains failed when its timestamps or token prices change. A request-depth floor is an optimistic bound, not a provider performance forecast.
+
+For cache estimates, derive eligible repeated prefixes from captured requests and documented vendor semantics. Eligibility does not establish a cache hit. Account for minimum-prefix requirements where documented, retention, eviction, routing and scheduling uncertainty; use ranges. Do not assert vendor-specific cache behavior without primary evidence. Context reuse may save inference work or user cost; it does not by itself remove queue latency.
+
+## Provider hypotheses and economic constraints
+
+| Hypothesis | Potential benefit | Required evidence / risk |
+| --- | --- | --- |
+| Bounded interactive continuation window | Pay initial admission delay, then prioritize dependent followups while tools execute locally | N-request or time limit, idle expiry, renewal, fairness and actual followup latency |
+| Shared or renewable capacity instead of a dedicated idle reservation | Preserve responsiveness without reserving a device throughout tool work | Utilization, admission pressure, tail latency and preemption effects |
+| Shared-prefix reuse across related workers | Reduce repeated context computation | Actual compatible prefixes, cache placement/hits/eviction and resulting token/compute savings |
+| Economical batching of independent requests | Improve throughput and cost | Batch formation delay, task deadlines, workload mix and provider utilization |
+
+Evaluate user and provider objectives separately. Prioritizing continuations may displace other queued work; idle reservations can undermine the cheap-service economics. Fast continuation windows, shared capacity and batching policies are hypotheses, not promises. Actual cost/utilization conclusions need internal provider telemetry or collaboration; without it, state assumptions and limits. No provider outreach is authorized by this research protocol.
+
+## Open questions and stopping criteria
+
+- Which tasks have enough useful width to repay planning and integration, and can a cheap decision identify them?
+- How much request depth can prompt changes remove while preserving complete implementation and tests?
+- When does a larger candidate response cost more in generation or repair than the round trips it removes?
+- Can sufficiently broad independent acceptance remain fast, and which semantic gaps remain?
+- What do real async availability and tail latency look like under the selected provider/model and load?
+- Can continuation priority preserve provider utilization, fairness and a real price advantage?
+- Which cache benefits are observable rather than merely eligible?
+- When do measured model quality and repairs dominate orchestration or service changes?
+
+Reject a configuration when correctness fails within its frozen budget or its optimistic latency/cost bound is already uncompetitive. Continue promising configurations only to resolve named uncertainties. Do not redefine success around fast failed runs or increase budgets after observing failure. Evidence that ordinary Pi is preferable in a region is a valid study result.
+
+## Deliverables and deferred work
+
+Maintain this protocol, [benchmark index](../BENCHMARKS.md), [roadmap](../ROADMAP.md), [adopted decisions](../DESIGN_DECISIONS.md) and [progress tracker](../impl/fanout-efficiency-progress.md). Keep one focused study protocol rather than spreading the framework across multiple overlapping plans. Detailed run reports and ignored immutable evidence remain separate supporting material.
+
+After useful measurements, a likely presentation is an interactive website showing cost/time plots, failed outcomes, timelines, TTFT/continuation/concurrency/pricing controls and break-even regions with evidence labels. Slides can be derived afterward. This is deferred presentation direction, not current implementation scope. Broad model sweeps, Pi-with-subagents baselines, speculative routing/indexes and provider-specific architecture commitments remain deferred until evidence justifies them.

@@ -1,12 +1,14 @@
 # Fanout efficiency progress
 
-Status: the authorized additional matched p-map canary pair is complete. Both repeat candidates fail the supplemental semantic check; Fanout is slower and costlier in the repeat. The high-latency E2E objective remains unmet; the proposed candidate-submission workflow is not implemented.
+Status: active under the broader [study protocol](../benchmarks/fanout-high-latency-study.md). Completed implementation and both p-map pilot pairs remain evidence; the cost/time/correctness target is unmet. Independent acceptance v2 is implemented; current work establishes correct ordinary-Pi baselines and prepares a controlled prompt experiment. Candidate submission remains an optional experiment; polished presentation is deferred.
 
 ## Objective and authorization
 
-Make Fanout cheaper than raw Pi with similar or lower full end-to-end completion time when workers use providers with approximately 60 seconds latency per model request. Reduce sequential remote requests and repeated context, not just increase worker count.
+Develop and evaluate orchestration for coding agents on high-TTFT, low-cost inference, targeting correct completion at lower full E2E user cost and similar or lower time than ordinary realtime Pi while preserving provider economics. Study both orchestration for today's per-request delay and complementary provider improvements. Use p-map plus a small varied fast-validating task set, retaining Execa for occasional stress runs. Reduce sequential requests and control overhead without moving the cheap worker's implementation reasoning into Tier 1. The full framework, matrices, metrics, simulations, provider hypotheses and deferred work live in the study protocol.
 
-The user approved the staged implementation plan and requested an active goal and progress tracker. The benchmark task is **p-map AbortSignal**, replacing Execa for this investigation because its full suite is much shorter. Start with the matched three-mode pilot; the proposed larger cohort is not started. The updated goal authorizes atomic commits after the code-review skill has reviewed the changes.
+The initial staged implementation and p-map pilot were approved and completed. The user subsequently authorized canaries and atomic commits, transferred the expanded study direction from the side conversation, and replaced the prior blanket approval gates with the updated global AGENTS instructions. Continue here as the main task. Apply code-review before commits; keep core/provider boundaries and existing recovery authority. Broad canary permission does not turn speculative designs into proven architecture.
+
+Stored goal: the user deleted the old blocked goal, and a new active goal was created on 2026-09-07 with the expanded orchestration/provider study objective. It includes stronger acceptance, varied tasks, fixed-model controlled experiments, actual async validation, evidence-class separation and deferred presentation. No token budget was requested. Its creation was verified through the goal tool; the previous blocked objective is no longer the active stored goal.
 
 Baseline Fanout revision: `07db63f`. Preserve historical runs and benchmark prices. Current measurements are evidence, not predictions for another provider.
 
@@ -28,7 +30,10 @@ Baseline Fanout revision: `07db63f`. Preserve historical runs and benchmark pric
 | 1 — Combined planning | Implemented, focused checks pass | One-context SDK lifecycle/retry/compaction, combined compile, mutation rejection, plan-bound fallback | Passed full suite and both review axes |
 | 2 — Prepared worker context | Implemented, focused checks pass | Baseline/current repair bytes, omissions, wide-directory bounds | Public-contract worker starts with edits; runtime still rereads |
 | 3 — Ownership and repair efficiency | Implemented | Manifest v2 immediate writes, scoped validation guidance, compact final repair plus recovery.json | Full executor checks pass; no live ownership/recovery event in pilot |
-| 4 — p-map measurement | Complete | Raw/improved pass both semantic audits; current fails pending-value abort despite green initial checks | Approval needed for proposed one-response candidate experiment |
+| 4 — Initial p-map measurement | Complete | Initial raw/improved pass both audits; current and both repeat candidates fail pending-value abort | Preserved historical evidence; not a reliable win |
+| 5 — Study protocol and stronger acceptance | Implemented; baseline preparation in progress | Full framework documented; acceptance v2 passes two known good candidates and rejects three faulty candidates plus baseline | Correct-completion ordinary-Pi baseline with required semantic gates |
+| 6 — Controlled workflow experiment | Next | Complete implementation and behavioral tests before first advisory validation | Measure request depth, correctness and repair demand with fixed settings |
+| 7 — Varied tasks and real async service | Planned | Fast-task shortlist and trace-screening precede paid expansion | Keep task selection, live results and provider hypotheses separate |
 
 Update each row after implementation and checks. Record failures and limitations here; never mark a stage measured from offline checks alone.
 
@@ -50,7 +55,7 @@ Preserved baseline source snapshot: `/private/tmp/fanout-efficiency-baseline-07d
 
 ## Deferred
 
-Custom one-shot candidate transport, speculative duplicate workers, predictive/adaptive routing, budget-aware repair routing, validation caching, increased concurrency, and the larger benchmark cohort. Add only after evidence and a scoped decision. Release remains separate from implementation; atomic commits require code review first.
+Custom one-shot candidate transport is an option after prompt evidence, not the next mandated architecture. Speculative duplicate workers, predictive/adaptive routing, budget-aware repair routing, validation caching, increased concurrency, broad model sweeps and Pi-with-subagents comparisons remain deferred. Varied tasks and actual async trials follow correctness and trace screening; a polished website/slides follows useful measurements. Release remains separate from implementation; atomic commits require code review first.
 
 - Focused checks passed: planning-boundary, planning, worker-pipeline, final-validation; configured typecheck passes (limited existing final-validation entrypoints). Full suite initially hit sandbox localhost restriction, then exposed one outdated public repair-prompt assertion, updated to verify retained recovery.json. Provider mock regressions pass.
 - Code review: Standards reports no remaining violations; Spec found context bounds and baseline/current labeling gaps, both corrected with focused regression checks.
@@ -90,6 +95,8 @@ Review totals: Standards 0 remaining findings, worst issue none; Spec 0 remainin
 
 ## Blocked audit
 
+Historical note: the following audit describes the deleted original goal and superseded approval gates. It is not a current work blocker.
+
 The approval boundary has persisted across three consecutive goal turns: the initial implementation/pilot turn and two goal continuations. The first continuation made further progress through offline replay and supplemental semantic checks; the latest revalidation confirms unchanged tested source bytes and terminal benchmark runs. No direct approval for the proposed worker-workflow change has arrived. Automatic approval review has also repeatedly rejected commits, requiring direct user confirmation. Further implementation would change the documented deferred workflow; no authorized action remains that can achieve the latency objective. Mark the goal blocked until that approval is supplied, without marking the objective complete.
 
 ## Commit authorization resolved
@@ -107,3 +114,14 @@ The user subsequently authorized canary runs. Revalidated the clean committed wo
 - All run/audit processes exited. Evidence and SHA-256 receipts are preserved in `runs/p-map-efficiency-repeat-20260906-01/`; temporary credentials were removed. Human waits are zero; independent audits remain outside measured E2E with their own recorded durations.
 - Further canaries are authorized. The candidate-submission design change remains pending; the user was asked to distinguish prototype implementation from running the existing workflow. No product code changed during this repeat.
 - Documentation review against `6d10a08`: Standards 0 residual findings; Spec 0 residual findings after clarifying observed Terra worker routing. Verified all 93 original repeat evidence receipts, exact E2E timestamps, unchanged pinned inputs and source bytes. `git diff --check` passes; the original p-map checkout retains only its pre-existing readme change.
+
+## Expanded study work — 2026-09-07
+
+- Transferred the complete side-conversation framework into one [study protocol](../benchmarks/fanout-high-latency-study.md), covering five explanatory layers, all four workflow configurations and requested comparisons, varied task selection, provider economics, continuation/cache hypotheses, simulation limits and deferred presentation. Updated benchmark index, roadmap and adopted decisions without rewriting historical run evidence.
+- Reread `/Users/snehalyelmati/.codex/AGENTS.md` from disk as requested. It calls for the main task to orchestrate useful subagents, defaults new agents to Sol medium, and requires cohesive changes and atomic commits. The former blanket approval gates are absent. New acceptance, raw-baseline-driver and task-shortlist work is delegated accordingly.
+- Created and verified the new active stored goal after the user deleted the old blocked goal. Both orchestration and provider research are in its actual objective; current per-request high latency and proposed fast continuations are distinct.
+- Acceptance v2 is implemented as `scripts/benchmarks/p-map-acceptance-v2.mjs`, protocol `p-map-iterable-abort-acceptance` version 2. It preserves post-abort no-yield checks and the 2s semantic hang deadline, handles native once-listener removal, adds the promised-value abort case, and checks scope against the pinned baseline even for a committed candidate. An inner 10s watchdog retains asynchronous failure evidence; a separate supervisor kills a blocked evaluation process group after 12s, including synchronous module loops. The external process runner retains its own command timeout.
+- Offline matrix: original raw/improved pass; original current and both repeat candidates fail promised-value abort; clean baseline fails the missing abort behaviors. Default-cwd, committed-candidate scope, unexpected paths, active handles, watchdog and once-listener regressions were exercised. Final-source replay and hashes are recorded under `runs/p-map-acceptance-v2-20260907/`; these checks do not establish a new performance baseline.
+- Implemented `scripts/benchmarks/p-map-raw-canary-v2.mjs`: required acceptance/full-suite checks and up to two predeclared correction prompts share one E2E clock. It freezes candidate identity across all gates, records configuration/environment and final patch provenance, and rejects mutations of benchmark inputs. This changes the benchmark protocol, not Fanout's production recovery limits. No new baseline result is claimed until the verified driver and checker are run.
+- Provenance inspection found project SDK 0.83.0 and global Pi CLI 0.84.4. The new driver pins `piSdkVersion` explicitly; later Fanout comparisons must record the actual worker executable/version rather than infer all roles from a single CLI version string.
+- Fast-task research produced provisional pi-mono parser, coupled API/caller and width/state candidates. Exact parent commits, independent acceptance and clean timing checks are outstanding; shared-repository/known-trace bias and missing natural width coverage are explicit selection gaps. Execa's inspected 240s timeout is not treated as the cause of its recorded successful 252–300s suites.
