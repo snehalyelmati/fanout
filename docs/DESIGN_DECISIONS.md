@@ -2,6 +2,14 @@
 
 ## 2026-09-08
 
+### Close PR787 with quality failures; investigate bounded recovery context
+
+Decision: Preserve the complete five-trial fixed cohort: two of three raw candidates and zero of two batch candidates pass manual quality review. All final automated checks pass, but neither arm earns a correct-completion mean under the frozen policy. Keep raw-02/raw-03 as individual qualified references, all failed costs/times, and the original raw-02 review with its collective-documentation adjudication. Do not adopt the batch configuration or infer async viability from its shorter failed traces.
+
+Reason: Batch costs are $2.593488 and $1.392048, exceeding both accepted raw observations ($1.105290 and $1.097025). Whole-01's Sol repair cost alone is $2.184303; whole-02 also needed two sequential Terra requests. Automatic checks missed public hook scope expansion and malformed documentation. Reducing request count without controlling repair context and accepted quality is insufficient.
+
+Next experiment to prepare: one fresh normal Sol repair session after the initial Terra attempt, with the same candidate, task, guarded tools and bounded failed-check diagnostics; keep its construction/disposal and all reads inside E2E. Production Fanout already uses fresh attempt processes, so this is a prototype recovery-context hypothesis, not a new product architecture. Independently validate acceptance improvements for the observed defects before another cohort; preserve current frozen inputs and allow alternative correct prose. No recovery variant, source-excerpt policy or provider change is adopted by this decision. Broader task-shape gaps and actual Doubleword evidence remain open.
+
 ### Admit PR787 validation while preserving the historical reference and full preload policy
 
 Decision: Use the independently checked `navigateTree` contract task as a candidate for the next fixed comparison. Preserve the upstream reference, whose code passes but documentation is incomplete for the explicit task. Freeze a separate complete positive fixture with clarified prose and a valid direct-options adapter; do not weaken task requirements to match the reference. Its nine-gate boundary passes in 10.120s with 36 focused tests and stable candidate/runtime identities.
@@ -24,7 +32,7 @@ Reason: Reference `588399594c36cf4ee5bb04d4ab9e8220adc66b5f` fixes the header at
 
 ### Screen fixed orchestration with Codex before spending async credits
 
-Decision: Follow the user-approved Codex-first study sequence and replacement stored goal. The approved sequence called for the bounded qs transfer (now complete below), then a concrete task coverage matrix and evaluate the fixed promising configuration against ordinary realtime Pi across contrasting real fast tasks before task-specific tuning. Preserve fixed Codex assignments, small declared cohorts, budgets, independent acceptance, full E2E and all failures. Reuse valid raw references; never adopt the biased qs mean.
+Decision: Follow the user-approved Codex-first study sequence and replacement stored goal. The approved sequence called for the bounded qs transfer (now complete below), then a concrete task coverage matrix and evaluation of the fixed promising configuration against ordinary realtime Pi across contrasting real fast tasks before task-specific tuning. The subsequent PR787 closure above supersedes the immediate next experiment with acceptance and recovery-context investigation; this Codex-first evidence gate still governs provider spending. Preserve fixed Codex assignments, small declared cohorts, budgets, independent acceptance, full E2E and all failures. Reuse valid raw references; never adopt the biased qs mean.
 
 Change to prior ordering: actual async was the immediate next step alongside qs. It is now deferred until repeatable Codex savings across relevant profiles and plausible trace-based latency headroom justify a small bounded Doubleword pilot. Doubleword credits are scarce, and missing credentials must not block Codex screening. The tradeoff is postponing direct provider evidence; simulated timing remains explicitly unable to establish provider quality, repairs, tokens or billing. The full realtime/async matrix and provider hypotheses remain later work.
 
