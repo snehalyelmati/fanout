@@ -2,6 +2,14 @@
 
 ## 2026-09-08
 
+### Prepare the fresh-repair experiment with independently checked acceptance
+
+Decision: The bounded first-repair prototype is ready for final live freeze after offline review. Keep Terra medium, full initial sources, Sol medium, the same candidate/seven guarded tools, two corrections and nine authoritative commands. Start a fresh Sol session only for the first correction; reuse it for the second. Count setup/disposal and all reads inside E2E. Use the existing process supervisor for a hard outer bound and retain failed process-termination time when late cleanup outlives an inner result.
+
+Validation: Reviewed acceptance-v2 rejects the three observed defective candidates and accepts correct alternatives, including changed heading levels and tilde fences. Public hook scope and task-related snippet syntax are checked without replacing manual prose review. The complete positive fixture passes nine commands/36 tests with a 9.419s command sum; normal, failed, timed-out and late session paths have scripted driver/native-tool evidence. The initial prompt differs only in cwd. This proves offline operation, not a performance benefit.
+
+Next: freeze two whole observations, retaining fixed-v1 failures and individually qualified raw references. No new raw runs, selected-success mean or retroactive timing changes. Both acceptance and context change, so no isolated causal claim; record how many observations actually exercise repair. No product/provider/source-excerpt decision changes. Original checker preparation evidence stays preserved, with an explicit limitation for overwritten initial stdout available only as a reconstructed summary.
+
 ### Close PR787 with quality failures; investigate bounded recovery context
 
 Decision: Preserve the complete five-trial fixed cohort: two of three raw candidates and zero of two batch candidates pass manual quality review. All final automated checks pass, but neither arm earns a correct-completion mean under the frozen policy. Keep raw-02/raw-03 as individual qualified references, all failed costs/times, and the original raw-02 review with its collective-documentation adjudication. Do not adopt the batch configuration or infer async viability from its shorter failed traces.
