@@ -1,5 +1,13 @@
 # Design Decisions
 
+## 2026-09-08
+
+### Preserve the interrupted Pi cohort without claiming a batch win
+
+Decision: Apply the frozen cohort's stop rule after the first whole-task observation returned a Codex usage-limit error. Keep raw-01's successful 118.149s/$0.192988 observation and whole-01's 28.118s/$0.0709225 time/cost to error. Do not execute the remaining three trials, replace the interrupted trial, compute an arm mean or adopt a performance change. New live work needs a separately declared cohort; offline task admission can continue.
+
+Reason: The initial batch passed semantics but required formatting repair. Its final patch matches accepted raw-01, yet the repair continuation failed before successful completion and final gates. Code equivalence cannot recover the missing execution measurement. Preserve immutable protocol, all costs and errors, and the distinction between unavailable service and model-quality failure. Actual async and product adoption still require the existing evidence gate.
+
 ## 2026-09-07
 
 ### Admit the bounded Pi rendering fixture without claiming broad task coverage
