@@ -2,6 +2,12 @@
 
 ## 2026-09-08
 
+### Admit PR787 validation while preserving the historical reference and full preload policy
+
+Decision: Use the independently checked `navigateTree` contract task as a candidate for the next fixed comparison. Preserve the upstream reference, whose code passes but documentation is incomplete for the explicit task. Freeze a separate complete positive fixture with clarified prose and a valid direct-options adapter; do not weaken task requirements to match the reference. Its nine-gate boundary passes in 10.120s with 36 focused tests and stable candidate/runtime identities.
+
+Reason: Positive/negative public typing, fake-transport prompts, real hooks, labels/cancellation, executed adapter wiring and three regression mutations provide task-specific correctness evidence. Documentation text presence remains a bounded filter followed by manual review. The full 505,568-byte task-source preload stays the baseline policy; smaller excerpts would introduce another configuration change. Exact assembled live context and driver/cohort preparation remain pending. This validates a shared-contract/input-cost contrast, not useful inherent width or provider viability.
+
 ### Preserve the interrupted Pi cohort without claiming a batch win
 
 Decision: Apply the frozen cohort's stop rule after the first whole-task observation returned a Codex usage-limit error. Keep raw-01's successful 118.149s/$0.192988 observation and whole-01's 28.118s/$0.0709225 time/cost to error. Do not execute the remaining three trials, replace the interrupted trial, compute an arm mean or adopt a performance change. New live work needs a separately declared cohort; offline task admission can continue.
