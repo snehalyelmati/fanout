@@ -1,12 +1,12 @@
 # Fanout DAG Prompt Experiment Results
 
-Ignored repo-local ledger for prompt experiment runs. Artifacts live under `runs/fanout-dag-prompt-experiments/`.
+Tracked public summary of the July 2026 GPT-5.5 prompt experiment. The original working ledger, full prompt text, generator/evaluator outputs and run artifacts remain ignored under `runs/fanout-dag-prompt-experiments/`. Scores qualify only the recorded task set and rubric, not executable task success or current model choice.
 
-## Current best
+## July 2026 graduated candidate
 
 | Variant | Run | Avg | Min task | Verdict |
 |---|---|---:|---:|---|
-| `combined-general-conflict-proof` | `loop-20260707-145016` | 4.916 | 4.88 | Current graduated prompt under 5-task loop. |
+| `combined-general-conflict-proof` | `loop-20260707-145016` | 4.916 | 4.88 | Graduated under the July five-task loop. |
 
 ## Variant results
 
@@ -47,7 +47,7 @@ Each evaluator scores 1–5 for:
 - missing inspect/test/docs/review nodes
 - false serialization of docs/tests behind code
 
-## Stop criteria for future loops
+## July 2026 stop criteria
 
 A prompt candidate graduates when:
 
@@ -60,6 +60,6 @@ A prompt candidate graduates when:
 
 ## Notes
 
-- `/tmp` copies were migrated into this ignored repo-local folder on 2026-07-07.
-- Future runs should use `GPT-5.5 medium` as the test model and a fresh pi session per experiment.
-- Add heldout tasks before declaring a prompt stable.
+- `/tmp` copies were migrated into the ignored run directory on 2026-07-07.
+- The original protocol used `GPT-5.5 medium` and a fresh Pi session per experiment; those are historical controls, not a requirement for a new study.
+- The July conclusion required heldout tasks before declaring a prompt stable.

@@ -2,6 +2,8 @@
 
 Purpose: define the benchmark path from read-only Fanout DAG prompt experiments through executable `/fanout-execute` benchmarks, including TermBench-style terminal task suites.
 
+This staged procedure began in July 2026. P0's `subagent` tool, GPT-5.5 setting, six-child concurrency and launch command record that prompt experiment, not a required current launch workflow. Use the [source setup](../GETTING_STARTED.md) and [runtime guide](../FANOUT_GUIDE.md) for current Pi commands and artifact generations.
+
 Use [`fanout-canary-run-protocol.md`](fanout-canary-run-protocol.md) for the common operational procedure for live canaries, repetitions, concurrent worktree isolation, tmux lifecycle, evidence capture, and stop conditions. Task-specific runbooks add only their fixed inputs and gates.
 
 Evidence scope: this procedure tracks workflow quality, runtime execution quality, and provider/model cost separately. A good prompt-DAG score is not proof of executable correctness; a good executable benchmark is not proof of provider-tier savings unless cost/time telemetry is captured.
@@ -18,7 +20,7 @@ Evidence scope: this procedure tracks workflow quality, runtime execution qualit
 
 ## P0: prompt-DAG dry-run benchmark
 
-Use this while improving `/fanout-plan` prompt wording; executable-runtime claims still require P1/P2 evidence.
+The July 2026 P0 experiment tested `/fanout-plan` prompt wording; executable-runtime claims still require P1/P2 evidence.
 
 Tracked durable summaries:
 
@@ -42,17 +44,17 @@ runs/fanout-dag-prompt-experiments/<run-id>/synthesis.md
 
 Raw run artifacts stay ignored under `runs/`. After a graduated or otherwise important run, promote durable summaries into the tracked docs above.
 
-### Run protocol
+### Original P0 run protocol
 
 - Use a new Pi process/session per experiment run.
-- Use the same model/effort across generator and evaluator subagents for a run; current target is GPT-5.5 with medium effort when the runtime exposes it.
+- The recorded P0 protocol used the same GPT-5.5 medium model/effort across generator and evaluator subagents.
 - Test multiple prompt variants against known tasks plus heldout tasks.
 - Generate execution DAGs only, not full packets.
 - Keep artifacts under `runs/fanout-dag-prompt-experiments/`.
 - Update `RESULTS.md` with one row per variant.
 - For important runs, update tracked durable summaries in `docs/benchmarks/fanout-dag-*.md` from the ignored working ledgers/templates.
 
-### P0 process model and concurrency
+### Original P0 process model and concurrency
 
 Each loop has one parent coordinator and many child generator/evaluator subagents:
 
@@ -64,7 +66,7 @@ shell-launched Pi process
       -> synthesis + RESULTS.md update
 ```
 
-The coordinator must read `<run-id>/experiment.md` as the source of truth, then use `subagent({ action: "list" })` before launching children.
+The original coordinator read `<run-id>/experiment.md` as the source of truth, then used `subagent({ action: "list" })` before launching children. That tool call belongs to the historical environment and is not a current Fanout dependency.
 
 Launch shape:
 
@@ -263,7 +265,7 @@ Always report:
 
 ## What not to build yet
 
-- No custom DAG executor benchmark harness before `/fanout-execute` exists.
+- Reuse the implemented executor smokes and benchmark ledgers before adding another DAG benchmark harness.
 - No scoring database; markdown ledgers are enough until automation is needed.
 - No provider-tier optimization claims without token/cost/timing traces.
 - No task-specific prompt templates just to win the prompt-DAG benchmark.
