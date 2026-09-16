@@ -2,7 +2,7 @@
 
 ## Status
 
-The audit cutover is implemented; actual checks and independent review are recorded in the [audit register](fanout-audit-progress.md). The live macOS p-map canary and repository-owner approval remain external release gates; this document does not record either gate as passed.
+This is the current technical reference for planning contracts and offline checks. The audit cutover is implemented; historical checks and independent review are recorded in the [audit register](fanout-audit-progress.md). Live canary and exact-candidate approval requirements below concern stable-runtime acceptance, not publication of the [source research preview](../PUBLICATION.md). This document does not mark unpassed gates complete.
 
 ## One executable generation
 
@@ -47,15 +47,15 @@ From the repository root:
 ```bash
 npm run typecheck
 npm run check
-rtk npm run test:doubleword-provider
-rtk git diff --check
+npm run test:doubleword-provider
+git diff --check
 ```
 
 The planning, compiler, contract, and packet smokes prove profile-v1/plan-v4/details-v7/packet-v10/pointer-v2/work-contract-v5 admission, combined plan/details and separate profile schemas, lone terminating submission with mixed-batch rejection, compaction-aware conversational context retention, ordinary Pi filesystem access during planning, failed-refresh preservation, exact profile binding, work-contract-v3/packet-v8 Legacy rejection, deterministic fusion/graph/views, Phase A ban propagation, pointer-last publication, packet/profile independence, and package independence.
 
-## Release gates
+## Stable-runtime release gates
 
-Offline success is necessary but not sufficient for release. The immutable candidate still requires:
+The original audit defined these requirements for accepting an exact immutable runtime candidate. Offline success alone does not establish stable live behavior. These are separate from publishing source and qualified research findings:
 
 1. an explicitly authorized, non-fabricated macOS p-map live canary with inspected artifacts; and
 2. repository-owner approval of that exact candidate.

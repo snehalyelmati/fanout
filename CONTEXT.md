@@ -221,8 +221,8 @@ A deterministic human view of authoritative planning or execution state that nev
 _Avoid_: Execution plan, run state
 
 **Accepted Metrics**:
-The complete correlated usage, pricing, tool, worker-timing, and compatibility-class-specific provider evidence required before an attempt may be accepted.
-_Avoid_: Best-effort telemetry, partial success metrics
+Canonical correlated measurements admitted alongside an accepted attempt. Acceptance requires positively observed matching provider/model identity, controller-bound tier provenance, and all repository gates; measurements may be complete or validly partial. Supplied contradictions are rejected, missing totals remain unavailable, and observed partial spend is distinct from complete cost.
+_Avoid_: Assumed totals, acceptance without observed identity
 
 **Artifact Generation**:
 The coordinated set of planning and execution artifact versions admitted and interpreted as one compatibility boundary.

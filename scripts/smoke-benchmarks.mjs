@@ -3,9 +3,6 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const fixture = "datasets/fixtures/phase6-observability.jsonl";
-const piSessionFixture = "datasets/fixtures/pi-session-trace.jsonl";
-const piMonoSampleFixture = "datasets/fixtures/pi-mono-105b45a9.jsonl";
 const hybridFixture = "datasets/fixtures/hybrid-workflows.jsonl";
 const hybridOutOfOrderFixture = "datasets/fixtures/hybrid-workflows-out-of-order.jsonl";
 const safeWorkUnitPredictions = "datasets/fixtures/safe-work-unit-predictions.jsonl";
@@ -13,6 +10,68 @@ const tatBucketCodeShardPredictions = "datasets/fixtures/tat-bucket-code-shards-
 const piMonoFullDir = "datasets/traces/pi-mono-full";
 const dir = mkdtempSync(join(tmpdir(), "doubleword-pi-bench-"));
 const out = join(dir, "phase6");
+const fixture = join(dir, "synthetic-observability.jsonl");
+const piSessionFixture = join(dir, "synthetic-pi-session.jsonl");
+const safeEvalFixture = join(dir, "synthetic-safe-eval.jsonl");
+const safeEvalPredictions = join(dir, "synthetic-safe-predictions.jsonl");
+
+function writeJsonl(path, rows) {
+  writeFileSync(path, rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
+}
+
+function makeSyntheticInputs() {
+  const observability = [];
+  for (const [index, tier] of ["realtime", "async"].entries()) {
+    const runId = `synthetic-${tier}`;
+    const base = { runId, ts: new Date(index * 10_000).toISOString() };
+    observability.push({ ...base, event: "agent_start" }, { ...base, event: "turn_start", turnIndex: 0 }, { ...base, event: "provider_start", turnIndex: 0, tier });
+    if (tier === "async") {
+      observability.push({ ...base, event: "async_submit" });
+      for (const pollIndex of [0, 1]) observability.push({ ...base, event: "async_poll", pollIndex, status: pollIndex ? "completed" : "pending", durationMs: 100 });
+    }
+    observability.push(
+      { ...base, event: "provider_ttft", ttftMs: 100 },
+      { ...base, event: "provider_end", tier, durationMs: 500, usage: { input: 20, output: 5, cost: { total: 0.001 } } },
+      { ...base, event: "turn_end", toolCallCount: index + 1 },
+      { ...base, event: "agent_end", turnCount: 1, toolCallCount: index + 1 },
+    );
+  }
+  writeJsonl(fixture, observability);
+
+  writeJsonl(piSessionFixture, [
+    { type: "session", id: "synthetic-session", timestamp: "2026-01-01T00:00:00Z" },
+    { type: "message", timestamp: "2026-01-01T00:00:01Z", message: { role: "user", content: [{ type: "text", text: "Synthetic parser example" }] } },
+    { type: "message", timestamp: "2026-01-01T00:00:02Z", message: { role: "assistant", content: [{ type: "toolCall", name: "synthetic_tool" }], usage: { input: 15, cacheRead: 5, cacheWrite: 1, output: 5 } } },
+    { type: "message", timestamp: "2026-01-01T00:00:03Z", message: { role: "toolResult", content: [] } },
+    { type: "message", timestamp: "2026-01-01T00:00:04Z", message: { role: "assistant", content: [], usage: { input: 15, output: 5 } } },
+  ]);
+
+  writeJsonl(safeEvalFixture, [
+    { type: "session", id: "synthetic-safe-eval" },
+    { type: "message", id: "synthetic-boundary", message: { role: "user", content: [{ type: "text", text: "Update src/example.ts" }] } },
+    { type: "message", id: "synthetic-followup", message: { role: "assistant", content: [{ type: "text", text: "Later changes mention src/hidden.ts and src/stale.ts" }] } },
+  ]);
+  const unit = (unitId, ownedFiles, extra = {}) => ({
+    unitId, title: unitId, ownedFiles, readOnlyFiles: [], mutableResources: [], dependencies: [],
+    validationRequirements: ["npm run check"], reviewRequirements: ["review changes"], cancellationRules: ["cancel if request changes"],
+    activeBoundaryClaim: { status: "background", requiredForNextActionableResponse: false, boundary: "after request" },
+    ...extra,
+  });
+  writeJsonl(safeEvalPredictions, [{
+    schema: "doubleword.safe-work-unit-prediction", version: 1, traceId: "synthetic-safe-eval",
+    prefixBoundary: { line: 2, messageId: "synthetic-boundary" },
+    proposedUnits: [
+      unit("safe-note", ["docs/synthetic-note.md"], { label: { expectedVerdict: "safe_independent" } }),
+      unit("shared-a", ["package.json"], { dependencies: ["shared-b"], label: { expectedVerdict: "safe_after_dependency" } }),
+      unit("shared-b", ["package.json"], { label: { expectedVerdict: "safe_after_dependency" } }),
+      unit("hidden-read", ["docs/hidden-note.md"], { readOnlyFiles: ["src/hidden.ts"], label: { expectedVerdict: "unsafe" } }),
+      unit("unchecked-edit", ["src/no-check.ts"], { validationRequirements: [], reviewRequirements: [], label: { expectedVerdict: "unsafe" } }),
+      unit("wrong-boundary", ["docs/active.md"], { activeBoundaryClaim: { status: "background", requiredForNextActionableResponse: true, boundary: "before answer" }, label: { expectedVerdict: "unsafe" } }),
+      unit("uncancelled-speculation", ["src/stale.ts"], { speculative: true, cancellationRules: [], label: { expectedVerdict: "unsafe" } }),
+      unit("unknown-surface", [], { validationRequirements: [], reviewRequirements: [], cancellationRules: [], label: { expectedVerdict: "inconclusive" } }),
+    ],
+  }]);
+}
 
 function fail(message) {
   throw new Error(`${message}\noutput: ${out}`);
@@ -61,6 +120,7 @@ function requireFiniteMetric(result, field) {
 }
 
 try {
+  makeSyntheticInputs();
   run([fixture, "--out", out]);
 
   const summaryPath = join(out, "summary.json");
@@ -260,7 +320,7 @@ try {
 
   const validWorkflow = { schema: "doubleword.hybrid-workflow", version: 1, kind: "workflow", workflowId: "invalid", scenarioId: "linear-critical-path", sourceType: "synthetic", targetActiveTatRatio: 3, budgetUsd: 0.1, deadlineOrigin: "workflow-start", tier2Concurrency: 1, activeBoundaryNodeId: "a" };
   const validNode = { schema: "doubleword.hybrid-workflow", version: 1, kind: "node", workflowId: "invalid", nodeId: "a", dependencies: [], phase: "plan", tierEligibility: ["tier1"], userBlocking: true, mandatory: true, durationsMs: { tier1: 1, tier2: 0 }, cost: { inputTokens: 1, outputTokens: 1 }, active: "active" };
-  const invalidCases = [
+  const invalidSafeCases = [
     { name: "missing-field", rows: [validWorkflow, { ...validNode, nodeId: undefined }], expect: "field nodeId" },
     { name: "empty-tier-eligibility", rows: [validWorkflow, { ...validNode, tierEligibility: [] }], expect: "field tierEligibility", expectLine: 2, expectNode: "node a" },
     { name: "malformed-workflow-metadata", rows: [{ ...validWorkflow, metadata: "not-an-object" }, validNode], expect: "field metadata", expectLine: 1 },
@@ -273,7 +333,7 @@ try {
     { name: "cycle", rows: [validWorkflow, { ...validNode, nodeId: "a", dependencies: ["b"] }, { ...validNode, nodeId: "b", dependencies: ["a"] }], expect: "dependency cycle" },
     { name: "cross-workflow", rows: [validWorkflow, { ...validNode, dependencies: ["other:a"] }], expect: "cross-workflow dependency" },
   ];
-  for (const item of invalidCases) {
+  for (const item of invalidSafeCases) {
     const file = join(dir, `${item.name}.jsonl`);
     writeFileSync(file, item.rows.map((row) => JSON.stringify(row)).join("\n"));
     const result = run([file, "--out", join(dir, `${item.name}-out`)], 1);
@@ -283,110 +343,128 @@ try {
     }
   }
 
-  const safeEvalOut = join(dir, "safe-work-unit-eval");
-  runSafeEval([piMonoSampleFixture, "--predictions", safeWorkUnitPredictions, "--out", safeEvalOut], 0, {
-    DOUBLEWORD_API_KEY: "placeholder-offline-key",
-    DOUBLEWORD_BASE_URL: "https://example.invalid/doubleword",
-  });
+  const safeEvalOut = join(dir, "synthetic-safe-work-unit-eval");
+  runSafeEval([safeEvalFixture, "--predictions", safeEvalPredictions, "--out", safeEvalOut]);
   const safeEvalSummary = JSON.parse(readFileSync(join(safeEvalOut, "summary.json"), "utf8"));
   const safeEvalMd = readFileSync(join(safeEvalOut, "summary.md"), "utf8");
-  if (safeEvalSummary.reportSchema !== "doubleword.safe-work-unit-eval" || safeEvalSummary.reportVersion !== 1 || safeEvalSummary.offline !== true || safeEvalSummary.deterministic !== true) fail("safe work unit report missing stable offline metadata");
-  if (!safeEvalSummary.evidenceScope.includes("retrospective_trace_derived") || !safeEvalMd.includes("does not prove live runtime TAT improvement")) fail("safe work unit report did not scope evidence as retrospective reliability");
-  if (safeEvalSummary.traceCount !== 1 || safeEvalSummary.predictionCount !== 1) fail(`unexpected safe eval input counts: ${JSON.stringify({ traceCount: safeEvalSummary.traceCount, predictionCount: safeEvalSummary.predictionCount })}`);
+  if (safeEvalSummary.reportSchema !== "doubleword.safe-work-unit-eval" || safeEvalSummary.reportVersion !== 1 ||
+      safeEvalSummary.offline !== true || safeEvalSummary.deterministic !== true ||
+      !safeEvalSummary.evidenceScope.includes("retrospective_trace_derived") ||
+      !safeEvalMd.includes("does not prove live runtime TAT improvement")) fail("safe eval lost offline/evidence metadata");
+  if (safeEvalSummary.traceCount !== 1 || safeEvalSummary.predictionCount !== 1) fail("synthetic safe eval input counts changed");
   const safeEval = safeEvalSummary.evaluations[0];
-  if (safeEval.traceId !== "105b45a9-be31-4997-95c3-c95ab814daf8" || safeEval.prefixBoundary.line !== 5 || safeEval.prefixContext.rowCount !== 5 || safeEval.suffixEvidence.rowCount <= 0) fail(`safe eval did not separate prefix/suffix evidence: ${JSON.stringify(safeEval?.prefixBoundary)}`);
-  if (safeEval.predictionSource !== safeWorkUnitPredictions || safeEval.retrospectiveEvidenceSource !== piMonoSampleFixture) fail("safe eval did not preserve prediction and evidence sources");
+  if (safeEval.traceId !== "synthetic-safe-eval" || safeEval.prefixBoundary.line !== 2 ||
+      safeEval.prefixContext.rowCount !== 2 || safeEval.suffixEvidence.rowCount !== 1 ||
+      safeEval.predictionSource !== safeEvalPredictions || safeEval.retrospectiveEvidenceSource !== safeEvalFixture) {
+    fail("synthetic safe eval lost boundary or source provenance");
+  }
   const unitById = new Map(safeEval.unitResults.map((unit) => [unit.unitId, unit]));
   const expectedVerdicts = {
-    "safe-doc-note": "safe_independent",
-    "shared-package-a": "safe_after_dependency",
-    "shared-package-b": "safe_after_dependency",
-    "hidden-file-dependency": "unsafe",
-    "missing-validation-review": "unsafe",
-    "wrong-active-boundary": "unsafe",
-    "speculative-stale-no-cancel": "unsafe",
-    "unknown-surface": "inconclusive",
+    "safe-note": "safe_independent", "shared-a": "safe_after_dependency", "shared-b": "safe_after_dependency",
+    "hidden-read": "unsafe", "unchecked-edit": "unsafe", "wrong-boundary": "unsafe",
+    "uncancelled-speculation": "unsafe", "unknown-surface": "inconclusive",
   };
   for (const [unitId, verdict] of Object.entries(expectedVerdicts)) {
-    if (unitById.get(unitId)?.verdict !== verdict) fail(`expected ${unitId} verdict ${verdict}, got ${JSON.stringify(unitById.get(unitId))}`);
+    if (unitById.get(unitId)?.verdict !== verdict) fail(`synthetic ${unitId} verdict was not ${verdict}`);
   }
   const reasonChecks = {
-    "shared-package-a": "ownership_overlap_with_declared_dependency",
-    "hidden-file-dependency": "hidden_suffix_dependency",
-    "missing-validation-review": "missing_validation",
-    "wrong-active-boundary": "active_boundary_mistake",
-    "speculative-stale-no-cancel": "missing_cancellation_rule",
+    "shared-a": "ownership_overlap_with_declared_dependency",
+    "hidden-read": "hidden_suffix_dependency",
+    "unchecked-edit": "missing_validation",
+    "wrong-boundary": "active_boundary_mistake",
+    "uncancelled-speculation": "missing_cancellation_rule",
     "unknown-surface": "insufficient_evidence",
   };
-  for (const [unitId, reason] of Object.entries(reasonChecks)) {
-    if (!unitById.get(unitId)?.reasons.some((item) => item.code === reason)) fail(`expected ${unitId} reason ${reason}, got ${JSON.stringify(unitById.get(unitId)?.reasons)}`);
+  for (const [unitId, code] of Object.entries(reasonChecks)) {
+    if (!unitById.get(unitId)?.reasons.some((reason) => reason.code === code)) fail(`synthetic ${unitId} lost ${code}`);
   }
-  if (safeEvalSummary.metrics.primaryMetric !== "safetyPrecision" || safeEvalSummary.metrics.safetyPrecision !== 1 || safeEvalSummary.metrics.unsafeFalsePositiveCount !== 0 || safeEvalSummary.metrics.recall !== 1) fail(`safe eval primary metrics unexpected: ${JSON.stringify(safeEvalSummary.metrics)}`);
-  if (safeEvalSummary.evaluations[0].graph.dagDepth !== 2 || safeEvalSummary.evaluations[0].graph.dagWidth !== 2 || safeEvalSummary.evaluations[0].graph.schedulable !== false || safeEvalSummary.evaluations[0].graph.graphRejectionCount !== 2) fail(`safe eval graph summary unexpected: ${JSON.stringify(safeEvalSummary.evaluations[0].graph)}`);
+  if (safeEvalSummary.metrics.primaryMetric !== "safetyPrecision" || safeEvalSummary.metrics.safetyPrecision !== 1 ||
+      safeEvalSummary.metrics.unsafeFalsePositiveCount !== 0 || safeEvalSummary.metrics.recall !== 1 ||
+      safeEval.graph.dagDepth !== 2 || safeEval.graph.dagWidth !== 2 || !safeEval.graph.schedulable) {
+    fail("synthetic safe eval metrics or accepted graph changed");
+  }
   for (const verdict of ["safe_independent", "safe_after_dependency", "unsafe", "inconclusive"]) {
-    if (!safeEvalMd.includes(verdict)) fail(`safe eval markdown missing verdict ${verdict}`);
+    if (!safeEvalMd.includes(verdict)) fail(`safe eval markdown lost ${verdict}`);
   }
-  const safeEvalUnlabeledPredictions = join(dir, "safe-work-unit-unlabeled.jsonl");
-  const unlabeledRow = JSON.parse(readFileSync(safeWorkUnitPredictions, "utf8").trim());
-  unlabeledRow.proposedUnits = unlabeledRow.proposedUnits.map(({ label, ...unit }) => unit);
-  writeFileSync(safeEvalUnlabeledPredictions, `${JSON.stringify(unlabeledRow)}\n`);
-  const safeEvalUnlabeledOut = join(dir, "safe-work-unit-unlabeled-out");
-  runSafeEval([piMonoSampleFixture, "--predictions", safeEvalUnlabeledPredictions, "--out", safeEvalUnlabeledOut]);
-  const safeEvalUnlabeled = JSON.parse(readFileSync(join(safeEvalUnlabeledOut, "summary.json"), "utf8"));
-  if (safeEvalUnlabeled.metrics.recallAvailable !== false || safeEvalUnlabeled.metrics.recall !== null || !readFileSync(join(safeEvalUnlabeledOut, "summary.md"), "utf8").includes("| Recall | unavailable |")) fail("unlabeled safe eval did not mark recall unavailable");
-  const safeEvalOutB = join(dir, "safe-work-unit-eval-b");
-  runSafeEval([piMonoSampleFixture, "--predictions", safeWorkUnitPredictions, "--out", safeEvalOutB]);
-  const normalizedSafeA = JSON.stringify({
-    ...safeEvalSummary,
-    traceInputs: ["<trace>"],
-    predictionInput: "<prediction>",
-    evaluations: safeEvalSummary.evaluations.map((evaluation) => ({ ...evaluation, predictionSource: "<prediction>", retrospectiveEvidenceSource: "<trace>" })),
-  }, null, 2);
-  const safeEvalSummaryB = JSON.parse(readFileSync(join(safeEvalOutB, "summary.json"), "utf8"));
-  const normalizedSafeB = JSON.stringify({
-    ...safeEvalSummaryB,
-    traceInputs: ["<trace>"],
-    predictionInput: "<prediction>",
-    evaluations: safeEvalSummaryB.evaluations.map((evaluation) => ({ ...evaluation, predictionSource: "<prediction>", retrospectiveEvidenceSource: "<trace>" })),
-  }, null, 2);
-  if (normalizedSafeA !== normalizedSafeB) fail("safe work unit eval repeated runs differed after normalizing paths");
-  const invalidSafePredictions = join(dir, "invalid-safe-work-unit.jsonl");
-  writeFileSync(invalidSafePredictions, `${JSON.stringify({ ...unlabeledRow, proposedUnits: [{ ...unlabeledRow.proposedUnits[0], ownedFiles: "README.md" }] })}\n`);
-  const invalidSafe = runSafeEval([piMonoSampleFixture, "--predictions", invalidSafePredictions, "--out", join(dir, "invalid-safe-out")], 1);
-  if (!invalidSafe.stderr.includes(`${invalidSafePredictions}:1`) || !invalidSafe.stderr.includes("trace 105b45a9-be31-4997-95c3-c95ab814daf8") || !invalidSafe.stderr.includes("unit safe-doc-note") || !invalidSafe.stderr.includes("field ownedFiles")) fail(`safe work unit invalid artifact diagnostic was not source-aware:\n${invalidSafe.stderr}`);
 
-  const emptyMessageIdPredictions = join(dir, "empty-safe-work-unit-message-id.jsonl");
-  writeFileSync(emptyMessageIdPredictions, `${JSON.stringify({ ...unlabeledRow, prefixBoundary: { ...unlabeledRow.prefixBoundary, messageId: "" } })}\n`);
-  const emptyMessageId = runSafeEval([piMonoSampleFixture, "--predictions", emptyMessageIdPredictions, "--out", join(dir, "empty-message-id-out")], 1);
-  if (!emptyMessageId.stderr.includes("field prefixBoundary.messageId") || !emptyMessageId.stderr.includes("expected non-empty string")) fail(`safe work unit empty messageId diagnostic was not specific:\n${emptyMessageId.stderr}`);
+  const prediction = JSON.parse(readFileSync(safeEvalPredictions, "utf8"));
+  const unlabeledPrediction = { ...prediction, proposedUnits: prediction.proposedUnits.map(({ label, ...unit }) => unit) };
+  const invalidPrediction = join(dir, "synthetic-invalid-prediction.jsonl");
+  writeJsonl(invalidPrediction, [unlabeledPrediction]);
+  const unlabeledOut = join(dir, "synthetic-unlabeled-out");
+  runSafeEval([safeEvalFixture, "--predictions", invalidPrediction, "--out", unlabeledOut]);
+  const unlabeledSummary = JSON.parse(readFileSync(join(unlabeledOut, "summary.json"), "utf8"));
+  if (unlabeledSummary.metrics.recallAvailable !== false || unlabeledSummary.metrics.recall !== null ||
+      !readFileSync(join(unlabeledOut, "summary.md"), "utf8").includes("| Recall | unavailable |")) {
+    fail("unlabeled synthetic eval did not mark recall unavailable");
+  }
 
-  const invalidMessageIdPredictions = join(dir, "invalid-safe-work-unit-message-id.jsonl");
-  writeFileSync(invalidMessageIdPredictions, `${JSON.stringify({ ...unlabeledRow, prefixBoundary: { ...unlabeledRow.prefixBoundary, messageId: "wrong-message" } })}\n`);
-  const invalidMessageId = runSafeEval([piMonoSampleFixture, "--predictions", invalidMessageIdPredictions, "--out", join(dir, "invalid-message-id-out")], 1);
-  if (!invalidMessageId.stderr.includes("field prefixBoundary.messageId") || !invalidMessageId.stderr.includes("wrong-message")) fail(`safe work unit invalid messageId diagnostic was not specific:\n${invalidMessageId.stderr}`);
+  const replayOut = join(dir, "synthetic-safe-replay");
+  runSafeEval([safeEvalFixture, "--predictions", safeEvalPredictions, "--out", replayOut]);
+  const replay = JSON.parse(readFileSync(join(replayOut, "summary.json"), "utf8"));
+  const normalize = (report) => JSON.stringify({
+    ...report, traceInputs: ["<trace>"], predictionInput: "<prediction>",
+    evaluations: report.evaluations.map((evaluation) => ({ ...evaluation, predictionSource: "<prediction>", retrospectiveEvidenceSource: "<trace>" })),
+  });
+  if (normalize(safeEvalSummary) !== normalize(replay)) fail("synthetic safe eval replay changed");
 
-  const graphCasePredictions = join(dir, "safe-work-unit-graph-cases.jsonl");
-  const graphCase = {
-    ...unlabeledRow,
-    predictionId: "graph-cases",
-    proposedUnits: [
-      { ...unlabeledRow.proposedUnits[0], unitId: "safe-ok", title: "Safe OK", ownedFiles: ["safe-ok.ts"], dependencies: [] },
-      { ...unlabeledRow.proposedUnits[0], unitId: "cycle-a", title: "Cycle A", ownedFiles: ["cycle-a.ts"], dependencies: ["cycle-b"] },
-      { ...unlabeledRow.proposedUnits[0], unitId: "cycle-b", title: "Cycle B", ownedFiles: ["cycle-b.ts"], dependencies: ["cycle-a"] },
-      { ...unlabeledRow.proposedUnits[0], unitId: "dangling", title: "Dangling", ownedFiles: ["dangling.ts"], dependencies: ["missing-unit"] },
-      { ...unlabeledRow.proposedUnits[0], unitId: "unsafe-root", title: "Unsafe Root", ownedFiles: ["unsafe-root.ts"], dependencies: [], validationRequirements: [], reviewRequirements: [] },
-      { ...unlabeledRow.proposedUnits[0], unitId: "unsafe-mid", title: "Unsafe Mid", ownedFiles: ["unsafe-mid.ts"], dependencies: ["unsafe-root"] },
-      { ...unlabeledRow.proposedUnits[0], unitId: "unsafe-top", title: "Unsafe Top", ownedFiles: ["unsafe-top.ts"], dependencies: ["unsafe-mid"] },
-      { ...unlabeledRow.proposedUnits[0], unitId: "inconclusive-root", title: "Inconclusive Root", ownedFiles: [], readOnlyFiles: [], mutableResources: [], dependencies: [], validationRequirements: [], reviewRequirements: [] },
-      { ...unlabeledRow.proposedUnits[0], unitId: "inconclusive-dependent", title: "Inconclusive Dependent", ownedFiles: ["inconclusive-dependent.ts"], dependencies: ["inconclusive-root"] },
-    ],
-  };
-  writeFileSync(graphCasePredictions, `${JSON.stringify(graphCase)}\n`);
-  const graphCaseOut = join(dir, "safe-work-unit-graph-cases-out");
-  runSafeEval([piMonoSampleFixture, "--predictions", graphCasePredictions, "--out", graphCaseOut]);
-  const graphCaseSummary = JSON.parse(readFileSync(join(graphCaseOut, "summary.json"), "utf8"));
-  const graphUnits = new Map(graphCaseSummary.evaluations[0].unitResults.map((unit) => [unit.unitId, unit]));
-  if (graphCaseSummary.evaluations[0].graph.schedulable !== false || graphUnits.get("safe-ok")?.verdict !== "safe_independent" || !graphUnits.get("cycle-a").reasons.some((reason) => reason.code === "dependency_cycle") || !graphUnits.get("dangling").reasons.some((reason) => reason.code === "dangling_dependency") || !graphUnits.get("unsafe-mid").reasons.some((reason) => reason.code === "unsafe_dependency") || !graphUnits.get("unsafe-top").reasons.some((reason) => reason.code === "unsafe_dependency") || graphUnits.get("inconclusive-root")?.verdict !== "inconclusive" || !graphUnits.get("inconclusive-dependent").reasons.some((reason) => reason.code === "unsafe_dependency")) fail(`graph-level safe eval checks did not trigger: ${JSON.stringify(graphCaseSummary.evaluations[0], null, 2)}`);
+  const invalidSafePredictionCases = [
+    { name: "owned-files", patch: { proposedUnits: [{ ...prediction.proposedUnits[0], ownedFiles: "docs/note.md" }] }, field: "ownedFiles" },
+    { name: "empty-message-id", patch: { prefixBoundary: { ...prediction.prefixBoundary, messageId: "" } }, field: "prefixBoundary.messageId" },
+    { name: "wrong-message-id", patch: { prefixBoundary: { ...prediction.prefixBoundary, messageId: "missing" } }, field: "prefixBoundary.messageId" },
+  ];
+  for (const { name, patch, field } of invalidSafePredictionCases) {
+    writeJsonl(invalidPrediction, [{ ...prediction, ...patch }]);
+    const result = runSafeEval([safeEvalFixture, "--predictions", invalidPrediction, "--out", join(dir, `invalid-${name}`)], 1);
+    if (!result.stderr.includes(`${invalidPrediction}:1`) || !result.stderr.includes("trace synthetic-safe-eval") ||
+        !result.stderr.includes(`field ${field}`)) fail(`synthetic ${name} diagnostic lost source/field context`);
+  }
+
+  const validUnit = unlabeledPrediction.proposedUnits[0];
+  const graphCase = { ...unlabeledPrediction, proposedUnits: [
+    { ...validUnit, unitId: "safe-ok", ownedFiles: ["src/safe.ts"] },
+    { ...validUnit, unitId: "cycle-a", ownedFiles: ["src/a.ts"], dependencies: ["cycle-b"] },
+    { ...validUnit, unitId: "cycle-b", ownedFiles: ["src/b.ts"], dependencies: ["cycle-a"] },
+    { ...validUnit, unitId: "dangling", ownedFiles: ["src/dangling.ts"], dependencies: ["missing-unit"] },
+    { ...validUnit, unitId: "unsafe-root", ownedFiles: ["src/unsafe.ts"], validationRequirements: [], reviewRequirements: [] },
+    { ...validUnit, unitId: "unsafe-mid", ownedFiles: ["src/mid.ts"], dependencies: ["unsafe-root"] },
+    { ...validUnit, unitId: "unsafe-top", ownedFiles: ["src/top.ts"], dependencies: ["unsafe-mid"] },
+    { ...validUnit, unitId: "inconclusive-root", ownedFiles: [] },
+    { ...validUnit, unitId: "inconclusive-dependent", ownedFiles: ["src/inconclusive.ts"], dependencies: ["inconclusive-root"] },
+  ] };
+  writeJsonl(invalidPrediction, [graphCase]);
+  const graphOut = join(dir, "synthetic-graph-rejection");
+  runSafeEval([safeEvalFixture, "--predictions", invalidPrediction, "--out", graphOut]);
+  const graph = JSON.parse(readFileSync(join(graphOut, "summary.json"), "utf8")).evaluations[0];
+  const graphUnits = new Map(graph.unitResults.map((unit) => [unit.unitId, unit]));
+  for (const [unitId, code] of Object.entries({
+    "cycle-a": "dependency_cycle", "dangling": "dangling_dependency",
+    "unsafe-mid": "unsafe_dependency", "unsafe-top": "unsafe_dependency", "inconclusive-dependent": "unsafe_dependency",
+  })) {
+    if (!graphUnits.get(unitId)?.reasons.some((reason) => reason.code === code)) fail(`synthetic graph lost ${unitId}/${code}`);
+  }
+  if (graph.graph.schedulable || graphUnits.get("safe-ok")?.verdict !== "safe_independent" ||
+      graphUnits.get("inconclusive-root")?.verdict !== "inconclusive") fail("synthetic graph rejection failed");
+
+  const invalidBoundaryCases = [
+    { claim: undefined, field: "activeBoundaryClaim" },
+    { claim: {}, field: "activeBoundaryClaim.status" },
+    { claim: { status: "background", requiredForNextActionableResponse: "no", boundary: "after request" }, field: "activeBoundaryClaim.requiredForNextActionableResponse" },
+    { claim: { status: "background", boundary: "after request" }, field: "activeBoundaryClaim.requiredForNextActionableResponse" },
+    { claim: { requiredForNextActionableResponse: false, boundary: "after request" }, field: "activeBoundaryClaim.status" },
+    { claim: { status: "deferred", requiredForNextActionableResponse: false, boundary: "after request" }, field: "activeBoundaryClaim.status" },
+    { claim: { status: "background", requiredForNextActionableResponse: false }, field: "activeBoundaryClaim.boundary" },
+    { claim: { status: "background", requiredForNextActionableResponse: false, boundary: "" }, field: "activeBoundaryClaim.boundary" },
+  ];
+  for (const [index, { claim, field }] of invalidBoundaryCases.entries()) {
+    writeJsonl(invalidPrediction, [{ ...prediction, proposedUnits: [{ ...validUnit, activeBoundaryClaim: claim }] }]);
+    const result = runSafeEval([safeEvalFixture, "--predictions", invalidPrediction, "--out", join(dir, `invalid-claim-${index}`)], 1);
+    if (!result.stderr.includes(`${invalidPrediction}:1`) || !result.stderr.includes("trace synthetic-safe-eval") ||
+        !result.stderr.includes(`field ${field}`)) fail(`synthetic active-boundary diagnostic lost ${field}`);
+  }
+  if (JSON.parse(readFileSync(safeWorkUnitPredictions, "utf8")).traceId !== "105b45a9-be31-4997-95c3-c95ab814daf8") {
+    fail("historical prediction provenance changed");
+  }
 
   if (!existsSync(tatBucketCodeShardPredictions)) fail(`missing tracked TAT bucket prediction fixture ${tatBucketCodeShardPredictions}`);
   const tatRows = readFileSync(tatBucketCodeShardPredictions, "utf8").trim().split("\n").map((line) => JSON.parse(line));
@@ -398,27 +476,6 @@ try {
     const tatSummary = JSON.parse(readFileSync(join(tatOut, "summary.json"), "utf8"));
     if (tatSummary.traceCount <= tatSummary.predictionCount || tatSummary.predictionCount !== 15 || tatSummary.metrics.totalUnits !== 49 || tatSummary.metrics.verdictCounts.safe_independent !== 31 || tatSummary.metrics.verdictCounts.safe_after_dependency !== 16 || tatSummary.metrics.verdictCounts.unsafe !== 2 || tatSummary.metrics.safetyPrecision !== 1 || tatSummary.metrics.recall !== 0.969 || tatSummary.metrics.dependencyAccuracy !== 0.941) {
       fail(`TAT bucket code-shard metrics changed: ${JSON.stringify(tatSummary.metrics)}`);
-    }
-  }
-
-  const invalidActiveBoundaryCases = [
-    { name: "missing-active-boundary-claim", patch: { activeBoundaryClaim: undefined }, expect: "field activeBoundaryClaim" },
-    { name: "empty-active-boundary-claim", patch: { activeBoundaryClaim: {} }, expect: "field activeBoundaryClaim.status" },
-    { name: "nonboolean-active-boundary-required", patch: { activeBoundaryClaim: { status: "background", requiredForNextActionableResponse: "no", boundary: "after prefix user request" } }, expect: "field activeBoundaryClaim.requiredForNextActionableResponse" },
-    { name: "missing-active-boundary-required", patch: { activeBoundaryClaim: { status: "background", boundary: "after prefix user request" } }, expect: "field activeBoundaryClaim.requiredForNextActionableResponse" },
-    { name: "missing-active-boundary-status", patch: { activeBoundaryClaim: { requiredForNextActionableResponse: false, boundary: "after prefix user request" } }, expect: "field activeBoundaryClaim.status" },
-    { name: "malformed-active-boundary-status", patch: { activeBoundaryClaim: { status: "deferred", requiredForNextActionableResponse: false, boundary: "after prefix user request" } }, expect: "field activeBoundaryClaim.status" },
-    { name: "missing-active-boundary-boundary", patch: { activeBoundaryClaim: { status: "background", requiredForNextActionableResponse: false } }, expect: "field activeBoundaryClaim.boundary" },
-    { name: "malformed-active-boundary-boundary", patch: { activeBoundaryClaim: { status: "background", requiredForNextActionableResponse: false, boundary: "" } }, expect: "field activeBoundaryClaim.boundary" },
-  ];
-  for (const item of invalidActiveBoundaryCases) {
-    const file = join(dir, `${item.name}.jsonl`);
-    const row = JSON.parse(readFileSync(safeWorkUnitPredictions, "utf8").trim());
-    row.proposedUnits = [{ ...row.proposedUnits[0], label: undefined, ...item.patch }];
-    writeFileSync(file, `${JSON.stringify(row)}\n`);
-    const result = runSafeEval([piMonoSampleFixture, "--predictions", file, "--out", join(dir, `${item.name}-out`)], 1);
-    if (!result.stderr.includes(`${file}:1`) || !result.stderr.includes("trace 105b45a9-be31-4997-95c3-c95ab814daf8") || !result.stderr.includes("unit safe-doc-note") || !result.stderr.includes(item.expect)) {
-      fail(`${item.name} active boundary diagnostic was not source-aware and field-specific:\n${result.stderr}`);
     }
   }
 
