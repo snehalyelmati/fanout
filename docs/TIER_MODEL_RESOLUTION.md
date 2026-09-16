@@ -46,7 +46,7 @@ Packet v10 nodes contain only:
 - concrete tier/model assignment and active/background policy;
 - one embedded `fanout.work-contract` v5.
 
-Typed work contracts are the sole ownership, read, forbidden-write, candidate-normalization, validation, capability, and semantic-criteria authority. Graph edges, prompts, confirmation summaries, Markdown, and Mermaid derive from them. There are no `ownedFiles`, `dependencies`, `workerPacket`, shell-command strings, or other flattened legacy fields.
+Typed work contracts are the sole ownership, read, forbidden-write, task-validation, capability, and semantic-criteria authority. The packet-bound Project Execution Profile owns the candidate-normalization command list; normalization may not exceed the Work Contract's write scope. See [normalization authority](adr/0006-normalize-candidates-before-capture.md). Graph edges, prompts, confirmation summaries, Markdown, and Mermaid derive from them. There are no `ownedFiles`, `dependencies`, `workerPacket`, shell-command strings, or other flattened legacy fields.
 
 Packet-global runtime policy fixes `maxConcurrency`, `failFast`, and whether typed fallback is permitted. `/fanout-execute` consumes that policy directly and does not reread current settings.
 

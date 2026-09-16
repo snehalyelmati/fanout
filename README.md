@@ -64,12 +64,19 @@ Public research materials contain curated per-run metrics, methodology, static f
 
 ## Project documentation
 
-- [Architecture and trust boundary](docs/ARCHITECTURE.md)
+Current implementation references:
+
+- [Architecture](docs/ARCHITECTURE.md) and [domain glossary](CONTEXT.md)
+- Accepted decisions: [local trust](docs/adr/0001-inherit-pi-local-trust.md), [execution authority](docs/adr/0002-use-one-strict-execution-authority.md), [attempts and measurements](docs/adr/0005-route-attempts-from-typed-facts-and-fixed-budgets.md), and [normalization](docs/adr/0006-normalize-candidates-before-capture.md)
 - [Workflow and local profiler](docs/FANOUT_GUIDE.md)
+- [Planning contracts](docs/impl/phase-2b-fanout-plan.md) and [execution contracts and checks](docs/impl/phase-3-fanout-execute.md)
+- [Roadmap](docs/ROADMAP.md)
+
+Research and decision history:
+
 - [Research methods and historical protocol](docs/benchmarks/fanout-high-latency-study.md)
 - [Benchmark ledger](docs/BENCHMARKS.md)
-- [Design decisions](docs/DESIGN_DECISIONS.md)
-- [Roadmap](docs/ROADMAP.md)
+- [Dated design decisions](docs/DESIGN_DECISIONS.md)
 
 ## License
 

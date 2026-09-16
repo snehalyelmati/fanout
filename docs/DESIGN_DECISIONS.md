@@ -732,7 +732,7 @@ Reason: Raw artifacts are useful for local audit but too noisy to commit. Tracke
 
 ### Split `/fanout-plan` into explicit implementation and detail prompts
 
-Status: The two-phase planning decision remains current; its legacy packet output was superseded on 2026-07-14 by the closed plan-v2/details-v3/packet-v5 generation.
+Status: Historical model-call structure, superseded by the [2026-09-06 combined-planning decision](#optimize-sequential-provider-requests-with-combined-planning-and-prepared-workers). One model investigation now submits both plan and details; their separate persisted authority and provenance remain. The packet generation described below was superseded on 2026-07-14 and by later cutovers; its rationale is retained as history.
 
 Decision: Keep one `/fanout-plan` command, but run two explicit prompts plus a deterministic compiler. The controller envelopes Phase A as plan v2 and Phase B as details v3, binds their exact identities, and compiles packet v5 nodes containing one work-contract v1 each. `fanout-core` groups typed change resources, derives dependencies from typed `post-change-required` reads, assigns tiers, and stores authoritative integrated validation only in the final-validation contract.
 

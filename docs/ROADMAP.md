@@ -55,7 +55,7 @@ Status: The current closed generation is Project Execution Profile v1, plan v4, 
 
 The prior stable-runtime release gate required a macOS p-map canary, fresh review and repository-owner acceptance on one immutable candidate. Later canaries do not automatically satisfy that exact-candidate gate. This source research preview exposes the experimental implementation with that limitation; it does not claim stable-runtime acceptance or require a new paid run merely to publish the research.
 
-Audit follow-up: [`docs/impl/fanout-audit-progress.md`](impl/fanout-audit-progress.md) tracks the prompt-to-execution strictness, correctness, efficiency, and documentation findings against `0e1f260`. All 38 policy dispositions are resolved: 32 implementation directions, four retained choices and two deferrals. The [fresh-session implementation handoff](impl/fanout-audit-implementation-plan.md) records approved batches, compatibility choices and validation gates. Implementation and atomic commits were approved on 2026-09-05. The approved offline implementation, full integration checks and independent correction reviews passed; results are tracked in the register; the separate user-operated E2E and immutable-candidate release gates remain pending.
+Historical audit record (2026-09-05): [`docs/impl/fanout-audit-progress.md`](impl/fanout-audit-progress.md) tracks the prompt-to-execution strictness, correctness, efficiency, and documentation findings against `0e1f260`. All 38 policy dispositions are resolved: 32 implementation directions, four retained choices and two deferrals. The [completed implementation plan](impl/fanout-audit-implementation-plan.md) records approved batches, compatibility choices and validation gates. Implementation and atomic commits were approved on 2026-09-05. The approved offline implementation, full integration checks and independent correction reviews passed; results are tracked in the register; the separate user-operated E2E and immutable-candidate release gates remain pending.
 
 ### Phase 1: User-owned research and planning
 
@@ -133,9 +133,9 @@ Phase 2 acceptance criteria:
 
 ### Phase 3: Execution via `/fanout-execute`
 
-Status: The profile-bound runtime cutover is implemented. Focused gates cover isolated preparation, deterministic reconciliation, exact no-progress, fusion, cleanup-before-terminal timing, replay, and profiler compatibility. The controlled p-map canary plus three identical repetitions and repository-owner approval remain release gates.
+Status: The profile-bound runtime cutover is implemented. Focused gates cover isolated preparation, deterministic reconciliation, exact no-progress, fusion, cleanup-before-terminal timing, replay, and profiler compatibility. The controlled p-map canary plus three identical repetitions and repository-owner approval are stable-runtime acceptance gates for an exact immutable candidate; this source research preview does not claim those gates passed. See the [execution reference](impl/phase-3-fanout-execute.md#stable-runtime-release-gates) and [publication checks](PUBLICATION.md).
 
-The Execa asynchronous Web Stream transfer/complexity benchmark completed one controlled canary at its fixed reproducible baseline. It follows the p-map release gate rather than replacing it; no repetitions, reliability rate, cross-task speed comparison, or universal SLO exist. Post-canary evidence exposed duplicated project-wide final validation and broader-than-needed node checks, now addressed at the Phase B planning boundary. See [`docs/benchmarks/execa-web-streams-manual-e2e.md`](benchmarks/execa-web-streams-manual-e2e.md).
+The Execa asynchronous Web Stream transfer/complexity benchmark began with a controlled canary at its fixed reproducible baseline. A later [2026-08-05 five-repetition cohort](benchmarks/execa-web-streams-manual-e2e.md#2026-08-05-five-repetition-cohort) held corrected packet/profile/routing inputs fixed and all five runs passed final validation. Those repetitions remain separate from earlier canaries and later single-run configurations; they do not retroactively qualify the original canary, prove the current candidate's stable readiness, replace the p-map gate, or establish a cross-task speed advantage or universal SLO. The original Execa canary exposed duplicated project-wide final validation and broader-than-needed node checks, subsequently addressed at the planning boundary.
 
 Goal: execute the active accepted packet, manage workers, validate outputs, run authoritative final validation, and return control with summary plus metrics.
 
@@ -373,9 +373,9 @@ The hardened Phase 2 and Phase 3 contracts are implemented. Next work is evidenc
 
 After stubs, traces, and RPE routing policies:
 
-- Run small live realtime baseline with `rtk npm run smoke:live:realtime`.
-- Run same tasks through live async with `rtk npm run smoke:live:async`.
-- Probe batch creation/cancel with `DOUBLEWORD_LIVE_BATCH=1 rtk npm run smoke:live:batch`.
+- Run small live realtime baseline with `npm run smoke:live:realtime`.
+- Run same tasks through live async with `npm run smoke:live:async`.
+- Probe batch creation/cancel with `DOUBLEWORD_LIVE_BATCH=1 npm run smoke:live:batch`.
 - Compare wall-clock time, TTFT, total time, tool count, token usage, and cost.
 - Keep live tests opt-in and API-key gated.
 

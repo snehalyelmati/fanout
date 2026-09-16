@@ -1,6 +1,6 @@
 # Fanout canary run protocol
 
-Purpose: define the common operational protocol for controlled Fanout canaries and fixed repetition cohorts. Task-specific runbooks supply repository paths, baseline identities, task prompts, allowed paths, validation commands, and expected routing.
+Purpose: define the common operational protocol for separately declared Fanout canaries and fixed repetition cohorts. Task-specific runbooks supply repository paths, baseline identities, task prompts, allowed paths, validation commands, and expected routing. This is reusable experiment methodology, not a requirement to launch another run for the [research preview](../STUDY.md). Commands use ordinary Git, npm and tmux; no `rtk` wrapper is required.
 
 ## Run classes
 
@@ -33,9 +33,9 @@ Record:
 Freeze Fanout before planning:
 
 ```bash
-rtk git status --short --branch
-rtk git rev-parse HEAD
-rtk git diff --check
+git status --short --branch
+git rev-parse HEAD
+git diff --check
 ```
 
 Record any intentional diff. Do not change Fanout after planning begins. Any correction requires a fresh canary.
@@ -43,9 +43,9 @@ Record any intentional diff. Do not change Fanout after planning begins. Any cor
 ## 2. Verify the target baseline
 
 ```bash
-rtk git -C <target-repository> status --short --branch
-rtk git -C <target-repository> rev-parse HEAD
-rtk git -C <target-repository> rev-parse 'HEAD^{tree}'
+git -C <target-repository> status --short --branch
+git -C <target-repository> rev-parse HEAD
+git -C <target-repository> rev-parse 'HEAD^{tree}'
 ```
 
 Require the exact clean baseline and installed dependencies. Run the baseline validation unless the same clean fixture was already verified and the user explicitly waives the duplicate run. Stop on baseline, dependency, task, or platform drift.
@@ -94,12 +94,12 @@ Before launching:
 For concurrent side-by-side panes separated by vertical borders, use horizontal tmux splits and normalize the layout:
 
 ```bash
-rtk tmux split-window -h -t doubleword:fanout-canary \
+tmux split-window -h -t doubleword:fanout-canary \
   -c <run-active-worktree> \
   -P -F '#{pane_id}' -- \
   env -u DOUBLEWORD_API_KEY \
   pi -e <fanout-extension> --model <controller-model> --thinking <effort>
-rtk tmux select-layout -t doubleword:fanout-canary even-horizontal
+tmux select-layout -t doubleword:fanout-canary even-horizontal
 ```
 
 For five simultaneous runs, create five panes rooted in five independent active worktrees, then start the live executions 60 seconds apart. The stagger applies to `/fanout-execute`, not merely Pi process creation. If the panes become too narrow for reliable inspection, use additional `fanout-canary-*` windows and record the deviation.
@@ -153,12 +153,12 @@ Do not manually edit the target, change authority, or correct packet/profile sta
 Run from the active target checkout:
 
 ```bash
-rtk git status --short
-rtk git diff --name-only
-rtk git diff --check
-rtk git worktree list --porcelain
-rtk ps -axo pid,etime,command
-rtk tmux list-panes -t doubleword:fanout-canary \
+git status --short
+git diff --name-only
+git diff --check
+git worktree list --porcelain
+ps -axo pid,etime,command
+tmux list-panes -t doubleword:fanout-canary \
   -F '#{pane_id} #{pane_current_path} #{pane_dead} #{pane_current_command}'
 ```
 
