@@ -1,8 +1,214 @@
 # p-map AbortSignal canary tracker
 
-Date: 2026-07-14
+Date: 2026-07-14; optimization-candidate runs: 2026-07-27 through 2026-07-29
 
-Status: Candidate `c75ff9a` completed the full p-map E2E canary in Attempt 14. The packet-declared normalizer ran once for every candidate, all four work nodes were accepted, final `npm test` passed 56 tests, event/projection replay was exact, and cleanup was clean. Post-run two-axis review found two p-map edge cases; both were fixed in the active checkout and the independent full suite now passes 59 tests. Repository-owner approval of the exact Fanout candidate remains the only unchecked release gate.
+Status: Candidate `c75ff9a` and Attempt 14 remain historical successful evidence. The 2026-07-27 profile-bound sequence completed the canary and repetitions 1–2, then stopped when repetition 3 exhausted the fused runtime/test node's fixed validation-repair budget. The reviewed 2026-07-28 Worker-summary candidate first stopped before worker launch on a confirmation-label defect. Commit `3fef090` fixed that defect and passed both review axes. Its restarted canary completed, then repetition 1 stopped on bounded runtime-test validation-repair exhaustion. The subsequent realistic-task canary proved that reviewed planning fix `0f008e1` naturally joins runtime implementation and behavioral tests in one repair boundary, then stopped when that joint node exhausted its two repairs. All three 2026-07-29 live prompt canaries completed; the third made all three independently owned work nodes concurrently ready while preserving the runtime/test repair boundary. The user paused its three repetitions before any repetition worktree or run was started. The release-confidence gate remains open.
+
+## 2026-07-29 parallelism prompt canary
+
+- Fanout source remained at commit `3926f8f57d4b454cf31f0fe676ac74ddd9b51069`. Updated implementation-plan/details prompt SHA-256 identities were `09ba7e3336621a54e0eeb07f9114995e0dad835a19d0c2f05b93f4391046e8b3` / `f2427fec894a41c51eeb94a4c7c5ea95fdf3090daaf350ccbc081e4cfd4fce9f`; planning-smoke SHA-256 was `636bdfe03dc60dcb3dfe5fa112379c83a12fd9ee89dbcb00d918ab722d822e5e`. Focused planning and planning-boundary smokes passed.
+- Pane `%263` remains visible in clean detached worktree `controlled-20260729-prompt-update/canary-3` at baseline `c3c261e2189f94d1a09724e8f03d5345af518017`; isolated preparation and all 51 baseline tests passed. Completed pane `%262` was closed only after `%263` was alive. Routing remained Sol medium Tier 1, async Tier 2 disabled, Terra medium fallback.
+- Ordinary planning used unchanged realistic task SHA-256 `fbce63dd802d73b83d7861c3981d7a4fd4f1b4bd79aff92c5e0e3175c737e585` with no decomposition override. Phase A kept `index.js`/`test.js` together and split types/type tests and README into two disjoint items. Phase B classified the runtime `package.json` read and README `index.d.ts` read as `baseline-context`.
+- The derived graph is `[pmapiterable-abort-runtime, pmapiterable-signal-types, pmapiterable-signal-readme] -> final-validation`; no work-node edge or fusion remains. Runtime and types/docs retain disjoint write authority.
+- Profile SHA-256 `712517fe7194f0343c9e65077ed1661a38b54d36f4936a2702cef52712e1e099`, 1,884 bytes; active profile pointer SHA-256 `41b062d139d7aa9e29769b1f77d14f5cdcc9fe83e838ae02349f3eb77241db04`, 333 bytes. Packet SHA-256 `19aae3ecf5629efe52d771cba408659bd7ace8c5ca228b24297a14e4a2feecba`, 30,042 bytes; active packet pointer SHA-256 `b2c98008fa6862e40839410e25977aa7c592bc9bb98949b2080281702defed4c`, 322 bytes.
+- Dry-run `2026-07-29T17-04-06-745Z-0ccaa087` completed in 17.538s with zero attempts, tokens, cost, accepted ledger transitions, or repository changes. Its Event v4 log contains only dry-run start, passed preflight, and dry-run finish.
+
+| Run | Pane/worktree | Outcome and final tree | Independent validation/cleanup | Timing, tokens, and cost |
+| --- | --- | --- | --- | --- |
+| Canary `2026-07-29T17-07-55-275Z-f8eca267` | `%263` (retained); `controlled-20260729-prompt-update/canary-3` | Completed; types/README accepted on originals, runtime accepted on validation repair 1, and both final gates passed; exact accepted tree `02541d0d3dc8b18df9a36220664e873ac3d53cc9`; five allowed files, +295/-49 | Independent 55-test suite and diff check passed; cleanup 6.366s; no current-run worker process, worker worktree, or execution lock | 267.536s wall; 224.839s profiler completion boundary; 48.313s observed node overlap; 340,140 tokens; `$0.497531`; 4 attempts |
+
+The original runtime candidate failed XO on three `no-await-in-loop` findings in `test.js` and one `no-inner-declarations` finding in `index.js`. Validation repair 1 received the original's immediate Worker summary, repaired the same cumulative candidate, passed XO and AVA, and entered the accepted ledger. The original and repair summaries remained optional `result.json` evidence and absent from Event v4.
+
+Profile preparation/readiness/normalization-probe timings were 4.718s/0.382s/2.636s. The profiler admitted complete Current evidence with 20 Tier 1 calls, 32.476s aggregate TTFT, 147.740s aggregate generation, 59.451s free-capacity wait, and 4 ms acceptance-gate wait. Runtime overlapped first with types and then with README for 48.313s total; no reconciliation, fusion, exact no-progress termination, or integration repair occurred.
+
+The user paused the three identical repetitions after the successful canary. No repetition worktree, artifact root, pane, or execution was created. This single changed-packet canary supports neither a median/range nor a reliability-rate or universal-SLO claim.
+
+Planning observation: Phase B reached the correct packet on its first submission, but spent substantial context inspecting historical artifacts under `~/.pi/agent/fanout` for schema examples. The immutable result is grounded correctly, yet a future prompt-efficiency change should tell planners to use the supplied schema/current accepted artifacts rather than historical run data.
+
+## 2026-07-29 safe-parallelism prompt canary
+
+Fixed controls and planning evidence:
+
+- Fanout source commit `3926f8f57d4b454cf31f0fe676ac74ddd9b51069` plus uncommitted batching-discipline SHA-256 `84e9661ee7325a98b0003518e2e9d6846efbbe9b67387e403a7bfac389209898`, implementation-plan prompt SHA-256 `e6d7a3c46f8d05278cc6803886c16e01ed41e6c83087c81c00e25b236c2b1b48`, and planning-smoke SHA-256 `23a7fd6c3b369b2772a90ad48a2dec5dc11c595291b7410ef8ca8359942f45b4`. Full Fanout check, Doubleword-provider tests, and diff check passed before planning.
+- Fresh detached worktree `controlled-20260729-prompt-update/canary-2` at baseline commit/tree `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`; isolated preparation and all 51 baseline tests passed.
+- Pane `%262` remains visible; prior completed pane `%261` was closed after `%262` was alive. Tier 1 was Sol medium, async Tier 2 disabled, and Tier 2 fallback was Terra medium.
+- Task SHA-256 remained `fbce63dd802d73b83d7861c3981d7a4fd4f1b4bd79aff92c5e0e3175c737e585`. Ordinary `/fanout-plan --refresh-profile Read ../../TASK.md and implement that feature request exactly.` used no decomposition override.
+- Phase A accepted three items: joint runtime/test ownership for `index.js` and `test.js`, independent type ownership for `index.d.ts` and `index.test-d.ts`, and documentation ownership for `readme.md`. Honest reads from types to runtime and docs to types produced a serial graph; no compiler fusion occurred. Phase B required two schema-guided anchor corrections before acceptance.
+- Fresh profile SHA-256 `b0b890d05e72ebe3afea325e09b2250841a22bce9cac8cf59c7a200004e88894`, 1,873 bytes; active profile pointer SHA-256 `3db285cfe5cfe97eda767135fed635bdd73108ac9b7b5bc2633fa333700e23a0`, 333 bytes. It declared locked preparation, offline readiness, offline XO normalization for `index.js`/`test.js`, and required `npm test`.
+- Packet SHA-256 `d9a09e778e3290ee5ba14de71fc954ce38acce85ed09f10a26f99328e586b55b`, 30,974 bytes; active packet pointer SHA-256 `de2e9bdd5ff9de6a7f2075c2140f72182595f708839e4586e4c850b4eae06b5d`, 322 bytes. All identities remained unchanged after execution. Dry-run `2026-07-29T16-34-47-209Z-b71541d6` passed with zero attempts or tokens.
+
+| Run | Pane/worktree | Outcome and final tree | Independent validation/cleanup | Timing, tokens, and cost |
+| --- | --- | --- | --- | --- |
+| Canary `2026-07-29T16-35-28-543Z-9dbcf498` | `%262` (retained); `controlled-20260729-prompt-update/canary-2` | Completed; runtime accepted on validation repair 2, types/docs accepted on originals, and both final gates passed; exact accepted tree `7cd01449805065d2a57f732e2d7431875d216b9e`; five allowed files, +298/-44 | Independent 54-test suite passed; diff check passed; cleanup 7.681s; no current-run worker, worker worktree, process, or lock leak | 525.529s wall; 467.485s profiler completion boundary; zero node overlap; 539,203 tokens; `$0.833411`; 5 attempts |
+
+The original runtime candidate failed XO on `no-void` and `no-await-in-loop`. Repair 1 received the original's 456-character summary, passed XO, and failed AVA's existing `pMapIterable - index in mapper (out-of-order-settling promises)` test. Repair 2 received repair 1's 391-character summary and not the original; it passed and emitted a 368-character summary. Summaries remained optional `result.json` evidence and absent from Event v4.
+
+Profile preparation/readiness/normalization-probe timings were 4.480s/0.287s/1.499s. The profiler admitted complete Current evidence with 31 Tier 1 calls, 55.662s aggregate TTFT, 309.229s aggregate generation, 16.727s free-capacity wait, and 9 ms acceptance-gate wait. No reconciliation, fusion, exact no-progress termination, or node overlap occurred.
+
+This is a fresh planning/profile/packet sample, not an identical repetition of the preceding canary. No median, range, reliability rate, or universal SLO is reported.
+
+## 2026-07-29 action-first prompt canary
+
+Fixed controls and planning evidence:
+
+- Fanout source commit `3926f8f57d4b454cf31f0fe676ac74ddd9b51069` plus uncommitted user batching-discipline SHA-256 `25597ad6f2447a08073b20ac7b44921a60745811e7833bea82ce9826435e4281`. The full Fanout check, Doubleword-provider tests, and diff check passed before planning.
+- Updated implementation-plan/details/profile prompt SHA-256 identities: `da2880ab4738e425a5070f31cf37415f91deb4861bd277464c60bb54d4b8fb04`, `4e013ebf4ba1c3090b100b756386bffdd0636d2d3284d001631be99d6e32c23b`, and `0721a56490cefb380ada6f4b3b48903e04be8e0eeea6111ea3105a2b2a494586`.
+- Fresh detached worktree `controlled-20260729-prompt-update/canary` at baseline commit/tree `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`; isolated preparation and all 51 baseline tests passed.
+- Pane `%261` was retained through evidence capture and then closed after `%262` was alive; prior pane `%259` was closed after `%261` was alive. Tier 1 was Sol medium, async Tier 2 disabled, and the Tier 2 fallback was Terra medium.
+- Task SHA-256 remained `fbce63dd802d73b83d7861c3981d7a4fd4f1b4bd79aff92c5e0e3175c737e585`. Ordinary `/fanout-plan --refresh-profile Read ../../TASK.md and implement that feature request exactly.` used no decomposition override.
+- The profile submission first removed a prohibited repository path and was then accepted. Phase A grouped all five allowed files into one item. Phase B required two schema-guided corrections before acceptance. This preserved the runtime/test repair boundary but also merged independently authorable types and documentation, eliminating fanout.
+- Fresh profile SHA-256 `7e1adb3fda9cf4c2846020292f53cdc80f9496e85dde2ef3189a553df013a633`, 1,380 bytes; active profile pointer SHA-256 `f62440d907efa37f7121ebadfd377e72d905d633c9a54b6681f99c89e77b971a`, 333 bytes. It declared preparation/readiness/final gates but no candidate normalization.
+- Packet SHA-256 `c0855dbdaf07d2a642e0eb16c52f450d22b38efea75051abcd3bde554eb76779`, 24,650 bytes; active packet pointer SHA-256 `09dccec15d24a4fe4388acdc97171846053227572aa16df24c543dfed56f0b82`, 322 bytes. Identities remained unchanged after execution. Dry-run `2026-07-29T15-39-45-828Z-f95147c9` passed with zero attempts or tokens.
+
+| Run | Pane/worktree | Outcome and final tree | Independent validation/cleanup | Timing, tokens, and cost |
+| --- | --- | --- | --- | --- |
+| Canary `2026-07-29T15-40-31-736Z-90f6d680` | `%261` (retained); `controlled-20260729-prompt-update/canary` | Completed; one all-files node accepted after one validation repair; both final gates passed; exact tree `8ab065bea4d19f73bae7036278666028d0b3db55`; five allowed files, +292/-36 | Independent 56-test suite passed; diff check passed; cleanup 2.879s; no current-run worker, worker worktree, process, or lock leak | 416.529s wall; 381.009s profiler completion boundary; zero node overlap; 629,129 tokens; `$0.657389`; 2 attempts |
+
+The original Terra candidate failed four XO checks: three formatting errors in `test.js` and `no-inner-declarations` in `index.js`. The Sol validation repair received the original worker summary, fixed the candidate, passed `npm test`, and entered the accepted ledger. The repair's own summary remained optional `result.json` evidence, and summaries were absent from Event v4. Profile preparation/readiness/normalization timings were 4.670s/0.381s/0s. The profiler admitted complete Current evidence with 25 Tier 1 calls, 48.379s aggregate TTFT, 271.722s aggregate generation, 15.293s capacity wait, and 1 ms acceptance-gate wait.
+
+This canary is a reliability result for the updated prompt state, not a speed comparison with prior multi-node packets. No reconciliation, fusion, exact no-progress termination, repetition, median, range, reliability rate, or SLO claim is reported.
+
+## 2026-07-28 realistic-task repair-boundary canary
+
+Live execution ID: `2026-07-28T13-19-03-879Z-2f6c81a7`.
+
+Fixed controls:
+
+- Frozen Fanout source: reviewed commit `0f008e1a94b6abad78e188fbac6d74517d7b89b3`; focused planning smokes, full `npm run check`, Doubleword-provider tests, and diff check passed. Standards and Spec review against fixed point `404cf4d` returned zero findings.
+- Realistic issue-style task SHA-256 `fbce63dd802d73b83d7861c3981d7a4fd4f1b4bd79aff92c5e0e3175c737e585`, 3,636 bytes. It states product behavior and joint production/regression-test acceptance without prescribing Fanout nodes, ownership, fusion, or repair boundaries. This input is not byte-identical to prior benchmark-task cohorts.
+- Clean p-map `main` baseline commit/tree `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`; isolated `npm ci --ignore-scripts` and the 51-test baseline passed.
+- Pane `%259` in `doubleword:fanout-canary`, rooted at the baseline checkout and retained after failure. Tier 1 was `openai-codex/gpt-5.6-sol` medium, async Tier 2 was disabled, Tier 2 fallback was `openai-codex/gpt-5.6-terra` medium, maximum concurrency was 2, and no shared-path configuration was present.
+- Fresh profile SHA-256 `441847c95a17aa63dbb949556c7126809fbc7498e60a7972563d304e9a7908e6`, 2,054 bytes; active profile pointer SHA-256 `b44ef06a0dce8b3fe2be2d1d85a99f6416de53364271eebe701fd588da3a8d47`, 333 bytes.
+- Packet SHA-256 `d2f5aba9b5c91e3bea50b13025b875b56e34f1a9e8a62726706c7cb51a690c72`, 46,540 bytes; active packet pointer SHA-256 `c2a0049f15d115dda5b2b2ead180b96464de38f789474d69552a0f1b0e2f8559`, 322 bytes. All four identities were unchanged after execution.
+- Ordinary `/fanout-plan --refresh-profile Read ../TASK.md and implement that feature request exactly.` produced one runtime item owning and reading both `index.js` and `test.js`; no decomposition override or compiler fusion was required. Dry-run `2026-07-28T13-18-11-916Z-43f4ee83` passed with zero workers or tokens.
+
+| Run | Pane/checkout | Outcome and accepted tree | Independent validation/cleanup | Timing, tokens, and cost |
+| --- | --- | --- | --- | --- |
+| Canary | `%259` (retained); p-map `main` at fixed baseline | Failed after joint runtime/test node exhausted 2/2 validation repairs; types skipped; final validation not run. Documentation repair alone applied tree `01fe048ef351ae311607da711ae456b7c1e060e8`; only `readme.md`, +4/-4 | Independent 51-test suite passed; diff check passed; cleanup 8.086s; no current-run worker, worktree, process, or lock leak | 387.393s wall; 367.567s recorded profiler prefix; 71.500s parallel node overlap; 548,192 tokens; `$1.028695`; 5 attempts |
+| Repetitions 1–3 | not created | Mandatory stop after canary failure | No execution artifacts | No measurements |
+
+The original runtime/test candidate failed XO. Repair 1 passed XO but failed AVA, and repair 2 again passed XO while AVA's existing `pMapIterable - concurrency: 2` timing assertion observed 304.840 ms outside its 200–250 ms interval. The new pre-abort, pending-abort/source-cleanup, listener-cleanup, and controlled concurrency/backpressure tests passed in that terminal validation output. A subsequent isolated replay reconstructed accepted base tree `01fe048ef351ae311607da711ae456b7c1e060e8` and exact rejected candidate tree `f25f683277d723bc9419151564eaec7103fae947`, then reran the identical `npm exec --offline -- ava test.js` command once. It failed the same assertion at 303.720 ms while the new tests again passed. This rules out a simple one-off timing flake and points to a repeatable candidate scheduling regression; it does not establish that timing-based tests can never fluctuate. The frozen-cohort rule still forbids an in-cohort code change or repetition.
+
+Worker-summary continuity held at every exercised edge: runtime repair 1 received the original summary, runtime repair 2 received repair 1's summary and not the original, and the documentation repair received its original summary. All five attempts persisted non-empty summaries in `result.json`; summaries remained absent from Attempt Outcomes and Event v4. No reconciliation or exact no-progress termination occurred. The profiler admitted the failed Current run as a recorded prefix with 29 Tier 1 calls, 55.856s aggregate TTFT, 302.814s aggregate generation, 29.340s capacity wait, and 2 ms acceptance-gate wait.
+
+Historical planning starts were preserved rather than rewritten:
+
+| Generation | Result |
+| --- | --- |
+| `20260728-124319810-read-task-md-and-implement-that-benchmar` | The earlier Fanout-specific task still split runtime and tests in Phase A; Phase B was interrupted. No packet, dry-run, or worker execution followed. |
+| Pane `%255` typed override | An explicit decomposition override was entered but never submitted after the user replaced that course. It produced no planning artifact. |
+| `20260728-130358478-read-task-md-and-implement-that-feature-` | The first realistic-task refresh proposed a new profile, which was declined under a superseded byte-identity assumption before Phase A or workers. Its historical profile artifact remains. |
+
+Only the current project's active profile pointer was cleared before the accepted fresh refresh; historical planning, profile, and execution artifacts remain intact.
+
+## 2026-07-28 Worker-summary sequence
+
+Fixed controls:
+
+- Worker-summary implementation: reviewed commit `a06755bf3bbfab06e64a3915cfed1cdbb0647409`.
+- Confirmation fix and frozen execution source: commit `3fef09013dde4ad32e1446bd76201d8f2f161e49`; focused red/green confirmation regression, full `npm run check`, Doubleword-provider tests, and diff check passed. Review of `3c3e6e7...3fef090` returned zero Standards findings and zero Spec findings.
+- Clean detached p-map worktrees `controlled-20260728-worker-summary/{canary,rep-1,rep-2,rep-3}` at baseline `c3c261e2189f94d1a09724e8f03d5345af518017`; isolated `npm ci --ignore-scripts` preparation and all four independent 51-test baselines passed.
+- Fresh panes in `doubleword:fanout-canary`: corrected canary `%252` was closed after evidence capture and repetition pane `%253` was confirmed alive; failed repetition pane `%253` remains for inspection. Initial stopped pane `%251` was closed only after `%252` was alive.
+- Tier 1 `openai-codex/gpt-5.6-sol` medium; async Tier 2 disabled; Tier 2 fallback `openai-codex/gpt-5.6-terra` medium; maximum concurrency 2; no `FANOUT_WORKTREE_SHARED_PATHS`.
+- Active packet pointer SHA-256 `b7b733e141c705d462ab4906bc66cce04f895ff3bf243918a6c3439c8601f6b4`, 322 bytes; active profile pointer SHA-256 `0e9958891ad5fceaa942a23c2aa55794dd2480c753ba4c32df41f963cf5b69e3`, 333 bytes.
+- Packet SHA-256 `d2a0e3726b78abfdba02709ba86798e91d0f2975cbc97e737c66ed0fb4cd76ea`, 38,661 bytes; profile SHA-256 `77573f46e3b2f8dbbb975a3e6ca73ee583ad37ca454d6ff6842edd3c1172c6c0`, 2,230 bytes; planning base commit/tree `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`. Pointer and artifact bytes matched exactly in repetition 1.
+
+| Run | Pane/worktree | Outcome and final tree | Independent validation/cleanup | Timing, tokens, and cost |
+| --- | --- | --- | --- | --- |
+| Corrected canary | `%252` (closed); `controlled-20260728-worker-summary/canary` | Completed; final validation passed; final tree `73e501a361dbb433faae3bc4ef6c013021076584`; five allowed files, +307/-51 | 55 tests passed; cleanup 11.355s; no current-run worker, worktree, or lock leak | 420.728s wall; 401.893s post-confirmation; 390.535s profiler completion chain; 44.818s node overlap; 486,170 tokens; `$0.8393655`; 7 attempts |
+| Repetition 1 | `%253` (retained); `controlled-20260728-worker-summary/rep-1` | Failed after `runtime-tests` exhausted 2/2 validation repairs; final validation not run; accepted partial tree `f1863b2c735f9d82ece8d31664ea1dde5490d52c`; four accepted files, +120/-51 | Original 51-test suite passed on the accepted partial tree; diff check passed; cleanup 10.510s; no current-run worker, worktree, or lock leak | 396.535s wall; 377.800s post-confirmation; 367.282s recorded profiler prefix; 47.050s node overlap; 529,343 tokens; `$1.0167785`; 7 attempts |
+| Repetitions 2–3 | prepared but not run | Mandatory stop after repetition 1 failure | No execution artifacts created | No measurements |
+
+Canary profile preparation/readiness/normalization-probe timings were 4.658s/0.376s/2.104s; repetition 1 recorded 4.316s/0.270s/2.008s. Neither run recorded reconciliation or exact no-progress termination. Both used three validation-repair launches. The canary used 121,988 input, 17,046 output, and 347,136 cache-read tokens; repetition 1 used 152,175 input, 17,232 output, and 359,936 cache-read tokens.
+
+The live canary exercised the advisory handoff end to end. Each original validation repair received its immediate predecessor's extracted summary, and `runtime-tests` repair 2 received repair 1's summary rather than falling back to the original. The optional summaries were present in attempt `result.json` artifacts and absent from Attempt Outcomes, Event v4, and Projection v5 authority.
+
+Repetition 1's last worker summary accurately localized the failure: 57 AVA tests passed and the deterministic pending-abort test failed because `index.js` destructures the `undefined` result returned by the abort side of `Promise.race`. The test-only repair node could not modify `index.js`, so it preserved its valid coverage and Fanout correctly terminated at the fixed budget. This is a worker/ownership decomposition miss, not evidence that summaries gained authority. With only one completed run, no completed-run median or range is reported, and no reliability rate or universal SLO is inferred.
+
+### Initial confirmation stop
+
+The same packet/profile first ran from reviewed Worker-summary commit `a06755b` in pane `%251`. Dry-run `2026-07-28T10-24-22-168Z-8dab93a2` passed. Live run `2026-07-28T10-24-49-234Z-12637a82` was declined before workers because confirmation rendered implementation-details SHA `f0264cb025eb…` under the `Packet` label. It ended with zero attempts, tokens, cost, or accepted changes. This historical stop is not part of the corrected cohort.
+
+## 2026-07-27 controlled sequence
+
+Fixed controls:
+
+- Fanout source: branch `feature/fanout-optimization`, HEAD `0310527a552d98df666471f675f2d3db171bdb53`, tracked-diff SHA-256 `a1389d18861a7357d7276af93559d942b0e6d6d713d2af89a67ccce5f75b0fff`, plus the seven recorded untracked source artifacts. This exact state was unchanged through all four runs.
+- Profile v1, plan v3, details v5, work contract v3, packet v7, pointer v2, Attempt Outcome v4, final evidence v2, Event v4, Projection v5.
+- Clean independent p-map worktree per run at baseline `c3c261e2189f94d1a09724e8f03d5345af518017`.
+- Fresh tmux pane per run in `doubleword:fanout-canary`; completed panes were closed after durable evidence capture at the user's direction, while the failed repetition pane remains visible.
+- No `FANOUT_WORKTREE_SHARED_PATHS`.
+- Identical packet/profile bytes, routing, concurrency, and platform for all repetitions.
+- Packet SHA-256 `ffb4d3915eb3464824e3a4b030a419e717c631c2527264553c2d3d44643b6e0b`; profile SHA-256 `1fba48e8caf34ea2d81299ab57052d63ba69f61b198c0456601169669267dcd0`.
+
+The seven untracked source files present throughout the cohort had these
+SHA-256 identities: `project-execution-profile.ts` (core)
+`15dde81f667dced69ef7ccfaf39bba5897c8adfebbb5fb9c5c09af5c8eed7e58`,
+`repair-state.ts`
+`6b295a2e69769a040e24344e97f80cbcb9083999adcad36755ea07dea1b3282d`,
+`vertical-chain-fusion.ts`
+`f34c9d3ee105fba57def8ceff0f2bda23017730d3238590ef9dda250711cd402`,
+`fanout-execution-profile.md`
+`a4f886151b06b3dd3e0aebb6ec81b0febaee4840d51babe82d70426422edd81a`,
+`candidate-reconciliation.ts`
+`c6b1dbd16852e86a418146104ff81b57207bb8f9ad0927acab3eb4274dfe884e`,
+`final-validation-adapter.ts`
+`250f8523bf1591c070b1defaab94c15ca3dbe68bc931899da6e79bf0f164b37a`,
+and `project-execution-profile.ts` (Pi)
+`87cc6b246c3510f99ef0a688a2c842691a446a825fefac053c505f34bc75a5ff`.
+
+| Run | Pane | Worktree | Packet/profile identity | Outcome | Independent tests | Cleanup | Wall/cost/range evidence |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Canary | `%246` (closed after capture) | `controlled-20260727-r2/canary` | exact shared packet/profile | completed; final tree `441aa84953ba7338a8a3157a2f5fc9e8b75357b3` | 55 passed; five allowed files | 7.716s; no current-run worker/worktree/lock leak | 408.114s; 617,895 tokens; `$0.843834`; 5 attempts |
+| Repetition 1 | `%247` (closed after capture) | `controlled-20260727-r2/rep-1` | exact shared packet/profile | completed; final tree `3a727fdb8494391633afea5f3cb883e2bda95d14` | 56 passed; five allowed files | 5.800s; no current-run worker/worktree/lock leak | 306.291s; 502,710 tokens; `$0.547498`; 4 attempts |
+| Repetition 2 | `%248` (closed after capture) | `controlled-20260727-r2/rep-2` | exact shared packet/profile | completed; final tree `962a454736ab808771f41d5d5abde52edd349bf8` | 53 passed; five allowed files | 7.792s; no current-run worker/worktree/lock leak | 278.563s; 348,095 tokens; `$0.624695`; 5 attempts |
+| Repetition 3 | `%249` (retained) | `controlled-20260727-r2/rep-3` | exact shared packet/profile | failed; fused node exhausted 2/2 validation repairs; final validation not run | 51 baseline tests passed on the accepted partial types/docs tree | 7.815s; no current-run worker/worktree/lock leak | 285.959s; 436,509 tokens; `$0.681089`; 5 attempts |
+
+Stop on the first failure or configuration/artifact change. Any code, packet,
+profile, or configuration change restarts the table at Canary. Report medians
+and full ranges only; do not infer a reliability rate or universal SLO.
+
+Successful-run measurements:
+
+| Metric | Median | Full range |
+| --- | ---: | ---: |
+| Total wall time | 306.291s | 278.563–408.114s |
+| Post-confirmation observed boundary | 275.517s | 250.213–375.268s |
+| Profiler-derived completion-chain boundary | 269.715s | 242.419–367.549s |
+| Measured parallel node overlap | 45.523s | 42.835–57.857s |
+| Total tokens | 502,710 | 348,095–617,895 |
+| Estimated cost | `$0.624695` | `$0.547498`–`$0.843834` |
+| Aggregate recorded turn TTFT | 43s | 42–56s |
+| Aggregate recorded turn generation | 194s | 151–270s |
+| Profile preparation | 4.512s | 4.511–13.880s |
+| Profile readiness | 0.295s | 0.265–0.296s |
+| Profile normalization probe | 2.392s | 2.359–2.582s |
+| Candidate normalization | 13.362s | 10.747–13.701s |
+| Final-validation command time | 15.066s | 14.682–15.311s |
+| Cleanup | 7.716s | 5.800–7.792s |
+
+All four packets contained one compiler-fused vertical node. No run recorded a
+deterministic reconciliation or exact-no-progress stop. The canary exercised
+cumulative node-validation repair continuity live: its second repair started
+from the immediately preceding rejected candidate and the accepted ledger did
+not advance until validation passed. Final-validation repair continuity remains
+offline regression evidence because every completed run passed its initial
+final-validation round.
+
+Repetition 3 is a bounded worker semantic miss, not a Fanout authority or
+accounting failure. The original fused candidate failed XO
+`no-inner-declarations`; both repairs then left the same two generated AVA
+abort tests invalid. Every allocation received one terminal outcome, the
+accepted ledger retained only the successful types/docs transitions, cleanup
+completed, and final validation correctly remained `not-run
+(upstream-failure)`.
+
+Post-run profiler inspection initially rejected the valid canary because total
+run duration includes profile validation before `run-started`. The profiler now
+accepts a total duration greater than or equal to the Event-log span, still
+rejects an impossible shorter duration, and derives scheduling from the
+post-confirmation Event boundary. This source change occurred after the live
+sequence and therefore requires a new canary before any further repetitions.
 
 ## Fixed candidate
 
@@ -11,8 +217,8 @@ Status: Candidate `c75ff9a` completed the full p-map E2E canary in Attempt 14. T
 | Fanout branch | `feature/fanout-execute` |
 | Fanout candidate | `c75ff9a` |
 | p-map fixture | `c3c261e2189f94d1a09724e8f03d5345af518017` |
-| Task brief | `/Users/snehalyelmati/Documents/p-map-abort-signal/TASK.md` |
-| p-map repository | `/Users/snehalyelmati/Documents/p-map-abort-signal/repo` |
+| Task brief | `<p-map-benchmark>/TASK.md` |
+| p-map repository | `<p-map-benchmark>/repo` |
 | Baseline | clean; 51 tests passed |
 | Visible session | tmux `doubleword:fanout-canary` |
 
@@ -26,7 +232,7 @@ Status: Candidate `c75ff9a` completed the full p-map E2E canary in Attempt 14. T
 
 Pi was launched with extension auto-discovery disabled and `DOUBLEWORD_API_KEY` removed from the process environment. No Doubleword provider call was made.
 
-The next restart will explicitly set `FANOUT_WORKTREE_SHARED_PATHS='["node_modules"]'`. The Fanout mechanism itself accepts generic top-level, repository-relative, Git-ignored paths; it contains no language- or package-manager-specific default.
+Historical Attempt 14 used `FANOUT_WORKTREE_SHARED_PATHS`. The current generation rejects that configuration and instead runs independently approved profile preparation/readiness in every disposable worktree.
 
 ## Gate tracker
 
@@ -50,7 +256,7 @@ The next restart will explicitly set `FANOUT_WORKTREE_SHARED_PATHS='["node_modul
 | Offline diagnosis and repair | Pi 0.80.6 queues `sendUserMessage(..., {deliverAs: "followUp"})` called from `agent_end` without emitting `before_agent_start`. Phase B therefore missed its controller prompt, tool state, `planRunId`, and `phase`. Candidate `7020ea0` defers initial and repair turns until Pi settles, removes unpublished pointer context from internal planning prompts, and clarifies controller-owned output semantics. | Focused planning smokes and full `rtk npm run check` passed. First two-axis review: Standards 0, Spec 2; both findings fixed. Second review: Standards 0, Spec 0. No provider call. |
 | Attempt 3 after `/quit`, fixed-candidate restart, and `/new` | Phase A recovered from one invalid `advisoryNotes.kind` submission and was accepted. The repaired Phase B handoff carried `planRunId`/`phase`, submitted details, and passed details validation. Compilation then rejected the apparently correct `final-validation` item with `invalid-final-validation-id` and `final-validation-count`. | Artifact run `20260714-064938099-read-task-md-and-implement-that-benchmar`; observability session `2026-07-14T06-49-19-903Z-11902`. Wall 276.526s; 11 turns; 27 tools; 475,066 total tokens including cache reads; estimated cost `$1.096699`; Phase A 151.265s; Phase B 125.261s. |
 | Offline final-validation diagnosis and repair | Phase B had duplicated compiler authority by submitting a reserved `final-validation` item in addition to top-level `finalValidationCommands`. Candidate `28fe079` rejects the reserved item at details admission with actionable recovery and tells Phase B that commands are the sole input for the compiler-owned node. | Artifact-shaped compiler regression, focused planning smokes, and full `rtk npm run check` passed. Two-axis review: Standards 0, Spec 0. No provider call. |
-| Attempt 4 after `/quit`, candidate restart, and `/new` | Phase A was accepted. The user requested stopping during Phase B so the benchmark could be moved out of the Fanout repository; no details artifact or packet was published. | Artifact run `20260714-065927102-read-task-md-and-implement-that-benchmar`; observability session `2026-07-14T06-59-08-331Z-45053`. Wall 109.261s; 5 turns; 20 tools; 88,017 total tokens including cache reads; estimated cost `$0.341871`. The full benchmark folder was moved cleanly to `/Users/snehalyelmati/Documents/p-map-abort-signal`. |
+| Attempt 4 after `/quit`, candidate restart, and `/new` | Phase A was accepted. The user requested stopping during Phase B so the benchmark could be moved out of the Fanout repository; no details artifact or packet was published. | Artifact run `20260714-065927102-read-task-md-and-implement-that-benchmar`; observability session `2026-07-14T06-59-08-331Z-45053`. Wall 109.261s; 5 turns; 20 tools; 88,017 total tokens including cache reads; estimated cost `$0.341871`. The full benchmark folder was moved cleanly to `<p-map-benchmark>`. |
 | Attempt 5 from the relocated repository after fresh `/new` | Phase A and Phase B each recovered from one schema-guided submission correction and were accepted. Compilation rejected the synthesized final-validation node: its reads of the five owned files were not grounded, and the runtime-test node's typed forbidden write for `index.js` collided with the runtime implementation owner and final validation. | Artifact run `20260714-070403903-read-task-md-and-implement-that-benchmar`; observability session `2026-07-14T07-03-42-404Z-48572`. Wall 269.194s; 9 turns; 23 tools; 292,351 total tokens including cache reads; estimated cost `$0.901173`; Phase A 145.227s; Phase B 123.968s. Compiler errors: one `owned-forbidden-overlap`, five `planned-read-not-grounded`, and one `write-forbidden-overlap`. |
 | Offline Attempt 5 diagnosis and repair | Exact-byte replay reproduced all seven errors. Removing the reserved Phase A final item removed the five grounding errors; removing `index.js` from the runtime-test forbidden sets removed both authority collisions; removing both produced the intended five nodes and runtime-to-tests-to-final edges. Candidate `fd5ca1f` rejects reserved Phase A final authority and any Phase A packet-global forbidden write overlapping planned write authority, with planning prompt guidance. | Focused compiler, planning, planning-boundary, and diff checks passed; full `rtk npm run check` passed. First two-axis review: Standards P2 because Phase A did not yet explain packet-global forbidden scope; Spec P1 because a Phase-B-only cross-owner forbidden write still passed details admission. No provider call. |
 | Review-finding repair | Candidate `a250e4e` explains packet-global forbidden scope before Phase A submission and passes the accepted plan into Phase B admission, where cross-owner forbiddens now fail immediately with actionable guidance. The regression models separate implementation and test items so the test-only forbidden guard cannot cancel implementation authority. | Focused compiler/planning/lifecycle smokes and full `rtk npm run check` passed. Final two-axis re-review: Standards 0, Spec 0. No provider call. |
@@ -101,25 +307,32 @@ Do not treat the displayed cost as a provider comparison or a completed-canary b
 ## Evidence paths
 
 - Runbook: `docs/benchmarks/p-map-abort-signal-manual-e2e.md`
-- Accepted Phase A plan: `/Users/snehalyelmati/.pi/agent/fanout/repo-f3c0f3a183c0/20260714-062207785-read-task-md-and-implement-that-benchmar/implementation-plan.json`
-- Planning observability: `/Users/snehalyelmati/.pi/agent/fanout/repo-f3c0f3a183c0/observability/2026-07-14T06-18-43-347Z-33114/observability.jsonl`
-- Attempt 5 accepted plan: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-070403903-read-task-md-and-implement-that-benchmar/implementation-plan.json`
-- Attempt 5 accepted details: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-070403903-read-task-md-and-implement-that-benchmar/implementation-details.json`
-- Attempt 5 observability: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/observability/2026-07-14T07-03-42-404Z-48572/observability.jsonl`
-- Attempt 6 packet: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/execution-packet.json`
-- Attempt 6 pointer: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/active-packet.json`
-- Attempt 6 observability: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/observability/2026-07-14T07-22-35-922Z-49213/observability.jsonl`
-- Attempt 6 Pi crash: `/Users/snehalyelmati/.pi/agent/pi-crash.log`
-- Attempt 7 dry-run: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T07-39-21-318Z-75ca7aa4`
-- Attempt 8 live run: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T07-41-08-446Z-9fb2cd67`
-- Attempt 9 live run: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T07-58-00-678Z-d3bc6308`
-- Attempt 10 live run: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T08-22-47-500Z-f9d53ccf`
-- Attempt 11 live run: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T08-38-52-393Z-b11e33ea`
-- Attempt 12 live run: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T08-58-32-203Z-97a3eab5`
-- Attempt 13 packet and planning artifacts: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-095921357-read-task-md-and-implement-that-benchmar`
-- Attempt 13 live run: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-095921357-read-task-md-and-implement-that-benchmar/executions/2026-07-14T10-06-43-516Z-b1be4b1d`
-- Attempt 14 successful live run: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-095921357-read-task-md-and-implement-that-benchmar/executions/2026-07-14T10-17-57-391Z-5895ab5f`
+- 2026-07-28 Worker-summary planning artifacts: `<local-pi-agent>/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar`
+- 2026-07-28 initial Worker-summary dry-run: `<local-pi-agent>/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-24-22-168Z-8dab93a2`
+- 2026-07-28 initial stopped live run: `<local-pi-agent>/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-24-49-234Z-12637a82`
+- 2026-07-28 corrected canary dry-run: `<local-pi-agent>/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-58-27-522Z-6667ab27`
+- 2026-07-28 corrected canary live run: `<local-pi-agent>/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-59-03-363Z-f88ca6ff`
+- 2026-07-28 repetition 1 dry-run: `<local-pi-agent>/fanout/rep-1-b59f00098cff/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T11-10-26-097Z-f2a54d08`
+- 2026-07-28 stopped repetition 1 live run: `<local-pi-agent>/fanout/rep-1-b59f00098cff/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T11-11-03-020Z-81129b36`
+- Accepted Phase A plan: `<local-pi-agent>/fanout/repo-f3c0f3a183c0/20260714-062207785-read-task-md-and-implement-that-benchmar/implementation-plan.json`
+- Planning observability: `<local-pi-agent>/fanout/repo-f3c0f3a183c0/observability/2026-07-14T06-18-43-347Z-33114/observability.jsonl`
+- Attempt 5 accepted plan: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-070403903-read-task-md-and-implement-that-benchmar/implementation-plan.json`
+- Attempt 5 accepted details: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-070403903-read-task-md-and-implement-that-benchmar/implementation-details.json`
+- Attempt 5 observability: `<local-pi-agent>/fanout/repo-066724ea2003/observability/2026-07-14T07-03-42-404Z-48572/observability.jsonl`
+- Attempt 6 packet: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/execution-packet.json`
+- Attempt 6 pointer: `<local-pi-agent>/fanout/repo-066724ea2003/active-packet.json`
+- Attempt 6 observability: `<local-pi-agent>/fanout/repo-066724ea2003/observability/2026-07-14T07-22-35-922Z-49213/observability.jsonl`
+- Attempt 6 Pi crash: `<local-pi-agent>/pi-crash.log`
+- Attempt 7 dry-run: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T07-39-21-318Z-75ca7aa4`
+- Attempt 8 live run: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T07-41-08-446Z-9fb2cd67`
+- Attempt 9 live run: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T07-58-00-678Z-d3bc6308`
+- Attempt 10 live run: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T08-22-47-500Z-f9d53ccf`
+- Attempt 11 live run: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T08-38-52-393Z-b11e33ea`
+- Attempt 12 live run: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T08-58-32-203Z-97a3eab5`
+- Attempt 13 packet and planning artifacts: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-095921357-read-task-md-and-implement-that-benchmar`
+- Attempt 13 live run: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-095921357-read-task-md-and-implement-that-benchmar/executions/2026-07-14T10-06-43-516Z-b1be4b1d`
+- Attempt 14 successful live run: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-095921357-read-task-md-and-implement-that-benchmar/executions/2026-07-14T10-17-57-391Z-5895ab5f`
 
 ## Next decision
 
-The full E2E execution gate is satisfied. Preserve candidate `c75ff9a` and its successful Attempt 14 evidence unchanged while awaiting repository-owner approval. Treat the post-E2E p-map review fixes as an independently validated follow-up diff unless the repository owner requests another clean-base canary run.
+Preserve reviewed Worker-summary commit `a06755b`, confirmation fix `3fef090`, and the stopped cohort unchanged. Diagnose the ownership/decomposition miss outside the frozen cohort before any new code or planning change. Any change must start a new controlled sequence at a fresh canary; repetitions 2–3 from this cohort must not run.

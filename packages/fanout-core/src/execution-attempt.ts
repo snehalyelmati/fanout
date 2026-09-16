@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { parseArtifactIdentity, type ArtifactIdentity } from "./artifact-identity.ts";
-import { correlateAttemptMetrics, isCorrelatedAttemptMetrics, type CorrelatedAttemptMetrics } from "./attempt-metrics.ts";
+import { parseCorrelatedAttemptMetrics, isCorrelatedAttemptMetrics, validateAttemptMetricEnvelope, type CorrelatedAttemptMetrics } from "./attempt-metrics.ts";
 import {
 	canonicalTimestamp,
 	contractIdentity as requiredIdentity,
@@ -13,12 +13,14 @@ import {
 	positiveSafeInteger as positiveInteger,
 } from "./contract-value.ts";
 import { parseAttemptRecoveryContext, type AttemptRecoveryContext } from "./recovery-evidence.ts";
+import { repairStateDigest, type RepairStateDigest } from "./repair-state.ts";
 
 export const ATTEMPT_OUTCOME_SCHEMA = "fanout.attempt-outcome";
-export const ATTEMPT_OUTCOME_VERSION = 2;
+export const ATTEMPT_OUTCOME_VERSION = 6;
 
 export type AttemptKind = "original" | "retry" | "fallback" | "validation-repair" | "integration-repair";
 export type ControllerAction = "accept" | "retry" | "fallback" | "validation-repair" | "integration-repair" | "fail" | "abort";
+export type ControllerDisposition = "ordinary" | "changed" | "budget-exhausted" | "exact-no-progress" | "deterministic-reconciliation";
 export type AttemptBudgetName = "original" | "retry" | "fallback" | "validationRepair" | "integrationRepair";
 
 export interface AttemptAssignment {
@@ -100,9 +102,13 @@ export interface AttemptOutcome {
 	durationMs: number;
 	terminalFact: StageFact;
 	action: ControllerAction;
+	disposition: ControllerDisposition;
+	repairState?: RepairStateDigest;
+	repairProgress?: { source: RepairStateDigest; current: RepairStateDigest; candidateEqual: boolean; failureEqual: boolean; progressed: boolean; disposition: "changed" | "exact-no-progress" };
 	budgetTransition: BudgetTransition;
 	metrics: CorrelatedAttemptMetrics;
 	recovery?: AttemptRecoveryContext;
+	repairSource?: AttemptRecoveryContext;
 	evidenceRefs: string[];
 	diagnostic?: string;
 }
@@ -115,6 +121,8 @@ export interface CompleteAttemptInput {
 	fallbackAllowed: boolean;
 	metrics: CorrelatedAttemptMetrics;
 	recovery?: AttemptRecoveryContext;
+	repairSource?: AttemptRecoveryContext;
+	disposition?: Extract<ControllerDisposition, "deterministic-reconciliation">;
 	evidenceRefs?: string[];
 	diagnostic?: string;
 }
@@ -193,6 +201,7 @@ export function routeAttempt(fact: StageFact, context: RoutingContext): Controll
 	if ((fact.stage === "process" && fact.code === "user-abort") || (fact.stage === "provider" && fact.code === "abort") || (fact.stage === "candidate-normalization" && fact.code === "user-abort") || (fact.stage === "validation" && fact.code === "abort")) return "abort";
 	if (fact.stage === "validation" && (fact.code === "program-failure" || fact.code === "timeout" || fact.code === "signal")) return context.remaining.validationRepair > 0 ? "validation-repair" : "fail";
 	if (fact.stage === "apply" && (fact.code === "check-conflict" || fact.code === "apply-failure")) return context.remaining.integrationRepair > 0 ? "integration-repair" : "fail";
+	if (fact.stage === "worker-gate" && fact.code === "unauthorized-change" && context.kind === "original") return context.remaining.retry > 0 ? "retry" : "fail";
 	if (isTransient(fact)) return transientAction(context);
 	return "fail";
 }
@@ -209,15 +218,16 @@ export function prepareAttemptCompletion(allocation: AttemptAllocation, input: C
 	validateNodeState(input.state);
 	if (input.state.allocations.at(-1) !== allocation) throw new Error("attempt must complete against its current node allocation state");
 	const terminalFact = parseStageFact(input.terminalFact);
-	const startedAt = timestamp(input.startedAt, "startedAt");
-	const finishedAt = timestamp(input.finishedAt, "finishedAt");
+	const startedAt = canonicalTimestamp(input.startedAt, "startedAt");
+	const finishedAt = canonicalTimestamp(input.finishedAt, "finishedAt");
 	const durationMs = Date.parse(finishedAt) - Date.parse(startedAt);
 	if (durationMs < 0) throw new Error("finishedAt cannot precede startedAt");
-	const action = routeAttempt(terminalFact, { kind: allocation.kind, assignment: allocation.assignment, fallbackAllowed: input.fallbackAllowed, remaining: remainingAttemptBudgets(input.state) });
+	let action = routeAttempt(terminalFact, { kind: allocation.kind, assignment: allocation.assignment, fallbackAllowed: input.fallbackAllowed, remaining: remainingAttemptBudgets(input.state) });
 	if (input.metrics.attemptId !== allocation.attemptId) throw new Error(`metrics attempt ${input.metrics.attemptId} does not match allocation ${allocation.attemptId}`);
 	if (!isCorrelatedAttemptMetrics(input.metrics)) throw new Error("attempt metrics were not produced by the correlation gate");
-	if (input.metrics.turns.some((turn) => turn.provider !== allocation.assignment.provider || turn.model !== allocation.assignment.model || turn.tier !== allocation.assignment.tier)) throw new Error("metric turn assignment does not match attempt allocation");
-	if (action === "accept" && !input.metrics.complete) throw new Error("accepted attempt requires complete correlated metrics");
+	if (input.metrics.status !== "invalid") validateAttemptMetricEnvelope(input.metrics, startedAt, finishedAt);
+	if (input.metrics.status !== "invalid" && input.metrics.turns.some((turn) => turn.provider !== allocation.assignment.provider || turn.model !== allocation.assignment.model || turn.tier !== allocation.assignment.tier)) throw new Error("metric turn assignment does not match attempt allocation");
+	if (action === "accept" && (input.metrics.status === "invalid" || !input.metrics.turns.length)) throw new Error("accepted attempt requires valid observed assignment metrics");
 	const recovery = input.recovery ? parseAttemptRecoveryContext(input.recovery) : undefined;
 	const validationFailure = terminalFact.stage === "validation" && ["program-failure", "timeout", "signal"].includes(terminalFact.code);
 	const integrationFailure = terminalFact.stage === "apply" && ["check-conflict", "apply-failure", "post-tree-mismatch"].includes(terminalFact.code);
@@ -233,6 +243,26 @@ export function prepareAttemptCompletion(allocation: AttemptAllocation, input: C
 		const expectedStage = terminalFact.code === "check-conflict" ? "check" : terminalFact.code === "apply-failure" ? "apply" : terminalFact.code === "post-tree-mismatch" ? "post-tree" : undefined;
 		if (recovery.applyFailure.stage !== expectedStage) throw new Error("apply fact does not match integration recovery evidence");
 	}
+	const repairState = recovery ? repairStateDigest(recovery) : undefined;
+	const repairSource = input.repairSource ? parseAttemptRecoveryContext(input.repairSource) : undefined;
+	const repairFailure = (allocation.kind === "validation-repair" || allocation.kind === "integration-repair") && (validationFailure || integrationFailure);
+	if (repairFailure && (!repairState || !repairSource)) throw new Error("failed repair outcome requires exact current and source repair state");
+	const sourceState = repairSource ? repairStateDigest(repairSource) : undefined;
+	const repairProgress = repairState && sourceState && (allocation.kind === "validation-repair" || allocation.kind === "integration-repair") ? {
+		source: sourceState,
+		current: repairState,
+		candidateEqual: sourceState.candidate === repairState.candidate,
+		failureEqual: sourceState.failure === repairState.failure,
+		progressed: sourceState.combined !== repairState.combined,
+		disposition: sourceState.combined === repairState.combined ? "exact-no-progress" as const : "changed" as const,
+	} : undefined;
+	if (repairProgress && !repairProgress.progressed) action = "fail";
+	if (input.disposition === "deterministic-reconciliation" && action !== "accept") throw new Error("deterministic reconciliation disposition requires an accepted attempt");
+	const disposition: ControllerDisposition = input.disposition
+		?? (repairProgress && !repairProgress.progressed ? "exact-no-progress"
+			: action === "fail" && (validationFailure && remainingAttemptBudgets(input.state).validationRepair === 0 || integrationFailure && terminalFact.code !== "post-tree-mismatch" && remainingAttemptBudgets(input.state).integrationRepair === 0) ? "budget-exhausted"
+				: repairProgress?.progressed ? "changed"
+				: "ordinary");
 	const evidenceRefs = input.evidenceRefs ?? [];
 	if (!Array.isArray(evidenceRefs) || evidenceRefs.some((reference) => typeof reference !== "string" || !reference || reference !== reference.trim())) throw new TypeError("evidenceRefs must contain non-empty identities");
 	const outcome: AttemptOutcome = {
@@ -251,9 +281,13 @@ export function prepareAttemptCompletion(allocation: AttemptAllocation, input: C
 		durationMs,
 		terminalFact,
 		action,
+		disposition,
+		...(repairState ? { repairState } : {}),
+		...(repairProgress ? { repairProgress } : {}),
 		budgetTransition: { ...allocation.budgetTransition },
 		metrics: structuredClone(input.metrics),
 		...(recovery ? { recovery } : {}),
+		...(repairSource ? { repairSource } : {}),
 		evidenceRefs: [...evidenceRefs],
 		...(input.diagnostic === undefined ? {} : { diagnostic: String(input.diagnostic) }),
 	};
@@ -312,26 +346,20 @@ export function parseAttemptAllocation(value: unknown): AttemptAllocation {
 }
 
 export function parseAttemptOutcome(value: unknown): AttemptOutcome {
-	const item = exactRecord(value, ["schema", "version", "runId", "nodeId", "attemptId", "attemptNumber", "kind", "assignment", "sourceAttemptId", "sourceFinalValidationEvidence", "startedAt", "finishedAt", "durationMs", "terminalFact", "action", "budgetTransition", "metrics", "recovery", "evidenceRefs", "diagnostic"], ["sourceAttemptId", "sourceFinalValidationEvidence", "recovery", "diagnostic"], "attempt outcome");
+	const item = exactRecord(value, ["schema", "version", "runId", "nodeId", "attemptId", "attemptNumber", "kind", "assignment", "sourceAttemptId", "sourceFinalValidationEvidence", "startedAt", "finishedAt", "durationMs", "terminalFact", "action", "disposition", "repairState", "repairProgress", "budgetTransition", "metrics", "recovery", "repairSource", "evidenceRefs", "diagnostic"], ["sourceAttemptId", "sourceFinalValidationEvidence", "repairState", "repairProgress", "recovery", "repairSource", "diagnostic"], "attempt outcome");
 	if (item.schema !== ATTEMPT_OUTCOME_SCHEMA || item.version !== ATTEMPT_OUTCOME_VERSION) throw new TypeError("attempt outcome schema/version is unsupported");
 	const startedAt = canonicalTimestamp(item.startedAt, "startedAt");
 	const finishedAt = canonicalTimestamp(item.finishedAt, "finishedAt");
 	const durationMs = finiteNonNegative(item.durationMs, "attempt durationMs");
 	if (Date.parse(finishedAt) - Date.parse(startedAt) !== durationMs) throw new TypeError("attempt durationMs must equal its timestamp interval");
-	if (!record(item.metrics)) throw new TypeError("attempt metrics must be an object");
-	const serializedMetrics = item.metrics;
-	const metricsInput = { ...serializedMetrics };
-	delete metricsInput.complete;
-	const correlated = correlateAttemptMetrics(metricsInput);
-	const parsedMetrics = correlated.ok ? correlated.metrics : correlated.partialMetrics;
-	const serializedWithoutComplete = { ...serializedMetrics };
-	delete serializedWithoutComplete.complete;
-	const parsedWithoutComplete: Record<string, unknown> = { ...parsedMetrics };
-	delete parsedWithoutComplete.complete;
-	if (!parsedMetrics || typeof serializedMetrics.complete !== "boolean" || serializedMetrics.complete && !correlated.ok || !isDeepStrictEqual(serializedWithoutComplete, parsedWithoutComplete)) throw new TypeError("attempt metrics are not a canonical correlated record");
-	const metrics: CorrelatedAttemptMetrics = serializedMetrics.complete ? parsedMetrics : deepFreeze({ ...parsedMetrics, complete: false });
+	const metrics = parseCorrelatedAttemptMetrics(item.metrics);
+	if (metrics.status !== "invalid") validateAttemptMetricEnvelope(metrics, startedAt, finishedAt);
 	const action = item.action as ControllerAction;
 	if (!["accept", "retry", "fallback", "validation-repair", "integration-repair", "fail", "abort"].includes(String(action))) throw new TypeError("attempt action is invalid");
+	const disposition = item.disposition as ControllerDisposition;
+	if (!["ordinary", "changed", "budget-exhausted", "exact-no-progress", "deterministic-reconciliation"].includes(String(disposition))) throw new TypeError("attempt disposition is invalid");
+	const repairState = item.repairState === undefined ? undefined : parseRepairState(item.repairState, "repairState");
+	const repairProgress = item.repairProgress === undefined ? undefined : parseRepairProgress(item.repairProgress);
 	const evidenceRefs = identityArray(item.evidenceRefs, "evidenceRefs");
 	const outcome: AttemptOutcome = {
 		schema: ATTEMPT_OUTCOME_SCHEMA,
@@ -349,14 +377,20 @@ export function parseAttemptOutcome(value: unknown): AttemptOutcome {
 		durationMs,
 		terminalFact: parseStageFact(item.terminalFact),
 		action,
+		disposition,
+		...(repairState ? { repairState } : {}),
+		...(repairProgress ? { repairProgress } : {}),
 		budgetTransition: parseBudgetTransition(item.budgetTransition),
 		metrics,
 		...(item.recovery === undefined ? {} : { recovery: parseAttemptRecoveryContext(item.recovery) }),
+		...(item.repairSource === undefined ? {} : { repairSource: parseAttemptRecoveryContext(item.repairSource) }),
 		evidenceRefs,
 		...(item.diagnostic === undefined ? {} : { diagnostic: requiredString(item.diagnostic, "diagnostic") }),
 	};
 	parseAttemptAllocation({ runId: outcome.runId, nodeId: outcome.nodeId, attemptId: outcome.attemptId, attemptNumber: outcome.attemptNumber, kind: outcome.kind, assignment: outcome.assignment, ...(outcome.sourceAttemptId ? { sourceAttemptId: outcome.sourceAttemptId } : {}), ...(outcome.sourceFinalValidationEvidence ? { sourceFinalValidationEvidence: outcome.sourceFinalValidationEvidence } : {}), budgetTransition: outcome.budgetTransition });
-	if (outcome.action === "accept" && !outcome.metrics.complete) throw new TypeError("accepted attempt requires complete correlated metrics");
+	if (outcome.metrics.attemptId !== outcome.attemptId || outcome.metrics.status !== "invalid" && outcome.metrics.turns.some((turn) => !sameAssignment(turn, outcome.assignment))) throw new TypeError("metric assignment does not match attempt allocation");
+	if (outcome.action === "accept" && (outcome.metrics.status === "invalid" || !outcome.metrics.turns.length)) throw new TypeError("accepted attempt requires valid observed assignment metrics");
+	if (outcome.disposition === "budget-exhausted" && outcome.terminalFact.stage === "apply" && outcome.terminalFact.code === "post-tree-mismatch") throw new TypeError("post-tree mismatch is a hard failure, not budget exhaustion");
 	const validationFailure = outcome.terminalFact.stage === "validation" && ["program-failure", "timeout", "signal"].includes(outcome.terminalFact.code);
 	const integrationFailure = outcome.terminalFact.stage === "apply" && ["check-conflict", "apply-failure", "post-tree-mismatch"].includes(outcome.terminalFact.code);
 	const validationRecoveryMismatch = outcome.recovery && (outcome.recovery.kind === "validation" ? outcome.recovery.sourceAttemptId !== outcome.attemptId : outcome.recovery.kind === "final-validation" ? !outcome.sourceFinalValidationEvidence && !outcome.sourceAttemptId : true);
@@ -371,7 +405,42 @@ export function parseAttemptOutcome(value: unknown): AttemptOutcome {
 		const expectedStage = outcome.terminalFact.code === "check-conflict" ? "check" : outcome.terminalFact.code === "apply-failure" ? "apply" : outcome.terminalFact.code === "post-tree-mismatch" ? "post-tree" : undefined;
 		if (outcome.recovery.applyFailure.stage !== expectedStage) throw new TypeError("apply fact does not match integration recovery evidence");
 	}
+	const expectedRepairState = outcome.recovery ? repairStateDigest(outcome.recovery) : undefined;
+	const expectedRepairSource = outcome.repairSource ? repairStateDigest(outcome.repairSource) : undefined;
+	const repairFailure = (outcome.kind === "validation-repair" || outcome.kind === "integration-repair")
+		&& (outcome.terminalFact.stage === "validation" && ["program-failure", "timeout", "signal"].includes(outcome.terminalFact.code)
+			|| outcome.terminalFact.stage === "apply" && ["check-conflict", "apply-failure", "post-tree-mismatch"].includes(outcome.terminalFact.code));
+	if (repairFailure && !outcome.repairProgress) throw new TypeError("failed repair outcome requires exact progress evidence");
+	if (!isDeepStrictEqual(outcome.repairState, expectedRepairState)) throw new TypeError("attempt repair-state digest contradicts its recovery evidence");
+	if (outcome.repairProgress && !isDeepStrictEqual(outcome.repairProgress.source, expectedRepairSource)) throw new TypeError("attempt repair progress source contradicts its launch recovery evidence");
+	if (outcome.repairProgress && !isDeepStrictEqual(outcome.repairProgress.current, outcome.repairState)) throw new TypeError("attempt repair progress current state contradicts its recovery evidence");
+	if (outcome.repairProgress && outcome.repairProgress.candidateEqual !== (outcome.repairProgress.source.candidate === outcome.repairProgress.current.candidate)) throw new TypeError("attempt repair candidate equality contradicts its exact digests");
+	if (outcome.repairProgress && outcome.repairProgress.failureEqual !== (outcome.repairProgress.source.failure === outcome.repairProgress.current.failure)) throw new TypeError("attempt repair failure equality contradicts its exact digests");
+	if (outcome.repairProgress && outcome.repairProgress.progressed !== (outcome.repairProgress.source.combined !== outcome.repairProgress.current.combined)) throw new TypeError("attempt repair progress flag contradicts its exact digests");
+	if (outcome.repairProgress && outcome.repairProgress.disposition !== (outcome.repairProgress.progressed ? "changed" : "exact-no-progress")) throw new TypeError("attempt repair progress disposition contradicts its exact digests");
+	if ((outcome.disposition === "exact-no-progress") !== (outcome.repairProgress?.progressed === false) || outcome.disposition === "exact-no-progress" && outcome.action !== "fail") throw new TypeError("exact no-progress disposition contradicts repair progress or action");
+	if (outcome.disposition === "changed" && outcome.repairProgress?.progressed !== true) throw new TypeError("changed disposition contradicts repair progress");
+	if (outcome.repairProgress?.progressed && outcome.action !== "fail" && outcome.disposition !== "changed") throw new TypeError("progressing repair disposition must be changed");
+	if (outcome.disposition === "deterministic-reconciliation" && outcome.action !== "accept") throw new TypeError("deterministic reconciliation disposition requires acceptance");
 	return outcome;
+}
+
+function parseRepairProgress(value: unknown): NonNullable<AttemptOutcome["repairProgress"]> {
+	const item = exactRecord(value, ["source", "current", "candidateEqual", "failureEqual", "progressed", "disposition"], [], "repairProgress");
+	if (typeof item.candidateEqual !== "boolean") throw new TypeError("repairProgress.candidateEqual must be boolean");
+	if (typeof item.failureEqual !== "boolean") throw new TypeError("repairProgress.failureEqual must be boolean");
+	if (typeof item.progressed !== "boolean") throw new TypeError("repairProgress.progressed must be boolean");
+	if (item.disposition !== "changed" && item.disposition !== "exact-no-progress") throw new TypeError("repairProgress.disposition is invalid");
+	return { source: parseRepairState(item.source, "repairProgress.source"), current: parseRepairState(item.current, "repairProgress.current"), candidateEqual: item.candidateEqual, failureEqual: item.failureEqual, progressed: item.progressed, disposition: item.disposition };
+}
+
+function parseRepairState(value: unknown, path: string): RepairStateDigest {
+	const item = exactRecord(value, ["candidate", "failure", "combined"], [], path);
+	const digest = (entry: unknown, field: string) => {
+		if (typeof entry !== "string" || !/^[0-9a-f]{64}$/.test(entry)) throw new TypeError(`${field} must be a SHA-256 digest`);
+		return entry;
+	};
+	return { candidate: digest(item.candidate, `${path}.candidate`), failure: digest(item.failure, `${path}.failure`), combined: digest(item.combined, `${path}.combined`) };
 }
 
 export function parseStageFact(value: unknown): StageFact {
@@ -421,7 +490,7 @@ export function parseStageFact(value: unknown): StageFact {
 	if (value.stage === "candidate-normalization" && value.commandIndex !== undefined && (!Number.isSafeInteger(value.commandIndex) || Number(value.commandIndex) < 0)) throw new TypeError("candidate-normalization commandIndex must be a non-negative safe integer");
 	if (value.stage === "validation" && value.failedCommandIndexes !== undefined) {
 		if (!Array.isArray(value.failedCommandIndexes) || value.failedCommandIndexes.some((index) => !Number.isSafeInteger(index) || Number(index) < 0)) throw new TypeError("validation failedCommandIndexes must be non-negative integers");
-		if (new Set(value.failedCommandIndexes).size !== value.failedCommandIndexes.length || value.failedCommandIndexes.some((index, position) => position > 0 && Number(index) <= Number(value.failedCommandIndexes?.[position - 1]))) throw new TypeError("validation failedCommandIndexes must be unique and ordered");
+		if (new Set(value.failedCommandIndexes).size !== value.failedCommandIndexes.length || value.failedCommandIndexes.some((index, position, indexes) => position > 0 && Number(index) <= Number(indexes[position - 1]))) throw new TypeError("validation failedCommandIndexes must be unique and ordered");
 	}
 	return structuredClone(value) as StageFact;
 }
@@ -487,11 +556,6 @@ function validateAllocationSequence(state: NodeAttemptState, input: { kind: Atte
 
 function sameAssignment(left: AttemptAssignment, right: AttemptAssignment): boolean {
 	return left.tier === right.tier && left.provider === right.provider && left.model === right.model;
-}
-
-function timestamp(value: string, path: string): string {
-	if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) throw new TypeError(`${path} must be an ISO timestamp`);
-	return value;
 }
 
 function identityArray(value: unknown, path: string): string[] {

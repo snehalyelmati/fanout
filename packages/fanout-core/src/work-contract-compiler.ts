@@ -1,9 +1,11 @@
+import { ORDINARY_WORK_KINDS } from "./planning-artifact-schema.ts";
 import {
 	authorizeResourceForSources,
 	compileRepositoryAuthority,
 	groupConnectedResourceScopes,
 	parseResource,
 	resourceCovers,
+	resourceOwnerIndexes,
 	resourcesOverlap,
 	type PlannedResourceScope,
 	type Resource,
@@ -17,7 +19,6 @@ import {
 	validateWorkContract,
 	type AdvisoryNote,
 	type ChangeIntent,
-	type ForbiddenWrite,
 	type WorkContract,
 	type WorkContractIssue,
 	type WorkContractNode,
@@ -40,7 +41,6 @@ export interface GroundedWorkInput {
 	kind: string;
 	changes: ChangeIntent[];
 	readDependencies: WorkReadDependency[];
-	forbiddenWrites: ForbiddenWrite[];
 	validationCommands: ValidationCommand[];
 	advisoryNotes: AdvisoryNote[];
 }
@@ -55,7 +55,7 @@ export interface WorkContractCompilation {
 
 export interface CompileWorkContractOptions {
 	sequentialReadFallback?: boolean;
-	candidateNormalizationCommands?: readonly ValidationCommand[];
+	profileFinalGateCount?: number;
 }
 
 export function compileWorkContracts(plannedInput: readonly PlannedWorkSource[], groundedInput: readonly GroundedWorkInput[], finalValidationCommands: readonly ValidationCommand[], options: CompileWorkContractOptions = {}): WorkContractCompilation {
@@ -64,37 +64,42 @@ export function compileWorkContracts(plannedInput: readonly PlannedWorkSource[],
 	const planned = admitPlannedSources(plannedInput, errors);
 	const plannedScopes = planned.map(resourceScope);
 	const grounded = admitGroundedInputs(groundedInput, planned, errors);
+	const ownership = grounded.map((input) => changeWriteResources(input.changes));
+	for (const [inputIndex, input] of grounded.entries()) for (const [readIndex, read] of input.readDependencies.entries()) {
+		if (read.timing !== "post-change-required") continue;
+		const owners = resourceOwnerIndexes(read.resource, ownership);
+		if (owners.length === 1 && owners[0] === inputIndex) add(errors, "self-post-change-read", `${show(read.resource)} only belongs to the submitting grounded item`, `grounded[${inputIndex}].readDependencies[${readIndex}]`);
+	}
+
 
 	const endpointScopes = grounded.flatMap((input) => changeEndpoints(input.changes).map((endpoint) => ({
 		sourcePlanIds: endpoint.sourcePlanIds,
 		ownedResources: [endpoint.resource],
 		readDependencies: [],
-		forbiddenWriteResources: input.forbiddenWrites.map((entry) => entry.resource),
+		forbiddenWriteResources: [],
 	})));
 	const authority = compileRepositoryAuthority(plannedScopes, endpointScopes);
 	errors.push(...authority.errors);
 	for (const [planIndex, plan] of planned.entries()) for (const [readIndex, resource] of plan.readResources.entries()) {
-		const crossesOwner = planned.some((owner) => owner.id !== plan.id && owner.writeResources.some((owned) => resourcesOverlap(resource, owned)));
-		if (!crossesOwner || grounded.some((input) => input.readDependencies.some((read) => read.sourcePlanIds.includes(plan.id) && resourceCovers(resource, read.resource)))) continue;
-		const target = grounded.find((input) => input.id === plan.id || contractSourceIds(input).includes(plan.id));
-		if (options.sequentialReadFallback && target) {
-			target.readDependencies.push({ resource, timing: "post-change-required", timingSource: "sequential-fallback", sourcePlanIds: [plan.id], reason: "Conservative ordering for an unclassified cross-node Phase A read." });
-		} else {
-			add(errors, "planned-read-not-grounded", `${show(resource)} from ${plan.id} needs one typed read classification`, `planned[${planIndex}].readResources[${readIndex}]`);
+		const required = planned.filter((owner) => owner.id !== plan.id).flatMap((owner) => owner.writeResources.filter((owned) => resourcesOverlap(resource, owned)).map((owned) => ({ ownerId: owner.id, resource: resourceCovers(resource, owned) ? owned : resource })));
+		for (const row of required) {
+			if (grounded.some((input) => input.readDependencies.some((read) => read.sourcePlanIds.includes(plan.id) && resourceCovers(read.resource, row.resource)))) continue;
+			const target = grounded.find((input) => changeSourceIds(input).includes(plan.id));
+			if (options.sequentialReadFallback && target) {
+				target.readDependencies.push({ resource: row.resource, timing: "post-change-required", timingSource: "sequential-fallback", sourcePlanIds: [plan.id], reason: `Conservative ordering for an unclassified Phase A read of ${row.ownerId}.` });
+			} else {
+				add(errors, "planned-read-not-grounded", `${show(resource)} from ${plan.id} needs a typed read classification covering ${show(row.resource)} owned by ${row.ownerId}`, `planned[${planIndex}].readResources[${readIndex}]`);
+			}
 		}
 	}
 	for (const [inputIndex, input] of grounded.entries()) for (const [readIndex, read] of input.readDependencies.entries()) {
-		for (const issue of authorizeResourceForSources(read.resource, read.sourcePlanIds, plannedScopes, "read")) errors.push({ ...issue, path: `grounded[${inputIndex}].readDependencies[${readIndex}]` });
+		for (const issue of authorizeResourceForSources(read.resource, read.sourcePlanIds, plannedScopes, read.timing === "baseline-context" ? "baseline-context" : "read")) errors.push({ ...issue, path: `grounded[${inputIndex}].readDependencies[${readIndex}]` });
 	}
-	const planIds = new Set(planned.map((plan) => plan.id));
-	for (const [inputIndex, input] of grounded.entries()) for (const [forbiddenIndex, forbiddenWrite] of input.forbiddenWrites.entries()) for (const sourcePlanId of forbiddenWrite.sourcePlanIds) {
-		if (!planIds.has(sourcePlanId)) add(errors, "unknown-source-plan-id", `unknown source plan id ${sourcePlanId}`, `grounded[${inputIndex}].forbiddenWrites[${forbiddenIndex}]`);
-	}
-	const forbidden = [...planned.flatMap((plan) => plan.forbiddenWrites.map((entry) => entry.resource)), ...grounded.flatMap((input) => input.forbiddenWrites.map((entry) => entry.resource))];
+	const forbidden = planned.flatMap((plan) => plan.forbiddenWrites.map((entry) => entry.resource));
 	for (const input of grounded) for (const write of changeWriteResources(input.changes)) if (forbidden.some((resource) => resourcesOverlap(write, resource))) add(errors, "write-forbidden-overlap", `${show(write)} overlaps a typed forbidden write`);
 	if (errors.length) return { ok: false, errors, warnings, nodes: [] };
 
-	const groups = groupConnectedResourceScopes(grounded.map((input) => ({ resources: changeWriteResources(input.changes), sourcePlanIds: contractSourceIds(input) })))
+	const groups = groupConnectedResourceScopes(grounded.map((input) => ({ resources: changeWriteResources(input.changes), sourcePlanIds: changeSourceIds(input) })))
 		.map((group) => [...group.memberIndexes].sort((left, right) => left - right).map((index) => grounded[index]));
 	const usedIds = new Set([FINAL_VALIDATION_NODE_ID]);
 	const nodes: WorkContractNode[] = [];
@@ -104,7 +109,7 @@ export function compileWorkContracts(plannedInput: readonly PlannedWorkSource[],
 		const kinds = unique(group.map((input) => input.kind));
 		if (kinds.length !== 1) { add(errors, "mixed-node-kind", `overlapping grounded work has mixed kinds: ${kinds.join(", ")}`); continue; }
 		const id = uniqueId(group.length === 1 ? group[0].id : group.map((input) => input.id).join("-"), usedIds);
-		const validation = validateWorkContract(makeContract(planned, related, group, options.candidateNormalizationCommands ?? []));
+		const validation = validateWorkContract(makeContract(planned, related, group));
 		if (!validation.ok || !validation.contract) {
 			for (const issue of validation.errors) errors.push({ ...issue, path: issue.path ? `nodes.${id}.workContract.${issue.path}` : `nodes.${id}.workContract` });
 			continue;
@@ -112,7 +117,7 @@ export function compileWorkContracts(plannedInput: readonly PlannedWorkSource[],
 		nodes.push({ id, kind: kinds[0], workContract: validation.contract });
 	}
 
-	const finalValidation = validateWorkContract(makeFinalContract(planned, options.candidateNormalizationCommands ?? [], finalValidationCommands), { finalValidation: true });
+	const finalValidation = validateWorkContract(makeFinalContract(planned, finalValidationCommands), { finalValidation: true, allowEmptyValidation: Number.isSafeInteger(options.profileFinalGateCount) && (options.profileFinalGateCount ?? 0) > 0 });
 	if (!finalValidation.ok || !finalValidation.contract) for (const issue of finalValidation.errors) errors.push({ ...issue, path: issue.path ? `nodes.final-validation.workContract.${issue.path}` : "nodes.final-validation.workContract" });
 	else nodes.push({ id: FINAL_VALIDATION_NODE_ID, kind: "final-validation", workContract: finalValidation.contract });
 	if (errors.length) return { ok: false, errors, warnings, nodes };
@@ -145,9 +150,10 @@ function admitGroundedInputs(value: readonly GroundedWorkInput[], plans: Planned
 	return value.flatMap((input, index) => {
 		const path = `grounded[${index}]`;
 		if (!isRecord(input) || !canonical(input.id) || !canonical(input.kind)) { add(errors, "invalid-grounded-input", "grounded work needs canonical id and kind", path); return []; }
-		const validation = validateWorkContract({ schema: WORK_CONTRACT_SCHEMA, version: WORK_CONTRACT_VERSION, goals: statements, changes: input.changes, readDependencies: input.readDependencies, forbiddenWrites: input.forbiddenWrites, candidateNormalizationCommands: [], validationCommands: input.validationCommands, capabilities: FIXED_WORKER_CAPABILITIES, semanticReviewCriteria: criteria, advisoryNotes: input.advisoryNotes });
+		if (!(ORDINARY_WORK_KINDS as readonly string[]).includes(input.kind)) { add(errors, "invalid-kind", "grounded work kind must be a supported ordinary kind", `${path}.kind`); return []; }
+		const validation = validateWorkContract({ schema: WORK_CONTRACT_SCHEMA, version: WORK_CONTRACT_VERSION, goals: statements, changes: input.changes, readDependencies: input.readDependencies, forbiddenWrites: [], validationCommands: input.validationCommands, capabilities: FIXED_WORKER_CAPABILITIES, semanticReviewCriteria: criteria, advisoryNotes: input.advisoryNotes });
 		if (!validation.ok || !validation.contract) { for (const issue of validation.errors) errors.push({ ...issue, path: issue.path ? `${path}.${issue.path}` : path }); return []; }
-		return [{ id: input.id, kind: input.kind, changes: validation.contract.changes, readDependencies: validation.contract.readDependencies, forbiddenWrites: validation.contract.forbiddenWrites, validationCommands: validation.contract.validationCommands, advisoryNotes: validation.contract.advisoryNotes }];
+		return [{ id: input.id, kind: input.kind, changes: validation.contract.changes, readDependencies: validation.contract.readDependencies, validationCommands: validation.contract.validationCommands, advisoryNotes: validation.contract.advisoryNotes }];
 	});
 }
 
@@ -155,26 +161,24 @@ function resourceScope(plan: PlannedWorkSource): PlannedResourceScope {
 	return { id: plan.id, writeResources: plan.writeResources, readResources: plan.readResources, forbiddenWriteResources: plan.forbiddenWrites.map((entry) => entry.resource) };
 }
 
-function makeContract(allPlans: PlannedWorkSource[], plans: PlannedWorkSource[], inputs: GroundedWorkInput[], candidateNormalizationCommands: readonly ValidationCommand[]): WorkContract {
+function makeContract(allPlans: PlannedWorkSource[], plans: PlannedWorkSource[], inputs: GroundedWorkInput[]): WorkContract {
 	return {
 		schema: WORK_CONTRACT_SCHEMA, version: WORK_CONTRACT_VERSION,
 		goals: plans.flatMap((plan) => plan.goals.map((statement) => ({ sourcePlanId: plan.id, statement }))),
 		changes: inputs.flatMap((input) => input.changes),
 		readDependencies: inputs.flatMap((input) => input.readDependencies),
-		forbiddenWrites: [...allPlans.flatMap((plan) => plan.forbiddenWrites.map((entry) => ({ resource: entry.resource, sourcePlanIds: [plan.id], reason: entry.reason }))), ...inputs.flatMap((input) => input.forbiddenWrites)],
-		candidateNormalizationCommands: [...candidateNormalizationCommands],
+		forbiddenWrites: allPlans.flatMap((plan) => plan.forbiddenWrites.map((entry) => ({ resource: entry.resource, sourcePlanIds: [plan.id], reason: entry.reason }))),
 		validationCommands: inputs.flatMap((input) => input.validationCommands), capabilities: FIXED_WORKER_CAPABILITIES,
 		semanticReviewCriteria: plans.flatMap((plan) => plan.semanticReviewCriteria.map((statement) => ({ sourcePlanId: plan.id, statement }))),
 		advisoryNotes: [...plans.flatMap((plan) => plan.advisoryNotes), ...inputs.flatMap((input) => input.advisoryNotes)],
 	};
 }
 
-function makeFinalContract(plans: PlannedWorkSource[], candidateNormalizationCommands: readonly ValidationCommand[], validationCommands: readonly ValidationCommand[]): WorkContract {
+function makeFinalContract(plans: PlannedWorkSource[], validationCommands: readonly ValidationCommand[]): WorkContract {
 	return {
 		schema: WORK_CONTRACT_SCHEMA, version: WORK_CONTRACT_VERSION,
 		goals: plans.flatMap((plan) => plan.goals.map((statement) => ({ sourcePlanId: plan.id, statement }))), changes: [], readDependencies: [],
 		forbiddenWrites: plans.flatMap((plan) => plan.forbiddenWrites.map((entry) => ({ resource: entry.resource, sourcePlanIds: [plan.id], reason: entry.reason }))),
-		candidateNormalizationCommands: [...candidateNormalizationCommands],
 		validationCommands: [...validationCommands], capabilities: FIXED_WORKER_CAPABILITIES,
 		semanticReviewCriteria: plans.flatMap((plan) => plan.semanticReviewCriteria.map((statement) => ({ sourcePlanId: plan.id, statement }))),
 		advisoryNotes: [{ kind: "context", source: { phase: "compiler", reference: "final-validation" }, text: "Run authoritative integrated validation after every ordinary node." }],
@@ -182,7 +186,8 @@ function makeFinalContract(plans: PlannedWorkSource[], candidateNormalizationCom
 }
 
 function changeEndpoints(changes: readonly ChangeIntent[]) { return changes.flatMap((change) => change.kind === "move" ? [change.from, change.to] : [change.target]); }
-function contractSourceIds(input: GroundedWorkInput): string[] { return unique([...changeEndpoints(input.changes).flatMap((endpoint) => endpoint.sourcePlanIds), ...input.readDependencies.flatMap((read) => read.sourcePlanIds), ...input.forbiddenWrites.flatMap((entry) => entry.sourcePlanIds)]); }
+function changeSourceIds(input: GroundedWorkInput): string[] { return unique(changeEndpoints(input.changes).flatMap((endpoint) => endpoint.sourcePlanIds)); }
+function contractSourceIds(input: GroundedWorkInput): string[] { return unique([...changeEndpoints(input.changes).flatMap((endpoint) => endpoint.sourcePlanIds), ...input.readDependencies.flatMap((read) => read.sourcePlanIds)]); }
 function resources(value: unknown, path: string, errors: WorkContractIssue[]): Resource[] { if (!Array.isArray(value)) { add(errors, "invalid-resource-list", "resource list must be an array", path); return []; } return value.flatMap((entry, index) => { try { return [parseResource(entry)]; } catch (error) { add(errors, "invalid-resource", message(error), `${path}[${index}]`); return []; } }); }
 function forbiddenPlans(value: unknown, path: string, errors: WorkContractIssue[]): Array<{ resource: Resource; reason: string }> { if (!Array.isArray(value)) { add(errors, "invalid-forbidden-list", "forbiddenWrites must be an array", path); return []; } return value.flatMap((entry, index) => { if (!isRecord(entry) || !text(entry.reason)) { add(errors, "invalid-forbidden", "forbidden write needs a resource and reason", `${path}[${index}]`); return []; } try { return [{ resource: parseResource(entry.resource), reason: entry.reason }]; } catch (error) { add(errors, "invalid-resource", message(error), `${path}[${index}].resource`); return []; } }); }
 function strings(value: unknown, path: string, errors: WorkContractIssue[]): string[] { if (!Array.isArray(value)) { add(errors, "invalid-string-list", "value must be an array", path); return []; } return value.flatMap((entry, index) => text(entry) ? [entry] : (add(errors, "invalid-semantic-text", "value must be non-empty without controls", `${path}[${index}]`), [])); }

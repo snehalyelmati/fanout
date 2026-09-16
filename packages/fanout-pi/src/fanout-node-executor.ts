@@ -17,11 +17,10 @@ import {
 import { assertFinalValidationRecoverySource, type AcceptedLedgerProvenance, type AttemptRecoveryContext } from "../../fanout-core/src/recovery-evidence.ts";
 import { executionPacketBytes, type FanoutExecutionPacket, type FanoutWorkUnit } from "../../fanout-core/src/execution-packet.ts";
 import type { DagNodeResult } from "../../fanout-core/src/dag-scheduler.ts";
-import type { WorkerMetrics } from "../../fanout-core/src/worker-metrics.ts";
+import type { ProjectExecutionProfile } from "../../fanout-core/src/project-execution-profile.ts";
 import {
 	artifactSegment,
 	checkContractOwnership,
-	checkFinalRepairOwnership,
 	ownershipViolationFactCode,
 	writeJson,
 } from "./fanout-git.ts";
@@ -30,32 +29,49 @@ import {
 	AcceptedTransitionProcessError,
 	AmbiguousApplyError,
 	applyAcceptedTransition,
+	applyRepairSeedOverlay,
+	createReconstructedWorktree,
 	fullGitVisibleTree,
 	removeReconstructedWorktree,
 	verifyPatchCandidate,
 	type PlanningBase,
 } from "./repository-identity.ts";
-import { writeArtifactAtomically } from "./artifact-store.ts";
-import type { WorkContract } from "../../fanout-core/src/work-contract.ts";
 import { runValidationCommands, type ValidationRunResult } from "./validation-runner.ts";
-import { deriveFinalRepairWorkContract, type FinalValidationResult } from "../../fanout-core/src/final-validation.ts";
+import type { FinalControllerResult } from "../../fanout-core/src/final-validation.ts";
 import type { ValidationCommand } from "../../fanout-core/src/validation-command.ts";
-import { runFinalValidation as coordinateFinalValidation } from "./final-validation.ts";
 import {
 	attemptEvidenceRefs,
 	integrationFailureEvidence,
 	validationFailureEvidence,
 } from "./attempt-evidence.ts";
-import { prepareSharedWorktreePaths } from "./worktree-preparation.ts";
+import { cleanupReconciliationWorktree, reconcilePathDisjointCandidate } from "./candidate-reconciliation.ts";
+import { prepareProjectWorktree } from "./project-execution-profile.ts";
+import { finalValidationCommands, runExecutorFinalValidation } from "./final-validation-adapter.ts";
 import { executeWorkerAttempt, type AttemptKind, type WorkerAttempt, type WorkerTier } from "./worker-attempt-execution.ts";
 
 interface GatedAttempt extends WorkerAttempt {
 	ok: true;
 	worktreePath: string;
 	base: PlanningBase;
-	metrics: WorkerMetrics;
 	patch: AcceptedPatch;
 	validation: ValidationRunResult;
+}
+
+interface ApplyConflict {
+	reconcile: true;
+	attempt: GatedAttempt;
+	evidence: AcceptedTransitionProcessError["evidence"];
+	acceptedTree: AcceptedPatch["resultTree"];
+	ledger: AcceptedLedgerProvenance[];
+}
+
+interface WorkerLaunchOptions {
+	recovery?: AttemptRecoveryContext;
+	seedPatch?: AcceptedStateTransition;
+	sourceAttemptId?: string;
+	sourceFinalValidationEvidence?: ArtifactIdentity;
+	signal?: AbortSignal;
+	precedingWorkerSummary?: string;
 }
 
 export interface FanoutNodeExecutorOptions {
@@ -69,7 +85,8 @@ export interface FanoutNodeExecutorOptions {
 	piCommand?: string;
 	workerTimeoutMs?: number;
 	validationTimeoutMs?: number;
-	worktreeSharedPaths?: readonly string[];
+	profile: ProjectExecutionProfile;
+	profileIdentity: ArtifactIdentity;
 	afterActiveApply?: () => void;
 	/** Deterministic normalization audit-race injection for repository-boundary regression tests. */
 	beforeNormalizationAuditRewrite?: () => void;
@@ -93,7 +110,8 @@ export class FanoutNodeExecutor {
 	readonly #workerTimeoutMs: number;
 	readonly #validationTimeoutMs: number;
 	readonly #planningBase: PlanningBase;
-	readonly #worktreeSharedPaths: readonly string[];
+	readonly #profile: ProjectExecutionProfile;
+	readonly #profileIdentity: ArtifactIdentity;
 	readonly #afterActiveApply?: () => void;
 	readonly #beforeNormalizationAuditRewrite?: () => void;
 	#attemptStates = new Map<string, NodeAttemptState>();
@@ -102,6 +120,7 @@ export class FanoutNodeExecutor {
 	#applyTail: Promise<void> = Promise.resolve();
 	#worktrees = new Set<string>();
 	#manualReconciliationRequired = false;
+	#eventPublicationFailed = false;
 
 	constructor(options: FanoutNodeExecutorOptions) {
 		this.#packet = options.packet;
@@ -117,14 +136,15 @@ export class FanoutNodeExecutor {
 		this.#afterActiveApply = options.afterActiveApply;
 		this.#beforeNormalizationAuditRewrite = options.beforeNormalizationAuditRewrite;
 		this.#planningBase = this.#packet.planningBase;
-		this.#worktreeSharedPaths = [...(options.worktreeSharedPaths ?? [])];
+		this.#profile = structuredClone(options.profile);
+		this.#profileIdentity = structuredClone(options.profileIdentity);
 	}
 
 	get manualReconciliationRequired(): boolean { return this.#manualReconciliationRequired; }
+	retainMutationLock(): void { this.#manualReconciliationRequired = true; }
 
 	finalValidationCommands(fallback: readonly ValidationCommand[]): ValidationCommand[] {
-		const finalUnit = this.#packet.nodes.find((unit) => unit.kind === "final-validation");
-		return finalUnit ? [...finalUnit.workContract.validationCommands] : [...fallback];
+		return finalValidationCommands(this.#packet, this.#profile, fallback);
 	}
 
 	cleanupWorktrees(): void {
@@ -137,64 +157,38 @@ export class FanoutNodeExecutor {
 		if (failure) throw failure;
 	}
 
-	async runFinalValidation(commands: readonly ValidationCommand[]): Promise<FinalValidationResult> {
-		const initialTree = this.#acceptedLedger.at(-1)?.patch.resultTree ?? this.#planningBase.tree;
-		const finalUnit = this.#packet.nodes.find((unit) => unit.kind === "final-validation");
-		const finalContract = finalUnit?.workContract;
-		const upstreamWorkContracts = this.#packet.nodes.filter((unit) => unit.kind !== "final-validation").map((unit) => ({ nodeId: unit.id, workContract: unit.workContract }));
-		const authoritativeCommands = finalContract?.validationCommands ?? commands;
-		const repairContract = finalContract ? deriveFinalRepairWorkContract(this.#packet.nodes.filter((unit) => unit !== finalUnit).map((unit) => unit.workContract), finalContract) : undefined;
-		const repairUnit = finalUnit && repairContract ? { ...finalUnit, kind: "implement" as const, workContract: repairContract } : undefined;
-		return await coordinateFinalValidation<WorkerAttempt>({
+	async runFinalValidation(commands: readonly ValidationCommand[]): Promise<FinalControllerResult> {
+		return await runExecutorFinalValidation({
+			packet: this.#packet,
+			packetIdentity: this.#packetIdentity,
+			profile: this.#profile,
+			profileIdentity: this.#profileIdentity,
 			repoRoot: this.#repoRoot,
 			runDir: this.#runDir,
 			planningBase: this.#planningBase,
-			ledger: this.#acceptedLedger.map(({ patch }) => ({ patch })),
-			commands: authoritativeCommands,
-			expectedValidationTree: initialTree,
-			expectedActiveTree: initialTree,
+			acceptedLedger: this.#acceptedLedger,
+			commands,
 			timeoutMs: this.#validationTimeoutMs,
-			prepareWorktree: (worktreePath) => prepareSharedWorktreePaths(this.#repoRoot, worktreePath, this.#worktreeSharedPaths),
-			...(repairUnit && repairContract ? { repair: {
-				packetIdentity: this.#packetIdentity,
-				workContract: repairContract,
-				finalValidationContract: finalContract as WorkContract,
-				upstreamWorkContracts,
-				acceptedLedger: this.#acceptedLedger,
-				available: () => (this.#attemptStates.get(repairUnit.id)?.counts.validationRepair ?? 0) < 2,
-				launch: async (recovery, source) => {
-					const attempt = await this.#runWorkerAttempt(repairUnit, tierOne(this.#packet), "validation-repair", recovery, undefined, source.attemptId, source.evidence);
-					return { attemptId: attempt.attemptId, ...(attempt.ok && attempt.patch && attempt.worktreePath ? { candidate: attempt } : {}), continue: !attempt.ok && this.#terminalOutcome(attempt).action === "validation-repair" };
-				},
-				transition: (attempt) => ({ patch: attempt.patch as AcceptedPatch }),
-				authorize: async (attempt) => this.#authorizeFinalRepair(repairUnit, repairContract, attempt),
-				reject: async (attempt, result, recovery, fact) => this.#rejectFinalRepair(attempt, result, recovery, fact),
-				apply: async (attempt, result) => (await this.#apply(repairUnit, { ...attempt, validation: { status: "passed", executedCount: result.commandCount, durationMs: result.durationMs, commands: [] } } as GatedAttempt)).ok,
-			} } : {}),
+			repairAvailable: (nodeId) => (this.#attemptStates.get(nodeId)?.counts.validationRepair ?? 0) < 2,
+			launchRepair: async (unit, recovery, source, seed) => await this.#runWorkerAttempt(unit, tierOne(this.#packet), "validation-repair", {
+				recovery,
+				seedPatch: seed ? { patch: seed.patch as AcceptedPatch } : undefined,
+				sourceAttemptId: source.attemptId,
+				sourceFinalValidationEvidence: source.evidence,
+			}),
+			completeTerminal: async (attempt) => await this.#completeTerminalAttempt(attempt),
+			terminalOutcome: (attempt) => this.#terminalOutcome(attempt),
+			applyRepair: async (unit, attempt, result) => {
+				const applied = await this.#apply(unit, { ...attempt, validation: { status: "passed", executedCount: result.commandCount, durationMs: result.durationMs, commands: [] } } as GatedAttempt);
+				return { ok: applied.ok, attemptId: applied.attemptId };
+			},
+			retainMutationLock: () => this.retainMutationLock(),
 		});
-	}
-
-	async #authorizeFinalRepair(unit: FanoutWorkUnit, contract: WorkContract, attempt: WorkerAttempt): Promise<boolean> {
-		if (!attempt.patch) return false;
-		const ownership = checkFinalRepairOwnership(contract, attempt.patch, attempt.attemptDir);
-		if (ownership.ok) return true;
-		await this.#completeTerminalAttempt({ ...attempt, ok: false, error: ownership.violations.map((value) => `${value.file}: ${value.reason}`).join("; "), failureKind: "ownership", terminalFact: { stage: "worker-gate", code: ownershipViolationFactCode(ownership.violations) } });
-		return false;
-	}
-
-	async #rejectFinalRepair(attempt: WorkerAttempt, result: FinalValidationResult, recovery: AttemptRecoveryContext | undefined, fact: StageFact): Promise<boolean> {
-		const repairBudgetRemains = (this.#attemptStates.get(attempt.allocation.nodeId)?.counts.validationRepair ?? 0) < 2;
-		const completed = await this.#completeTerminalAttempt({ ...attempt, ok: false, error: result.evidence.failure?.kind === "hard" ? result.evidence.failure.detail : "final validation program failed", failureKind: "validation", terminalFact: fact, ...(recovery && repairBudgetRemains ? { recovery } : {}) });
-		return this.#terminalOutcome(completed).action === "validation-repair";
 	}
 
 	async runNode(unit: FanoutWorkUnit, signal?: AbortSignal): Promise<DagNodeResult> {
 		signal?.throwIfAborted();
-		const original = await this.#runOriginalWithRetry(unit, signal);
-		if (!original.ok) return await this.#result(original);
-
-		if (signal?.aborted) return await this.#result(await this.#completeAbortedAttempt(original, signal.reason));
-		let gated = await this.#gateOwnershipAndValidation(unit, original, signal);
+		let gated = await this.#runOriginalWithRetry(unit, signal);
 		if (!gated.ok && gated.failureKind === "validation" && this.#terminalOutcome(gated).action === "validation-repair") gated = await this.#repairValidation(unit, gated, signal);
 		if (!gated.ok) return await this.#result(gated);
 
@@ -212,12 +206,13 @@ export class FanoutNodeExecutor {
 		return attempt.ok ? { ok: true, attemptId: attempt.attemptId } : { ...failed(attempt), attemptId: attempt.attemptId };
 	}
 
-	async #runOriginalWithRetry(unit: FanoutWorkUnit, signal?: AbortSignal): Promise<WorkerAttempt> {
+	async #runOriginalWithRetry(unit: FanoutWorkUnit, signal?: AbortSignal): Promise<GatedAttempt | WorkerAttempt> {
 		const assigned = tierForUnit(unit);
-		let outcome: WorkerAttempt | undefined;
+		let outcome: GatedAttempt | WorkerAttempt | undefined;
 		for (let attempt = 1; attempt <= 2; attempt++) {
 			signal?.throwIfAborted();
-			outcome = await this.#runWorkerAttempt(unit, assigned, attempt === 1 ? "original" : "retry", undefined, undefined, outcome?.attemptId, undefined, signal);
+			outcome = await this.#runWorkerAttempt(unit, assigned, attempt === 1 ? "original" : "retry", { sourceAttemptId: outcome?.attemptId, signal });
+			if (outcome.ok) outcome = await this.#gateOwnershipAndValidation(unit, outcome, signal);
 			if (outcome.ok) return outcome;
 			const action = this.#terminalOutcome(outcome).action;
 			if (action !== "retry") {
@@ -232,20 +227,17 @@ export class FanoutNodeExecutor {
 		}
 		const fallback = tierTwoFallback(this.#packet);
 		signal?.throwIfAborted();
-		const result = await this.#runWorkerAttempt(unit, fallback, "fallback", undefined, undefined, outcome.attemptId, undefined, signal);
-		return result;
+		const result = await this.#runWorkerAttempt(unit, fallback, "fallback", { sourceAttemptId: outcome.attemptId, signal });
+		return result.ok ? await this.#gateOwnershipAndValidation(unit, result, signal) : result;
 	}
 
 	async #runWorkerAttempt(
 		unit: FanoutWorkUnit,
 		tier: WorkerTier,
 		kind: AttemptKind,
-		recovery?: AttemptRecoveryContext,
-		seedPatch?: AcceptedStateTransition,
-		sourceAttemptId?: string,
-		sourceFinalValidationEvidence?: ArtifactIdentity,
-		signal?: AbortSignal,
+		launch: WorkerLaunchOptions = {},
 	): Promise<WorkerAttempt> {
+		const { recovery, seedPatch, sourceAttemptId, sourceFinalValidationEvidence, signal } = launch;
 		signal?.throwIfAborted();
 		if (sourceFinalValidationEvidence) {
 			if (recovery?.kind !== "final-validation") throw new Error("final validation repair launch requires typed failed-round recovery evidence");
@@ -262,14 +254,25 @@ export class FanoutNodeExecutor {
 			...(sourceFinalValidationEvidence ? { sourceFinalValidationEvidence } : {}),
 			fallbackAllowed,
 		});
-		this.#attemptStates.set(unit.id, allocated.state);
 		const artifactAttemptId = `${String(allocated.allocation.attemptNumber).padStart(3, "0")}-${kind}`;
 		const attemptDir = join(this.#runDir, "workers", artifactSegment(unit.id), "attempts", artifactAttemptId);
 		const worktreePath = join(attemptDir, "worktree");
 		const startedAt = new Date().toISOString();
-		await this.#recorder.recordAttemptAllocated(allocated.allocation);
 		const ledger = await this.#withApplyLock(() => this.#acceptedLedger.map(({ patch }) => ({ patch })));
 		this.#worktrees.add(worktreePath);
+		const attemptBase = createReconstructedWorktree(this.#repoRoot, worktreePath, this.#planningBase, this.#runDir, ledger);
+		if (seedPatch) applyRepairSeedOverlay(worktreePath, this.#runDir, seedPatch, { exact: recovery?.kind === "final-validation" });
+		const prepared = await prepareProjectWorktree(this.#profile, this.#profileIdentity, {
+			worktreePath,
+			artifactRoot: this.#runDir,
+			evidencePath: `${relative(this.#runDir, attemptDir).split("\\").join("/")}/preparation.json`,
+			scopeId: allocated.allocation.attemptId,
+			timeoutMs: this.#validationTimeoutMs,
+			signal,
+		});
+		if (prepared.evidence.status !== "passed") throw new Error(`project worktree preparation failed before attempt allocation: ${prepared.evidence.error ?? "unknown failure"}`);
+		this.#attemptStates.set(unit.id, allocated.state);
+		await this.#recorder.recordAttemptAllocated(allocated.allocation);
 		const attempt = await executeWorkerAttempt({
 			packet: this.#packet,
 			unit,
@@ -283,7 +286,8 @@ export class FanoutNodeExecutor {
 			validationTimeoutMs: this.#validationTimeoutMs,
 			planningBase: this.#planningBase,
 			ledger,
-			worktreeSharedPaths: this.#worktreeSharedPaths,
+			profile: this.#profile,
+			preparedBase: attemptBase,
 			allocation: allocated.allocation,
 			attemptDir,
 			worktreePath,
@@ -292,6 +296,7 @@ export class FanoutNodeExecutor {
 			startedAt,
 			fallbackAllowed,
 			...(recovery ? { recovery } : {}),
+			...(launch.precedingWorkerSummary ? { precedingWorkerSummary: launch.precedingWorkerSummary } : {}),
 			...(seedPatch ? { seedPatch } : {}),
 			...(signal ? { signal } : {}),
 			...(this.#beforeNormalizationAuditRewrite ? { beforeNormalizationAuditRewrite: this.#beforeNormalizationAuditRewrite } : {}),
@@ -300,7 +305,7 @@ export class FanoutNodeExecutor {
 	}
 
 	async #gateOwnershipAndValidation(unit: FanoutWorkUnit, attempt: WorkerAttempt, signal?: AbortSignal): Promise<GatedAttempt | WorkerAttempt> {
-		if (!attempt.ok || !attempt.worktreePath || !attempt.base || !attempt.metrics || !attempt.patch) return attempt;
+		if (!attempt.ok || !attempt.worktreePath || !attempt.base || !attempt.correlatedMetrics || !attempt.patch) return attempt;
 		if (signal?.aborted) return await this.#completeAbortedAttempt(attempt, signal.reason);
 		let ownership;
 		try {
@@ -376,7 +381,13 @@ export class FanoutNodeExecutor {
 			signal?.throwIfAborted();
 			if (!seedPatch) break;
 			if (recoveryContext?.kind !== "validation") break;
-			const repair = await this.#runWorkerAttempt(unit, tierOne(this.#packet), "validation-repair", recoveryContext, { patch: seedPatch }, current.attemptId, undefined, signal);
+			const repair = await this.#runWorkerAttempt(unit, tierOne(this.#packet), "validation-repair", {
+				recovery: recoveryContext,
+				seedPatch: { patch: seedPatch },
+				sourceAttemptId: current.attemptId,
+				signal,
+				precedingWorkerSummary: current.workerSummary,
+			});
 			if (!repair.ok) {
 				if (this.#terminalOutcome(repair).action !== "validation-repair") return repair;
 				current = repair;
@@ -387,6 +398,7 @@ export class FanoutNodeExecutor {
 				return gated as GatedAttempt;
 			}
 			if (gated.failureKind === "ownership" || gated.failureKind === "metrics" || gated.failureKind === "unsafe") return gated;
+			if (this.#terminalOutcome(gated).action !== "validation-repair") return gated;
 			current = gated;
 			seedPatch = gated.patch;
 			recoveryContext = gated.recovery;
@@ -396,7 +408,60 @@ export class FanoutNodeExecutor {
 
 	async #apply(unit: FanoutWorkUnit, attempt: GatedAttempt, signal?: AbortSignal): Promise<WorkerAttempt> {
 		if (signal?.aborted) return await this.#completeAbortedAttempt(attempt, signal.reason);
-		return await this.#withApplyLock(async () => {
+		let conflict = await this.#withApplyLock(() => this.#applyLocked(unit, attempt, signal, true));
+		let ledgerAdvanceRetry = 0;
+		while ("reconcile" in conflict) {
+			signal?.throwIfAborted();
+			const reconciliation = await reconcilePathDisjointCandidate({
+				repoRoot: this.#repoRoot,
+				runDir: this.#runDir,
+				attemptDir: attempt.attemptDir,
+				attemptId: attempt.attemptId,
+				planningBase: this.#planningBase,
+				ledger: conflict.ledger.map(({ patch }) => ({ patch })),
+				candidate: attempt.patch,
+				contract: unit.workContract,
+				profile: this.#profile,
+				profileIdentity: this.#profileIdentity,
+				ledgerAdvanceRetry,
+				timeoutMs: this.#validationTimeoutMs,
+				signal,
+			});
+			const resolved = await this.#withApplyLock(async () => {
+				const acceptedTree = this.#acceptedLedger.at(-1)?.patch.resultTree ?? this.#planningBase.tree;
+				if (acceptedTree !== conflict.acceptedTree || this.#acceptedLedger.length !== conflict.ledger.length) return undefined;
+				if (!reconciliation.ok) {
+					if (["preparation-failed", "repository-failed"].includes(reconciliation.code)) {
+						return await this.#completeTerminalAttempt({
+							...attempt,
+							ok: false,
+							error: reconciliation.detail,
+							failureKind: "process",
+							retryable: false,
+							terminalFact: { stage: "process", code: "infrastructure-failure", durationMs: 0 },
+						});
+					}
+					const recovery = integrationFailureEvidence(unit.workContract, attempt, conflict.evidence, this.#acceptedLedger, acceptedTree);
+					return await this.#completeTerminalAttempt({ ...attempt, ok: false, error: reconciliation.detail, failureKind: "apply", retryable: false, terminalFact: { stage: "apply", code: "check-conflict" }, recovery });
+				}
+				const reconciled = { ...attempt, patch: reconciliation.patch, validation: reconciliation.validation, base: reconciliation.base, worktreePath: reconciliation.worktreePath } as GatedAttempt;
+				return await this.#applyLocked(unit, reconciled, signal, false, "deterministic-reconciliation");
+			});
+			if (reconciliation.ok) cleanupReconciliationWorktree(this.#repoRoot, reconciliation.worktreePath);
+			if (resolved) return resolved;
+			ledgerAdvanceRetry += 1;
+			conflict = await this.#withApplyLock(() => this.#applyLocked(unit, attempt, signal, true));
+		}
+		return conflict;
+	}
+
+	async #applyLocked(
+		unit: FanoutWorkUnit,
+		attempt: GatedAttempt,
+		signal: AbortSignal | undefined,
+		allowReconciliation: boolean,
+		disposition?: "deterministic-reconciliation",
+	): Promise<WorkerAttempt | ApplyConflict> {
 			if (signal?.aborted) return await this.#completeAbortedAttempt(attempt, signal.reason);
 			const started = performance.now();
 			try {
@@ -404,11 +469,12 @@ export class FanoutNodeExecutor {
 				const applyDurationMs = roundMs(performance.now() - started);
 				try {
 					writeJson(join(attempt.attemptDir, "apply-check.json"), { ok: true, artifact: attempt.patch.artifact, baseTree: attempt.patch.baseTree, resultTree: attempt.patch.resultTree, applyDurationMs });
-					await this.#completeAttempt(attempt, { stage: "apply", code: "applied" }, undefined, transition);
+					await this.#completeAttempt(attempt, { stage: "apply", code: "applied" }, undefined, transition, disposition);
 					this.#acceptedLedger.push({ sourceAttemptId: attempt.attemptId, patch: transition.patch });
 					return attempt;
 				} catch (error) {
 					this.#manualReconciliationRequired = true;
+					if (this.#eventPublicationFailed) throw error;
 					const failedAttempt = {
 						...attempt,
 						ok: false,
@@ -420,6 +486,7 @@ export class FanoutNodeExecutor {
 					return this.#outcomes.some((outcome) => outcome.attemptId === attempt.attemptId) ? failedAttempt : await this.#completeTerminalAttempt(failedAttempt);
 				}
 			} catch (error) {
+				if (this.#eventPublicationFailed) throw error;
 				const message = errorMessage(error);
 				if (error instanceof AmbiguousApplyError) {
 					this.#manualReconciliationRequired = true;
@@ -437,6 +504,15 @@ export class FanoutNodeExecutor {
 				}
 				if (error instanceof AcceptedTransitionIdentityError) return await this.#completeTerminalAttempt({ ...attempt, ok: false, error: message, failureKind: "patch", retryable: false, terminalFact: { stage: "apply", code: error.code } });
 				if (!(error instanceof AcceptedTransitionProcessError)) return await this.#completeTerminalAttempt({ ...attempt, ok: false, error: message, failureKind: "bookkeeping", retryable: false, terminalFact: { stage: "bookkeeping", code: "publication-failure" } });
+				if (allowReconciliation && error.code === "check-conflict") {
+					return {
+						reconcile: true,
+						attempt,
+						evidence: error.evidence,
+						acceptedTree,
+						ledger: this.#acceptedLedger.map(({ sourceAttemptId, patch }) => ({ sourceAttemptId, patch: structuredClone(patch) })),
+					};
+				}
 				const failedAttempt = {
 					...attempt,
 					ok: false,
@@ -448,7 +524,6 @@ export class FanoutNodeExecutor {
 				};
 				return await this.#completeTerminalAttempt(failedAttempt);
 			}
-		});
 	}
 
 	async #repairIntegration(unit: FanoutWorkUnit, rejected: WorkerAttempt, applyError: string, signal?: AbortSignal): Promise<WorkerAttempt> {
@@ -460,7 +535,7 @@ export class FanoutNodeExecutor {
 		while ((this.#attemptStates.get(unit.id)?.counts.integrationRepair ?? 0) < 2) {
 			signal?.throwIfAborted();
 			if (recoveryContext?.kind !== "integration") break;
-			const repair = await this.#runWorkerAttempt(unit, tierOne(this.#packet), "integration-repair", recoveryContext, undefined, sourceAttemptId, undefined, signal);
+			const repair = await this.#runWorkerAttempt(unit, tierOne(this.#packet), "integration-repair", { recovery: recoveryContext, sourceAttemptId, signal });
 			if (!repair.ok) {
 				lastRejected = repair;
 				if (this.#terminalOutcome(repair).action !== "integration-repair") return repair;
@@ -508,7 +583,14 @@ export class FanoutNodeExecutor {
 		return attempt;
 	}
 
-	async #completeAttempt(attempt: WorkerAttempt, terminalFact: StageFact, recovery?: AttemptRecoveryContext, acceptedTransition?: AcceptedStateTransition): Promise<AttemptOutcome> {
+	async #completeAttempt(
+		attempt: WorkerAttempt,
+		terminalFact: StageFact,
+		recovery?: AttemptRecoveryContext,
+		acceptedTransition?: AcceptedStateTransition,
+		disposition?: "deterministic-reconciliation",
+	): Promise<AttemptOutcome> {
+		if (this.#eventPublicationFailed) throw new Error("attempt publication stopped; inspect the last durable event prefix");
 		const existing = this.#outcomes.find((outcome) => outcome.attemptId === attempt.attemptId);
 		if (existing) return existing;
 		const state = this.#attemptStates.get(attempt.allocation.nodeId);
@@ -521,19 +603,21 @@ export class FanoutNodeExecutor {
 			fallbackAllowed: attempt.fallbackAllowed,
 			metrics: attempt.correlatedMetrics,
 			...(recovery ? { recovery } : {}),
+			...(attempt.repairSource ? { repairSource: attempt.repairSource } : {}),
+			...(disposition ? { disposition } : {}),
 			evidenceRefs: attemptEvidenceRefs(this.#runDir, attempt),
 			...(attempt.error ? { diagnostic: attempt.error } : {}),
 		});
-		const artifactPath = `${relative(this.#runDir, attempt.attemptDir).split("\\").join("/")}/attempt-outcome.json`;
 		try {
-			writeArtifactAtomically(this.#runDir, artifactPath, Buffer.from(`${JSON.stringify(prepared.outcome, null, 2)}\n`));
+			await this.#recorder.recordAttemptCompleted(prepared.outcome, acceptedTransition);
 		} catch (error) {
+			this.#eventPublicationFailed = true;
+			if (acceptedTransition || this.#acceptedLedger.length) this.#manualReconciliationRequired = true;
 			discardPreparedAttemptCompletion(prepared);
 			throw error;
 		}
 		const outcome = commitAttemptCompletion(prepared);
 		this.#outcomes = appendTerminalOutcome(this.#outcomes, outcome);
-		await this.#recorder.recordAttemptCompleted(outcome, acceptedTransition);
 		return outcome;
 	}
 

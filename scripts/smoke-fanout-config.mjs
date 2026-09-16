@@ -3,15 +3,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { configureFanoutTier } from "../packages/fanout-pi/src/fanout-config.ts";
-import { augmentRegistryModels, fanoutDoublewordModel, rememberDoublewordModels } from "../packages/fanout-pi/src/fanout-runtime-context.ts";
+import { augmentRegistryModels, fanoutDoublewordModel, rememberDoublewordModels, TIER2_DEFAULT } from "../packages/fanout-pi/src/fanout-runtime-context.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "fanout-config-"));
 const qualified = {
   provider: "doubleword",
-  id: "zai-org/GLM-5.2-FP8",
+  id: "zai-org/GLM-5.3-Flash",
   reasoning: true,
   thinkingLevelMap: { off: "off", minimal: null, low: "low", medium: "medium", high: null, xhigh: null },
   fanout: { async: true, background: true, authReady: true },
+};
+const alternateQualified = {
+  ...qualified,
+  id: "aaa/Alternate-Worker",
 };
 const partialThinking = {
   provider: "openai-codex",
@@ -23,6 +27,7 @@ const models = [
   { provider: "other", reasoning: false },
   { provider: "other", id: "other-model", reasoning: false },
   { provider: "doubleword", id: "unavailable-model", reasoning: true, fanout: { async: true, background: false, authReady: true } },
+  alternateQualified,
   qualified,
   partialThinking,
 ];
@@ -38,6 +43,7 @@ for (const phrase of ["SelectList", "Fanout model routing", "not a third tier", 
 }
 
 try {
+  assert(JSON.stringify(TIER2_DEFAULT) === JSON.stringify({ provider: "doubleword", model: "zai-org/GLM-5.3-Flash", thinking: "medium" }), `bad Tier 2 default: ${JSON.stringify(TIER2_DEFAULT)}`);
   testDoublewordAdapterMetadata();
   await testCurrentDisplay();
   await testQualifiedTier2Save();
@@ -106,22 +112,22 @@ async function testQualifiedTier2Save() {
   const ctx = makeContext(models, (title, options) => {
     calls.push({ title, options });
     if (title.includes("provider")) return options.find((option) => option.startsWith("doubleword ·"));
-    if (title.includes("model")) return options.find((option) => option.startsWith("zai-org/GLM-5.2-FP8 ·"));
+    if (title.startsWith("Tier 2 model")) return options[0];
     if (title.includes("thinking")) return "medium";
     return undefined;
   }, calls);
   await configureFanoutTier("tier2", ctx, undefined, "auto", settingsPath, join(dir, "artifacts"), resolved);
   const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
   const tier2 = settings.fanout?.tiers?.tier2;
-  assert(tier2?.provider === "doubleword" && tier2.model === "zai-org/GLM-5.2-FP8" && tier2.thinking === "medium" && tier2.enabled === true, `bad tier2 settings: ${JSON.stringify(settings)}`);
+  assert(tier2?.provider === "doubleword" && tier2.model === TIER2_DEFAULT.model && tier2.thinking === "medium" && tier2.enabled === true, `bad tier2 settings: ${JSON.stringify(settings)}`);
   const provider = calls.find((call) => call.title?.includes("provider"));
   const model = calls.find((call) => call.title?.includes("model"));
   const thinking = calls.find((call) => call.title?.includes("thinking"));
   const main = calls.find((call) => call.title?.startsWith("Select a model role"));
   assert(provider.options.length === 2 && provider.options[0] === "Disable Tier 2 — use realtime fallback" && provider.options[1].startsWith("doubleword ·"), `unqualified provider was listed: ${JSON.stringify(provider)}`);
-  assert(model.options.length === 1 && model.options[0].includes("reasoning: yes") && model.options[0].includes("thinking: off/low/medium") && model.options[0].includes("tier2: available"), `model metadata missing or unqualified model listed: ${JSON.stringify(model)}`);
+  assert(model.options.length === 2 && model.options[0].startsWith(`${TIER2_DEFAULT.model} ·`) && model.options[0].includes("reasoning: yes") && model.options[0].includes("thinking: off/low/medium") && model.options[0].includes("tier2: available"), `preferred model ordering or metadata is wrong: ${JSON.stringify(model)}`);
   assert(thinking.title.endsWith("Esc to go back") && thinking.options.includes("medium") && !thinking.options.includes("high"), `bad thinking selector: ${JSON.stringify(thinking)}`);
-  assert(main.options.includes("Tier 2 · doubleword/zai-org/GLM-5.2-FP8 · medium · available"), `saved value did not refresh main menu: ${JSON.stringify(main)}`);
+  assert(main.options.includes("Tier 2 · doubleword/zai-org/GLM-5.3-Flash · medium · available"), `saved value did not refresh main menu: ${JSON.stringify(main)}`);
 }
 
 async function testDisableTier2() {
@@ -168,7 +174,7 @@ async function testProjectTier2Override() {
 
   const enableCtx = makeContext(models, (title, options) => {
     if (title.includes("provider")) return options.find((option) => option.startsWith("doubleword ·"));
-    if (title.includes("model")) return options.find((option) => option.startsWith("zai-org/GLM-5.2-FP8 ·"));
+    if (title.includes("model")) return options.find((option) => option.startsWith("zai-org/GLM-5.3-Flash ·"));
     if (title.includes("thinking")) return "medium";
     return undefined;
   });
@@ -176,7 +182,7 @@ async function testProjectTier2Override() {
   const enabledGlobal = JSON.parse(readFileSync(globalPath, "utf8")).fanout.tiers.tier2;
   const enabledProject = JSON.parse(readFileSync(projectPath, "utf8")).fanout.tiers.tier2;
   assert(enabledGlobal.enabled === true && enabledGlobal.model === "global-worker", `project re-enable changed global tier2: ${JSON.stringify(enabledGlobal)}`);
-  assert(enabledProject.enabled === true && enabledProject.model === "zai-org/GLM-5.2-FP8" && enabledProject.thinking === "medium", `project tier2 override was not re-enabled: ${JSON.stringify(enabledProject)}`);
+  assert(enabledProject.enabled === true && enabledProject.model === "zai-org/GLM-5.3-Flash" && enabledProject.thinking === "medium", `project tier2 override was not re-enabled: ${JSON.stringify(enabledProject)}`);
 }
 
 async function testUnrelatedProjectSettingsUseGlobalRole() {
@@ -229,7 +235,7 @@ async function testMalformedProjectSettingsArePreserved() {
 async function testNoQualifiedModels() {
   const settingsPath = join(dir, "none.json");
   const calls = [];
-  const ctx = makeContext(models.filter((model) => model !== qualified), (title, options) => {
+  const ctx = makeContext(models.filter((model) => model !== qualified && model !== alternateQualified), (title, options) => {
     calls.push({ title, options });
     return undefined;
   }, calls);

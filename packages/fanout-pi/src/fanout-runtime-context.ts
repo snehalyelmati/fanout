@@ -8,8 +8,7 @@ import { setDoublewordObservabilityFile } from "../../doubleword-provider/src/in
 import type { FanoutTierPlan, TierModelSummary } from "../../fanout-core/src/execution-packet.ts";
 import { RUN_ID, setObservabilityCwd, setObservabilityFile } from "../../fanout-core/src/observability.ts";
 
-export const FANOUT_CONTEXT_MARKER = "## Fanout runtime context";
-const TIER2_DEFAULT = { provider: "doubleword", model: "zai-org/GLM-5.2-FP8", thinking: "medium" };
+export const TIER2_DEFAULT = { provider: "doubleword", model: "zai-org/GLM-5.3-Flash", thinking: "medium" };
 const doublewordModelMetadata = new Map<string, Record<string, unknown>>();
 
 export function fanoutDoublewordModel(provider: string, model: Record<string, unknown>): Record<string, unknown> & { fanout: { async: true; background: true; authReady: boolean } } {
@@ -48,11 +47,6 @@ function modelKey(provider: string, model: string): string {
 	return `${provider}/${model}`;
 }
 
-export function fanoutRuntimePrompt(cwd: string, model: unknown, thinking: unknown, models?: unknown): string {
-	const context = fanoutRuntimeContext(cwd, model, thinking, models);
-	return `${FANOUT_CONTEXT_MARKER}\n\n- artifactRoot: ${context.artifactRoot}\n- projectArtifactRoot: ${context.projectArtifactRoot}\n- runtimeContextFile: ${context.runtimeContextFile}\n- activePointerPath: ${context.activePointerPath}\n- tier1: ${context.resolvedTierPlan.tier1.provider}/${context.resolvedTierPlan.tier1.model} (${context.resolvedTierPlan.tier1.thinking})\n- tier2: ${context.resolvedTierPlan.tier2.provider}/${context.resolvedTierPlan.tier2.model} (${context.resolvedTierPlan.tier2.status}; ${context.tier2Availability.reason})\n- tier2 fallback: ${context.resolvedTierPlan.tier2Fallback.provider}/${context.resolvedTierPlan.tier2Fallback.model} (${context.resolvedTierPlan.tier2Fallback.thinking})\n- question tool: ask_user_question is required for /fanout-plan clarification.\n`;
-}
-
 export function writeFanoutRuntimeContext(cwd: string, model: unknown, thinking: unknown, models?: unknown, prepared?: ReturnType<typeof fanoutRuntimeContext>): ReturnType<typeof fanoutRuntimeContext> {
 	const context = prepared ?? fanoutRuntimeContext(cwd, model, thinking, models);
 	try {
@@ -72,11 +66,15 @@ export function configureMainObservability(context: { projectArtifactRoot: strin
 	return process.env.DOUBLEWORD_OBSERVABILITY_FILE ?? observabilityPath;
 }
 
+export function fanoutProjectId(cwd: string): string {
+	return `${basename(cwd)}-${createHash("sha1").update(resolve(cwd)).digest("hex").slice(0, 12)}`;
+}
+
 export function fanoutRuntimeContext(cwd: string, model: unknown, thinking: unknown, models?: unknown) {
 	const settings = fanoutSettings(cwd);
 	const registryModels = augmentRegistryModels(Array.isArray(models) ? (models as Array<Record<string, unknown>>).filter(isRecord) : []);
 	const artifactRoot = resolve(process.env.FANOUT_ARTIFACT_DIR || optionalString(settings.artifactDir) || join(getAgentDir(), "fanout"));
-	const projectId = `${basename(cwd)}-${createHash("sha1").update(resolve(cwd)).digest("hex").slice(0, 12)}`;
+	const projectId = fanoutProjectId(cwd);
 	const projectArtifactRoot = join(artifactRoot, projectId);
 	const active = modelInfo(model);
 	const activeThinking = optionalString(thinking) ?? "auto";
@@ -97,6 +95,7 @@ export function fanoutRuntimeContext(cwd: string, model: unknown, thinking: unkn
 		projectId,
 		projectArtifactRoot,
 		activePointerPath: join(projectArtifactRoot, "active-packet.json"),
+		activeProfilePointerPath: join(projectArtifactRoot, "active-profile.json"),
 		runtimeContextFile: join(projectArtifactRoot, "runtime-context.json"),
 		activeModel: active,
 		activeThinking,

@@ -79,17 +79,21 @@ const APPLY_FIELDS = ["stage", "code", "exitCode", "signal", "timeoutMs", "stdou
 export function parseAttemptRecoveryContext(value: unknown): AttemptRecoveryContext {
 	const kind = record(value)?.kind;
 	const root = exactRecord(value, kind === "validation" ? VALIDATION_FIELDS : kind === "final-validation" ? FINAL_VALIDATION_FIELDS : INTEGRATION_FIELDS, "recovery context");
-	const validation = validateWorkContract(root.workContract);
+	const validation = validateWorkContract(root.workContract, { allowEmptyValidation: root.kind === "final-validation" });
 	if (!validation.ok || !validation.contract) throw new TypeError(`invalid recovery work contract: ${validation.errors.map((error) => error.message).join("; ")}`);
 	if (root.kind === "final-validation") {
 		const packetIdentity = parseArtifactIdentity(root.packetIdentity);
 		const finalContractValidation = validateWorkContract(root.finalValidationContract, { finalValidation: true });
 		if (!finalContractValidation.ok || !finalContractValidation.contract) throw new TypeError(`invalid final-validation command contract: ${finalContractValidation.errors.map((error) => error.message).join("; ")}`);
 		const upstreamWorkContracts = parseUpstreamWorkContracts(root.upstreamWorkContracts);
-		if (JSON.stringify(deriveFinalRepairWorkContract(upstreamWorkContracts.map((entry) => entry.workContract), finalContractValidation.contract)) !== JSON.stringify(validation.contract)) throw new TypeError("final-validation effective repair contract does not match its ordered upstream contracts and original command contract");
+		const repairCommands = validation.contract.validationCommands;
+		const authoritativeCommands = finalContractValidation.contract.validationCommands;
+		if (repairCommands.length > authoritativeCommands.length || repairCommands.some((command, index) => JSON.stringify(command) !== JSON.stringify(authoritativeCommands[index]))) throw new TypeError("final-validation repair commands must be an ordered prefix of the authoritative command contract");
+		const focusedFinalContract = { ...finalContractValidation.contract, validationCommands: repairCommands };
+		if (JSON.stringify(deriveFinalRepairWorkContract(upstreamWorkContracts.map((entry) => entry.workContract), focusedFinalContract, authoritativeCommands)) !== JSON.stringify(validation.contract)) throw new TypeError("final-validation effective repair contract does not match its ordered upstream contracts and focused command contract");
 		if (!Array.isArray(root.commands) || !root.commands.length) throw new TypeError("final-validation recovery requires ordered command evidence");
 		const commands = root.commands.map(parseCommandEvidence);
-		requireContractCommands(validation.contract, commands, "final-validation");
+		requireContractCommands(finalContractValidation.contract, commands, "final-validation");
 		if (!commands.some((command) => command.status !== "passed" && command.status !== "unexecuted")) throw new TypeError("final-validation recovery requires a failed command");
 		const acceptedLedger = parseLedger(root.acceptedLedger);
 		const reconstructedTree = parseGitTreeId(root.reconstructedTree);
@@ -208,10 +212,11 @@ function parseApplyFailure(value: unknown): ApplyFailureEvidence {
 }
 
 function exactRecord(value: unknown, fields: readonly string[], path: string): Record<string, unknown> {
-	if (!record(value)) throw new TypeError(`${path} must be an object`);
-	const keys = Object.keys(value);
-	if (keys.length !== fields.length || fields.some((field) => !Object.hasOwn(value, field))) throw new TypeError(`${path} has unknown or missing fields`);
-	return value;
+	const item = record(value);
+	if (!item) throw new TypeError(`${path} must be an object`);
+	const keys = Object.keys(item);
+	if (keys.length !== fields.length || fields.some((field) => !Object.hasOwn(item, field))) throw new TypeError(`${path} has unknown or missing fields`);
+	return item;
 }
 
 function record(value: unknown): Record<string, unknown> | undefined { return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined; }

@@ -1,4 +1,18 @@
-export const BATCHING_DISCIPLINE_MARKER = "## Think-ahead batching";
+export const BATCHING_DISCIPLINE_MARKER = "Batch every independent tool call needed for the next decision into one assistant turn.";
+
+export const PLANNING_BATCHING_DISCIPLINE = `${BATCHING_DISCIPLINE_MARKER}
+
+Before using tools, identify all independent repository evidence needed for the next planning decision.
+
+Batch independent read-only actions in the same assistant turn:
+- read related files together
+- grep related symbols and callers together
+- inspect configs, manifests, tests, and docs together
+- combine independent repository searches and listings
+
+Do not spend another model turn requesting an obvious sibling file, caller search, manifest, or nearby test. Keep dependent actions separate and take another tool turn only when prior results reveal a real ambiguity or new branch of investigation.
+
+Call fanout_submit_artifact alone, never in the same assistant message as another tool call.`;
 
 export const BATCHING_DISCIPLINE = `${BATCHING_DISCIPLINE_MARKER}
 
@@ -9,7 +23,8 @@ Batch independent actions in the same assistant turn:
 - grep related symbols and callers together
 - inspect configs, manifests, tests, docs, and git history together
 - run independent read-only checks together
+- apply edits or writes to disjoint files together when their contents are known and neither depends on the other
 
 Do not spend another model turn just to request an obvious sibling file, caller search, manifest, or nearby test. If one read-only shell command can safely gather related facts, prefer it.
 
-Take another tool turn only when previous results reveal a real dependency, ambiguity, or new branch of investigation.`;
+Keep dependent, overlapping, and same-file state-changing actions separate. Take another tool turn only when previous results reveal a real dependency, ambiguity, or new branch of investigation.`;

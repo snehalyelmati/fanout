@@ -69,6 +69,14 @@ export function capturePlanningBase(repoRoot: string): PlanningBase {
 	};
 }
 
+export function captureCleanPlanningBase(repoRoot: string): PlanningBase {
+	const state = captureRepositoryState(repoRoot);
+	if (!state.indexMatchesHead || state.tree !== state.headTree || gitText(repoRoot, ["status", "--porcelain=v1", "--untracked-files=all"])) {
+		throw new Error("Fanout planning requires a clean committed repository: commit or stash your changes yourself, or use a separate clean worktree (which excludes uncommitted changes), then rerun /fanout-plan");
+	}
+	return { headCommit: state.headCommit, tree: state.tree };
+}
+
 export function captureRepositoryState(repoRoot: string): RepositoryStateIdentity {
 	const headCommit = parseGitCommitId(gitText(repoRoot, ["rev-parse", "--verify", "HEAD^{commit}"]));
 	const headTree = parseGitTreeId(gitText(repoRoot, ["rev-parse", "--verify", "HEAD^{tree}"]));
@@ -152,23 +160,31 @@ export function applyAcceptedTransition(
 	return transition;
 }
 
-export function applyRepairSeedOverlay(repoRoot: string, artifactRoot: string, value: unknown): void {
+export function applyRepairSeedOverlay(repoRoot: string, artifactRoot: string, value: unknown, options: { exact?: boolean } = {}): void {
 	let bytes: Buffer;
+	let transition: AcceptedStateTransition;
 	try {
-		const { patch } = parseAcceptedStateTransition(value);
+		transition = parseAcceptedStateTransition(value);
+		const { patch } = transition;
 		const before = captureRepositoryState(repoRoot);
 		if (before.headCommit !== patch.headCommit) throw new Error(`repair seed HEAD mismatch: expected ${patch.headCommit}, got ${before.headCommit}`);
 		if (!before.indexMatchesHead) throw new Error("repair seed index diverges from HEAD");
+		if (options.exact && before.tree !== patch.baseTree) throw new Error(`repair seed base tree mismatch: expected ${patch.baseTree}, got ${before.tree}`);
 		bytes = readVerifiedArtifact(artifactRoot, patch.artifact);
 	} catch (error) {
 		if (error instanceof AcceptedTransitionIdentityError) throw error;
 		throw new AcceptedTransitionIdentityError(errorMessage(error), { cause: error });
 	}
-	if (bytes.byteLength === 0) return;
-	try { git(repoRoot, ["apply", "--check", "--binary", "-"], undefined, bytes); }
-	catch (error) { throw transitionProcessError("check", error); }
-	try { git(repoRoot, ["apply", "--binary", "-"], undefined, bytes); }
-	catch (error) { throw transitionProcessError("apply", error); }
+	if (bytes.byteLength > 0) {
+		try { git(repoRoot, ["apply", "--check", "--binary", "-"], undefined, bytes); }
+		catch (error) { throw transitionProcessError("check", error); }
+		try { git(repoRoot, ["apply", "--binary", "-"], undefined, bytes); }
+		catch (error) { throw transitionProcessError("apply", error); }
+	}
+	const after = captureRepositoryState(repoRoot);
+	if (options.exact && (after.headCommit !== transition.patch.headCommit || !after.indexMatchesHead || after.tree !== transition.patch.resultTree)) {
+		throw new AcceptedTransitionIdentityError(`repair seed result tree mismatch: expected ${transition.patch.resultTree}, got ${after.tree}`);
+	}
 }
 
 export function replayAcceptedTransitions(repoRoot: string, artifactRoot: string, values: readonly unknown[]): AcceptedStateTransition[] {

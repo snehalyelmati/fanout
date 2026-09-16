@@ -14,7 +14,7 @@ import { FIXED_WORKER_CAPABILITIES } from "./work-contract.ts";
 import { FINAL_VALIDATION_NODE_ID } from "./work-contract-graph.ts";
 
 export const EXECUTION_EVENT_SCHEMA = "fanout.execution-event";
-export const EXECUTION_EVENT_VERSION = 2;
+export const EXECUTION_EVENT_VERSION = 6;
 export const EXECUTION_EVENT_NAMES = ["run-started", "preflight-completed", "confirmation-decided", "attempt-allocated", "attempt-completed", "node-completed", "final-validation-started", "final-validation-completed", "run-finished"] as const;
 
 export type ExecutionEventName = (typeof EXECUTION_EVENT_NAMES)[number];
@@ -23,7 +23,7 @@ export type RunOutcome = "completed" | "dry-run-completed" | "failed" | "aborted
 export type ExecutionPhase = "preflight" | "confirmation" | "attempts" | "final-validation" | "finished";
 export type PreflightIssueCode = "planning-base-mismatch" | "repository-tree-mismatch" | "platform-mismatch" | "executable-unavailable" | "artifact-invalid" | "capability-unavailable" | "controller-failure";
 export type RunEventCauseCode = "preflight-failed" | "confirmation-declined" | "node-failed" | "dependency-failed" | "final-validation-failed" | "dry-run" | "final-validation-passed" | "user-abort";
-export type ControllerRunStage = Exclude<ExecutionPhase, "finished">;
+export type ControllerRunStage = Exclude<ExecutionPhase, "finished"> | "cleanup";
 
 export interface RunPolicy {
 	maxConcurrency: number;
@@ -62,6 +62,8 @@ export interface PreflightEvidence {
 export interface RunStartedPayload {
 	mode: RunMode;
 	packet: ArtifactIdentity;
+	profile: ArtifactIdentity;
+	profileValidation: ArtifactIdentity;
 	planningBaseTree: GitTreeId;
 	nodeIds: string[];
 	policy: RunPolicy;
@@ -85,7 +87,7 @@ export interface AttemptCompletedPayload {
 	acceptedTransition?: AcceptedStateTransition;
 }
 
-export interface FinalValidationCompletedPayload {
+export interface FinalValidationRoundSummary {
 	status: "passed" | "failed";
 	commandCount: number;
 	durationMs: number;
@@ -95,9 +97,28 @@ export interface FinalValidationCompletedPayload {
 	afterTree: GitTreeId;
 }
 
+export type FinalControllerFailure =
+	| { kind: "round" }
+	| { kind: "attempt"; attemptId: string }
+	| { kind: "controller"; code: "publication-failure" | "internal-failure"; detail: string };
+
+export interface FinalValidationCompletedPayload {
+	status: "passed" | "failed";
+	lastRound: FinalValidationRoundSummary | null;
+	totalCommandDurationMs: number | null;
+	failure?: FinalControllerFailure;
+}
+
 export type RunFinishCause =
 	| { kind: "event"; eventSequence: number; code: RunEventCauseCode; nodeId?: string; attemptId?: string }
 	| { kind: "controller"; stage: ControllerRunStage; code: "internal-failure" | "publication-failure"; detail: string };
+
+export interface RunFinishedPayload {
+	outcome: RunOutcome;
+	durationMs: number;
+	cleanupDurationMs: number;
+	cause: RunFinishCause;
+}
 
 export interface ExecutionEvent {
 	schema: typeof EXECUTION_EVENT_SCHEMA;
@@ -123,7 +144,7 @@ export function parseExecutionEvent(value: unknown): ExecutionEvent {
 
 function parsePayload(name: ExecutionEventName, value: unknown): Record<string, unknown> {
 	if (name === "run-started") {
-		const item = exactRecord(value, ["mode", "packet", "planningBaseTree", "nodeIds", "policy", "preflightEvidence"], [], name);
+		const item = exactRecord(value, ["mode", "packet", "profile", "profileValidation", "planningBaseTree", "nodeIds", "policy", "preflightEvidence"], [], name);
 		if (item.mode !== "live" && item.mode !== "dry-run") throw new TypeError("run mode must be live or dry-run");
 		const policy = exactRecord(item.policy, ["maxConcurrency", "failFast", "fallbackAllowed"], [], "run policy");
 		const nodeIds = identities(item.nodeIds, "nodeIds");
@@ -132,7 +153,7 @@ function parsePayload(name: ExecutionEventName, value: unknown): Record<string, 
 		const preflightEvidence = parsePreflightEvidence(item.preflightEvidence);
 		if (preflightEvidence.repositoryTree.expected !== planningBaseTree) throw new TypeError("preflight repository-tree expectation must match the run planning base");
 		assertPacketOrderedCommandNodes(preflightEvidence, nodeIds);
-		return { mode: item.mode, packet: parseArtifactIdentity(item.packet), planningBaseTree, nodeIds, policy: { maxConcurrency: positiveInteger(policy.maxConcurrency, "maxConcurrency"), failFast: boolean(policy.failFast, "failFast"), fallbackAllowed: boolean(policy.fallbackAllowed, "fallbackAllowed") }, preflightEvidence };
+		return { mode: item.mode, packet: parseArtifactIdentity(item.packet), profile: parseArtifactIdentity(item.profile), profileValidation: parseArtifactIdentity(item.profileValidation), planningBaseTree, nodeIds, policy: { maxConcurrency: positiveInteger(policy.maxConcurrency, "maxConcurrency"), failFast: boolean(policy.failFast, "failFast"), fallbackAllowed: boolean(policy.fallbackAllowed, "fallbackAllowed") }, preflightEvidence };
 	}
 	if (name === "preflight-completed") {
 		const item = exactRecord(value, ["status", "planningBaseTree", "repositoryTree", "issues"], [], name);
@@ -160,6 +181,10 @@ function parsePayload(name: ExecutionEventName, value: unknown): Record<string, 
 	if (name === "node-completed") {
 		const item = exactRecord(value, ["nodeId", "status", "cause"], [], name);
 		if (!["succeeded", "failed", "skipped"].includes(String(item.status))) throw new TypeError("node completion status is invalid");
+		if (item.status === "skipped" && record(item.cause) && item.cause.policy === "fail-fast") {
+			const cause = exactRecord(item.cause, ["policy", "triggerNodeId", "triggerAttemptId"], [], "fail-fast cause");
+			return { nodeId: identity(item.nodeId, "nodeId"), status: "skipped", cause: { policy: "fail-fast", triggerNodeId: identity(cause.triggerNodeId, "triggerNodeId"), triggerAttemptId: identity(cause.triggerAttemptId, "triggerAttemptId") } };
+		}
 		const cause = exactRecord(item.cause, item.status === "skipped" ? ["upstreamNodeId"] : ["attemptId"], [], "node cause");
 		return { nodeId: identity(item.nodeId, "nodeId"), status: item.status, cause: item.status === "skipped" ? { upstreamNodeId: identity(cause.upstreamNodeId, "upstreamNodeId") } : { attemptId: identity(cause.attemptId, "attemptId") } };
 	}
@@ -170,11 +195,34 @@ function parsePayload(name: ExecutionEventName, value: unknown): Record<string, 
 		return { commandIdentities, expectedTree: parseGitTreeId(item.expectedTree) };
 	}
 	if (name === "final-validation-completed") {
-		const item = exactRecord(value, ["status", "commandCount", "durationMs", "evidence", "expectedTree", "beforeTree", "afterTree"], [], name);
+		const item = exactRecord(value, ["status", "lastRound", "totalCommandDurationMs", "failure"], ["failure"], name);
 		if (item.status !== "passed" && item.status !== "failed") throw new TypeError("final-validation status is invalid");
-		return { status: item.status, commandCount: nonNegativeInteger(item.commandCount, "commandCount"), durationMs: nonNegativeNumber(item.durationMs, "durationMs"), evidence: parseArtifactIdentity(item.evidence), expectedTree: parseGitTreeId(item.expectedTree), beforeTree: parseGitTreeId(item.beforeTree), afterTree: parseGitTreeId(item.afterTree) };
+		let lastRound: FinalValidationRoundSummary | null = null;
+		if (item.lastRound !== null) {
+			const round = exactRecord(item.lastRound, ["status", "commandCount", "durationMs", "evidence", "expectedTree", "beforeTree", "afterTree"], [], "lastRound");
+			if (round.status !== "passed" && round.status !== "failed") throw new TypeError("last round status is invalid");
+			lastRound = { status: round.status, commandCount: positiveInteger(round.commandCount, "commandCount"), durationMs: nonNegativeNumber(round.durationMs, "durationMs"), evidence: parseArtifactIdentity(round.evidence), expectedTree: parseGitTreeId(round.expectedTree), beforeTree: parseGitTreeId(round.beforeTree), afterTree: parseGitTreeId(round.afterTree) };
+			if (lastRound.status === "passed" && (lastRound.beforeTree !== lastRound.expectedTree || lastRound.afterTree !== lastRound.expectedTree)) throw new TypeError("passing final round must preserve its expected tree");
+		}
+		const totalCommandDurationMs = item.totalCommandDurationMs === null ? null : nonNegativeNumber(item.totalCommandDurationMs, "totalCommandDurationMs");
+		if (lastRound && totalCommandDurationMs !== null && totalCommandDurationMs < lastRound.durationMs) throw new TypeError("all-round duration is shorter than the last round");
+		let failure: FinalControllerFailure | undefined;
+		if (item.failure !== undefined) {
+			const raw = record(item.failure) ? item.failure : {};
+			if (raw.kind === "round") { exactRecord(raw, ["kind"], [], "failure"); failure = { kind: "round" }; }
+			else if (raw.kind === "attempt") { exactRecord(raw, ["kind", "attemptId"], [], "failure"); failure = { kind: "attempt", attemptId: identity(raw.attemptId, "attemptId") }; }
+			else {
+				const controller = exactRecord(raw, ["kind", "code", "detail"], [], "failure");
+				if (controller.kind !== "controller" || !["publication-failure", "internal-failure"].includes(String(controller.code))) throw new TypeError("final controller failure is invalid");
+				failure = { kind: "controller", code: controller.code as "publication-failure" | "internal-failure", detail: string(controller.detail, "failure.detail") };
+			}
+		}
+		if ((item.status === "failed") !== Boolean(failure)) throw new TypeError("final status and failure disagree");
+		if (item.status === "passed" && (lastRound?.status !== "passed" || totalCommandDurationMs === null)) throw new TypeError("successful final controller requires a passing round and known total");
+		if (!lastRound && failure?.kind !== "controller" || failure?.kind === "round" && lastRound?.status !== "failed") throw new TypeError("final failure does not match its last round");
+		return { status: item.status, lastRound, totalCommandDurationMs, ...(failure ? { failure } : {}) };
 	}
-	const item = exactRecord(value, ["outcome", "durationMs", "cause"], [], name);
+	const item = exactRecord(value, ["outcome", "durationMs", "cleanupDurationMs", "cause"], [], name);
 	if (!["completed", "dry-run-completed", "failed", "aborted"].includes(String(item.outcome))) throw new TypeError("run outcome is invalid");
 	const causeValue = record(item.cause) ? item.cause : {};
 	let cause: RunFinishCause;
@@ -185,10 +233,10 @@ function parsePayload(name: ExecutionEventName, value: unknown): Record<string, 
 		cause = { kind: "event", eventSequence: positiveInteger(parsed.eventSequence, "cause.eventSequence"), code, ...(parsed.nodeId === undefined ? {} : { nodeId: identity(parsed.nodeId, "cause.nodeId") }), ...(parsed.attemptId === undefined ? {} : { attemptId: identity(parsed.attemptId, "cause.attemptId") }) };
 	} else {
 		const parsed = exactRecord(item.cause, ["kind", "stage", "code", "detail"], [], "run finish cause");
-		if (parsed.kind !== "controller" || !["preflight", "confirmation", "attempts", "final-validation"].includes(String(parsed.stage)) || !["internal-failure", "publication-failure"].includes(String(parsed.code))) throw new TypeError("controller run finish cause is invalid");
+		if (parsed.kind !== "controller" || !["preflight", "confirmation", "attempts", "final-validation", "cleanup"].includes(String(parsed.stage)) || !["internal-failure", "publication-failure"].includes(String(parsed.code))) throw new TypeError("controller run finish cause is invalid");
 		cause = { kind: "controller", stage: parsed.stage as ControllerRunStage, code: parsed.code as "internal-failure" | "publication-failure", detail: string(parsed.detail, "cause.detail") };
 	}
-	return { outcome: item.outcome, durationMs: nonNegativeNumber(item.durationMs, "durationMs"), cause };
+	return { outcome: item.outcome, durationMs: nonNegativeNumber(item.durationMs, "durationMs"), cleanupDurationMs: nonNegativeNumber(item.cleanupDurationMs, "cleanupDurationMs"), cause };
 }
 
 function parsePreflightEvidence(value: unknown): PreflightEvidence {

@@ -1,205 +1,83 @@
-# Fanout
+# Fanout — Research Preview
 
-Fanout is a Pi extension that turns a reviewed repository objective into bounded, dependency-aware work. It prepares a human-reviewable execution packet, runs eligible work in isolated Git worktrees, validates exact patches, and preserves an auditable chain from planning authority to accepted repository state.
+Fanout is an experimental parallel coding-agent harness for high-latency, low-cost inference. A fast coordinator prepares bounded work units, workers execute in isolation, and validated changes are integrated with bounded repair.
 
-The monorepo also contains an independently installable [Doubleword provider](packages/doubleword-provider/README.md) for realtime and async inference in Pi.
+**When can parallel execution make inexpensive, slower inference competitive with an ordinary realtime coding agent?** This repository contains the working Pi integration, a standalone Doubleword provider, a local execution profiler, and a study of the conditions that determine completion time and cost.
 
-> **Status:** Fanout planning and execution are implemented on `main` and pass the offline/keyless acceptance suite. Fanout remains an experimental local release candidate: the live macOS canary and repository-owner approval are still release gates. The standalone Doubleword provider is published separately.
+- [Read the study](docs/STUDY.md): findings, experiment families, static figures and limitations.
+- [Try Fanout from source](docs/GETTING_STARTED.md): setup, offline checks and Pi commands.
+- [Inspect the curated results](docs/study/README.md): per-run summaries and figure reproduction.
+- [Use the Doubleword provider independently](packages/doubleword-provider/README.md).
 
-## Why Fanout?
+## What the study finds
 
-Coding work mixes two different kinds of activity:
+Parallel execution can overlap request latency and amortize coordination when there is enough independent work. Its modeled winning region depends on useful width, sequential requests, worker throughput, prices and repair overhead. Parallelism alone does not reduce total token cost.
 
-- interactive judgment—planning, clarification, review, repair, and synthesis—where fast feedback matters;
-- bounded implementation—changes that may be independent enough to run concurrently or through slower async inference.
+Experiments identified concrete bottlenecks: repeated planning, long worker request chains, validation scope and expensive repairs. Combined planning and prepared source context reduced overhead in the p-map pilot, but did not establish a reliable advantage over ordinary Pi. Complete-candidate experiments explore reducing request depth, both inside Fanout and as a whole-task control. The whole-task variant produced positive p-map and qs observations and failed quality/cost comparisons on a larger shared-contract task.
 
-Putting every turn into a slower async tier makes an interactive workflow wait. Launching parallel workers without explicit contracts creates a different problem: unclear file authority, hidden dependencies, conflicting edits, uncertain validation, and no proof that the patch being applied is the patch that passed validation.
+These are useful constraints on the architecture. Which task/model/provider combinations repeatedly deliver correct completion at lower cost and comparable time remains an empirical question. The [report](docs/STUDY.md) separates measured results, fixed-trace counterfactuals and hypothetical provider designs. This preview does not claim a completed successful async-versus-realtime coding benchmark or a production reliability guarantee.
 
-Fanout separates model judgment from deterministic repository authority:
-
-1. Models propose and ground the work.
-2. Core code compiles typed work contracts, dependency edges, routing, and validation into an immutable Execution Packet.
-3. The user reviews the plan and DAG before repository mutation.
-4. The executor runs only dependency-ready work, validates exact candidate patches, and integrates accepted transitions in order.
-5. A final reconstruction validates the complete Accepted Ledger and an event log records what happened.
-
-### How the DAG helps
-
-The DAG is more than a diagram. Fanout derives it from typed repository reads and writes:
-
-- independent nodes can run concurrently, up to the packet's concurrency limit;
-- a node that needs another node's accepted change waits for that prerequisite;
-- baseline-only reads do not create unnecessary serialization;
-- cycles, conflicting ownership, unresolved read/write overlap, and missing validation are rejected during compilation;
-- `execution-dag.mmd` makes the resulting order and parallel width reviewable before execution.
-
-This lets Fanout expose useful parallelism without treating every planned task as safe to run at the same time.
-
-### How the tiers help
-
-Fanout has **two execution tiers and three model roles**:
-
-| Role | Purpose |
-| --- | --- |
-| **Tier 1** | Pi's active realtime model for planning, review, controller work, typed repair, and final validation. |
-| **Tier 2** | An eligible async/background model for bounded worker nodes whose latency can be tolerated or overlapped. |
-| **Tier 2 fallback** | A concrete realtime worker model used when permitted Tier 2 work exhausts its retry path; this is a role, not a third tier. |
-
-The benefit is deliberate workload placement: keep judgment-heavy interaction responsive while allowing independent execution work to use async inference when its wait can be hidden behind parallel progress. If Tier 2 is disabled or unavailable, newly planned eligible nodes use the configured realtime fallback instead.
-
-Tier selection does **not** guarantee a speedup or cost reduction. Results depend on the objective, DAG width, provider behavior, and how much async latency the workflow can actually hide. Tier 2 is asynchronous at the provider level; `/fanout-execute` still waits for the run and is not a detached job system.
-
-## How it works
+## How Fanout works
 
 ```mermaid
 flowchart LR
-    O["Repository objective"] --> P["/fanout-plan"]
-    P --> R["Review plan and DAG"]
-    R --> D["/fanout-execute --dry-run"]
-    D --> E["/fanout-execute"]
-    E --> A["Accepted changes and audit artifacts"]
+  A[Repository objective] --> B[Fast planning and source preparation]
+  B --> C[Validated work contracts and DAG]
+  C --> W1[Isolated worker]
+  C --> W2[Isolated worker]
+  C --> W3[Isolated worker]
+  W1 --> V[Ownership and candidate checks]
+  W2 --> V
+  W3 --> V
+  V --> R[Bounded repair when needed]
+  R --> V
+  V --> I[Verified integration and final checks]
 ```
 
-1. **Configure roles** with `/fanout-config`. Tier 1 follows the active Pi model; Tier 2 and its realtime fallback are selected separately.
-2. **Prepare a packet** with `/fanout-plan [objective]`. Two read-only model phases create the semantic plan and repository grounding; `fanout-core` deterministically compiles the Work Contracts, DAG, routing, validation, and final-validation node.
-3. **Review the output** in `execution-plan.md` and `execution-dag.mmd`. Planning writes artifacts to Pi-owned storage and does not mutate project files.
-4. **Run preflight** with `/fanout-execute --dry-run`. It verifies packet identity, repository commit/tree/platform, commands, worker capability, artifact placement, and execution locking without launching workers or provider calls.
-5. **Execute the accepted packet** with `/fanout-execute`. Ready nodes run in isolated reconstructions, and accepted patches pass typed authority, declared validation, and exact Git tree checks before integration.
-6. **Inspect the result** through the terminal summary and execution artifacts. `events.jsonl` is the authoritative run history; projections and Markdown summaries are derived views.
+Concurrency follows actual dependencies and repair authority. Each worker can use Pi's normal iterative loop; complete-candidate delivery is an independent experimental dimension. Runtime code and its tightly coupled tests usually need one repair owner.
 
-## Repository packages
-
-| Package | Responsibility | Distribution |
-| --- | --- | --- |
-| [`fanout-core`](packages/fanout-core) | Pi-independent contracts, validation, DAG derivation, routing policy, event reduction, and deterministic reports. | Internal workspace package |
-| [`fanout-pi`](packages/fanout-pi) | Pi commands, planning, worker execution, Git integration, validation, and presentation. | Local experimental extension |
-| [`doubleword-provider`](packages/doubleword-provider) | Standalone Doubleword model discovery, realtime/async transport, tool use, and provider observability. | Published Pi package |
-
-`fanout-core` imports neither Pi nor Doubleword. The current product adapter is `fanout-pi`; the standalone provider has no Fanout dependency.
-
-## Local quick start
-
-The root Fanout package is private and currently loaded from source. From this prepared checkout:
-
-```bash
-pi -e .
-```
-
-To use the extension against another repository, start Pi from that repository and provide the extension's absolute path:
-
-```bash
-cd /path/to/target-repository
-pi -e /path/to/fanout/packages/fanout-pi/src/index.ts
-```
-
-Then run the workflow inside Pi:
+In a configured Pi session:
 
 ```text
 /fanout-config
-/fanout-plan Add the requested repository change
+/fanout-plan Implement the repository objective
 /fanout-execute --dry-run
 /fanout-execute
 ```
 
-Use a clean Git checkout that Fanout can reconstruct exactly. Review the generated plan and DAG before execution. Dependencies needed inside disposable worktrees must already be available through the repository or explicitly shared as prepared, ignored top-level paths; Fanout does not install dependencies in those worktrees.
+Start with a clean target Git repository. Planning creates reviewable artifacts; execution asks for confirmation. Repository profiles declare preparation, normalization and validation commands. These are trusted local programs, and even dry-run preflight can invoke approved profile commands. See the [setup guide](docs/GETTING_STARTED.md) and [runtime guide](docs/FANOUT_GUIDE.md) before a live run.
 
-Planning artifacts are stored outside the repository by default:
+## Packages
 
-```text
-~/.pi/agent/fanout/<project-id>/<run-id>/
-  implementation-plan.json
-  implementation-details.json
-  execution-packet.json
-  execution-plan.md
-  execution-dag.mmd
-```
-
-Execution adds an `executions/<execution-run-id>/` directory containing the authoritative event log, derived summary, per-attempt evidence, accepted patches, and final-validation evidence.
-
-## Common configuration
-
-| Control | Effect |
+| Package | Responsibility |
 | --- | --- |
-| `/fanout-config` | Shows the artifact root and configures Tier 1, Tier 2, and the realtime Tier 2 fallback. |
-| `FANOUT_ARTIFACT_DIR` | Overrides the Pi-owned artifact root for the current process. |
-| `fanout.artifactDir` | Sets a persistent artifact root in Pi settings. |
-| `fanout.execution.maxConcurrency` | Sets the maximum parallel node count used by newly planned packets; the default is `2`. The value is frozen into the packet. |
-| `FANOUT_WORKTREE_SHARED_PATHS` | JSON array of existing, unique, Git-ignored, top-level paths to link into disposable worktrees, for example `["node_modules"]`. |
+| `doubleword-provider` | Standalone Pi provider for Doubleword realtime and async inference, with offline stubs |
+| `fanout-core` | Agent-independent contracts, compilation, scheduling, validation policy and evidence |
+| `fanout-pi` | Pi planning and execution adapter; keeps provider support separate from core |
+| `fanout-profiler` | Local, read-only inspection of your own execution artifacts |
 
-Routing details and eligibility rules are documented in [Tier and model resolution](docs/TIER_MODEL_RESOLUTION.md). Worktree preparation and its trust implications are documented in [Architecture](docs/ARCHITECTURE.md#worktree-preparation).
+The Fanout workspaces are source-only and marked private for package publishing. The provider has its own [installation and configuration guide](packages/doubleword-provider/README.md). The existing profiler is a local engineering tool; this research release presents static figures and does not host an explorer or upload run artifacts.
 
-## Standalone Doubleword provider
+## Evidence and reproducibility
 
-Install the independently published provider without Fanout:
+The current research materials contain curated per-run metrics, methodology, static figures and synthetic test fixtures. New raw Fanout traces, model sessions, prompts and tool-event streams stay local and are excluded from tracked research assets. Historical measurements cannot be independently replayed from summaries alone. Figure arithmetic is reproducible from the published inputs; rerunning a model workflow is a new experiment. See [data provenance and limitations](docs/study/README.md) and the [publication checklist](docs/PUBLICATION.md).
 
-```bash
-pi install npm:@snehalyelmati/pi-doubleword-provider
-```
+## Project documentation
 
-Start Pi with a live Doubleword model:
+Current implementation references:
 
-```bash
-export DOUBLEWORD_API_KEY=...
-pi --model doubleword/deepseek-ai/DeepSeek-V4-Flash
-```
+- [Architecture](docs/ARCHITECTURE.md) and [domain glossary](CONTEXT.md)
+- Accepted decisions: [local trust](docs/adr/0001-inherit-pi-local-trust.md), [execution authority](docs/adr/0002-use-one-strict-execution-authority.md), [attempts and measurements](docs/adr/0005-route-attempts-from-typed-facts-and-fixed-budgets.md), and [normalization](docs/adr/0006-normalize-candidates-before-capture.md)
+- [Workflow and local profiler](docs/FANOUT_GUIDE.md)
+- [Planning contracts](docs/impl/phase-2b-fanout-plan.md) and [execution contracts and checks](docs/impl/phase-3-fanout-execute.md)
+- [Roadmap](docs/ROADMAP.md)
 
-Use `Alt+T` or `/doubleword-mode` to toggle realtime and async execution. See the [provider README](packages/doubleword-provider/README.md) for configuration, capabilities, and limitations.
+Research and decision history:
 
-Pi package page: <https://pi.dev/packages/@snehalyelmati/pi-doubleword-provider>
+- [Research methods and historical protocol](docs/benchmarks/fanout-high-latency-study.md)
+- [Benchmark ledger](docs/BENCHMARKS.md)
+- [Dated design decisions](docs/DESIGN_DECISIONS.md)
 
-## Guarantees and limitations
+## License
 
-### Fanout provides
-
-- an immutable Execution Packet bound to the planning commit, Git-visible tree, platform, and source artifacts;
-- typed write authority, read dependencies, forbidden writes, and declared validation for every Work Contract;
-- deterministic DAG derivation and bounded dependency-aware scheduling;
-- fresh detached Git worktrees for worker attempts and integrated final validation;
-- exact binary patch, changed-path, base-tree, and result-tree verification before accepted integration;
-- fixed controller-owned retry, fallback, and repair budgets;
-- an append-only event log plus per-attempt and final-validation evidence.
-
-### Fanout does not provide
-
-- an OS, process, credential, network, provider, extension, or command sandbox;
-- automatic rollback of earlier accepted transitions when later work or final validation fails;
-- automatic dependency installation in reconstructed worktrees;
-- guaranteed latency, throughput, or provider-cost improvements;
-- a detached background-job UX or interactive batch-inference tier;
-- generic support for every coding agent—the implemented adapter is currently Pi.
-
-Trusted Pi code, repository instructions, providers, extensions, approved programs, inherited environment, ignored files, external paths, network access, and child processes retain the user's host permissions. See the [architecture trust boundary](docs/ARCHITECTURE.md#trust-boundary) for details.
-
-## Development and validation
-
-From a prepared repository checkout:
-
-```bash
-npm run check
-npm run test:doubleword-provider
-npm run smoke:benchmarks
-```
-
-- `npm run check` runs the keyless planning and execution acceptance matrix.
-- `npm run test:doubleword-provider` validates the standalone provider with local mocks.
-- `npm run smoke:benchmarks` validates the offline benchmark fixtures and summarizer.
-
-## Evidence and release status
-
-The hardened planning and execution generation is implemented on `main` and passes the documented offline/keyless checks. Those checks establish deterministic contract, repository-boundary, routing, patch, validation, event, and cleanup behavior; they do not establish live provider readiness or a general performance improvement.
-
-Live release remains gated on the explicitly authorized macOS p-map canary, inspection of its evidence, fresh review, and repository-owner approval of the same immutable candidate. Benchmark documents distinguish observed, retrospective, synthetic, and canary evidence so that workflow gains are not conflated with provider-tier savings.
-
-## Documentation map
-
-| Document | Use it for |
-| --- | --- |
-| [`CONTEXT.md`](CONTEXT.md) | Canonical Fanout domain language and definitions. |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Package boundaries, authority flow, execution architecture, and trust model. |
-| [`docs/TIER_MODEL_RESOLUTION.md`](docs/TIER_MODEL_RESOLUTION.md) | Tier roles, model eligibility, fallback behavior, and immutable routing policy. |
-| [`docs/impl/phase-2b-fanout-plan.md`](docs/impl/phase-2b-fanout-plan.md) | Planning artifacts, compiler boundaries, and packet acceptance. |
-| [`docs/impl/phase-3-fanout-execute.md`](docs/impl/phase-3-fanout-execute.md) | Execution contracts, offline acceptance matrix, and live release gates. |
-| [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | Benchmark methodology, evidence categories, results, and limitations. |
-| [`docs/DESIGN_DECISIONS.md`](docs/DESIGN_DECISIONS.md) | Chronological project decisions and revisions. |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Current implementation status, pending gates, and deferred work. |
-| [`packages/doubleword-provider/README.md`](packages/doubleword-provider/README.md) | Standalone provider installation, configuration, and usage. |
+Fanout's original code and documentation are available under the [MIT license](LICENSE). Dependencies and third-party materials retain their own licenses and notices; see [third-party notices](THIRD_PARTY_NOTICES.md).

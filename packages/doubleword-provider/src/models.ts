@@ -6,13 +6,22 @@ import { DEFAULT_MAX_OUTPUT_TOKENS, DOUBLEWORD_API_BASE_URL, envInt, envString, 
 import { fetchJson } from "./http.ts";
 import { numberFrom } from "./messages.ts";
 import { writeJsonl } from "./observability.ts";
+import { DOUBLEWORD_PRICING_PROVENANCE, DOUBLEWORD_TIER_PRICING, type DoublewordPricingTier, type DoublewordTokenPrices } from "./pricing.ts";
 
 export type ModelCost = Model<Api>["cost"];
-export type TierCosts = { realtime: ModelCost; async: ModelCost; batch?: ModelCost };
+export type TierCosts = Partial<Record<DoublewordPricingTier, ModelCost>>;
+export type TierPricingProvenance = {
+	pricingSource: "doubleword-model-metadata";
+	pricingSourceUrl: string;
+	pricingRetrievedAt: string;
+	pricingSnapshotSha256: string;
+};
 export type ProviderModel = {
 	id: string;
 	name: string;
 	reasoning: boolean;
+	pricingId?: string;
+	pricingEvidenceEligible?: boolean;
 	thinkingLevelMap?: Model<Api>["thinkingLevelMap"];
 	input: Array<"text" | "image">;
 	cost: ModelCost;
@@ -39,57 +48,41 @@ export const stubModel = (id: string, name: string, cost: ModelCost = ZERO_COST,
 	maxTokens,
 });
 
+function modelCost(prices: DoublewordTokenPrices | undefined): ModelCost {
+	return prices ? { ...prices, cacheWrite: 0 } : ZERO_COST;
+}
+
+function tierCost(id: string, tier: "realtime" | "async"): ModelCost {
+	return modelCost(DOUBLEWORD_TIER_PRICING[id]?.[tier]);
+}
+
 export const REALTIME_STUB_MODELS = [
-	stubModel("glm-5-2", "GLM-5.2-FP8", { input: 1.4, output: 4.4, cacheRead: 0, cacheWrite: 0 }),
-	stubModel("deepseek-v4-flash", "DeepSeek-V4-Flash", { input: 0.14, output: 0.28, cacheRead: 0, cacheWrite: 0 }),
+	{ ...stubModel("glm-5-3-flash", "GLM-5.3-Flash", tierCost(LIVE_GLM_MODEL_ID, "realtime")), pricingId: LIVE_GLM_MODEL_ID, pricingEvidenceEligible: false },
+	{ ...stubModel("deepseek-v4-flash", "DeepSeek-V4-Flash", tierCost("deepseek-ai/DeepSeek-V4-Flash-0731", "realtime")), pricingId: "deepseek-ai/DeepSeek-V4-Flash-0731", pricingEvidenceEligible: false },
 ];
 
 const fallbackLiveModels = (): ProviderModel[] => [
-	stubModel(LIVE_GLM_MODEL_ID, "GLM-5.2-FP8", ZERO_COST, DEFAULT_MAX_OUTPUT_TOKENS),
-	stubModel(LIVE_DEEPSEEK_MODEL_ID, "DeepSeek-V4-Flash", ZERO_COST, DEFAULT_MAX_OUTPUT_TOKENS),
+	{ ...stubModel(LIVE_GLM_MODEL_ID, "GLM-5.3-Flash", ZERO_COST, DEFAULT_MAX_OUTPUT_TOKENS), pricingEvidenceEligible: false },
+	{ ...stubModel(LIVE_DEEPSEEK_MODEL_ID, "DeepSeek-V4-Flash", ZERO_COST, DEFAULT_MAX_OUTPUT_TOKENS), pricingEvidenceEligible: false },
 ];
 
-const KNOWN_TIER_COSTS: Record<string, TierCosts> = {
-	["glm-5-2"]: {
-		realtime: { input: 1.4, output: 4.4, cacheRead: 0, cacheWrite: 0 },
-		async: { input: 1.05, output: 3.3, cacheRead: 0, cacheWrite: 0 },
-	},
-	["deepseek-v4-flash"]: {
-		realtime: { input: 0.14, output: 0.28, cacheRead: 0, cacheWrite: 0 },
-		async: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 },
-	},
-	[LIVE_GLM_MODEL_ID.toLowerCase()]: {
-		realtime: { input: 1.4, output: 4.4, cacheRead: 0, cacheWrite: 0 },
-		async: { input: 1.05, output: 3.3, cacheRead: 0, cacheWrite: 0 },
-		batch: { input: 0.7, output: 2.2, cacheRead: 0, cacheWrite: 0 },
-	},
-	["zai-org/glm-5.1-fp8"]: {
-		realtime: { input: 1.4, output: 4.4, cacheRead: 0, cacheWrite: 0 },
-		async: { input: 1.05, output: 3.3, cacheRead: 0, cacheWrite: 0 },
-		batch: { input: 0.7, output: 2.2, cacheRead: 0, cacheWrite: 0 },
-	},
-	[LIVE_DEEPSEEK_MODEL_ID.toLowerCase()]: {
-		realtime: { input: 0.14, output: 0.28, cacheRead: 0, cacheWrite: 0 },
-		async: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 },
-		batch: { input: 0.07, output: 0.14, cacheRead: 0, cacheWrite: 0 },
-	},
-	["deepseek-ai/deepseek-v4-pro"]: {
-		realtime: { input: 1.74, output: 3.48, cacheRead: 0, cacheWrite: 0 },
-		async: { input: 1.31, output: 2.75, cacheRead: 0, cacheWrite: 0 },
-		batch: { input: 0.87, output: 1.74, cacheRead: 0, cacheWrite: 0 },
-	},
-};
-
-function tierCost(id: string, tier: "realtime" | "async"): ModelCost {
-	return KNOWN_TIER_COSTS[id.toLowerCase()]?.[tier] ?? ZERO_COST;
+export function tierPricingSource(id: string, tier: "realtime" | "async"): string | undefined {
+	return DOUBLEWORD_TIER_PRICING[id]?.[tier] ? "doubleword-model-metadata" : undefined;
 }
 
-export function tierPricingSource(id: string, tier: "realtime" | "async"): string | undefined {
-	return KNOWN_TIER_COSTS[id.toLowerCase()]?.[tier] ? "doubleword-model-metadata" : undefined;
+export function tierPricingProvenance(model: Pick<ProviderModel, "id" | "pricingId" | "pricingEvidenceEligible">, tier: "realtime" | "async", cacheWriteTokens = 0): TierPricingProvenance | undefined {
+	if (model.pricingEvidenceEligible === false || !tierPricingSource(model.pricingId ?? model.id, tier) || cacheWriteTokens !== 0) return undefined;
+	return {
+		pricingSource: "doubleword-model-metadata",
+		pricingSourceUrl: DOUBLEWORD_PRICING_PROVENANCE.sourceUrl,
+		pricingRetrievedAt: DOUBLEWORD_PRICING_PROVENANCE.retrievedAt,
+		pricingSnapshotSha256: DOUBLEWORD_PRICING_PROVENANCE.snapshotSha256,
+	};
 }
 
 export function withTierCost<T extends Model<Api> | ProviderModel>(model: T, tier: "realtime" | "async"): T {
-	return { ...model, cost: tierCost(model.id, tier) };
+	const pricingId = (model as T & { pricingId?: string }).pricingId ?? model.id;
+	return { ...model, cost: tierCost(pricingId, tier) };
 }
 
 function modelFromCatalogEntry(entry: any): ProviderModel | undefined {

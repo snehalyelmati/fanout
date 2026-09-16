@@ -13,9 +13,10 @@ import { EXECUTION_EVENT_NAMES as SHIM_EVENT_NAMES, EXECUTION_RUN_VERSION } from
 
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 const hash = "1".repeat(40);
+const profileIdentity = artifactIdentity("profiles/test.json", Buffer.from("{}\n"));
 const plan = {
   schema: "fanout.implementation-plan", version: IMPLEMENTATION_PLAN_VERSION, planId: "plan-1", createdAt: "2026-07-14T00:00:00.000Z",
-  planningHost: { platform: process.platform }, planningBase: { headCommit: hash, tree: hash }, objective: "Add the checked feature",
+  planningHost: { platform: process.platform }, planningBase: { headCommit: hash, tree: hash }, profile: profileIdentity, objective: "Add the checked feature",
   userContext: ["requested"], discoveredRepoFacts: ["src exists"], assumptions: [],
   implementationItems: [{
     id: "feature", goals: ["Add feature"], writeResources: [{ kind: "file", path: "src/feature.ts" }], readResources: [{ kind: "file", path: "package.json" }],
@@ -26,7 +27,11 @@ const plan = {
 const planBytes = Buffer.from(`${JSON.stringify(plan, null, 2)}\n`);
 const planIdentity = artifactIdentity("implementation-plan.json", planBytes);
 const command = { executable: "rtk", args: ["npm", "run", "check"] };
-const normalizationCommands = [{ executable: "normalizer", args: ["--first"] }, { executable: "normalizer", args: ["--second"] }];
+const profileGate = { executable: "rtk", args: ["npm", "run", "full-check"], env: { SECOND: "2", FIRST: "1" } };
+const profile = {
+  schema: "fanout.project-execution-profile", version: 1, profileId: "test", createdAt: new Date(0).toISOString(), preparation: [], readiness: [], candidateNormalization: [],
+  requiredFinalGates: [{ command: profileGate, purpose: "full validation", expectedMutations: "none", networkAccess: false, lifecycleScripts: false }],
+};
 
 const reservedFinalPlan = structuredClone(plan);
 reservedFinalPlan.implementationItems.push({
@@ -50,12 +55,11 @@ assert(!packetGlobalForbiddenResult.ok && packetGlobalForbiddenResult.errors.som
 
 const details = {
   schema: "fanout.implementation-details", version: IMPLEMENTATION_DETAILS_VERSION, detailsId: "plan-1", createdAt: "2026-07-14T00:01:00.000Z", plan: planIdentity,
-  candidateNormalizationCommands: normalizationCommands,
   items: [{
     id: "feature", kind: "implement",
     changes: [{ kind: "create", target: { resource: { kind: "file", path: "src/feature.ts" }, sourcePlanIds: ["feature"] }, contentIntent: "feature implementation" }],
     readDependencies: [{ resource: { kind: "file", path: "package.json" }, timing: "baseline-context", timingSource: "phase-b", sourcePlanIds: ["feature"], reason: "package metadata" }],
-    forbiddenWrites: [], validationCommands: [command], advisoryNotes: [{ kind: "context", reference: "feature", text: "grounded source" }],
+    validationCommands: [command], advisoryNotes: [{ kind: "context", reference: "feature", text: "grounded source" }],
   }],
   finalValidationCommands: [command, command],
 };
@@ -63,62 +67,111 @@ const detailsIdentity = artifactIdentity("implementation-details.json", Buffer.f
 const tier = (provider, model, status = "available") => ({ provider, model, thinking: "medium", source: "test", status, reason: "test" });
 const tierPlan = { tier1: tier("local", "one"), tier2: { ...tier("local", "two", "unavailable"), fallback: "tier1" }, tier2Fallback: tier("local", "fallback") };
 
-assert(validateImplementationPlan(plan).ok, "plan v2 rejected");
-assert(validateImplementationDetailsArtifact(details, { planIdentity, planIds: ["feature"] }).ok, "details v4 rejected");
-const missingNormalization = structuredClone(details); delete missingNormalization.candidateNormalizationCommands;
-assert(!validateImplementationDetailsArtifact(missingNormalization, { planIdentity, planIds: ["feature"] }).ok, "details v4 admitted a missing repository normalization list");
-const perItemNormalization = structuredClone(details); perItemNormalization.items[0].candidateNormalizationCommands = normalizationCommands;
-assert(!validateImplementationDetailsArtifact(perItemNormalization, { planIdentity, planIds: ["feature"] }).ok, "details v4 admitted per-item normalization authority");
-const crossOwnerPlan = structuredClone(plan);
-crossOwnerPlan.implementationItems.push({
-  ...structuredClone(plan.implementationItems[0]),
-  id: "feature-tests",
-  writeResources: [{ kind: "file", path: "test/feature.test.ts" }],
-  forbiddenWrites: [],
-});
-const crossOwnerPlanIdentity = artifactIdentity("implementation-plan.json", Buffer.from(`${JSON.stringify(crossOwnerPlan, null, 2)}\n`));
-const packetGlobalForbiddenDetails = structuredClone(details);
-packetGlobalForbiddenDetails.plan = crossOwnerPlanIdentity;
-packetGlobalForbiddenDetails.items.push({
-  id: "feature-tests", kind: "implement",
-  changes: [{ kind: "create", target: { resource: { kind: "file", path: "test/feature.test.ts" }, sourcePlanIds: ["feature-tests"] }, contentIntent: "feature coverage" }],
-  readDependencies: [],
-  forbiddenWrites: [{ resource: { kind: "file", path: "src/feature.ts" }, sourcePlanIds: ["feature-tests"], reason: "A different worker owns implementation." }],
-  validationCommands: [command], advisoryNotes: [],
-});
-const packetGlobalForbiddenDetailsResult = validateImplementationDetailsArtifact(packetGlobalForbiddenDetails, { planIdentity: crossOwnerPlanIdentity, plan: crossOwnerPlan });
-assert(!packetGlobalForbiddenDetailsResult.ok && packetGlobalForbiddenDetailsResult.errors.some((error) => error.includes("packet-global") && error.includes("worker ownership")), "Phase B admitted a forbidden write that cancels planned write authority");
+assert(validateImplementationPlan(plan).ok, "plan v4 rejected");
+assert(validateImplementationDetailsArtifact(details, { planIdentity, planIds: ["feature"], profile }).ok, "details v7 rejected");
+const modifyDetails = structuredClone(details);
+modifyDetails.items[0].changes = [{ kind: "modify", target: { resource: { kind: "file", path: "src/feature.ts" }, sourcePlanIds: ["feature"] }, intent: "modify feature", anchors: [{ kind: "symbol", symbol: "feature" }] }];
+const malformedDetails = [
+  ["singular anchor", (value) => { value.items[0].changes[0].anchor = value.items[0].changes[0].anchors[0]; delete value.items[0].changes[0].anchors; }],
+  ["flattened endpoint", (value) => { value.items[0].changes[0].target = { kind: "file", path: "src/feature.ts", sourcePlanIds: ["feature"] }; }],
+  ["wrong anchor field", (value) => { value.items[0].changes[0].anchors = [{ kind: "symbol", text: "feature" }]; }],
+  ["line-only file anchor", (value) => { value.items[0].changes[0].anchors = [{ kind: "line-range-hint", start: 1, end: 2 }]; }],
+  ["duplicate source ids", (value) => { value.items[0].changes[0].target.sourcePlanIds = ["feature", "feature"]; }],
+  ["empty item validation", (value) => { value.items[0].validationCommands = []; }],
+  ["unknown item field", (value) => { value.items[0].unknown = true; }],
+  ["empty items", (value) => { value.items = []; }],
+  ["empty final validation", (value) => { value.finalValidationCommands = []; }],
+];
+for (const [label, mutate] of malformedDetails) {
+  const value = structuredClone(modifyDetails); mutate(value);
+  const result = validateImplementationDetailsArtifact(value, { planIdentity, planIds: ["feature"] });
+  assert(!result.ok && result.errors.some((error) => error.includes("items") || error.includes("finalValidationCommands")), `${label} was not rejected with a schema path: ${result.errors.join("; ")}`);
+  assert(!result.errors.some((error) => error.includes("details need grounded items and finalValidationCommands")), `${label} retained the combined legacy diagnostic`);
+}
+for (const [label, duplicateDetails] of [
+  ["node", { ...structuredClone(details), items: [{ ...structuredClone(details.items[0]), validationCommands: [{ ...profileGate, env: { FIRST: "1", SECOND: "2" } }] }] }],
+  ["packet-final", { ...structuredClone(details), finalValidationCommands: [profileGate] }],
+]) {
+  const result = validateImplementationDetailsArtifact(duplicateDetails, { planIdentity, planIds: ["feature"], profile });
+  assert(!result.ok && result.errors.some((error) => error.includes("requiredFinalGates[0]")) && result.errors.some((error) => error.includes("focused task-specific check") && error.includes("resubmit")), `${label} profile-gate duplicate was admitted or lacked correction guidance`);
+}
+const packetNormalization = { ...structuredClone(details), candidateNormalizationCommands: [] };
+assert(!validateImplementationDetailsArtifact(packetNormalization, { planIdentity, planIds: ["feature"] }).ok, "details v7 admitted packet-owned normalization");
+const perItemNormalization = structuredClone(details); perItemNormalization.items[0].candidateNormalizationCommands = [];
+assert(!validateImplementationDetailsArtifact(perItemNormalization, { planIdentity, planIds: ["feature"] }).ok, "details v7 admitted per-item normalization authority");
+const phaseBForbidden = structuredClone(details);
+phaseBForbidden.items[0].forbiddenWrites = [];
+const phaseBForbiddenResult = validateImplementationDetailsArtifact(phaseBForbidden, { planIdentity, plan });
+assert(!phaseBForbiddenResult.ok && phaseBForbiddenResult.errors.some((error) => error.includes("items[0]") && error.includes("forbiddenWrites")), "Phase B forbiddenWrites failed to reject structurally");
 assert(!validateImplementationPlan({ ...plan, version: 1 }).ok, "legacy plan v1 admitted");
-assert(!validateImplementationDetailsArtifact({ ...details, version: 3 }, { planIdentity }).ok, "legacy details v3 admitted");
+assert(!validateImplementationDetailsArtifact({ ...details, version: 5 }, { planIdentity }).ok, "legacy details v5 admitted");
 assert(!validateImplementationDetailsArtifact({ ...details, plan: { ...planIdentity, sha256: "2".repeat(64) } }, { planIdentity }).ok, "mixed plan/details identity admitted");
 const duplicateFinalValidation = validateImplementationDetailsArtifact({
   ...details,
   items: [...details.items, {
     id: "final-validation", kind: "final-validation", changes: [],
     readDependencies: [{ resource: { kind: "file", path: "src/feature.ts" }, timing: "post-change-required", timingSource: "phase-b", sourcePlanIds: ["feature"], reason: "integrated validation input" }],
-    forbiddenWrites: [], validationCommands: [command], advisoryNotes: [],
+    validationCommands: [command], advisoryNotes: [],
   }],
 }, { planIdentity, planIds: ["feature"] });
-assert(!duplicateFinalValidation.ok && duplicateFinalValidation.errors.some((error) => error.includes("finalValidationCommands")), "duplicate Phase B final-validation authority was admitted");
+assert(!duplicateFinalValidation.ok && duplicateFinalValidation.errors.some((error) => error.includes("items[1].kind") || error.includes("finalValidationCommands")), "duplicate Phase B final-validation authority was admitted");
 
+const emptyFinal = { ...structuredClone(details), finalValidationCommands: [] };
+assert(validateImplementationDetailsArtifact(emptyFinal, { planIdentity, plan, profile }).ok, "profile-backed empty final commands were rejected");
+assert(!validateImplementationDetailsArtifact(emptyFinal, { planIdentity, plan, profile: { ...profile, requiredFinalGates: [] } }).ok, "zero combined final gates admitted");
+assert(!validateImplementationDetailsArtifact({ ...details, items: [{ ...details.items[0], kind: "invented" }] }, { planIdentity, profile }).ok, "unsupported ordinary kind admitted");
+const inertGateProfile = { ...profile, requiredFinalGates: [{ ...profile.requiredFinalGates[0], command }] };
+assert(!validateImplementationDetailsArtifact({ ...details, finalValidationCommands: [{ ...command, env: {} }] }, { planIdentity, profile: inertGateProfile }).ok, "omitted and empty command environments bypassed duplicate detection");
+const distinctEnv = { ...details, items: [{ ...details.items[0], validationCommands: [{ ...command, env: { MODE: "different" } }] }], finalValidationCommands: [{ ...command, env: { MODE: "different" } }] };
+assert(validateImplementationDetailsArtifact(distinctEnv, { planIdentity, profile: inertGateProfile }).ok, "nonempty environment was ignored in duplicate detection");
 const runtimePolicy = { maxConcurrency: 2, failFast: false, fallbackAllowed: true };
 const compiled = compileExecutionPacket({ implementationPlan: plan, implementationDetails: details, planIdentity, detailsIdentity, tierPlan, runtimePolicy, createdAt: "2026-07-14T00:02:00.000Z" });
 assert(compiled.ok && compiled.packet, `compile failed: ${compiled.errors.join("; ")}`);
 const packet = compiled.packet;
-assert(packet.version === EXECUTION_PACKET_VERSION && packet.version === 6, "packet is not v6");
+const compileWith = (implementationPlan, implementationDetails, extra = {}) => compileExecutionPacket({ implementationPlan, implementationDetails, planIdentity, detailsIdentity, tierPlan, runtimePolicy, ...extra });
+assert(compileWith(plan, emptyFinal, { profile }).ok && !compileWith(plan, emptyFinal).ok, "compiler did not require profile for empty final commands");
+const omittedContextPlan = structuredClone(plan); omittedContextPlan.implementationItems[0].readResources = [];
+assert(compileWith(omittedContextPlan, details).ok, "Phase B-discovered baseline package.json read was rejected");
+const splitPlan = structuredClone(plan);
+splitPlan.implementationItems[0].writeResources.push({ kind: "file", path: "test/feature.ts" });
+const splitDetails = structuredClone(details);
+splitDetails.items.push({ ...structuredClone(details.items[0]), id: "feature-tests", changes: [{ kind: "create", target: { resource: { kind: "file", path: "test/feature.ts" }, sourcePlanIds: ["feature"] }, contentIntent: "Feature regression." }] });
+const splitPacket = compileWith(splitPlan, splitDetails);
+assert(splitPacket.ok && splitPacket.packet.nodes.length === 2 && splitPacket.packet.nodes[0].workContract.changes.length === 2, "packet compilation split one Phase A repair boundary");
+const selfRead = structuredClone(details); selfRead.items[0].readDependencies = [{ ...selfRead.items[0].readDependencies[0], resource: { kind: "file", path: "src/feature.ts" }, timing: "post-change-required" }];
+assert(compileWith(plan, selfRead).issues.some(({ code }) => code === "self-post-change-read"), "packet compiler admitted a model self dependency");
+
+assert(packet.version === EXECUTION_PACKET_VERSION && packet.version === 10, "packet is not v10");
 assert(packet.nodes.length === 2 && packet.nodes.at(-1).kind === "final-validation", "canonical nodes/final validation missing");
-assert(packet.nodes.every((node) => JSON.stringify(node.workContract.candidateNormalizationCommands) === JSON.stringify(normalizationCommands)), "repository normalization list was not copied into every packet contract");
+assert(packet.nodes.every((node) => !Object.hasOwn(node.workContract, "candidateNormalizationCommands")), "packet retained profile-owned normalization");
 assert(packet.nodes.at(-1).workContract.validationCommands.length === 2, "command order/duplicates were not preserved");
-assert(JSON.stringify(packet.runtimePolicy) === JSON.stringify(runtimePolicy), "immutable runtime policy was not stored in packet v6");
+assert(packet.nodes.every((node) => node.workContract.forbiddenWrites.some((entry) => entry.resource.path === "generated" && entry.sourcePlanIds[0] === "feature")), "Phase A forbidden writes did not reach every ordinary/final Work Contract with provenance");
+assert(JSON.stringify(packet.runtimePolicy) === JSON.stringify(runtimePolicy), "immutable runtime policy was not stored in packet v10");
 const forbidden = ["artifactDir", "blockers", "workUnits", "estimates", "stopRules", "risks", "finalValidationPlan", "goal", "dependencies", "ownedFiles", "readOnlyFiles", "steps", "validationCommands", "acceptanceCriteria", "rollbackNotes", "workerPacket"];
 assert(!forbidden.some((key) => Object.hasOwn(packet, key) || packet.nodes.some((node) => Object.hasOwn(node, key))), "packet retains flattened legacy authority");
-assert(validateExecutionPacket(packet).executable, "packet v6 rejected");
-assert(!validateExecutionPacket({ ...packet, version: 5 }).executable, "packet v5 admitted");
+assert(validateExecutionPacket(packet).executable, "packet v10 rejected");
+assert(!validateExecutionPacket({ ...packet, version: 7 }).executable, "legacy packet v7 admitted");
 assert(!validateExecutionPacket({ ...packet, status: "ready" }).executable, "legacy status field admitted");
 assert(!validateExecutionPacket({ ...packet, runtimePolicy: { ...packet.runtimePolicy, maxConcurrency: 0 } }).executable, "invalid packet runtime policy admitted");
-assert(EXECUTION_RUN_VERSION === 3 && SHIM_EVENT_NAMES.length === 9, "execution-run compatibility subpath exposed legacy runtime authority");
+assert(EXECUTION_RUN_VERSION === 7 && SHIM_EVENT_NAMES.length === 9, "execution-run compatibility subpath exposed legacy runtime authority");
 const graph = deriveExecutionGraph(packet);
 assert(JSON.stringify(graph.edges) === JSON.stringify([["feature", "final-validation"]]), "graph was not derived from contracts");
+
+const fused = compileSerialFixture("chain");
+assert(fused.ok && fused.packet.nodes.length === 2, `eligible vertical chain did not fuse: ${fused.errors.join("; ")}`);
+const fusedNode = fused.packet.nodes[0];
+assert(/^fused-[0-9a-f]{16}$/.test(fusedNode.id) && fusedNode.workContract.changes.length === 3, "longer chain did not receive one deterministic identity and unioned authority");
+assert(fusedNode.workContract.goals.map(({ sourcePlanId }) => sourcePlanId).join(",") === "a,b,c" && fusedNode.workContract.validationCommands.map(({ args }) => args[0]).join(",") === "a,b,c", "fusion lost source order, source-plan provenance, or the exact covering validation manifest");
+assert(JSON.stringify(deriveExecutionGraph(fused.packet).edges) === JSON.stringify([[fusedNode.id, "final-validation"]]), "fused graph did not preserve the final-validation boundary");
+assert(compileSerialFixture("branch").packet.nodes.length === 4, "branching serial edge fused and delayed another successor");
+assert(compileSerialFixture("join").packet.nodes.length === 4, "joining serial edge fused before its other predecessor");
+assert(compileSerialFixture("kind-mismatch").packet.nodes.length === 3, "different work-unit kinds fused");
+assert(compileSerialFixture("context-mismatch").packet.nodes.length === 3, "different coverage-normalized contexts fused");
+assert(compileSerialFixture("validation-mismatch").packet.nodes.length === 3, "incompatible validation manifests fused");
+const tierMismatch = structuredClone(compileSerialFixture("context-mismatch").packet);
+tierMismatch.nodes[1].tier = { ...tierMismatch.nodes[1].tier, preferred: "tier1" };
+assert(!validateExecutionPacket(tierMismatch).executable, "a same-kind packet with contradictory derived tiers reached executable fusion input");
+
 const context = { objective: packet.objective, userContext: packet.userContext, discoveredRepoFacts: packet.discoveredRepoFacts, assumptions: packet.assumptions };
 assert(renderWorkContractMarkdown(context, packet.nodes) === renderWorkContractMarkdown(context, packet.nodes), "Markdown is unstable");
 assert(renderWorkContractMermaid(packet.nodes) === renderWorkContractMermaid(packet.nodes), "Mermaid is unstable");
@@ -130,4 +183,58 @@ for (const name of readdirSync("packages/fanout-core/src").filter((name) => name
 const providerPackage = JSON.parse(readFileSync("packages/doubleword-provider/package.json", "utf8"));
 assert(!JSON.stringify(providerPackage).includes("fanout-core") && !JSON.stringify(providerPackage).includes("fanout-pi"), "standalone Doubleword package depends on Fanout");
 
-console.log("hardened compiler cutover smoke passed (plan v2, details v4, packet v6, package independence)");
+console.log("hardened compiler cutover smoke passed (plan v4, details v7, packet v10, package independence)");
+
+function compileSerialFixture(shape) {
+  const ids = shape === "branch" || shape === "join" || shape === "chain" ? ["a", "b", "c"] : ["a", "b"];
+  const resources = Object.fromEntries(ids.map((id) => [id, { kind: "file", path: `src/${id}.ts` }]));
+  const reads = {
+    a: ids.filter((id) => id !== "a").map((id) => ({ id, timing: "baseline-context" })),
+    b: [{ id: "a", timing: shape === "join" ? "baseline-context" : "post-change-required" }, ...(ids.includes("c") ? [{ id: "c", timing: "baseline-context" }] : [])],
+    ...(ids.includes("c") ? { c: shape === "branch"
+      ? [{ id: "a", timing: "post-change-required" }, { id: "b", timing: "baseline-context" }]
+      : shape === "join"
+        ? [{ id: "a", timing: "post-change-required" }, { id: "b", timing: "post-change-required" }]
+        : [{ id: "a", timing: "baseline-context" }, { id: "b", timing: "post-change-required" }] } : {}),
+  };
+  if (shape === "context-mismatch") reads.a = [];
+  const fixturePlan = {
+    ...structuredClone(plan),
+    planId: `fusion-${shape}`,
+    implementationItems: ids.map((id) => ({
+      id,
+      goals: [`goal ${id}`],
+      writeResources: [resources[id]],
+      readResources: reads[id].map(({ id: readId }) => resources[readId]),
+      forbiddenWrites: [],
+      semanticReviewCriteria: [`criterion ${id}`],
+      advisoryNotes: [],
+    })),
+  };
+  const fixturePlanIdentity = artifactIdentity(`fusion-${shape}-plan.json`, Buffer.from(JSON.stringify(fixturePlan)));
+  const manifests = {
+    a: [{ executable: "rtk", args: ["a"] }],
+    b: shape === "validation-mismatch" ? [{ executable: "rtk", args: ["b"] }] : [{ executable: "rtk", args: ["a"] }, { executable: "rtk", args: ["b"] }],
+    c: [{ executable: "rtk", args: ["a"] }, { executable: "rtk", args: ["b"] }, { executable: "rtk", args: ["c"] }],
+  };
+  const fixtureDetails = {
+    schema: "fanout.implementation-details",
+    version: IMPLEMENTATION_DETAILS_VERSION,
+    detailsId: `fusion-${shape}`,
+    createdAt: "2026-07-14T00:01:00.000Z",
+    plan: fixturePlanIdentity,
+    items: ids.map((id) => ({
+      id,
+      kind: shape === "kind-mismatch" && id === "b" ? "test" : "implement",
+      changes: [{ kind: "create", target: { resource: resources[id], sourcePlanIds: [id] }, contentIntent: `create ${id}` }],
+      readDependencies: reads[id].map(({ id: readId, timing }) => ({ resource: resources[readId], timing, timingSource: "phase-b", sourcePlanIds: [id], reason: `read ${readId}` })),
+      validationCommands: manifests[id],
+      advisoryNotes: [],
+    })),
+    finalValidationCommands: [{ executable: "rtk", args: ["final"] }],
+  };
+  const fixtureDetailsIdentity = artifactIdentity(`fusion-${shape}-details.json`, Buffer.from(JSON.stringify(fixtureDetails)));
+  const result = compileExecutionPacket({ implementationPlan: fixturePlan, implementationDetails: fixtureDetails, planIdentity: fixturePlanIdentity, detailsIdentity: fixtureDetailsIdentity, tierPlan, runtimePolicy, createdAt: "2026-07-14T00:02:00.000Z" });
+  assert(result.packet, `${shape} fixture failed compilation: ${result.errors.join("; ")}`);
+  return result;
+}

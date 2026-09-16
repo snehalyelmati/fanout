@@ -5,11 +5,10 @@ import { join } from "node:path";
 import { artifactIdentity } from "../packages/fanout-core/src/artifact-identity.ts";
 import { classifyFinalValidationFailure, deriveFinalRepairWorkContract, FINAL_VALIDATION_TRUST_BOUNDARY, parseFinalValidationEvidence } from "../packages/fanout-core/src/final-validation.ts";
 import { assertFinalValidationRecoverySource, parseAttemptRecoveryContext } from "../packages/fanout-core/src/recovery-evidence.ts";
-import { FIXED_WORKER_CAPABILITIES, WORK_CONTRACT_SCHEMA, WORK_CONTRACT_VERSION } from "../packages/fanout-core/src/work-contract.ts";
+import { FIXED_WORKER_CAPABILITIES, validateWorkContract, WORK_CONTRACT_SCHEMA, WORK_CONTRACT_VERSION } from "../packages/fanout-core/src/work-contract.ts";
 import { checkContractOwnership, checkFinalRepairOwnership, ownershipViolationFactCode } from "../packages/fanout-pi/src/fanout-git.ts";
 import { recordAcceptedFinalRepair, runFinalValidation, runFinalValidationRound } from "../packages/fanout-pi/src/final-validation.ts";
 import { buildCanonicalWorkerPrompt } from "../packages/fanout-pi/src/fanout-worker-contract.ts";
-import { parseSharedWorktreePaths, prepareSharedWorktreePaths } from "../packages/fanout-pi/src/worktree-preparation.ts";
 import {
   applyAcceptedTransition,
   capturePatchCandidate,
@@ -27,15 +26,11 @@ try {
   git(root, ["init", "repo"]);
   git(repo, ["config", "user.email", "fanout@example.test"]);
   git(repo, ["config", "user.name", "Fanout Test"]);
-  writeFileSync(join(repo, ".gitignore"), ".repair-cache\n.validation-cache\n.preinstalled\n");
+  writeFileSync(join(repo, ".gitignore"), ".repair-cache\n.validation-cache\n");
   writeFileSync(join(repo, "source.txt"), "base\n");
   writeFileSync(join(repo, "other.txt"), "base\n");
   git(repo, ["add", "."]);
   git(repo, ["commit", "-m", "fixture"]);
-  mkdirSync(join(repo, ".preinstalled", "dependency"), { recursive: true });
-  writeFileSync(join(repo, ".preinstalled", "dependency", "ready"), "ready\n");
-  assert(JSON.stringify(parseSharedWorktreePaths('[".preinstalled"]')) === '[".preinstalled"]', "explicit shared-worktree preparation input did not parse");
-  assertThrows(() => parseSharedWorktreePaths('["../escape"]'), "shared-worktree preparation admitted a repository escape");
 
   const planningBase = capturePlanningBase(repo);
   const accepted = makeCandidate("accepted", [], (worktree) => writeFileSync(join(worktree, "source.txt"), "accepted\n"));
@@ -46,8 +41,6 @@ try {
   const restored = await round("restored", [node("writeFileSync('transient.txt','x')"), node("rmSync('transient.txt')")]);
   assert(restored.status === "passed", "sequence-boundary validation rejected restored intermediate mutation");
   assert(!existsSync(join(repo, "transient.txt")), "final validation ran in the active checkout");
-  const sharedDependency = await round("shared-dependency", [node("if (readFileSync('.preinstalled/dependency/ready','utf8') !== 'ready\\n') process.exit(1)", "readFileSync")]);
-  assert(sharedDependency.status === "passed", "reconstructed validation worktree could not resolve installed ignored dependencies");
   for (const code of ["active-drift", "validation-drift"]) {
     const fabricatedDrift = structuredClone(restored.evidence);
     fabricatedDrift.status = "failed";
@@ -92,15 +85,13 @@ try {
   assert(outsideContainment.status === "passed" && existsSync(external), "A20 ignored/external effects were falsely treated as contained");
   for (const phrase of ["ignored files", "external paths", "network", "processes", "outside containment"]) assert(FINAL_VALIDATION_TRUST_BOUNDARY.includes(phrase), `A20 trust boundary omitted ${phrase}`);
 
-  const finalNormalizationCommands = [node("process.exit(0)"), node("process.exit(0)")];
-  const finalContract = contract([], [], [node("process.exit(7)"), node("process.exit(0)")], finalNormalizationCommands);
+  const finalContract = contract([], [], [node("process.exit(7)"), node("process.exit(0)")]);
   const upstreamWorkContracts = [
     { nodeId: "source", workContract: contract([modify("source.txt")], [forbidden("forbidden.txt")], [node("process.exit(0)")]) },
     { nodeId: "other", workContract: contract([modify("other.txt")], [], [node("process.exit(0)")]) },
   ];
   const packetIdentity = artifactIdentity("execution-packet.json", Buffer.from("packet\n"));
   const repairContract = deriveFinalRepairWorkContract(upstreamWorkContracts.map((entry) => entry.workContract), finalContract);
-  assert(JSON.stringify(repairContract.candidateNormalizationCommands) === JSON.stringify(finalNormalizationCommands), "final repair did not derive the final contract's ordered normalization list");
   const repairContext = { packetIdentity, finalValidationContract: finalContract, upstreamWorkContracts };
   const coordinated = makeCandidate("coordinated", [accepted], (worktree) => {
     writeFileSync(join(worktree, "source.txt"), "coordinated\n");
@@ -161,13 +152,85 @@ try {
       transition: (candidate) => candidate,
       authorize: async () => true,
       reject: async () => false,
-      apply: async () => false,
+      apply: async () => ({ ok: false, attemptId: "final-validation:apply-failed" }),
+      retainMutationLock: () => {},
     },
   });
-  assert(rejectedRepair.status === "failed" && rejectedRepair.commandCount === 2 && rejectedRepair.commands[1].outcome === "unexecuted", "fail-fast final validation did not retain the full launched command manifest");
-  assert(rejectedRepair.evidence.expectedValidationTree === acceptedTree && !rejectedRepair.evidence.candidate, "rejected final-repair candidate escaped into accepted-tree completion evidence");
+  assert(rejectedRepair.status === "failed" && rejectedRepair.lastRound.commandCount === 2 && rejectedRepair.lastRound.commands[1].outcome === "unexecuted", "fail-fast final validation did not retain the full launched command manifest");
+  assert(rejectedRepair.lastRound.evidence.candidate?.patch.artifact.sha256 === ignoredResidue.patch.artifact.sha256 && rejectedRepair.failure.attemptId === "final-validation:000001", "rejected repair lost the latest immutable round or exact attempt cause");
+
+  const repeatedRecoveries = [];
+  let repeats = 0;
+  const repeated = await runFinalValidation({
+    repoRoot: repo, runDir, planningBase, ledger: [accepted], commands: repairContract.validationCommands,
+    expectedValidationTree: acceptedTree, expectedActiveTree: acceptedTree,
+    repair: { ...repairContext, workContract: repairContract, acceptedLedger: [], available: () => repeats < 2,
+      launch: async (recovery) => { repeatedRecoveries.push(recovery); return { attemptId: `repeat:${++repeats}`, candidate: ignoredResidue, continue: true }; },
+      transition: (candidate) => candidate, authorize: async () => true, reject: async () => true,
+      apply: async () => ({ ok: false, attemptId: "unexpected" }), retainMutationLock: () => {},
+    },
+  });
+  const repeatedRounds = [...repeatedRecoveries.map((entry) => entry.failedRound), repeated.lastRound.evidence];
+  assert(new Set(repeatedRounds.map((entry) => entry.roundId)).size === 3, "same-digest repair overwrote a prior executed round");
+  assert(repeated.totalCommandDurationMs === Math.round(repeatedRounds.reduce((sum, entry) => sum + entry.durationMs, 0) * 1000) / 1000, "controller duration omitted an executed failed round");
+  for (const recovery of repeatedRecoveries) assert(readFileSync(join(runDir, recovery.sourceFinalValidationEvidence.path), "utf8") === `${JSON.stringify(recovery.failedRound, null, 2)}\n`, "subsequent round changed exact recovery source bytes");
+  let clobberRejected = false;
+  try { await round("restored", [node("process.exit(0)")]); } catch { clobberRejected = true; }
+  assert(clobberRejected && readFileSync(join(runDir, restored.evidenceArtifact.path), "utf8") === `${JSON.stringify(restored.evidence, null, 2)}\n`, "duplicate round publication clobbered immutable evidence");
+
+  const profileCommands = [node("if(readFileSync('source.txt','utf8')!=='coordinated\\n')process.exit(1)", "readFileSync")];
+  const profileOnlyFinal = { ...finalContract, validationCommands: [] };
+  const profileRepair = deriveFinalRepairWorkContract(upstreamWorkContracts.map((entry) => entry.workContract), profileOnlyFinal, profileCommands);
+  assert(!validateWorkContract(profileRepair).ok, "ordinary mutating contract admitted zero validation commands");
+  assertThrows(() => deriveFinalRepairWorkContract(upstreamWorkContracts.map((entry) => entry.workContract), profileOnlyFinal), "zero combined final gates were admitted");
+  let profileRecovery;
+  let retainLock = false;
+  const applyOptions = {
+    repoRoot: repo, runDir, planningBase, ledger: [accepted], commands: profileCommands,
+    expectedValidationTree: acceptedTree, expectedActiveTree: acceptedTree,
+    repair: { ...repairContext, finalValidationContract: { ...finalContract, validationCommands: profileCommands }, workContract: profileRepair, acceptedLedger: [], available: () => true,
+      launch: async (recovery) => { profileRecovery = parseAttemptRecoveryContext(recovery); return { attemptId: "profile:repair", candidate: coordinated, continue: true }; },
+      transition: (candidate) => candidate, authorize: async () => true, reject: async () => false,
+      apply: async () => ({ ok: false, attemptId: "profile:apply-failed" }), retainMutationLock: () => { retainLock = true; },
+    },
+  };
+  const applyFailed = await runFinalValidation(applyOptions);
+  assert(applyFailed.status === "failed" && applyFailed.lastRound.status === "passed" && applyFailed.failure.attemptId === "profile:apply-failed", "failed apply replaced passing candidate round or lost failed attempt identity");
+  assert(profileRecovery.workContract.validationCommands.length === 0 && profileRecovery.commands.length === 1, "profile-only repair duplicated or lost authoritative gates");
+  const publicationFailed = await runFinalValidation({ ...applyOptions, repair: { ...applyOptions.repair, apply: async (candidate, result) => {
+    applyAcceptedTransition(repo, runDir, candidate);
+    writeFileSync(join(runDir, `final-validation/rounds/${result.evidence.roundId}-accepted.json`), "existing immutable evidence");
+    return { ok: true, attemptId: "profile:accepted" };
+  } } });
+  assert(publicationFailed.status === "failed" && publicationFailed.lastRound.status === "passed" && publicationFailed.failure.code === "publication-failure" && retainLock, "accepted evidence publication failure lost passing round or mutation lock");
+  assert(readFileSync(join(repo, "source.txt"), "utf8") === "coordinated\n", "post-mutation publication failure rolled back accepted changes");
+  writeFileSync(join(repo, "source.txt"), "accepted\n");
+  writeFileSync(join(repo, "other.txt"), "base\n");
+
+  const profilePassed = await runFinalValidation({ ...applyOptions, repair: { ...applyOptions.repair, apply: async (candidate) => {
+    applyAcceptedTransition(repo, runDir, candidate);
+    return { ok: true, attemptId: "profile:accepted-success" };
+  } } });
+  assert(profilePassed.status === "passed" && profilePassed.lastRound.evidence.acceptedRepair?.transition.patch.resultTree === coordinated.patch.resultTree && !profilePassed.failure, "profile-only final repair could not complete controller-authoritative validation and apply");
+  parseFinalValidationEvidence(profilePassed.lastRound.evidence);
+  writeFileSync(join(repo, "source.txt"), "accepted\n");
+  writeFileSync(join(repo, "other.txt"), "base\n");
+  const profileRejected = await runFinalValidation({ ...applyOptions, repair: { ...applyOptions.repair, launch: async (recovery) => {
+    parseAttemptRecoveryContext(recovery);
+    return { attemptId: "profile:rejected", candidate: ignoredResidue, continue: true };
+  } } });
+  assert(profileRejected.status === "failed" && profileRejected.lastRound.status === "failed" && profileRejected.failure.attemptId === "profile:rejected", "profile-only final repair failed rerun lost its exact failure");
+  writeFileSync(join(runDir, "final-validation/rounds/json-collision.json"), "immutable round");
+  let jsonCollisionRejected = false;
+  try { await round("json-collision", [node("process.exit(0)")]); } catch { jsonCollisionRejected = true; }
+  assert(jsonCollisionRejected && readFileSync(join(runDir, "final-validation/rounds/json-collision.json"), "utf8") === "immutable round", "round JSON collision overwrote prior evidence");
+  const zeroGates = await runFinalValidation({ ...applyOptions, commands: [] });
+  assert(zeroGates.status === "failed" && zeroGates.lastRound === null, "final controller admitted zero combined gates");
+  const unpublished = await runFinalValidation({ ...applyOptions, prepareWorktree: () => { throw new Error("preparation capture failed"); } });
+  assert(unpublished.status === "failed" && unpublished.lastRound === null && unpublished.totalCommandDurationMs === null && unpublished.failure.kind === "controller", "unpublished round fabricated prior evidence or a known zero total");
 
   const promptRecoveries = [];
+  const promptSeeds = [];
   let promptLaunches = 0;
   await runFinalValidation({
     repoRoot: repo,
@@ -181,30 +244,39 @@ try {
       ...repairContext,
       workContract: repairContract,
       acceptedLedger: [{ sourceAttemptId: "node:000001", patch: accepted.patch }],
-      available: () => promptLaunches < 2,
-      launch: async (recovery) => {
+      available: () => promptLaunches < 3,
+      launch: async (recovery, _source, seed) => {
         promptRecoveries.push(recovery);
+        promptSeeds.push(seed);
         promptLaunches += 1;
-        return promptLaunches === 1
-          ? { attemptId: "final-validation:prompt-1", candidate: ignoredResidue, continue: true }
-          : { attemptId: "final-validation:prompt-2", continue: false };
+        if (promptLaunches === 1) return { attemptId: "final-validation:prompt-1", candidate: ignoredResidue, continue: true };
+        if (promptLaunches === 2) return { attemptId: "final-validation:prompt-2", continue: true };
+        return { attemptId: "final-validation:prompt-3", continue: false };
       },
       transition: (candidate) => candidate,
       authorize: async () => true,
       reject: async () => true,
-      apply: async () => false,
+      apply: async () => ({ ok: false, attemptId: "final-validation:apply-failed" }),
+      retainMutationLock: () => {},
     },
   });
-  assert(promptRecoveries.length === 2 && !promptRecoveries[0].failedRound.candidate && promptRecoveries[1].failedRound.candidate?.patch.artifact.sha256 === ignoredResidue.patch.artifact.sha256, "first/subsequent final-repair contexts lost failed-round candidate identity");
+  assert(promptRecoveries.length === 3 && !promptRecoveries[0].failedRound.candidate && promptRecoveries[1].failedRound.candidate?.patch.artifact.sha256 === ignoredResidue.patch.artifact.sha256, "first/subsequent final-repair contexts lost failed-round candidate identity");
+  assert(promptSeeds[0] === undefined && promptSeeds[1]?.patch.artifact.sha256 === ignoredResidue.patch.artifact.sha256 && promptSeeds[2]?.patch.artifact.sha256 === ignoredResidue.patch.artifact.sha256, "final-repair seed continuity was lost across a process-only launch failure");
   for (const [index, recovery] of promptRecoveries.entries()) {
     const prompt = buildCanonicalWorkerPrompt({ objective: "repair", userContext: [], discoveredRepoFacts: [], assumptions: [] }, { id: "final-validation", kind: "implement", workContract: repairContract }, [], recovery);
+    assert(prompt.startsWith("Repair the reconstructed accepted state") && prompt.indexOf("## Failed final-validation round") < prompt.indexOf("## Final-validation provenance and authority"), `final-repair prompt ${index + 1} did not prioritize the repair action and failure`);
     for (const identity of [recovery.failedRound.validation.before.tree, recovery.failedRound.validation.after.tree, recovery.failedRound.active.before.tree, recovery.failedRound.active.after.tree]) assert(prompt.includes(identity), `final-repair prompt ${index + 1} omitted a failed-round repository identity`);
-    assert(prompt.includes(packetIdentity.sha256) && prompt.includes('"nodeId": "source"') && prompt.includes('"nodeId": "other"'), `final-repair prompt ${index + 1} omitted packet identity or ordered upstream work contracts`);
+    assert(prompt.includes(packetIdentity.sha256) && prompt.includes('"upstreamNodeIds"') && prompt.includes('"source"') && prompt.includes('"other"') && !prompt.includes("## Task context"), `final-repair prompt ${index + 1} omitted provenance or retained duplicate context`);
+    assert(!prompt.includes('"upstreamWorkContracts"') && !prompt.includes('"finalValidationContract"') && prompt.includes("recovery.json"), "final repair duplicated source authority or omitted audit reference");
     if (index === 1) assert(prompt.includes(ignoredResidue.patch.artifact.sha256), "subsequent final-repair prompt omitted its rejected candidate patch");
     const conflictingContract = structuredClone(repairContract);
     conflictingContract.validationCommands = [node("process.exit(9)")];
     assertThrows(() => buildCanonicalWorkerPrompt({ objective: "repair", userContext: [], discoveredRepoFacts: [], assumptions: [] }, { id: "final-validation", kind: "implement", workContract: conflictingContract }, [], recovery), `final-repair prompt ${index + 1} admitted conflicting node and recovery contracts`);
   }
+  const nonPrefixRepair = structuredClone(promptRecoveries[0]);
+  nonPrefixRepair.workContract.validationCommands = [node("process.exit(9)")];
+  assertThrows(() => parseAttemptRecoveryContext(nonPrefixRepair), "final-validation recovery admitted repair commands outside the authoritative command prefix");
+
   const omittedCandidate = structuredClone(promptRecoveries[1]);
   delete omittedCandidate.failedRound.candidate;
   let omittedCandidateRejected = false;
@@ -236,10 +308,11 @@ try {
       transition: (candidate) => candidate,
       authorize: async () => true,
       reject: async () => false,
-      apply: async () => false,
+      apply: async () => ({ ok: false, attemptId: "final-validation:apply-failed" }),
+      retainMutationLock: () => {},
     },
   });
-  assert(timeoutResult.repairable && timeoutRecoveries.length === 1 && timeoutRecoveries[0].commands[0].status === "timeout" && timeoutRecoveries[0].commands[0].signal === null, "real final-validation timeout could not produce admitted repair evidence");
+  assert(timeoutResult.lastRound.repairable && timeoutRecoveries.length === 1 && timeoutRecoveries[0].commands[0].status === "timeout" && timeoutRecoveries[0].commands[0].signal === null, "real final-validation timeout could not produce admitted repair evidence");
   buildCanonicalWorkerPrompt({ objective: "repair timeout", userContext: [], discoveredRepoFacts: [], assumptions: [] }, { id: "final-validation", kind: "implement", workContract: timeoutContract }, [], timeoutRecoveries[0]);
   const timeoutFactMismatch = structuredClone(timeoutRecoveries[0]);
   timeoutFactMismatch.commands[0].timeoutMs += 1;
@@ -282,7 +355,7 @@ try {
   console.log("final validation smoke passed (A16, A17, A20)");
 
   async function round(roundId, commands) {
-    return await runFinalValidationRound({ repoRoot: repo, runDir, roundId, planningBase, ledger: [accepted], commands, expectedValidationTree: acceptedTree, expectedActiveTree: acceptedTree, prepareWorktree: (worktree) => prepareSharedWorktreePaths(repo, worktree, [".preinstalled"]) });
+    return await runFinalValidationRound({ repoRoot: repo, runDir, roundId, planningBase, ledger: [accepted], commands, expectedValidationTree: acceptedTree, expectedActiveTree: acceptedTree });
   }
 
   function makeCandidate(name, ledger, edit) {
@@ -304,7 +377,7 @@ function node(source, imports = "writeFileSync,rmSync") {
   return { executable: process.execPath, args: ["--input-type=module", "-e", `import { ${imports} } from 'node:fs';${source}`] };
 }
 
-function contract(changes, forbiddenWrites, validationCommands, candidateNormalizationCommands = []) {
+function contract(changes, forbiddenWrites, validationCommands) {
   return {
     schema: WORK_CONTRACT_SCHEMA,
     version: WORK_CONTRACT_VERSION,
@@ -312,7 +385,6 @@ function contract(changes, forbiddenWrites, validationCommands, candidateNormali
     changes,
     readDependencies: [],
     forbiddenWrites,
-    candidateNormalizationCommands,
     validationCommands,
     capabilities: FIXED_WORKER_CAPABILITIES,
     semanticReviewCriteria: [{ sourcePlanId: "plan", statement: "The final checks pass" }],

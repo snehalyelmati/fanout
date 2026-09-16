@@ -1,5 +1,263 @@
 # Design Decisions
 
+## 2026-09-16
+
+### Prepare a public research preview with curated evidence
+
+Decision: Keep parallel Fanout as the primary architecture. Publish repository source, a readable [study report](STUDY.md), curated scalar results and static figures. Whole-task candidate submission remains a request-depth experiment that can inform individual Fanout workers; it is not adopted as the replacement product. Modeled winning conditions are meaningful under their declared assumptions, while reliable real task/model/provider coverage remains incomplete.
+
+New raw Fanout traces, model sessions, prompts and tool-event streams remain local and ignored. Synthetic test inputs must be clearly fictional. The original evidence is preserved locally. Use MIT for original project code/documentation and retain third-party licenses/notices.
+
+This release needs no additional paid canary, interactive explorer, website, slide deck, routing system or executor redesign. It does not itself merge branches, change visibility, publish packages or rewrite history. Earlier next-experiment directions remain historical context, not the current preparation task. See [publication checks](PUBLICATION.md).
+
+## 2026-09-08
+
+### Prepare the fresh-repair experiment with independently checked acceptance
+
+Decision: The bounded first-repair prototype is ready for final live freeze after offline review. Keep Terra medium, full initial sources, Sol medium, the same candidate/seven guarded tools, two corrections and nine authoritative commands. Start a fresh Sol session only for the first correction; reuse it for the second. Count setup/disposal and all reads inside E2E. Use the existing process supervisor for a hard outer bound and retain failed process-termination time when late cleanup outlives an inner result.
+
+Validation: Reviewed acceptance-v2 rejects the three observed defective candidates and accepts correct alternatives, including changed heading levels and tilde fences. Public hook scope and task-related snippet syntax are checked without replacing manual prose review. The complete positive fixture passes nine commands/36 tests with a 9.419s command sum; normal, failed, timed-out and late session paths have scripted driver/native-tool evidence. The initial prompt differs only in cwd. This proves offline operation, not a performance benefit.
+
+Next: freeze two whole observations, retaining fixed-v1 failures and individually qualified raw references. No new raw runs, selected-success mean or retroactive timing changes. Both acceptance and context change, so no isolated causal claim; record how many observations actually exercise repair. No product/provider/source-excerpt decision changes. Original checker preparation evidence stays preserved, with an explicit limitation for overwritten initial stdout available only as a reconstructed summary.
+
+### Close PR787 with quality failures; investigate bounded recovery context
+
+Decision: Preserve the complete five-trial fixed cohort: two of three raw candidates and zero of two batch candidates pass manual quality review. All final automated checks pass, but neither arm earns a correct-completion mean under the frozen policy. Keep raw-02/raw-03 as individual qualified references, all failed costs/times, and the original raw-02 review with its collective-documentation adjudication. Do not adopt the batch configuration or infer async viability from its shorter failed traces.
+
+Reason: Batch costs are $2.593488 and $1.392048, exceeding both accepted raw observations ($1.105290 and $1.097025). Whole-01's Sol repair cost alone is $2.184303; whole-02 also needed two sequential Terra requests. Automatic checks missed public hook scope expansion and malformed documentation. Reducing request count without controlling repair context and accepted quality is insufficient.
+
+Next experiment to prepare: one fresh normal Sol repair session after the initial Terra attempt, with the same candidate, task, guarded tools and bounded failed-check diagnostics; keep its construction/disposal and all reads inside E2E. Production Fanout already uses fresh attempt processes, so this is a prototype recovery-context hypothesis, not a new product architecture. Independently validate acceptance improvements for the observed defects before another cohort; preserve current frozen inputs and allow alternative correct prose. No recovery variant, source-excerpt policy or provider change is adopted by this decision. Broader task-shape gaps and actual Doubleword evidence remain open.
+
+### Admit PR787 validation while preserving the historical reference and full preload policy
+
+Decision: Use the independently checked `navigateTree` contract task as a candidate for the next fixed comparison. Preserve the upstream reference, whose code passes but documentation is incomplete for the explicit task. Freeze a separate complete positive fixture with clarified prose and a valid direct-options adapter; do not weaken task requirements to match the reference. Its nine-gate boundary passes in 10.120s with 36 focused tests and stable candidate/runtime identities.
+
+Reason: Positive/negative public typing, fake-transport prompts, real hooks, labels/cancellation, executed adapter wiring and three regression mutations provide task-specific correctness evidence. Documentation text presence remains a bounded filter followed by manual review. The full 505,568-byte task-source preload stays the baseline policy; smaller excerpts would introduce another configuration change. Exact assembled live context and driver/cohort preparation remain pending. This validates a shared-contract/input-cost contrast, not useful inherent width or provider viability.
+
+### Preserve the interrupted Pi cohort without claiming a batch win
+
+Decision: Apply the frozen cohort's stop rule after the first whole-task observation returned a Codex usage-limit error. Keep raw-01's successful 118.149s/$0.192988 observation and whole-01's 28.118s/$0.0709225 time/cost to error. Do not execute the remaining three trials, replace the interrupted trial, compute an arm mean or adopt a performance change. New live work needs a separately declared cohort; offline task admission can continue.
+
+Reason: The initial batch passed semantics but required formatting repair. Its final patch matches accepted raw-01, yet the repair continuation failed before successful completion and final gates. Code equivalence cannot recover the missing execution measurement. Preserve immutable protocol, all costs and errors, and the distinction between unavailable service and model-quality failure. Actual async and product adoption still require the existing evidence gate.
+
+## 2026-09-07
+
+### Admit the bounded Pi rendering fixture without claiming broad task coverage
+
+Decision: Keep Pi issue 764 limited to the pinned 56-column reproduction. Its offline acceptance and full read-only repository check expansion plus focused tests pass in 5.073s. Use it as a very small narrow-edit/overhead contrast when the fixed-configuration cohort is prepared. Preserve the complete 78-column guidance and empty-state behavior; accept valid shorter truncation. No product change or live configuration is adopted.
+
+Reason: Reference `588399594c36cf4ee5bb04d4ab9e8220adc66b5f` fixes the header at 56, not every narrow width. Historical debugging length does not establish inherent investigation difficulty or task-work depth. Separately pin PR 787 as a possible shared-contract contrast, but require an independent evaluator, timing and source-context fit before admission. Its 505,568-byte snapshot is source volume, not implementation volume or useful width. Coverage v2 supersedes the inventory without changing frozen v1 or prior benchmarks.
+
+### Screen fixed orchestration with Codex before spending async credits
+
+Decision: Follow the user-approved Codex-first study sequence and replacement stored goal. The approved sequence called for the bounded qs transfer (now complete below), then a concrete task coverage matrix and evaluation of the fixed promising configuration against ordinary realtime Pi across contrasting real fast tasks before task-specific tuning. The subsequent PR787 closure above supersedes the immediate next experiment with acceptance and recovery-context investigation; this Codex-first evidence gate still governs provider spending. Preserve fixed Codex assignments, small declared cohorts, budgets, independent acceptance, full E2E and all failures. Reuse valid raw references; never adopt the biased qs mean.
+
+Change to prior ordering: actual async was the immediate next step alongside qs. It is now deferred until repeatable Codex savings across relevant profiles and plausible trace-based latency headroom justify a small bounded Doubleword pilot. Doubleword credits are scarce, and missing credentials must not block Codex screening. The tradeoff is postponing direct provider evidence; simulated timing remains explicitly unable to establish provider quality, repairs, tokens or billing. The full realtime/async matrix and provider hypotheses remain later work.
+
+Validation: the new stored goal was created and verified after the user removed the paused predecessor. The task matrix must identify pins, independent checks, measured validation duration, readiness and coverage gaps across width/depth/volume/coupling/reasoning; file/worker counts do not establish width. Execa stays an occasional stress case. A defensible limited or negative result is acceptable; no new orchestration layer, broad model sweep or more p-map tuning is authorized by this scheduling change.
+
+### Retain the fixed batch configuration after one positive qs transfer
+
+Decision: Keep the configuration fixed for further Codex screening. The single declared qs transfer passed all required gates and manual review in 174.992s/$0.56494, using one Terra and four Sol responses, versus the one valid raw observation of 265.166s/$0.754926. This supports continued evaluation, not adoption or repeatability. No qs tuning, biased raw average or new orchestration is justified by this one result.
+
+Reason: The initial candidate implemented the required runtime behavior but left native expectation/test work for Sol. The measured recovery is part of both time and cost. Sixty-second request substitutions leave plausible headroom; 5/10-minute substitutions do not. These scenarios cannot predict actual provider quality or economics. The coverage inventory explicitly leaves narrow/deep work, a volume contrast, useful loose width and fast shared-contract width unproven or unready; fill those gaps with pinned real tasks before judging generality.
+
+### Evaluate correct completion across orchestration and provider service
+
+Decision: Adopt the [high-latency study protocol](benchmarks/fanout-high-latency-study.md). Preserve completed optimizations and measured failures. Ordinary realtime Pi remains the baseline; investigate both orchestration for today's high latency on every request and complementary provider changes. Prefer controlled prompt changes before custom candidate submission. Tier 1 may identify scope/context and local code may collect existing sources; the cheap worker must perform implementation reasoning rather than only apply Tier 1's completed solution.
+
+Reason: Repeated p-map runs did not establish reliable cost/time benefit and exposed semantic failures despite green suites. The investigation must identify operating limits rather than assume Fanout wins. Fast continuation windows, shared caches and provider scheduling changes remain hypotheses; no provider architecture is adopted by this decision.
+
+### Preserve the current prompt after the first controlled canary
+
+Decision: Do not adopt the complete-before-validation wording as a performance optimization from this pair. Both arms passed acceptance v2, but the changed arm used 13 runtime responses versus 12 and more time/cost. Investigate an explicit complete-candidate submission/finishing experiment and execution overhead next; native Pi tool-result termination is a possible implementation seam. Unconditional stopping at the first green advisory check remains unsafe, and no new product workflow is adopted here.
+
+Reason: Prompt wording changed validation order but did not establish reduced request depth or user benefit. Fresh-plan variation and the small sample constrain causal/reliability claims.
+
+### Test complete candidate batching without changing product authority
+
+Decision: Run an authorized benchmark-only complete-edit-batch experiment: first ask Terra for one whole candidate, then run the modified initial-worker Fanout arm with Sol planning and Terra workers. Successful native edit/write results may terminate the Pi turn; the unchanged external gates determine completeness and correctness. Errors, truncation or guard failure continue normally. Count all continuation and repair responses, and retain Fanout's existing Sol repair budgets. Do not add a product capability schema, recovery rule or adopted workflow.
+
+Reason: The prompt-only pair left 12–13 runtime responses. A bounded experiment can test whether explicit complete submission removes turns without weakening validation or expanding permanent architecture.
+
+Result: The single whole-task trial passed all required gates in 158.180s at `$0.3086735`, after one Terra response and five Sol correction responses. Both modified Fanout original workers met the one-response target, but one Sol validation repair used nine responses; total observed time/cost were 490.575s/`$0.7992885`. Fanout's native candidate and final gates passed, while the harness remains archived as an error because a post-run reporting check queried a nonexistent thinking field. A separate evidence audit confirms the configured Sol/Terra medium assignments, although exact worker argv was not persisted. A second audit found the canonical single-batch prompt branch inactive; normal canonical validation/final-response text and the active extension batch instruction conflicted, and the assembled provider system prompt was not persisted. Do not attribute the observed depth to the inactive canonical change, rerun this frozen cohort or adopt the prototype. The p-map repeats are recorded below. Continue on varied tasks and actual async service under new frozen protocols; any further modified Fanout arm must fix both reporting and prompt activation first.
+
+### Continue whole-task evaluation and expose complete repair diagnostics
+
+Decision: Preserve the two predeclared whole-task repeats and the existing raw mean. Their mean was 181.206s / $0.330543, with both passing, but all three whole-task observations including the exploratory trial exhausted the two-correction allowance. Keep the prototype experimental. Next test complete diagnostic collection before a repair in a separately frozen runner, retaining all required checks, candidate identity checks and recovery limits. Do not change product validation authority or the old cohorts.
+
+Reason: The initial `xo && ava && tsd` command stopped at lint in all three trials. Offline replay of whole-02's initial tree showed that running AVA independently exposed both later test failures before the first repair. This supports an experiment about feedback timing; it does not establish a saved model round or performance benefit. Standalone async-provider/native-tool compatibility passed with fake transport, while actual async quality and latency remain unmeasured. Broader task and provider validation are still required before adoption.
+
+### Require complete-task acceptance before more whole-task trials
+
+Decision: Do not adopt supplemental diagnostics as a performance optimization from its two-trial follow-up. Both passed at a mean 326.352s/$0.5050845, slower than both the earlier whole-task repeats and the frozen raw mean. Preserve the fixed cohorts and separate candidate variation from the diagnostic change. Add a separate benchmark completion gate for public signal typing and required tests/documentation before further p-map whole-task trials, leaving acceptance-v2 unchanged. Review artifact quality as well as presence.
+
+Reason: Both initial one-response Terra submissions changed only runtime code; Sol completed required types, tests and documentation. The runtime checker and unchanged suite could pass that incomplete work, so one-response termination and fewer correction prompts are inadequate success measures. The second trial used one correction prompt but eight Sol responses. Continue varied-task and actual async evaluation after acceptance readiness; no product workflow is adopted.
+
+Implementation evidence: completion prototype v2 now rejects the clean base, runtime-only initial candidate and a widened-signal type regression while accepting seven archived final candidates, with identities unchanged. V1 and its narrower type-probe limitation remain preserved separately. It adds public type compilation and relevant test/type-test/documentation additions; artifact quality remains a review responsibility. These offline audits do not change historical E2E or acceptance-v2, and the gate must be bound into the next frozen cohort.
+
+### Preserve the qs gate defect and test native continuation separately
+
+Decision: Keep both qs raw outcomes and their full resource use, but do not adopt the 327.4325s/$0.959769 mean as a fair performance control. The second initial candidate was task-complete; an added-lines-only artifact predicate falsely rejected a test whose call remained unchanged context, inducing six extra Sol responses. Correct artifact-context handling in a separate checker revision and validate it offline before further comparisons. Keep the original cohort immutable and retain manual quality review; textual categories cannot prove relevance or quality.
+
+Reason: Gate-induced work would inflate the raw baseline and make a later optimization look better. The first trial remains one valid observation. Separately, p-map traces show that terminating after a successful initial edit batch prevents Terra from continuing when it chooses a partial batch. Prepare a benchmark-only normal-Pi-continuation experiment with the same prepared context, Terra/Sol assignments and recovery budget, removing termination and its one-response instruction. Measure total cheap requests and displaced Sol repairs; no product adoption or performance benefit is inferred.
+
+Implementation evidence: qs completion-v2 now passes seven offline cases, including the valid original raw-02 candidate and tests placed in only one permitted file. Read the full content of changed files to avoid losing unchanged context; retain explicit presence-heuristic limits and manual review. Keep the frozen v1 checker and its incurred correction unchanged. The corresponding p-map completion-v3 gate preserves typing and compiler supervision, passes its eleven-candidate matrix including a contextual-documentation regression, and was bound into the separately frozen native-continuation cohort below.
+
+### Reject native continuation for the current high-latency target
+
+Decision: Preserve the completed native-continuation pair without adopting its configuration. Both final candidates pass, but the mean 355.666s/$0.60843225 is slower than raw Pi for only 2.29% estimated savings, and initial Terra chains require 8/13 sequential responses. At an assumed minute per slow request these chains fail the time budget before other work. Both still needed Sol to fix a real promised-value abort defect.
+
+Reason: The objective is correct completion per unit time and cost, not more parallel workers or cheaper individual turns. Stop further p-map prompt, architecture and harness variants unless a validity defect prevents the next decision. The immediate async/qs ordering at this checkpoint was superseded by the Codex-first decision above; qs is now complete and actual async is deferred. Keep its routing and two-repair budget fixed; use only the valid qs raw-01 observation, not the biased pair mean. Structured submission tools, fast provider continuation and broader architecture remain deferred hypotheses.
+
+### Reuse a calibrated raw-Pi reference
+
+Decision: After a small raw-Pi calibration cohort, reuse its arithmetic mean across Fanout iterations. Preserve the individual trials, sample count and failure evidence. Run raw Pi again when task/model/environment/measurement changes make the reference stale, rather than pairing an unchanged raw arm with every optimization. The current v2 reference uses its two comparable trials; do not pool historical runs whose acceptance/E2E boundaries differ.
+
+Reason: The user explicitly requested baseline reuse on 2026-09-07 to avoid repeated unchanged control runs. More calibration samples are useful only when their uncertainty affects a decision.
+
+### Strengthen acceptance and broaden the fast task set
+
+Decision: Version independent acceptance and make required semantic checks and their repairs part of future full E2E for both ordinary Pi and Fanout. Preserve historical post-hoc-audit measurements without relabeling their accounting. Start with correct-completion baselines and a small prompt experiment using existing Sol/Terra settings. Expand p-map with roughly three varied fast-validating tasks; retain Execa for occasional stress runs. Task selection is not complete, and no artificial DAG shape is required.
+
+This supersedes the p-map-only scope of the initial efficiency pilot. Routine engineering/canary work and atomic reviewed commits follow the user's updated global instructions; the previous blanket plan-before-write gate is superseded. Existing authority, isolation, provider/core boundaries and fixed repair budgets remain. Polished presentation, broad model sweeps and Pi-with-subagents comparisons are deferred so useful execution evidence comes first.
+
+Reason: Correct completion is the user outcome. Failed-run time is not a successful-completion baseline; task difficulty, work volume and useful parallelism are independent dimensions. Measured results, trace-based counterfactuals and hypothetical provider designs require distinct evidence labels.
+
+## 2026-09-06
+
+### Optimize sequential provider requests with combined planning and prepared workers
+
+Decision: The approved [efficiency work](impl/fanout-efficiency-progress.md) merges Phase A/B model planning into one context and combined submission, followed by deterministic validation and compilation. Keep the existing persisted plan/details/packet semantics and identity links; their logical semantic/grounding halves no longer require separate model investigations. Reuse existing profiles and user context. Prepare bounded actual worker source context, add verified pre-edit/write ownership feedback while retaining final patch audits, align validation with repair ownership, and remove duplicated model-facing repair material while keeping complete audit evidence.
+
+This supersedes the requirement for two separate planning model phases. Pi worker tools, candidate continuity, Tier 1 validation repairs, fixed budgets and independent controller acceptance remain. The per-attempt worker manifest will bind write resources and bans with a local format revision; execution outcome/event generations do not change for prompt or pre-tool feedback alone.
+
+Reason: A one-minute request latency is paid on each dependent model call. Recent traces spend calls rediscovering context and pay for rejected ownership or unrepairable validation. These changes target that repeated work without weakening accepted repository authority. One-shot completion and performance gains remain hypotheses to measure.
+
+### Use p-map for the efficiency pilot
+
+Decision: Compare raw Pi, baseline Fanout and improved Fanout on the same p-map AbortSignal task, clean baseline and independent acceptance checks. Record all planning, execution, failure, repair and final-check costs/time, with human waits separate. Begin with the three-mode pilot; larger cohorts remain pending. Keep Execa results historical.
+
+Reason: p-map's shorter full suite makes workflow overhead easier and cheaper to investigate. A pilot establishes accounting and feasibility, not reliable tail performance or a universal speed claim.
+
+## 2026-09-05
+
+### Apply the approved Fanout audit cutover
+
+Decision: Implement the [approved audit plan](impl/fanout-audit-implementation-plan.md) with plan 4, details 7, contract 5, packet 10, outcome/event 6 and projection 7. Profiles/pointers and per-round final evidence retain their generations; old execution records remain descriptive Legacy evidence. The [register](impl/fanout-audit-progress.md) records validation and review.
+
+This supersedes exhaustive Phase A baseline-read membership, forced fine-grained splitting, initiating-message-only implicit context, accepting Phase B before compilation, complete-measurement acceptance (including the strict-worker pricing restriction on 2026-08-26), and requiring nonempty additional packet-final commands. Writes/post-change scope remain Phase A bounded; profile-only final validation requires nonempty exact combined gates. Canonical measurement evidence needs positive observed assignment identity and rejects supplied contradictions; missing fields yield unavailable totals rather than rejection or fabricated zeros.
+
+Phases advance at Pi settlement. Fail-fast drains already-running work and records policy skips separately from dependency skips. Event outcomes are the sole terminal attempt records. Final-controller status, immutable latest round, all-round command time and typed failure remain distinct; post-mutation publication failures retain the reconciliation lock. Invocation keeps standing authorization for bound-profile commands even in dry-run and before live confirmation; disclosures state possible external/network effects.
+
+Reason: Preserve exact repository authority while removing redundant admission and fixing lifecycle, replay and evidence semantics. Two phases, safe fusion, direct argv and atomic whole-log replacement remain; predictive scheduling, command caching and broader efficiency claims remain deferred. Offline regressions are not live E2E or performance evidence.
+
+## 2026-08-29
+
+### Default new work to GLM 5.3 Flash
+
+Decision: Replace GLM 5.2 with exact model `zai-org/GLM-5.3-Flash` in the standalone provider's minimal fallback list, development stub, and Fanout Tier 2 default/model-picker preference. Preserve historical GLM 5.2 benchmark inputs and results. Pricing remains generated from the official catalogue by the existing reviewed snapshot workflow.
+
+Reason: Doubleword now exposes GLM 5.3 Flash, and its official model page describes improved coding, tool-use, and general capability over GLM 5.2 at lower published prices. New provider and Fanout work should use the current model without rewriting historical evidence.
+
+## 2026-08-26
+
+### Synchronize exact Doubleword pricing into reviewed snapshots
+
+Decision: Replace the provider's hand-maintained tier-price table with a generated TypeScript snapshot of every exact model ID and realtime/async/batch row published by the official Doubleword model catalogue. A manual `npm run sync:doubleword-pricing` fetches the documented Markdown pages, fails on unexpected structure, and records the source URL, retrieval date, and SHA-256 of canonical pricing rows. Provider startup remains offline with respect to pricing: `/v1/models` supplies live availability, exact IDs join to the committed snapshot, and missing tiers receive no trusted pricing provenance. Discovered unpriced models remain visible to ordinary Pi with its required zero-cost placeholder, but Fanout cannot accept them as strict workers. When discovery and its cache are both unavailable, the minimal hard-coded fallback list remains visible to ordinary Pi and may display exact snapshot costs, but it receives no trusted pricing provenance until discovery or cache supplies availability evidence. Strict Fanout usage evidence requires the Responses API's native `input_tokens` and `output_tokens`; compatibility aliases and estimates remain available only to ordinary Pi accounting and cannot satisfy strict admission. This supersedes the fixed prices and source described on 2026-06-25 without changing ordinary model-discovery availability.
+
+Reason: The published catalogue and cache-read rates change independently from provider releases, while exact usage/cost evidence must remain reviewable and reproducible. A committed identity-bound snapshot avoids startup scraping, aliases, inferred prices, and silent zero-price admission while retaining normal Pi model discovery.
+
+## 2026-08-05
+
+### Keep project final gates controller-only during final repair
+
+Decision: Final-repair workers receive the packet final node's focused validation commands in their immutable `fanout_validate` manifest, while authoritative controller rounds retain the complete ordered packet-final plus profile-required command manifest and failure evidence. Recovery admission requires the focused repair commands to be an ordered prefix of that authoritative manifest. The controller still validates every repaired candidate in a fresh reconstruction and applies it only after the complete authoritative round passes. This supersedes only the 2026-07-27 requirement that final-repair worker validation derive from the combined packet/profile manifest; schemas, profiles, repair budgets, and controller acceptance authority remain unchanged.
+
+Reason: Profile-required project gates are long, controller-owned acceptance checks. Running them inside a repair worker and then again in the controller duplicated the same gate on one candidate tree without adding authority. Focused worker feedback preserves in-context correction, complete controller failure evidence, fresh-context seed continuity, and bounded repair while removing the duplicate route.
+
+## 2026-08-04
+
+### Let workers run only their immutable contract validation
+
+Decision: Cut over atomically to work contract v4 and execution packet v9. The fixed worker profile now exposes the existing six file tools plus one worker-only, zero-argument `fanout_validate` tool. Before each worker launch, the controller publishes a digest-bound manifest containing the exact contract-declared ordered direct-argv commands, platform, timeout, and canonical run/node/attempt/worktree identity. The extension registers the tool only after verifying that manifest and identity, reverifies it on every call, rejects any call not alone in its assistant message, returns command failures in the same tool result, and stores per-call advisory evidence. Shell and every other extension tool remain unavailable.
+
+Worker validation is diagnostic, not acceptance authority. The controller still captures the patch, enforces ownership, and independently reruns the same contract commands through the existing validation runner before accepting or repairing a candidate. Work contract v3 and packet v8 require replanning; no adapter or migration is added. Attempt Outcome, Event, Projection, final-evidence, profile, plan, details, and pointer generations remain unchanged because routing and acceptance semantics do not change.
+
+Reason: Controller-only validation forced workers to finish without seeing deterministic failures, converting locally correctable feedback into extra validation-repair attempts. A manifest-bound no-argument tool provides the narrow capability needed to fix failures in the same model call without restoring arbitrary shell access or weakening controller authority. Benchmark whether it reduces repair attempts, runtime, tokens, and cost before making broader workflow claims.
+
+## 2026-08-03
+
+### Cut planning structures and context to one fail-closed generation
+
+Superseded only for work-contract and packet generations by the 2026-08-04 v4/v9 worker-validation cutover.
+
+Decision: The executable planning generation at this cutover was Project Execution Profile v1, implementation plan v3, implementation details v6, work contract v3, execution packet v8, and active pointer v2. Canonical Pi-independent TypeBox schemas define planning bodies and persisted artifacts, drive the phase-specific `fanout_submit_artifact` parameters, and run before contextual semantic checks. Details v5 and packet v7 are Legacy and receive no adapter or migration.
+
+Phase A is the sole planning source of global forbidden writes. Phase B grounds changes, typed reads, task validation, and advisory context without repeating bans; its omitted model-body `advisoryNotes` canonicalizes to `[]`, while persisted details require the field. The compiler propagates every Phase A ban with provenance into ordinary and final Work Contracts.
+
+Each successful lone submission returns a terminating tool result; a submission batched with another tool is rejected before execution, while invalid submissions throw and remain correctable in the same phase. Provider context retains only the current phase suffix and controller-built inputs, preserving only the initiating user request for implicit objectives. Planning read/search/list calls use Pi's ordinary filesystem permissions without an additional repository-only restriction. The session file and visible transcript remain intact. This reverses only the repository-containment gate introduced by `5b5dffe`; planning remains limited to read-only filesystem tools, user clarification, and controller-bound submission.
+
+Reason: Structural retries, inherited cross-phase transcripts, and post-submit continuation consumed paid turns without adding semantic judgment. One schema source, one global-ban owner, phase-local provider context, and Pi-native read scope remove those traps while preserving Pi's normal agent loop and accepted local-trust boundary.
+
+## 2026-07-30
+
+### Cut ownership-retry routing to a new execution generation
+
+Decision: The original-candidate `unauthorized-change` retry changes controller-action semantics, so the only current runtime evidence generation is Attempt Outcome v5, Event v5, and Projection v6. Event v4 and Projection v5 become descriptive Legacy evidence and are not replayed through current routing. Packet v7 and the remaining profile, planning, work-contract, final-evidence, pointer, and presentation generations stay unchanged. There is no compatibility adapter or migration.
+
+Reason: Recomputing the new retry action while replaying an existing Event v4 outcome recorded as `fail` makes same-version evidence contradictory. A coordinated fail-closed cutover preserves one routing meaning per generation instead of trusting stored actions selectively or adding historical routing branches.
+
+### Keep project-wide validation out of packet task checks
+
+Decision: Phase B receives the exact approved Project Execution Profile and treats its preparation, readiness, candidate normalization, and required final gates as already guaranteed. Ordinary-node validation uses the narrowest meaningful checks covering that node's owned changes, retaining broader scope for shared infrastructure, configuration, build, test-harness, and similarly wide-impact work, while packet-final validation contains only additional task-specific integrated checks. Core artifact admission rejects an exact node or packet-final duplicate of a profile final gate only for the submitted Phase B draft, with both command locations and a correction instruction; the Pi planning session remains open for resubmission. Fanout never silently deduplicates submitted command authority.
+
+Reason: The Execa transfer canary repeated `npm test` in the packet-final contract and profile gate, while one ordinary type node selected a broader command than its changed type-test surface required. Supplying the profile closes the documented planning-context gap, draft-only rejection prevents repeated full-suite work without aborting planning, and focused prompt guidance remains ecosystem-independent instead of interpreting package scripts.
+
+## 2026-07-28
+
+### Carry advisory Worker summaries only into node validation repair
+
+Decision: Every worker ends its existing Pi response with a short numbered `Worker summary`. The adapter extracts the body beneath the final assistant message's exact heading, stores it as optional diagnostic data in the existing attempt `result.json`, and safely includes it only in the immediately following node validation-repair prompt. Missing or malformed summaries do not block repair, and a later repair receives only its immediate predecessor's summary. Integration-repair and project final-validation-repair prompts do not receive predecessor summaries in this version.
+
+The summary is not recovery evidence, validation evidence, repository authority, an Attempt Outcome field, an Event/Projection field, or repair-state input. It cannot alter capabilities, ownership, budgets, typed routing, exact no-progress identity, acceptance, or replay. No worker session resumes and no summarization model call runs.
+
+Reason: The worker already knows what it changed and why before its existing call ends. Reusing that bounded account gives validation repair useful implementation context without collecting chain of thought, adding a model call, widening authority, or cutting the executable schema generation.
+
+## 2026-07-26
+
+### Discover projects within one fixed profiler storage root
+
+Decision: Repository `npm run profiler` resolves the current working directory through `fanout-pi`'s existing artifact settings, supplies one storage root and preferred current-project identity to `fanout-profiler`, and presents every immediate canonical child containing planning or execution evidence in a URL-addressable project picker. Every HTTP operation names only an admitted opaque project identity. Refresh rescans membership and atomically refreshes the selected catalog; root-level failure preserves prior registry state. `--artifact-root` retains single-project forensic mode. The composition stays in the repository launcher, so the profiler package still depends only on `fanout-core`. This supersedes the current-project-only repository default and the one-project startup scope, but not the fixed-root, read-only, or no-filesystem-selector contracts.
+
+Reason: Fanout's default Pi-owned storage already groups hashed project roots beneath one user storage root. Discovering only evidence-bearing children removes manual path reconstruction and supports switching among real projects without a database, source-repository reads, arbitrary browser paths, or profiler-to-Pi coupling. Project-specific artifact roots outside the selected storage root remain explicit forensic inputs until a concrete cross-root indexing need exists.
+
+## 2026-07-19
+
+### Omit profiler exports from v1
+
+Decision: V1 has no profiler export endpoint, browser download action, export schema, persisted report, or Counterfactual Scenario serialization. The read-only UI presents profiler-derived views, while Source References and evidence inspection lead back to authoritative Fanout artifacts. Any later export requires a concrete sharing, archival, or machine-consumption need and must remain a user-invoked derived view that Fanout never admits as execution authority.
+
+Reason: Without a concrete consumer, Markdown or JSON exports would duplicate the UI, create a de facto profiler contract, and risk being mistaken for durable artifacts. See [Define the profiler export contract](https://github.com/snehalyelmati/fanout/issues/45).
+
+### Add one private Bun profiler package
+
+Decision: Add a private, repo-local `fanout-profiler` workspace package that depends only on `fanout-core`. It runs as one `Bun.serve` process bound to an explicit artifact root and `127.0.0.1`, builds atomically refreshed immutable in-memory catalogs, lazily streams large supporting evidence, and serves a vanilla HTML/CSS/ES-module workspace through a fixed bounded HTTP interface. Core retains artifact parsing, graph derivation, metric correlation, and authoritative event replay; the profiler owns read-only lineage relationships, receipts, comparisons, observations, and scenarios. This supersedes the three-package limit only for this concrete application; it does not add a generic CLI framework, publication path, database, frontend framework, or Pi/Doubleword coupling.
+
+Reason: The profiler is now a concrete product boundary rather than speculative adapter infrastructure. A dedicated package keeps filesystem, HTTP, and presentation concerns out of `fanout-core` and avoids false `fanout-pi` coupling while preserving the existing provider/core/Pi dependency directions. Bun and native browser facilities provide the smallest offline implementation without new production dependencies. See [Choose the minimal local web-app architecture](https://github.com/snehalyelmati/fanout/issues/42).
+
+### Cut profiling evidence forward without compatibility
+
+Decision: The current coordinated executable generation keeps implementation plan v2, implementation details v4, execution packet v6, active pointer v2, embedded work contract v2, and final-validation evidence v1, while cutting Attempt outcomes to v3, execution events to v3, and execution projections to v4. Correlated metrics record exact Worker Turn request/first-output/finish intervals, Provider Response request/first-token/finish intervals, Tool Invocation names and intervals, and cache-read/cache-write usage. The cutover is atomic and fail-closed; event-v2/projection-v3 and earlier artifacts are legacy descriptive evidence without replay, migration, or compatibility adapters.
+
+Reason: Fixed-envelope Attempt totals cannot distinguish provider queueing, generation, tools, or inter-call gaps, so they cannot calibrate stateful cold/warm provider scenarios. Exact correlated intervals make uncovered time visible without creating another execution authority. This supersedes the earlier no-producer-change profiling baseline and the prior generation only when the coordinated cutover is implemented. See [Define counterfactual scheduling simulations](https://github.com/snehalyelmati/fanout/issues/41).
+
+### Keep counterfactuals fixed-behavior and post-confirmation
+
+Decision: A Counterfactual Scenario is an immutable read-only overlay that reschedules only recorded post-confirmation `/fanout-execute` work. It may vary Fanout concurrency and one fixed or cold/warm Provider Profile per recorded tier while preserving the packet DAG, Attempt and repair chains, Worker Turns, tools, tokens, outcomes, validation, non-provider intervals, and Accepted Ledger order. It reports one scenario execution time, cost, packet path, and Scenario Completion Chain against the observed baseline; incomplete runs cover only their recorded prefix. It never reroutes calls, predicts model behavior or quality, or declares a winner.
+
+Reason: Holding work and outcomes fixed makes the result deterministic arithmetic rather than an unsupported provider or scheduler forecast. One completion boundary matches `/fanout-execute`; a separate active-completion metric would invent a user-visible boundary before required work and Final Validation finish.
+
 ## 2026-07-16
 
 ### Keep Fanout capability metadata in the Fanout adapter
@@ -18,6 +276,8 @@ Reason: A start record without the exact launch and command facts cannot prove w
 
 ### Cut every producer and consumer to one hardened generation
 
+Superseded for execution evidence by the 2026-07-19 v3/v3/v4 cutover; the planning, packet, pointer, work-contract, final-validation, and presentation generations below remain current.
+
 Decision: The only executable planning/runtime generation is implementation plan v2, implementation details v4, execution packet v6, active pointer v2, embedded work contract v2, attempt outcome v2, final-validation evidence v1, execution event v2, execution projection v3, and disposable `fanout.planning-report`/`fanout.execution-report` presentation data v1. Models submit planning bodies; controllers bind envelopes, exact source bytes, planning commit/tree/platform, IDs, and timestamps. Packet nodes embed canonical contracts and derive their graph/views; the sole final-validation node uses the reserved exact ID `final-validation`, which ordinary nodes cannot claim. Concrete node tier assignments are derived from the closed node kind and packet tier plan, and admission re-derives them to reject downgraded, unavailable, or substituted routing tuples. Pointer/packet admission rejects legacy, future, mixed, substituted, and unknown-field artifacts before lock creation or mutation. There is no compatibility adapter or migration path; obsolete authority requires replanning.
 
 Reason: A staged compatibility bridge would leave multiple executable authorities for ownership, dependencies, commands, budgets, repository identity, and reporting. A coordinated fail-closed cutover makes every artifact boundary reviewable and lets package-independent core checks prove the same generation that Pi executes.
@@ -29,6 +289,8 @@ Decision: The final-validation node is a controller gate rather than an ordinary
 Reason: Running validation in active or adopting a repair worker's checkout would make validation side effects and ignored residue part of the returned repository without proof. Sequence-boundary checks allow intentional create-then-remove checks while persistent drift fails closed without reset, replay, or rollback. This remains repository integrity under trusted-local-program semantics, not containment of ignored files, external paths, network, processes, services, or mutate-then-restore behavior.
 
 ### Run workers through fixed file capabilities and exact accepted patches
+
+Superseded only for the fixed tool list by the 2026-08-04 contract-bound `fanout_validate` decision; the patch and integration boundaries remain current.
 
 Decision: Every worker attempt keeps Pi's trusted automatic extension/provider discovery, `--approve`, `--no-context-files`, curated repository instructions, and the inherited parent environment, while `--tools` exposes exactly `read`, `grep`, `find`, `ls`, `edit`, and `write`. The Fanout extension synchronously rejects unavailable tools and edit/write targets using absolute, traversal, `.git`, or existing symlink segments. The node executor rebuilds fresh worktrees from the planning base plus ordered accepted-state transitions, captures and reverifies binary patches by digest/length/paths/HEAD/trees, and applies verified bytes through Git stdin with exact pre/post trees. A rejected validation-repair seed is not an accepted transition: its verified bytes may be overlaid only into the latest disposable reconstruction, after which the repaired candidate is recaptured relative to the current accepted tree and must pass the ordinary exact transition boundary before active mutation. Active drift fails without repair or reset; failure after active mutation is a distinct bookkeeping hard fail and Fanout does not guess a rollback.
 
@@ -55,6 +317,46 @@ Decision: `/fanout-plan` injects typed Phase A, Phase B, and repair instructions
 Reason: Prompt text is semantic guidance, not a capability boundary, and custom messages remain later model context even when they do not trigger a turn. Controller-derived artifact destinations plus context-free report entries preserve deterministic authority without claiming host containment.
 
 This file records design decisions made during development. Keep new entries dated and concise.
+
+## 2026-07-27
+
+### Cut planning and execution to Project Execution Profiles
+
+Decision: The only executable generation is Project Execution Profile v1, implementation plan v3, implementation details v5, work contract v3, execution packet v7, active packet pointer v2, Attempt Outcome v5, final-validation evidence v2, execution event v5, and projection v6. Profiles own approved preparation, readiness, candidate normalization, and project-wide final gates; packets retain task scope, graph, task validation, routing, and model-work authority and bind the exact profile artifact identity. Packet final commands run before profile final gates, and final-repair recovery derives from that exact combined ordered command manifest. `/fanout-plan --refresh-profile` validates a replacement in a disposable clean worktree before atomically publishing it; failure preserves the previous profile. Older executable artifacts require replanning, while older events and projections remain descriptive Legacy evidence.
+
+Profile mutation disclosure is phase-specific: `candidate-owned` is valid only for candidate normalization and does not expand the packet/work-contract write boundary. Preparation and readiness remain limited to `none` or `ignored-only`, and clean-baseline validation still rejects tracked mutation.
+
+Reason: Environment commands and project-wide gates change independently from task decomposition. One immutable, user-approved profile removes duplicated command authority, makes isolated setup auditable before paid allocation, and avoids migration or another orchestrator.
+
+### Preserve rejected repair candidates cumulatively
+
+Decision: Every final repair is seeded from the immediately preceding rejected candidate, including across process-only launch failures. The candidate remains evidence rather than ledger authority; a successful repair is recaptured from the accepted tree and may enter the ledger only after ordinary identity, ownership, validation, and compare-and-swap acceptance.
+
+Reason: Reconstructing every repair from the accepted tree silently discarded prior repair work. Exact seed continuity fixes the loss without granting rejected bytes repository authority.
+
+### Reconcile only exact path-disjoint stale candidates
+
+Decision: Before model-driven integration repair, the controller may reconcile a stale candidate only when its exact changed paths are disjoint from every intervening accepted transition. It reconstructs the latest ledger, overlays the candidate, runs profile normalization, recaptures, enforces ownership, validates, and compare-and-swap applies. It retries only after ledger advancement. Unavailable base, overlap, overlay, normalization, ownership, or combined-validation failure routes through existing typed integration repair; preparation and repository infrastructure failure terminates without repair allocation.
+
+Reason: Exact path disjointness proves the narrow safe case with existing reconstruction and validation machinery. Same-file, semantic, fuzzy, and three-way policies remain out of scope.
+
+### Stop repairs on exact repeated state
+
+Decision: Core hashes candidate identity plus typed failure state while excluding only attempt IDs, timestamps, and durations. An identical pair terminates as exact no-progress without spending remaining repair budget; changed candidates or failure facts continue.
+
+Reason: Fixed budgets cap cost but still allow provably identical work. Exact hashing provides deterministic termination without fuzzy progress policy.
+
+### Fuse eligible vertical serial chains in the compiler
+
+Decision: After initial graph and tier derivation, the compiler iteratively fuses only unique predecessor/successor chains with matching kind, tier, profile context, coverage-normalized resource closure, and compatible validation. A later node must explicitly read an earlier write after change. Source order, exact-entry deduplication, authority union, dependencies, and `sourcePlanIds` are preserved; deterministic fused IDs derive from ordered source node IDs. Branches, joins, final-validation edges, incompatible contexts, and runtime fusion are excluded.
+
+Reason: One setup/model/normalization/validation/apply cycle is cheaper than artificial vertical serial boundaries, while deterministic compiler ownership keeps runtime and packet authority unchanged.
+
+### Keep profiler and tmux changes compatibility-only
+
+Decision: Evidence Receipts, exact cohorts, comparisons, and node alignment include exact profile identity, and existing inspector fields surface reconciliation and exact-no-progress dispositions. Scenario schedules use the post-confirmation Event boundary; total run duration may exceed the Event span because profile validation precedes `run-started`, but it may not be shorter. No profiler page, route, export, dashboard, or benchmark framework is added. Interactive benchmark runs create a fresh visible pane in `doubleword:fanout-canary`; tmux remains an operator/runbook boundary and never becomes product authority.
+
+Reason: The current profiler already has the required evidence seams, and pane control is operational evidence collection rather than Fanout behavior.
 
 ## 2026-07-13
 
@@ -178,7 +480,7 @@ Reason: Prompt templates were Pi-native and cheap to test. The prompt proved use
 
 Decision: Inject a lightweight think-ahead batching instruction with `before_agent_start` for every normal Pi run.
 
-Reason: This keeps the normal Pi loop while nudging each turn to batch independent reads, greps, inspections, and checks before adding any custom orchestration.
+Reason: This keeps the normal Pi loop while nudging each turn to batch independent reads, greps, inspections, checks, and disjoint-file edits or writes. Dependent, overlapping, and same-file mutations remain separate.
 
 ### Turn count and tool batch size are logged now
 
@@ -224,7 +526,7 @@ Reason: Tier 2 comparisons should show the latency/cost tradeoff instead of reus
 
 ### Keep DAG executor deferred after trace-DAG check
 
-Decision: Do not build a DAG executor from the B0 trace evidence.
+Decision: Do not build a DAG executor from the B0 execution evidence.
 
 Reason: D1 found no off-critical assistant/model turns in the faithful trace DAG. The only trace-backed fan-out is local tool batching, while tier 2 remains useful only for background or batch work outside the active loop.
 
@@ -268,7 +570,7 @@ Reason: Portfolio evidence must not accept the fastest invalid branch or hide re
 
 Decision: Treat the current <=3x active TAT passes as synthetic fixture-policy evidence unless a workflow source is observed or explicitly trace-derived. Mixed benchmark reports must keep `observability`, `pi-session`, and synthetic `hybrid-workflow` source labels visible, and docs must not describe synthetic passes as observed trace feasibility.
 
-Reason: The mixed run proves parser, simulator, schedule, active/background, and target-accounting semantics across existing and synthetic inputs. It does not prove that existing Pi traces have the same eligible workflow shape, so overclaiming would hide the difference between workflow feasibility and observed-trace evidence.
+Reason: The mixed run proves parser, simulator, schedule, active/background, and target-accounting semantics across existing and synthetic inputs. It does not prove that existing Pi execution evidence has the same eligible workflow shape, so overclaiming would hide the difference between workflow feasibility and observed execution evidence.
 
 ### Use active acceptance boundaries for target comparisons
 
@@ -422,15 +724,15 @@ Reason: The benchmark is cheap and prompt-only, so the threshold should be high.
 
 ### Promote durable prompt benchmark summaries, not raw runs
 
-Decision: Keep raw prompt-DAG generator/evaluator artifacts ignored under `runs/`, but promote durable summaries, best prompt text, and the experiment template into tracked `docs/benchmarks/fanout-dag-*.md` files.
+Historical decision: keep raw prompt-DAG generator/evaluator artifacts ignored under `runs/` and promote durable results into tracked benchmark notes. The September 16 publication policy supersedes copying full recorded prompt text: publish scores, strategy summaries and generic experiment templates only; preserve recorded prompt bodies locally.
 
-Reason: Raw artifacts are useful for local audit but too noisy to commit. Tracked summaries preserve the benchmark result, reproducible procedure, and current prompt candidates for future clones and reviews.
+Reason: Raw artifacts are useful for local audit but too noisy to commit. Tracked summaries preserve benchmark results and procedures; public materials do not reproduce historical prompt payloads.
 
 ## 2026-07-08
 
 ### Split `/fanout-plan` into explicit implementation and detail prompts
 
-Status: The two-phase planning decision remains current; its legacy packet output was superseded on 2026-07-14 by the closed plan-v2/details-v3/packet-v5 generation.
+Status: Historical model-call structure, superseded by the [2026-09-06 combined-planning decision](#optimize-sequential-provider-requests-with-combined-planning-and-prepared-workers). One model investigation now submits both plan and details; their separate persisted authority and provenance remain. The packet generation described below was superseded on 2026-07-14 and by later cutovers; its rationale is retained as history.
 
 Decision: Keep one `/fanout-plan` command, but run two explicit prompts plus a deterministic compiler. The controller envelopes Phase A as plan v2 and Phase B as details v3, binds their exact identities, and compiles packet v5 nodes containing one work-contract v1 each. `fanout-core` groups typed change resources, derives dependencies from typed `post-change-required` reads, assigns tiers, and stores authoritative integrated validation only in the final-validation contract.
 
@@ -438,9 +740,9 @@ Reason: Implementation planning, repo grounding, and execution compilation are d
 
 ### Compiler owns execution DAG construction
 
-Decision: Phase A decides what/why and maximum typed scope; Phase B supplies typed changes, anchors, reads, forbidden writes, and direct-argv validation; the compiler owns grouping, DAG derivation, and tier assignment. Every Phase A write remains covered by same-source Phase B changes. A cross-node Phase A read must receive typed Phase B timing; after one unsuccessful Phase B repair, the compiler may insert a typed `post-change-required` read with `timingSource: "sequential-fallback"`, which derives both the conservative edge and its warning. No prose, formatted diagnostic, persisted graph, or worker handoff copy controls scheduling.
+Decision: Phase A decides what/why and maximum typed scope; Phase B supplies typed changes, anchors, reads, forbidden writes, and direct-argv validation; the compiler owns grouping, DAG derivation, and tier assignment. Phase A boundaries follow independent authorability, scoped validation, and repair authority rather than file categories or standalone-release usefulness: a work item is a worker ownership and repair boundary and may rely on eventual completion of other accepted plan items. Production and behavioral-test writes belong to one item when focused validation can reasonably fail in a way that requires repairing production code across the proposed boundary; a dependency edge is not a substitute for shared repair authority. A split pass then separates every remaining independently authorable and repairable change with disjoint write authority and sufficient scoped validation. Split items declare genuine typed reads honestly and never pad reads to trigger fusion. Phase B uses `baseline-context` whenever planning-base contents are sufficient and reserves `post-change-required` for a specific accepted upstream change whose reason explains why the baseline is insufficient; convenience, precautionary, redundant, and transitive dependencies are rejected. Every Phase A write remains covered by same-source Phase B changes. A cross-node Phase A read must receive typed Phase B timing; after one unsuccessful Phase B repair, the compiler may insert a typed `post-change-required` read with `timingSource: "sequential-fallback"`, which derives both the conservative edge and its warning. No prose, formatted diagnostic, persisted graph, or worker handoff copy controls scheduling.
 
-Reason: Prompted DAG construction was too easy to overfit or over-serialize. Deterministic grouping and read-dependency rules are smaller, safer, and easier to smoke-test before `/fanout-execute` exists.
+Reason: Prompted DAG construction was too easy to overfit or over-serialize. File-category splitting produced a test-only repair boundary that could detect but not repair its production defect, while treating each item as a standalone release falsely serialized independently owned types and documentation. Worker-boundary authorability, sufficient scoped validation, independent repairability, deterministic grouping, and typed read-dependency rules keep authority honest without weakening compiler fusion predicates.
 
 ### Advance `/fanout-plan` from artifacts, not prompt markers
 
@@ -520,9 +822,9 @@ Reason: The Phase 3 contract needs a fresh git worktree per attempt, attempt-sco
 
 ### Allow only typed bounded execution recovery
 
-Decision: `/fanout-execute` may run bounded tier1 recovery for two typed cases: validation-failure repair and integration-conflict repair. Retry/fallback handles retryable tier2 worker/provider failures. Generic repair agents, scope expansion, ownership expansion, partial patch application, and arbitrary retries remain out of scope.
+Decision: `/fanout-execute` may run bounded tier1 recovery for two typed cases: validation-failure repair and integration-conflict repair. Retry/fallback handles retryable tier2 worker/provider failures. An original candidate rejected as `unauthorized-change` may also consume the node's existing clean retry: the controller discards the whole candidate and launches the same assignment and unchanged work contract in a fresh reconstruction of the latest accepted ledger. A repeated unauthorized change, an exhausted retry pool, and every `forbidden-change` fail without another launch. Generic repair agents, scope expansion, ownership expansion, partial patch application, rejected-candidate seeding, and arbitrary retries remain out of scope.
 
-Reason: Valid worker output can still fail local validation or conflict with already-applied parallel patches. Typed bounded recovery preserves safety while avoiding an open-ended repair loop.
+Reason: Valid worker output can still fail local validation or conflict with already-applied parallel patches, while a worker can complete useful work but exceed explicit ownership. One clean rerun can recover scope obedience without trusting or trimming unauthorized bytes. Typed bounded recovery preserves safety while avoiding an open-ended repair loop.
 
 ### Anchor execution artifacts to the loaded packet path
 

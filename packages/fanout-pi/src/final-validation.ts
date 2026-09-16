@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AcceptedStateTransition } from "../../fanout-core/src/artifact-identity.ts";
 import type { ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
@@ -12,12 +12,13 @@ import {
 	type FinalValidationEvidence,
 	type FinalValidationFailure,
 	type FinalValidationResult,
+	type FinalControllerResult,
 	type RepositoryBoundaryIdentity,
 } from "../../fanout-core/src/final-validation.ts";
 import { parseValidationCommands, type ValidationCommand } from "../../fanout-core/src/validation-command.ts";
 import type { AcceptedLedgerProvenance, FinalValidationRecoveryContext, ValidationCommandEvidence } from "../../fanout-core/src/recovery-evidence.ts";
 import type { WorkContract } from "../../fanout-core/src/work-contract.ts";
-import { writeArtifactAtomically } from "./artifact-store.ts";
+import { ArtifactPublicationError, reserveArtifactDirectory, writeArtifactAtomically } from "./artifact-store.ts";
 import {
 	captureRepositoryState,
 	createReconstructedWorktree,
@@ -39,7 +40,7 @@ export interface FinalValidationRoundOptions {
 	candidate?: AcceptedStateTransition;
 	timeoutMs?: number;
 	signal?: AbortSignal;
-	prepareWorktree?: (worktreePath: string) => void;
+	prepareWorktree?: (worktreePath: string) => ArtifactIdentity | Promise<ArtifactIdentity>;
 }
 
 export interface FinalRepairHooks<T> {
@@ -49,55 +50,96 @@ export interface FinalRepairHooks<T> {
 	upstreamWorkContracts: Array<{ nodeId: string; workContract: WorkContract }>;
 	acceptedLedger: readonly AcceptedLedgerProvenance[];
 	available: () => boolean;
-	launch: (recovery: FinalValidationRecoveryContext, source: { attemptId?: string; evidence?: ArtifactIdentity }) => Promise<{ attemptId: string; candidate?: T; continue: boolean }>;
+	launch: (recovery: FinalValidationRecoveryContext, source: { attemptId?: string; evidence?: ArtifactIdentity }, seed?: T) => Promise<{ attemptId: string; candidate?: T; continue: boolean }>;
 	transition: (candidate: T) => AcceptedStateTransition;
 	authorize: (candidate: T) => Promise<boolean>;
 	reject: (candidate: T, result: FinalValidationResult, recovery: FinalValidationRecoveryContext | undefined, fact: StageFact) => Promise<boolean>;
-	apply: (candidate: T, result: FinalValidationResult) => Promise<boolean>;
+	apply: (candidate: T, result: FinalValidationResult) => Promise<{ ok: boolean; attemptId: string }>;
+	retainMutationLock: () => void;
 }
 
 export interface FinalValidationControllerOptions<T> extends Omit<FinalValidationRoundOptions, "roundId" | "candidate"> {
 	repair?: FinalRepairHooks<T>;
 }
 
-export async function runFinalValidation<T>(options: FinalValidationControllerOptions<T>): Promise<FinalValidationResult> {
-	const initialResult = await runFinalValidationRound({ ...options, roundId: "initial" });
-	let result = initialResult;
-	if (!result.repairable || !options.repair) return result;
-	let source: { attemptId?: string; evidence?: ArtifactIdentity } = { evidence: result.evidenceArtifact };
-	let recovery = finalRecovery(result, options.repair, options.expectedActiveTree);
+export async function runFinalValidation<T>(options: FinalValidationControllerOptions<T>): Promise<FinalControllerResult> {
+	const roundsPath = join(options.runDir, "final-validation", "rounds");
+	let roundNumber = existsSync(roundsPath) ? readdirSync(roundsPath).reduce((next, name) => {
+		const match = /^(\d+)-/.exec(name);
+		return match ? Math.max(next, Number(match[1]) + 1) : next;
+	}, 0) : 0;
+	let result: FinalValidationResult | null = null;
+	let totalCommandDurationMs: number | null = 0;
+	const completed = (failure?: FinalControllerResult["failure"]): FinalControllerResult => ({
+		status: failure ? "failed" : "passed", lastRound: result, totalCommandDurationMs, ...(failure ? { failure } : {}),
+	});
+	const executeRound = async (candidate?: AcceptedStateTransition): Promise<FinalValidationResult | FinalControllerResult> => {
+		const roundId = `${String(roundNumber++).padStart(3, "0")}-${candidate ? `repair-${candidate.patch.artifact.sha256.slice(0, 12)}` : "initial"}`;
+		try {
+			result = await runFinalValidationRound({ ...options, roundId, ...(candidate ? { candidate, expectedValidationTree: candidate.patch.resultTree } : {}) });
+			totalCommandDurationMs = Math.round(((totalCommandDurationMs ?? 0) + result.durationMs) * 1000) / 1000;
+			return result;
+		} catch (error) {
+			result = null;
+			totalCommandDurationMs = null;
+			return completed({ kind: "controller", code: error instanceof ArtifactPublicationError ? "publication-failure" : "internal-failure", detail: errorMessage(error) });
+		}
+	};
+	const initial = await executeRound();
+	if ("lastRound" in initial) return initial;
+	let lastRound = initial;
+	if (!lastRound.repairable || !options.repair) return completed(lastRound.status === "failed" ? { kind: "round" } : undefined);
+	let source: { attemptId?: string; evidence?: ArtifactIdentity } = { evidence: lastRound.evidenceArtifact };
+	let recovery = finalRecovery(lastRound, options.repair, options.expectedActiveTree);
+	let latestRejected: T | undefined;
+	let failedAttemptId: string | undefined;
 	while (options.repair.available()) {
-		const launched = await options.repair.launch(recovery, source);
+		const launched = await options.repair.launch(recovery, source, latestRejected);
+		failedAttemptId = launched.attemptId;
 		if (!launched.candidate) {
-			if (!launched.continue) return initialResult;
+			if (!launched.continue) return completed({ kind: "attempt", attemptId: launched.attemptId });
 			source = { attemptId: launched.attemptId };
 			continue;
 		}
-		if (!await options.repair.authorize(launched.candidate)) return initialResult;
+		if (!await options.repair.authorize(launched.candidate)) return completed({ kind: "attempt", attemptId: launched.attemptId });
 		const transition = options.repair.transition(launched.candidate);
-		result = await runFinalValidationRound({ ...options, roundId: `repair-${transition.patch.artifact.sha256.slice(0, 12)}`, candidate: transition, expectedValidationTree: transition.patch.resultTree });
-		if (result.status === "passed") {
-			return await options.repair.apply(launched.candidate, result)
-				? recordAcceptedFinalRepair(options.repoRoot, options.runDir, result, transition)
-				: initialResult;
+		const nextRound = await executeRound(transition);
+		if ("lastRound" in nextRound) return nextRound;
+		lastRound = nextRound;
+		if (lastRound.status === "passed") {
+			const applied = await options.repair.apply(launched.candidate, lastRound);
+			if (!applied.ok) return completed({ kind: "attempt", attemptId: applied.attemptId });
+			try { result = recordAcceptedFinalRepair(options.repoRoot, options.runDir, lastRound, transition); }
+			catch (error) {
+				options.repair.retainMutationLock();
+				return completed({ kind: "controller", code: error instanceof ArtifactPublicationError ? "publication-failure" : "internal-failure", detail: errorMessage(error) });
+			}
+			return completed();
 		}
-		const nextRecovery = result.repairable ? finalRecovery(result, options.repair, options.expectedActiveTree) : undefined;
-		if (!await options.repair.reject(launched.candidate, result, nextRecovery, finalValidationFact(result))) return initialResult;
-		recovery = nextRecovery as FinalValidationRecoveryContext;
+		const nextRecovery = lastRound.repairable ? finalRecovery(lastRound, options.repair, options.expectedActiveTree) : undefined;
+		if (!await options.repair.reject(launched.candidate, lastRound, nextRecovery, finalValidationFact(lastRound))) return completed({ kind: "attempt", attemptId: launched.attemptId });
+		latestRejected = launched.candidate;
+		if (!nextRecovery) return completed({ kind: "attempt", attemptId: launched.attemptId });
+		recovery = nextRecovery;
 		source = { attemptId: launched.attemptId };
 	}
-	return initialResult;
+	return completed(failedAttemptId ? { kind: "attempt", attemptId: failedAttemptId } : { kind: "round" });
 }
 
 export async function runFinalValidationRound(options: FinalValidationRoundOptions): Promise<FinalValidationResult> {
 	const commands = parseValidationCommands(options.commands, process.platform);
+	if (!commands.length) throw new TypeError("final validation requires a nonempty authoritative command manifest");
 	const roundRoot = join(options.runDir, "final-validation", "rounds", options.roundId);
 	const worktreePath = join(roundRoot, "worktree");
-	mkdirSync(roundRoot, { recursive: true });
+	if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(options.roundId)) throw new TypeError("final validation round ID must be a single path segment");
+	try { reserveArtifactDirectory(options.runDir, `final-validation/rounds/${options.roundId}`); }
+	catch (error) { throw new ArtifactPublicationError(`final validation round already exists or cannot be created: ${options.roundId}`, { cause: error }); }
 	const replay = [...options.ledger, ...(options.candidate ? [options.candidate] : [])];
 	try {
 		createReconstructedWorktree(options.repoRoot, worktreePath, options.planningBase, options.runDir, replay);
-		options.prepareWorktree?.(worktreePath);
+		const preparation = options.prepareWorktree
+			? await options.prepareWorktree(worktreePath)
+			: writeArtifactAtomically(options.runDir, `final-validation/rounds/${options.roundId}/preparation.json`, Buffer.from("{}\n"), { noClobber: true });
 		const validationBefore = captureRepositoryState(worktreePath);
 		const activeBefore = captureRepositoryState(options.repoRoot);
 		const validationReady = matchesExpected(validationBefore, options.planningBase.headCommit, options.expectedValidationTree);
@@ -141,11 +183,12 @@ export async function runFinalValidationRound(options: FinalValidationRoundOptio
 			active: { before: activeBefore, after: activeAfter },
 			commands: commandEvidence,
 			durationMs,
+			preparation,
 			...(failure ? { failure } : {}),
 			...(options.candidate ? { candidate: options.candidate } : {}),
 			trustBoundary: FINAL_VALIDATION_TRUST_BOUNDARY,
 		};
-		const evidenceArtifact = writeArtifactAtomically(options.runDir, `final-validation/rounds/${options.roundId}.json`, Buffer.from(`${JSON.stringify(evidence, null, 2)}\n`));
+		const evidenceArtifact = writeArtifactAtomically(options.runDir, `final-validation/rounds/${options.roundId}.json`, Buffer.from(`${JSON.stringify(evidence, null, 2)}\n`), { noClobber: true });
 		return {
 			status: evidence.status,
 			commandCount: commandEvidence.length,
@@ -165,7 +208,7 @@ export function recordAcceptedFinalRepair(repoRoot: string, runDir: string, resu
 	const activeAfterApply = captureRepositoryState(repoRoot);
 	if (!matchesExpected(activeAfterApply, transition.patch.headCommit, transition.patch.resultTree)) throw new Error("accepted final repair active identity does not match its validated candidate");
 	const evidence: FinalValidationEvidence = { ...result.evidence, acceptedRepair: { transition, activeAfterApply } };
-	const evidenceArtifact = writeArtifactAtomically(runDir, `final-validation/rounds/${result.evidence.roundId}-accepted.json`, Buffer.from(`${JSON.stringify(evidence, null, 2)}\n`));
+	const evidenceArtifact = writeArtifactAtomically(runDir, `final-validation/rounds/${result.evidence.roundId}-accepted.json`, Buffer.from(`${JSON.stringify(evidence, null, 2)}\n`), { noClobber: true });
 	return { ...result, evidence, evidenceArtifact };
 }
 

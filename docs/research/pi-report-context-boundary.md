@@ -1,12 +1,12 @@
 # Pi report-to-context boundary
 
-**Status:** implemented and covered by the hardened-generation offline matrix (2026-07-14)
+**Status:** historical Pi 0.80.6 investigation, implemented and covered by the hardened-generation offline matrix on 2026-07-14. Packet v6, event v3 and projection v4 references below describe that checkpoint, not current artifact generations. See the [current architecture](../ARCHITECTURE.md) and [design decisions](../DESIGN_DECISIONS.md) for present contracts.
 
 **Installed runtime examined:** `@earendil-works/pi-coding-agent` 0.80.6
 
 **Scope:** Fanout's Pi adapter only; `fanout-core` remains Pi-independent.
 
-## Current decision
+## Decision at the July 2026 checkpoint
 
 Planning and execution reports use Pi custom session entries, never custom messages. The adapter requires both `pi.appendEntry(customType, data)` and `pi.registerEntryRenderer(customType, renderer)` before report presentation is considered available. A `custom` entry persists for transcript display but Pi's `buildSessionContext()` projects it to zero provider messages. By contrast, `pi.sendMessage()` creates a context-bearing `custom_message`; `triggerTurn: false` changes scheduling, not later context membership.
 
@@ -20,7 +20,7 @@ customType: fanout.execution-report
 data: { schema: "fanout.execution-report", version: 1, content: string }
 ```
 
-Each renderer is registered for one matching custom type. It accepts only the three own data fields `schema`, `version`, and `content`; requires the matching schema and version `1`; and rejects missing, legacy, future, unknown-field, non-string, and cross-type input. At render time it wraps the unchanged content to Pi's supplied component width with Pi's ANSI-aware text utility, because every returned TUI line must fit that width. The data is presentation-only: planning Markdown derives from packet v6, while execution Markdown derives from projection v3 and the event-v2 log remains run-state authority.
+Each renderer is registered for one matching custom type. It accepts only the three own data fields `schema`, `version`, and `content`; requires the matching schema and version `1`; and rejects missing, legacy, future, unknown-field, non-string, and cross-type input. At render time it wraps the unchanged content to Pi's supplied component width with Pi's ANSI-aware text utility, because every returned TUI line must fit that width. The data is presentation-only: planning Markdown derives from packet v6, while execution Markdown derives from projection v4 and the event-v3 log remains run-state authority.
 
 If either safe API is absent, registration throws, append throws, or data is malformed, Fanout does not fall back to `sendMessage`, `sendUserMessage`, a tool result, or `before_agent_start.message`. Artifact creation and the model-context boundary remain separate concerns.
 
@@ -48,9 +48,9 @@ Relevant upstream references are the [Pi 0.80.6 session manager](https://github.
 
 Transient `notify`, status, widget, or custom UI surfaces may be useful for concise progress, but they are not durable transcript substitutes and never justify a context-bearing fallback.
 
-## Separate planning-prompt boundary
+## Separate planning-prompt boundary at that checkpoint
 
-Internal Phase A, Phase B, and repair prompts intentionally instruct one model turn, so they do not use report entries. The adapter retains a typed pending phase, sends only a short visible follow-up trigger, and injects the full internal prompt into `before_agent_start.systemPrompt` for the matching turn. It then clears or transitions the phase and restores the exact prior tool profile on success, failure, cancellation, or malformed post-submission bytes.
+Internal Phase A, Phase B, and repair prompts then intentionally instructed one model turn, so they did not use report entries. The adapter retained a typed pending phase, sent only a short visible follow-up trigger, and injected the full internal prompt into `before_agent_start.systemPrompt` for the matching turn. It then cleared or transitioned the phase and restored the exact prior tool profile on success, failure, cancellation, or malformed post-submission bytes. The later [combined-planning implementation](../impl/fanout-efficiency-progress.md#implementation-decisions-retained-from-the-study) superseded separate model Phase A/B turns while retaining the context-free report boundary.
 
 The two rules are therefore distinct:
 
@@ -71,4 +71,4 @@ Neither rule treats `display`, delivery mode, `triggerTurn`, truncation, or late
 - TUI, RPC, JSON, and print session-context probes exclude private planning/execution report text and custom types from later provider requests;
 - Phase A and Phase B lifecycle cleanup restores the exact prior tool profile, including malformed accepted bytes.
 
-The report boundary is now an implemented adapter contract. Remaining host-specific uncertainties such as RPC client presentation or HTML export rendering do not change the model-context rule and are not execution authority.
+At this checkpoint, the report boundary was an implemented adapter contract. Remaining host-specific uncertainties such as RPC client presentation or HTML export rendering did not change the model-context rule and were not execution authority.

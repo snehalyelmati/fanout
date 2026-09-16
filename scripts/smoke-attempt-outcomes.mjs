@@ -1,6 +1,13 @@
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { correlatedWorkerMetrics } from "../packages/fanout-pi/src/attempt-evidence.ts";
+import { executeWorkerAttempt } from "../packages/fanout-pi/src/worker-attempt-execution.ts";
+import { capturePlanningBase } from "../packages/fanout-pi/src/repository-identity.ts";
 import { correlateAttemptMetrics, deriveAttemptMetricTotals, deriveSummedResponseTtftMs } from "../packages/fanout-core/src/attempt-metrics.ts";
 import { parseAttemptRecoveryContext } from "../packages/fanout-core/src/recovery-evidence.ts";
-import { FIXED_WORKER_CAPABILITIES } from "../packages/fanout-core/src/work-contract.ts";
+import { FIXED_WORKER_CAPABILITIES, WORK_CONTRACT_VERSION } from "../packages/fanout-core/src/work-contract.ts";
 import {
   allocateAttempt,
   appendTerminalOutcome,
@@ -28,6 +35,9 @@ assert(routeAttempt({ stage: "provider", code: "rate-limit", httpStatus: 429 }, 
 assert(routeAttempt({ stage: "provider", code: "authentication", httpStatus: 401 }, retryContext) === "fail", "authentication retried");
 assert(routeAttempt({ stage: "provider", code: "quota" }, retryContext) === "fail", "quota exhaustion retried");
 assert(routeAttempt({ stage: "provider", code: "invalid-model" }, retryContext) === "fail", "invalid model retried");
+assert(routeAttempt({ stage: "worker-gate", code: "unauthorized-change" }, retryContext) === "retry", "original unauthorized candidate did not receive one clean retry");
+assert(routeAttempt({ stage: "worker-gate", code: "unauthorized-change" }, { ...retryContext, kind: "retry", remaining: noBudgets }) === "fail", "repeated unauthorized candidate escaped its retry limit");
+assert(routeAttempt({ stage: "worker-gate", code: "forbidden-change" }, retryContext) === "fail", "forbidden candidate retried");
 assert(routeAttempt({ stage: "process", code: "user-abort", durationMs: 1 }, retryContext) === "abort", "user abort did not abort");
 for (const code of ["preflight-failure", "spawn-failure", "timeout", "signal", "head-drift", "index-drift", "identity-failure", "audit-failure"]) {
   assert(routeAttempt({ stage: "candidate-normalization", code, commandIndex: 0 }, retryContext) === "fail", `candidate normalization ${code} consumed model retry authority`);
@@ -150,6 +160,11 @@ assert(exhaustedOutcome.action === "fail" && exhaustedOutcome.recovery?.kind ===
 // A11: identity correlation, not event order or provider/model equality, admits metrics.
 const generic = correlateAttemptMetrics(genericEvidence(original.allocation.attemptId));
 assert(generic.ok && generic.metrics?.complete && deriveAttemptMetricTotals(generic.metrics).totalTokens === 18 && deriveAttemptMetricTotals(generic.metrics).toolDurationMs === 3, `generic correlation failed: ${JSON.stringify(generic.errors)}`);
+const cachedEvidence = genericEvidence(original.allocation.attemptId);
+cachedEvidence.turns[0].cacheReadTokens = 2;
+cachedEvidence.turns[0].cacheWriteTokens = 1;
+const cached = correlateAttemptMetrics(cachedEvidence);
+assert(cached.ok && deriveAttemptMetricTotals(cached.metrics).cacheReadTokens === 2 && deriveAttemptMetricTotals(cached.metrics).cacheWriteTokens === 1 && deriveAttemptMetricTotals(cached.metrics).totalTokens === 18, "overlapping cache usage did not survive strict correlation");
 const forged = originalLaunch("forged", assignment);
 const forgedMetrics = observedMetrics(forged.allocation, true);
 expectThrow(() => completeAttempt({ ...forged.allocation, attemptId: "forged-id", budgetTransition: { name: "original", before: -1, after: 0, limit: 1 } }, { startedAt: "2026-07-13T00:00:00.000Z", finishedAt: "2026-07-13T00:00:01.000Z", terminalFact: { stage: "apply", code: "applied" }, state: forged.state, fallbackAllowed: true, metrics: forgedMetrics }), "forged allocation completed");
@@ -162,6 +177,12 @@ expectMetricCode(noTurns, "missing-identity");
 const instrumentedEvidence = providerEvidence(original.allocation.attemptId);
 const instrumented = correlateAttemptMetrics(instrumentedEvidence);
 assert(instrumented.ok && deriveSummedResponseTtftMs(instrumented.metrics) === 5 && deriveAttemptMetricTotals(instrumented.metrics).pollCount === 3 && !("totals" in instrumented.metrics), `instrumented correlation failed: ${JSON.stringify(instrumented.errors)}`);
+const cachedProviderEvidence = structuredClone(instrumentedEvidence);
+cachedProviderEvidence.turns[0].cacheReadTokens = 10;
+cachedProviderEvidence.turns[0].cacheWriteTokens = 1;
+cachedProviderEvidence.responses[0].cacheReadTokens = 10;
+cachedProviderEvidence.responses[0].cacheWriteTokens = 1;
+assert(correlateAttemptMetrics(cachedProviderEvidence).ok, "overlapping provider cache usage was rejected");
 const reordered = structuredClone(instrumentedEvidence);
 reordered.responses.reverse();
 reordered.tools.reverse();
@@ -174,9 +195,24 @@ assert(correlateAttemptMetrics(wrongAttempt).partialMetrics.responses.every((res
 const duplicateResponse = structuredClone(instrumentedEvidence);
 duplicateResponse.responses.push(structuredClone(duplicateResponse.responses[0]));
 expectMetricCode(duplicateResponse, "duplicate-identity");
+const reusedResponseIdentity = structuredClone(instrumentedEvidence);
+reusedResponseIdentity.responses[1].responseId = reusedResponseIdentity.responses[0].responseId;
+reusedResponseIdentity.turns[1].responseIds[0] = reusedResponseIdentity.responses[0].responseId;
+expectMetricCode(reusedResponseIdentity, "duplicate-identity");
+const multiplyClaimedResponse = structuredClone(instrumentedEvidence);
+multiplyClaimedResponse.turns[1].responseIds.push("response-1");
+expectMetricCode(multiplyClaimedResponse, "duplicate-identity");
 const reversedParent = structuredClone(instrumentedEvidence);
 reversedParent.responses[0].turnId = "turn-2";
 expectMetricCode(reversedParent, "correlation-mismatch");
+const reversedInterval = structuredClone(instrumentedEvidence);
+reversedInterval.responses[0].firstTokenAt = "2026-07-13T00:00:00.010Z";
+reversedInterval.responses[0].requestedAt = "2026-07-13T00:00:00.011Z";
+expectMetricCode(reversedInterval, "correlation-mismatch");
+const wrongDuration = structuredClone(instrumentedEvidence);
+wrongDuration.turns[0].durationMs++;
+expectMetricCode(wrongDuration, "correlation-mismatch");
+assert(!correlateAttemptMetrics(wrongDuration).partialMetrics.turns.some((turnEvidence) => turnEvidence.turnId === "turn-1"), "contradictory interval remained in partial evidence");
 const mismatchedResponse = structuredClone(instrumentedEvidence);
 mismatchedResponse.responses[0].responseId = "unknown-response";
 expectMetricCode(mismatchedResponse, "correlation-mismatch");
@@ -189,6 +225,9 @@ expectMetricCode(unknownTool, "correlation-mismatch");
 const duplicateTool = structuredClone(instrumentedEvidence);
 duplicateTool.tools.push(structuredClone(duplicateTool.tools[0]));
 expectMetricCode(duplicateTool, "duplicate-identity");
+const multiplyClaimedTool = structuredClone(instrumentedEvidence);
+multiplyClaimedTool.turns[1].toolCallIds.push("tool-1");
+expectMetricCode(multiplyClaimedTool, "duplicate-identity");
 const missingTool = structuredClone(instrumentedEvidence);
 missingTool.tools.pop();
 expectMetricCode(missingTool, "missing-tool");
@@ -197,7 +236,7 @@ genericWithProviderRecord.responses.push(providerEvidence(original.allocation.at
 expectMetricCode(genericWithProviderRecord, "provider-evidence-mismatch");
 const instrumentedWithoutResponse = structuredClone(instrumentedEvidence);
 instrumentedWithoutResponse.responses = [];
-expectMetricCode(instrumentedWithoutResponse, "missing-identity");
+expectMetricCode(instrumentedWithoutResponse, "missing-measurement");
 const missingPoll = structuredClone(instrumentedEvidence);
 delete missingPoll.polls[0].durationMs;
 expectMetricCode(missingPoll, "missing-poll");
@@ -205,6 +244,9 @@ assert(!correlateAttemptMetrics(missingPoll).partialMetrics.polls.some((poll) =>
 const duplicatePoll = structuredClone(instrumentedEvidence);
 duplicatePoll.polls.push(structuredClone(duplicatePoll.polls[0]));
 expectMetricCode(duplicatePoll, "duplicate-identity");
+const multiplyClaimedPoll = structuredClone(instrumentedEvidence);
+multiplyClaimedPoll.responses[1].pollIds.push("poll-1");
+expectMetricCode(multiplyClaimedPoll, "duplicate-identity");
 const crossAttemptPoll = structuredClone(instrumentedEvidence);
 crossAttemptPoll.polls[0].attemptId = "other:000001";
 expectMetricCode(crossAttemptPoll, "correlation-mismatch");
@@ -215,7 +257,61 @@ expectMetricCode(reversedPollParent, "correlation-mismatch");
 const partialEvidence = genericEvidence(original.allocation.attemptId);
 delete partialEvidence.workerDurationMs;
 const partial = correlateAttemptMetrics(partialEvidence);
-assert(!partial.ok && !partial.partialMetrics.complete && deriveAttemptMetricTotals(partial.partialMetrics).costUsd === 0.18, "failed attempt lost observed partial cost");
+assert(partial.ok && !partial.partialMetrics.complete && deriveAttemptMetricTotals(partial.partialMetrics).costUsd === 0.18, "failed attempt lost observed partial cost");
+
+await workerMetricsFailureRegression();
+for (const [field, observed] of Object.entries({ provider: "wrong-provider", model: "wrong-model", tier: "tier1" })) {
+  const launch = originalLaunch(`invalid-${field}`, assignment);
+  const evidence = genericEvidence(launch.allocation.attemptId);
+  evidence.turns[0][field] = observed;
+  const metrics = correlateAttemptMetrics(evidence, [{ code: "provider-evidence-mismatch", path: `worker.${field}`, message: "supplied assignment contradicts allocation" }]).partialMetrics;
+  expectThrow(() => finishAttempt(launch.allocation, launch.state, { stage: "apply", code: "applied" }, { metrics }), "invalid assignment became accepted");
+  const failed = finishAttempt(launch.allocation, launch.state, { stage: "metrics", code: "correlation-mismatch" }, { metrics });
+  const replayed = parseAttemptOutcome(JSON.parse(JSON.stringify(failed)));
+  assert(replayed.action === "fail" && replayed.metrics.status === "invalid" && replayed.metrics.turns[0][field] === observed, "contradicted assignment could not complete/replay a failed attempt with its original observation");
+  const foreign = structuredClone(replayed);
+  foreign.metrics.attemptId = "foreign:000001";
+  expectThrow(() => parseAttemptOutcome(foreign), "invalid measurements weakened attempt identity binding");
+  const validMismatch = originalLaunch(`valid-mismatch-${field}`, assignment);
+  const mismatchedEvidence = genericEvidence(validMismatch.allocation.attemptId);
+  mismatchedEvidence.turns[0][field] = observed;
+  expectThrow(() => finishAttempt(validMismatch.allocation, validMismatch.state, { stage: "metrics", code: "correlation-mismatch" }, { metrics: correlateAttemptMetrics(mismatchedEvidence).partialMetrics }), "valid metrics weakened assignment binding");
+}
+for (const [start, first, finish] of [[30, 10, undefined], [undefined, 50, 20], [30, undefined, 10]]) {
+  const evidence = genericEvidence("partial-order:000001");
+  Object.assign(evidence.turns[0], interval(start, first, finish, "requestedAt", "firstOutputAt", "finishedAt"));
+  for (const [key, value] of Object.entries({ requestedAt: start, firstOutputAt: first, finishedAt: finish })) if (value === undefined) delete evidence.turns[0][key];
+  delete evidence.turns[0].durationMs;
+  assert(correlateAttemptMetrics(evidence).partialMetrics.status === "invalid", "missing telemetry masked contradictory supplied timestamp ordering");
+}
+for (const boundary of ["start", "finish"]) {
+  const evidence = genericEvidence(`partial-containment-${boundary}:000001`);
+  delete evidence.turns[0].firstOutputAt;
+  delete evidence.turns[0].durationMs;
+  if (boundary === "start") {
+    delete evidence.turns[0].finishedAt;
+    Object.assign(evidence.tools[0], interval(9, undefined, 23, "startedAt", undefined, "finishedAt"));
+  } else {
+    delete evidence.turns[0].requestedAt;
+    Object.assign(evidence.tools[0], interval(20, undefined, 31, "startedAt", undefined, "finishedAt"));
+  }
+  assert(correlateAttemptMetrics(evidence).partialMetrics.status === "invalid", "missing parent endpoint masked contradicted child containment");
+}
+const partialEnvelope = genericEvidence("partial-envelope:000001");
+delete partialEnvelope.turns[0].finishedAt;
+delete partialEnvelope.turns[0].durationMs;
+const partialEnvelopeMetrics = correlateAttemptMetrics(partialEnvelope, [], { startedAt: "2026-07-13T00:00:00.011Z", finishedAt: "2026-07-13T00:00:00.100Z" }).partialMetrics;
+assert(partialEnvelopeMetrics.status === "invalid" && partialEnvelopeMetrics.turns[0].requestedAt === "2026-07-13T00:00:00.010Z", "partial attempt interval lost its supplied out-of-envelope endpoint");
+const missingResponse = providerEvidence("missing-response:000001");
+missingResponse.responses.pop();
+missingResponse.polls.pop();
+assert(correlateAttemptMetrics(missingResponse).partialMetrics.status === "partial", "missing child response fabricated a parent usage contradiction");
+missingResponse.turns[1].costUsd = 0.01;
+assert(correlateAttemptMetrics(missingResponse).partialMetrics.status === "invalid", "observed response subset exceeding parent total was admitted");
+const responseSpend = providerEvidence("response-spend:000001");
+delete responseSpend.turns[0].costUsd;
+const responseSpendMetrics = correlateAttemptMetrics(responseSpend).partialMetrics;
+assert(deriveAttemptMetricTotals(responseSpendMetrics).observedCostUsd === 0.18 && deriveAttemptMetricTotals(responseSpendMetrics).costUsd === null, "verified response spend was lost or double-counted when assistant cost was missing");
 
 const accepted = completeAttempt(forged.allocation, {
   startedAt: "2026-07-13T00:00:00.000Z",
@@ -227,9 +323,17 @@ const accepted = completeAttempt(forged.allocation, {
   evidenceRefs: ["patch.json", "validation.json"],
   diagnostic: "human-only text: 429 network crash",
 });
-assert(accepted.action === "accept" && accepted.durationMs === 1000 && accepted.budgetTransition.name === "original", "terminal outcome lost actual action or budget transition");
-assert(accepted.version === 2, "attempt outcome did not advance to v2");
-expectThrow(() => parseAttemptOutcome({ ...accepted, version: 1 }), "legacy attempt outcome v1 was admitted");
+assert(accepted.action === "accept" && accepted.disposition === "ordinary" && accepted.durationMs === 1000 && accepted.budgetTransition.name === "original", "terminal outcome lost actual action, disposition, or budget transition");
+assert(accepted.version === 6, "attempt outcome did not advance to v6");
+expectThrow(() => parseAttemptOutcome({ ...accepted, version: 5 }), "legacy attempt outcome v5 was admitted");
+expectThrow(() => parseAttemptOutcome({ ...accepted, version: 7 }), "future attempt outcome v7 was admitted");
+const mixedAttemptMetrics = structuredClone(accepted);
+delete mixedAttemptMetrics.metrics.turns[0].requestedAt;
+expectThrow(() => parseAttemptOutcome(mixedAttemptMetrics), "mixed-generation Attempt metrics were admitted");
+const escapedEnvelope = structuredClone(accepted);
+escapedEnvelope.metrics.turns[0].requestedAt = "2026-07-12T23:59:59.999Z";
+escapedEnvelope.metrics.turns[0].durationMs = Date.parse(escapedEnvelope.metrics.turns[0].finishedAt) - Date.parse(escapedEnvelope.metrics.turns[0].requestedAt);
+expectThrow(() => parseAttemptOutcome(escapedEnvelope), "metric interval outside the Attempt envelope was admitted");
 let outcomes = appendTerminalOutcome([], accepted);
 assert(outcomes.length === 1, "terminal outcome was not recorded");
 expectThrow(() => appendTerminalOutcome(outcomes, accepted), "duplicate terminal outcome was admitted");
@@ -240,7 +344,9 @@ const validationContractMismatch = validationRecoveryEvidence(original.allocatio
 validationContractMismatch.workContract.validationCommands[0] = { executable: process.execPath, args: ["-e", "process.exit(0)"] };
 expectThrow(() => parseAttemptRecoveryContext(validationContractMismatch), "validation recovery admitted commands different from its canonical work contract");
 const recoveryPrompt = buildCanonicalWorkerPrompt({ objective: "recover", userContext: [], discoveredRepoFacts: [], assumptions: [] }, { id: "node", kind: "implement", workContract: validationRecovery.workContract }, [], validationRecovery);
-assert(recoveryPrompt.includes('"status": "timeout"') && recoveryPrompt.includes('"status": "unexecuted"') && recoveryPrompt.includes('"stdout": "partial output"'), "canonical prompt lost typed validation recovery evidence");
+assert(recoveryPrompt.startsWith("Repair the rejected candidate already present in this worktree so every validation command passes."), "validation repair prompt did not begin with the repair action");
+assert(recoveryPrompt.indexOf("## Failed validation") < recoveryPrompt.indexOf("## Authorized work") && !recoveryPrompt.includes('"workContract"'), "validation repair prompt buried failure evidence or duplicated its contract");
+assert(recoveryPrompt.includes('"status": "timeout"') && recoveryPrompt.includes('"status": "unexecuted"') && recoveryPrompt.includes('"stdout": "partial output"') && recoveryPrompt.includes("untrusted data"), "canonical prompt lost or failed to contain typed validation recovery evidence");
 const validationCase = originalLaunch("validation-case", assignment);
 const validationCaseRecovery = parseAttemptRecoveryContext(validationRecoveryEvidence(validationCase.allocation.attemptId));
 const validationRepairOutcome = completeAttempt(validationCase.allocation, { startedAt: accepted.startedAt, finishedAt: accepted.finishedAt, terminalFact: { stage: "validation", code: "timeout", failedCommandIndexes: [1] }, state: validationCase.state, fallbackAllowed: true, metrics: observedMetrics(validationCase.allocation), recovery: validationCaseRecovery });
@@ -253,6 +359,9 @@ expectThrow(() => completeAttempt(missingRecoveryCase.allocation, { startedAt: a
 finishAttempt(missingRecoveryCase.allocation, missingRecoveryCase.state, { stage: "metrics", code: "missing-timing" });
 
 const integrationRecovery = parseAttemptRecoveryContext(integrationRecoveryEvidence(original.allocation.attemptId));
+const integrationPrompt = buildCanonicalWorkerPrompt({ objective: "integrate", userContext: [], discoveredRepoFacts: [], assumptions: [] }, { id: "node", kind: "implement", workContract: integrationRecovery.workContract }, [], integrationRecovery);
+assert(integrationPrompt.startsWith("Repair the rejected candidate for application to the current accepted tree."), "integration repair prompt did not begin with the repair action");
+assert(integrationPrompt.includes('"applyFailure"') && integrationPrompt.includes('"acceptedLedger"') && integrationPrompt.includes('"rejectedPatch"') && !integrationPrompt.includes('"workContract"') && !integrationPrompt.includes("## Task context"), "integration repair prompt lost evidence or retained duplicate context");
 const staleBaseRecovery = integrationRecoveryEvidence(original.allocation.attemptId);
 staleBaseRecovery.acceptedLedger.push({ sourceAttemptId: "node:000002", patch: patchIdentity("b", "d") });
 staleBaseRecovery.reconstructedTree = "d".repeat(40);
@@ -281,7 +390,7 @@ const postTreeCase = originalLaunch("post-tree", assignment);
 const postTreeCaseRecovery = integrationRecoveryEvidence(postTreeCase.allocation.attemptId);
 postTreeCaseRecovery.applyFailure = { ...postTreeRecovery.applyFailure };
 const postTreeOutcome = completeAttempt(postTreeCase.allocation, { startedAt: accepted.startedAt, finishedAt: accepted.finishedAt, terminalFact: { stage: "apply", code: "post-tree-mismatch" }, state: postTreeCase.state, fallbackAllowed: true, metrics: observedMetrics(postTreeCase.allocation), recovery: postTreeCaseRecovery });
-assert(postTreeOutcome.action === "fail" && postTreeOutcome.recovery?.kind === "integration" && postTreeOutcome.recovery.applyFailure.stage === "post-tree", "post-tree detail could not enter a terminal outcome");
+assert(postTreeOutcome.disposition === "ordinary" && postTreeCase.state.counts.integrationRepair === 0 && postTreeOutcome.action === "fail" && postTreeOutcome.recovery?.kind === "integration" && postTreeOutcome.recovery.applyFailure.stage === "post-tree", "post-tree detail could not enter a terminal outcome");
 const contradictoryValidation = validationRecoveryEvidence(original.allocation.attemptId);
 contradictoryValidation.commands[0].signal = "SIGTERM";
 expectThrow(() => parseAttemptRecoveryContext(contradictoryValidation), "contradictory passed command evidence was admitted");
@@ -297,6 +406,36 @@ const failed = finishAttempt(failedCase.allocation, failedCase.state, processTim
 assert(failed.action === "retry" && deriveAttemptMetricTotals(failed.metrics).costUsd === 0.18, "partial failed-attempt outcome lost routing or cost");
 const replayedFailed = parseAttemptOutcome(JSON.parse(JSON.stringify(failed)));
 assert(!replayedFailed.metrics.complete && deriveAttemptMetricTotals(replayedFailed.metrics).costUsd === 0.18, "serialized partial failed-attempt metrics did not round-trip conservatively");
+const contradictoryTimingCase = originalLaunch("contradictory-timing", assignment);
+const contradictoryTimingEvidence = genericEvidence(contradictoryTimingCase.allocation.attemptId);
+for (const turnEvidence of contradictoryTimingEvidence.turns) {
+  turnEvidence.tier = contradictoryTimingCase.allocation.assignment.tier;
+  turnEvidence.provider = contradictoryTimingCase.allocation.assignment.provider;
+  turnEvidence.model = contradictoryTimingCase.allocation.assignment.model;
+}
+contradictoryTimingEvidence.turns[0].durationMs++;
+const contradictoryTimingMetrics = correlateAttemptMetrics(contradictoryTimingEvidence);
+const contradictoryTimingOutcome = completeAttempt(contradictoryTimingCase.allocation, { startedAt: accepted.startedAt, finishedAt: accepted.finishedAt, terminalFact: { stage: "metrics", code: "missing-timing" }, state: contradictoryTimingCase.state, fallbackAllowed: true, metrics: contradictoryTimingMetrics.partialMetrics });
+const replayedContradictoryTiming = parseAttemptOutcome(JSON.parse(JSON.stringify(contradictoryTimingOutcome)));
+assert(!replayedContradictoryTiming.metrics.turns.some((turnEvidence) => turnEvidence.turnId === "turn-1"), "failed Attempt replay admitted contradictory interval evidence");
+const ambiguousClaimCase = originalLaunch("ambiguous-claim", assignment);
+const ambiguousClaimEvidence = genericEvidence(ambiguousClaimCase.allocation.attemptId);
+for (const turnEvidence of ambiguousClaimEvidence.turns) {
+  turnEvidence.tier = ambiguousClaimCase.allocation.assignment.tier;
+  turnEvidence.provider = ambiguousClaimCase.allocation.assignment.provider;
+  turnEvidence.model = ambiguousClaimCase.allocation.assignment.model;
+}
+ambiguousClaimEvidence.turns[1].toolCallIds.push("tool-1");
+const ambiguousClaimMetrics = correlateAttemptMetrics(ambiguousClaimEvidence);
+assert(!ambiguousClaimMetrics.partialMetrics.turns.some((turnEvidence) => turnEvidence.toolCallIds.includes("tool-1")) && !ambiguousClaimMetrics.partialMetrics.tools.some((tool) => tool.toolCallId === "tool-1"), "ambiguous child authority survived partial correlation");
+const ambiguousClaimOutcome = completeAttempt(ambiguousClaimCase.allocation, { startedAt: accepted.startedAt, finishedAt: accepted.finishedAt, terminalFact: { stage: "metrics", code: "duplicate-identity" }, state: ambiguousClaimCase.state, fallbackAllowed: true, metrics: ambiguousClaimMetrics.partialMetrics });
+const replayedAmbiguousClaim = parseAttemptOutcome(JSON.parse(JSON.stringify(ambiguousClaimOutcome)));
+assert(!replayedAmbiguousClaim.metrics.turns.some((turnEvidence) => turnEvidence.toolCallIds.includes("tool-1")) && !replayedAmbiguousClaim.metrics.tools.some((tool) => tool.toolCallId === "tool-1"), "failed Attempt replay admitted ambiguous parent/child authority");
+const forgedAmbiguousReplay = structuredClone(ambiguousClaimOutcome);
+forgedAmbiguousReplay.metrics.turns[0].toolCallIds.push("tool-1");
+forgedAmbiguousReplay.metrics.turns[1].toolCallIds.push("tool-1");
+forgedAmbiguousReplay.metrics.tools.push(ambiguousClaimEvidence.tools[0]);
+expectThrow(() => parseAttemptOutcome(forgedAmbiguousReplay), "ambiguous failed-Attempt evidence was admitted on replay");
 const filteredPartialCase = originalLaunch("filtered-partial", assignment);
 const filteredEvidence = genericEvidence(filteredPartialCase.allocation.attemptId);
 for (const turnEvidence of filteredEvidence.turns) {
@@ -309,18 +448,112 @@ const filteredMetrics = correlateAttemptMetrics(filteredEvidence);
 assert(!filteredMetrics.ok && !filteredMetrics.partialMetrics.complete, "filtered partial fixture unexpectedly correlated");
 const filteredPartialOutcome = completeAttempt(filteredPartialCase.allocation, { startedAt: accepted.startedAt, finishedAt: accepted.finishedAt, terminalFact: { stage: "metrics", code: "usage-mismatch" }, state: filteredPartialCase.state, fallbackAllowed: true, metrics: filteredMetrics.partialMetrics });
 const replayedFilteredPartial = parseAttemptOutcome(JSON.parse(JSON.stringify(filteredPartialOutcome)));
-assert(!replayedFilteredPartial.metrics.complete && deriveAttemptMetricTotals(replayedFilteredPartial.metrics).costUsd === 0.06, "filtered partial metrics became complete or lost observed cost during replay");
+assert(!replayedFilteredPartial.metrics.complete && deriveAttemptMetricTotals(replayedFilteredPartial.metrics).observedCostUsd === 0.06, "filtered partial metrics became complete or lost observed cost during replay");
 for (const diagnostic of ["429", "503", "network", "crash", "authentication failed", "quota exhausted"]) {
   const proseCase = originalLaunch(`prose-${diagnostic.replace(/\W+/g, "-")}`, assignment);
   const proseOutcome = finishAttempt(proseCase.allocation, proseCase.state, { stage: "process", code: "nonzero", exitCode: 1, durationMs: 100 }, { diagnostic });
   assert(proseOutcome.action === "fail" && proseOutcome.diagnostic === diagnostic, `diagnostic prose changed typed routing: ${diagnostic}`);
 }
 const incompleteCase = originalLaunch("incomplete", assignment);
-expectThrow(() => completeAttempt(incompleteCase.allocation, { startedAt: accepted.startedAt, finishedAt: accepted.finishedAt, terminalFact: { stage: "apply", code: "applied" }, state: incompleteCase.state, fallbackAllowed: true, metrics: observedMetrics(incompleteCase.allocation) }), "incomplete accepted metrics were admitted");
-finishAttempt(incompleteCase.allocation, incompleteCase.state, { stage: "metrics", code: "missing-timing" });
+const partialAccepted = completeAttempt(incompleteCase.allocation, { startedAt: accepted.startedAt, finishedAt: accepted.finishedAt, terminalFact: { stage: "apply", code: "applied" }, state: incompleteCase.state, fallbackAllowed: true, metrics: observedMetrics(incompleteCase.allocation) });
+assert(partialAccepted.action === "accept" && partialAccepted.metrics.status === "partial" && parseAttemptOutcome(JSON.parse(JSON.stringify(partialAccepted))).action === "accept", "missing measurements blocked acceptance or replay");
 expectThrow(() => completeAttempt(forged.allocation, { startedAt: accepted.startedAt, finishedAt: accepted.finishedAt, terminalFact: { stage: "metrics", code: "complete" }, state: forged.state, fallbackAllowed: true, metrics: forgedMetrics }), "one allocation produced two terminal outcomes");
 
-console.log("attempt outcomes smoke passed (A10, A11, A12)");
+let noProgressState = createNodeAttemptState("no-progress");
+const noProgressOriginal = allocateAttempt(noProgressState, { runId: "run", nodeId: "no-progress", kind: "original", assignment });
+noProgressState = noProgressOriginal.state;
+const noProgressSource = parseAttemptRecoveryContext(validationRecoveryEvidence(noProgressOriginal.allocation.attemptId));
+finishAttempt(noProgressOriginal.allocation, noProgressState, { stage: "validation", code: "timeout", failedCommandIndexes: [1] }, { recovery: noProgressSource });
+const noProgressRepair = allocateAttempt(noProgressState, { runId: "run", nodeId: "no-progress", kind: "validation-repair", assignment: { ...assignment, tier: "tier1" }, sourceAttemptId: noProgressOriginal.allocation.attemptId });
+noProgressState = noProgressRepair.state;
+const noProgressCurrent = parseAttemptRecoveryContext(validationRecoveryEvidence(noProgressRepair.allocation.attemptId));
+noProgressCurrent.commands[1].durationMs += 50;
+noProgressCurrent.rejectedPatch.artifact.path = "workers/no-progress/attempts/002-validation-repair/patch.bin";
+const noProgressOutcome = finishAttempt(noProgressRepair.allocation, noProgressState, { stage: "validation", code: "timeout", failedCommandIndexes: [1] }, { recovery: noProgressCurrent, repairSource: noProgressSource });
+assert(noProgressOutcome.action === "fail"
+  && noProgressOutcome.disposition === "exact-no-progress"
+  && noProgressOutcome.repairProgress?.disposition === "exact-no-progress"
+  && noProgressOutcome.repairProgress.candidateEqual
+  && noProgressOutcome.repairProgress.failureEqual
+  && !noProgressOutcome.repairProgress.progressed
+  && noProgressState.counts.validationRepair === 1, "attempt-local artifact path or duration change consumed the remaining repair budget");
+const missingProgress = structuredClone(noProgressOutcome);
+delete missingProgress.repairProgress;
+expectThrow(() => parseAttemptOutcome(missingProgress), "failed repair outcome omitted mandatory exact progress evidence");
+
+let progressState = createNodeAttemptState("progress");
+const progressOriginal = allocateAttempt(progressState, { runId: "run", nodeId: "progress", kind: "original", assignment });
+progressState = progressOriginal.state;
+const progressSource = parseAttemptRecoveryContext(validationRecoveryEvidence(progressOriginal.allocation.attemptId));
+finishAttempt(progressOriginal.allocation, progressState, { stage: "validation", code: "timeout", failedCommandIndexes: [1] }, { recovery: progressSource });
+const progressRepair = allocateAttempt(progressState, { runId: "run", nodeId: "progress", kind: "validation-repair", assignment: { ...assignment, tier: "tier1" }, sourceAttemptId: progressOriginal.allocation.attemptId });
+progressState = progressRepair.state;
+const progressCurrent = parseAttemptRecoveryContext(validationRecoveryEvidence(progressRepair.allocation.attemptId));
+progressCurrent.commands[1].stderr = "different exact output";
+const progressOutcome = finishAttempt(progressRepair.allocation, progressState, { stage: "validation", code: "timeout", failedCommandIndexes: [1] }, { recovery: progressCurrent, repairSource: progressSource });
+assert(progressOutcome.action === "validation-repair"
+  && progressOutcome.disposition === "changed"
+  && progressOutcome.repairProgress?.disposition === "changed"
+  && progressOutcome.repairProgress.candidateEqual
+  && !progressOutcome.repairProgress.failureEqual
+  && progressOutcome.repairProgress.progressed, "changed exact failure output was falsely terminated as no-progress");
+
+console.log("attempt outcomes smoke passed (A10, A11, A12, exact no-progress)");
+
+async function workerMetricsFailureRegression() {
+  const root = mkdtempSync(join(tmpdir(), "fanout-metric-terminal-"));
+  const repo = join(root, "repo");
+  mkdirSync(repo);
+  const git = (args) => { const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" }); assert(result.status === 0, `metric fixture git failed: ${result.stderr}`); };
+  try {
+    git(["init"]);
+    writeFileSync(join(repo, "base.txt"), "base");
+    git(["add", "."]);
+    git(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "fixture"]);
+    const planningBase = capturePlanningBase(repo);
+    const stdoutPath = join(root, "unmatched-stdout.jsonl");
+    const observabilityPath = join(root, "unmatched-observability.jsonl");
+    const measurementLaunch = originalLaunch("unmatched-record", assignment);
+    writeFileSync(stdoutPath, JSON.stringify({ type: "message_end", message: { role: "assistant", provider: "generic", model: "worker", content: [] } }) + "\n");
+    for (const event of [
+      { event: "turn_start", turnIndex: 99, ts: "not a timestamp" },
+      { event: "assistant_ttft", ts: "2026-07-13T00:00:00.000Z" },
+      { event: "tool_start", turnIndex: 99, toolCallId: 12, ts: "2026-07-13T00:00:00.000Z" },
+    ]) {
+      writeFileSync(observabilityPath, JSON.stringify(event) + "\n");
+      const metrics = correlatedWorkerMetrics({ allocation: measurementLaunch.allocation, providerRunId: "run", stdoutPath, observabilityPath, workerDurationMs: 1 });
+      assert(metrics.status === "invalid", "malformed unmatched metric record disappeared during joins");
+    }
+    writeFileSync(observabilityPath, JSON.stringify({ event: "turn_start", turnIndex: 99, ts: "2026-07-13T00:00:00.000Z" }) + "\n");
+    const orphan = correlatedWorkerMetrics({ allocation: measurementLaunch.allocation, providerRunId: "run", stdoutPath, observabilityPath, workerDurationMs: 1 });
+    assert(orphan.status === "partial" && orphan.issues.some((issue) => issue.message.includes("no matching terminal")), "unpaired valid telemetry was silently treated as complete");
+    for (const mode of ["envelope", "assignment"]) {
+      const launch = originalLaunch(`worker-${mode}`, assignment);
+      const cli = join(root, `worker-${mode}.mjs`);
+      const marker = join(root, `normalized-${mode}`);
+      writeFileSync(cli, `#!${process.execPath}\nimport { writeFileSync } from 'node:fs';
+const ts = '2200-01-01T00:00:00.000Z';
+writeFileSync(process.env.FANOUT_OBSERVABILITY_FILE, ${JSON.stringify(mode)} === 'envelope' ? [{event:'turn_start',turnIndex:0,ts},{event:'assistant_ttft',turnIndex:0,ts},{event:'turn_end',turnIndex:0,ts}].map(value=>JSON.stringify(value)).join('\\n')+'\\n' : '');
+console.log(JSON.stringify({type:'message_end',message:{role:'assistant',provider:'generic',model:${JSON.stringify(mode === "assignment" ? "wrong-model" : "worker")},content:[]}}));
+`, { mode: 0o755 });
+      const startedAt = new Date().toISOString();
+      const contract = workContract();
+      const unit = { id: launch.allocation.nodeId, kind: "implement", workContract: contract };
+      const attempt = await executeWorkerAttempt({
+        packet: { objective: "fixture", userContext: [], discoveredRepoFacts: [], assumptions: [], planningHost: { platform: process.platform } },
+        unit, contract, repoRoot: repo, runDir: root, runId: "run", extensionEntry: cli, piCommand: cli,
+        workerTimeoutMs: 10000, validationTimeoutMs: 10000, planningBase, preparedBase: planningBase, ledger: [],
+        profile: { candidateNormalization: [{ command: { executable: process.execPath, args: ["-e", `require('node:fs').writeFileSync(${JSON.stringify(marker)},'ran')`] } }] },
+        allocation: launch.allocation, attemptDir: join(root, `attempt-${mode}`), worktreePath: repo, tier: { ...assignment, thinking: "off" }, kind: "original", startedAt, fallbackAllowed: true,
+      });
+      assert(attempt.failureKind === "metrics" && attempt.correlatedMetrics.status === "invalid" && !existsSync(marker), `${mode} telemetry reached repository normalization instead of a typed metrics failure`);
+      const completed = completeAttempt(launch.allocation, { startedAt, finishedAt: new Date().toISOString(), terminalFact: attempt.terminalFact, state: launch.state, fallbackAllowed: true, metrics: attempt.correlatedMetrics });
+      const replayed = parseAttemptOutcome(JSON.parse(JSON.stringify(completed)));
+      assert(replayed.action === "fail" && replayed.terminalFact.stage === "metrics", `${mode} telemetry left an unfinished allocated attempt`);
+      assert(mode === "envelope" ? replayed.metrics.turns[0].requestedAt === "2200-01-01T00:00:00.000Z" : replayed.metrics.turns[0].model === "wrong-model", "failed metrics discarded supplied contradiction evidence");
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}
 
 function originalLaunch(nodeId, nextAssignment) {
   return allocateAttempt(createNodeAttemptState(nodeId), { runId: "run", nodeId, kind: "original", assignment: nextAssignment });
@@ -340,6 +573,12 @@ function observedMetrics(allocation, complete = false) {
 }
 
 function finishAttempt(allocation, nextState, terminalFact, extra = {}) {
+  if ((allocation.kind === "validation-repair" || allocation.kind === "integration-repair") && extra.recovery && !extra.repairSource) {
+    const repairSource = structuredClone(extra.recovery);
+    if (repairSource.kind === "integration") repairSource.applyFailure.stderr = `${repairSource.applyFailure.stderr}\ncausal source`;
+    else repairSource.commands[repairSource.commands.findIndex((command) => command.status !== "passed" && command.status !== "unexecuted")].stderr += "\ncausal source";
+    extra = { ...extra, repairSource };
+  }
   return completeAttempt(allocation, {
     startedAt: "2026-07-13T00:00:00.000Z",
     finishedAt: "2026-07-13T00:00:00.100Z",
@@ -361,7 +600,7 @@ function genericEvidence(attemptId) {
     ],
     responses: [],
     polls: [],
-    tools: [{ attemptId, turnId: "turn-1", toolCallId: "tool-1", terminal: "completed", durationMs: 3 }],
+    tools: [{ attemptId, turnId: "turn-1", toolCallId: "tool-1", name: "read", terminal: "completed", ...interval(20, undefined, 23, "startedAt", undefined, "finishedAt") }],
     workerFirstOutputMs: 2,
     workerDurationMs: 20,
   };
@@ -386,8 +625,8 @@ function providerEvidence(attemptId) {
       poll(attemptId, "turn-2", "response-2b", "poll-3", 2),
     ],
     tools: [
-      { attemptId, turnId: "turn-1", toolCallId: "tool-1", terminal: "completed", durationMs: 3 },
-      { attemptId, turnId: "turn-2", toolCallId: "tool-2", terminal: "completed", durationMs: 4 },
+      { attemptId, turnId: "turn-1", toolCallId: "tool-1", name: "read", terminal: "completed", ...interval(20, undefined, 23, "startedAt", undefined, "finishedAt") },
+      { attemptId, turnId: "turn-2", toolCallId: "tool-2", name: "write", terminal: "completed", ...interval(50, undefined, 54, "startedAt", undefined, "finishedAt") },
     ],
     workerFirstOutputMs: 2,
     workerDurationMs: 20,
@@ -395,11 +634,18 @@ function providerEvidence(attemptId) {
 }
 
 function turn(attemptId, turnId, inputTokens, outputTokens, costUsd, responseIds, toolCallIds) {
-  return { attemptId, turnId, terminal: "completed", provider: "generic", model: "worker", tier: "tier2", inputTokens, outputTokens, totalTokens: inputTokens + outputTokens, costUsd, pricingSource: "catalog-v1", responseIds, toolCallIds };
+  const [start, first, finish] = turnId === "turn-1" ? [10, 12, 30] : [40, 42, 70];
+  return { attemptId, turnId, terminal: "completed", provider: "generic", model: "worker", tier: "tier2", ...interval(start, first, finish, "requestedAt", "firstOutputAt", "finishedAt"), inputTokens, outputTokens, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: inputTokens + outputTokens, costUsd, pricingSource: "catalog-v1", responseIds, toolCallIds };
 }
 
 function response(attemptId, turnId, responseId, inputTokens, outputTokens, costUsd, ttftMs, pollIds) {
-  return { attemptId, turnId, responseId, provider: "generic", model: "worker", terminal: "completed", ttftMs, pollIds, inputTokens, outputTokens, totalTokens: inputTokens + outputTokens, costUsd, pricingSource: "catalog-v1" };
+  const [start, finish] = responseId === "response-1" ? [11, 20] : responseId === "response-2a" ? [41, 50] : [51, 65];
+  return { attemptId, turnId, responseId, provider: "generic", model: "worker", terminal: "completed", ...interval(start, start + ttftMs, finish, "requestedAt", "firstTokenAt", "finishedAt"), pollIds, inputTokens, outputTokens, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: inputTokens + outputTokens, costUsd, pricingSource: "catalog-v1" };
+}
+
+function interval(start, first, finish, startField, firstField, finishField) {
+  const timestamp = value => `2026-07-13T00:00:00.${String(value).padStart(3, "0")}Z`;
+  return { [startField]: timestamp(start), ...(firstField ? { [firstField]: timestamp(first) } : {}), [finishField]: timestamp(finish), durationMs: finish - start };
 }
 
 function poll(attemptId, turnId, responseId, pollId, durationMs) {
@@ -443,12 +689,11 @@ function commandEvidence(index, status, extra = {}) {
 function workContract() {
   return {
     schema: "fanout.work-contract",
-    version: 2,
+    version: WORK_CONTRACT_VERSION,
     goals: [{ sourcePlanId: "plan", statement: "Update the file." }],
     changes: [{ kind: "create", target: { resource: { kind: "file", path: "src/value.ts" }, sourcePlanIds: ["plan"] }, contentIntent: "Create the value module." }],
     readDependencies: [],
     forbiddenWrites: [],
-    candidateNormalizationCommands: [],
     validationCommands: [{ executable: "node", args: ["check.mjs"] }],
     capabilities: FIXED_WORKER_CAPABILITIES,
     semanticReviewCriteria: [{ sourcePlanId: "plan", statement: "The module validates." }],
@@ -462,7 +707,7 @@ function patchIdentity(base, result) {
 
 function expectMetricCode(value, code) {
   const result = correlateAttemptMetrics(value);
-  assert(!result.ok && result.errors.some((error) => error.code === code), `expected metric error ${code}: ${JSON.stringify(result.errors)}`);
+  assert(!result.partialMetrics.complete && result.errors.some((error) => error.code === code), `expected metric error ${code}: ${JSON.stringify(result.errors)}`);
 }
 
 function expectThrow(run, message) {

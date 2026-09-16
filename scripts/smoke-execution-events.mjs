@@ -1,10 +1,13 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { correlateAttemptMetrics } from "../packages/fanout-core/src/attempt-metrics.ts";
 import { allocateAttempt, completeAttempt, createNodeAttemptState } from "../packages/fanout-core/src/execution-attempt.ts";
 import { EXECUTION_EVENT_NAMES, parseExecutionEvent, reduceExecutionEvent, replayExecutionEvents } from "../packages/fanout-core/src/execution-event.ts";
+import { ExecutionEventLogAdmissionError, inspectExecutionEventLogEnvelope, parseExecutionEventLog } from "../packages/fanout-core/src/execution-event-log.ts";
 import { renderExecutionReport } from "../packages/fanout-core/src/execution-report.ts";
+import { FIXED_WORKER_CAPABILITIES } from "../packages/fanout-core/src/work-contract.ts";
 import { createExecutionEventRecorder, replayExecutionArtifacts } from "../packages/fanout-pi/src/execution-event-store.ts";
 import { RuntimeEventRecorder } from "../packages/fanout-pi/src/runtime-event-recorder.ts";
 
@@ -15,6 +18,8 @@ const trees = {
   repaired: "4".repeat(40),
 };
 const packet = { path: "packet/execution-packet.json", sha256: "a".repeat(64), byteLength: 123 };
+const profile = { path: "profiles/project-execution-profile.json", sha256: "d".repeat(64), byteLength: 67 };
+const profileValidation = { path: "profiles/project-execution-profile-validation.json", sha256: "e".repeat(64), byteLength: 89 };
 const evidence = { path: "executions/run/final-validation.json", sha256: "b".repeat(64), byteLength: 45 };
 const patch = {
   patch: {
@@ -33,7 +38,7 @@ const preflightEvidence = {
   worker: {
     extension: { requested: "packages/fanout-pi/src/index.ts", resolved: "/repo/packages/fanout-pi/src/index.ts", status: "available" },
     launcher: { executable: process.execPath, args: ["--version"], resolvedExecutable: process.execPath, resolvedCwd: "/repo", version: process.version, status: "available" },
-    modelCallableTools: ["read", "grep", "find", "ls", "edit", "write"],
+    modelCallableTools: ["read", "grep", "find", "ls", "edit", "write", "fanout_validate"],
   },
   commandCounts: { candidateNormalization: [2, 0], validation: [1, 1] },
   candidateNormalizationCommands: [
@@ -47,22 +52,42 @@ const preflightEvidence = {
 };
 
 try {
-  assert(EXECUTION_EVENT_NAMES.join(",") === "run-started,preflight-completed,confirmation-decided,attempt-allocated,attempt-completed,node-completed,final-validation-started,final-validation-completed,run-finished", "execution-event v2 does not expose exactly the nine approved transitions");
+  const failedAfterPassingRound = { status: "failed", lastRound: { status: "passed", commandCount: 1, durationMs: 3, evidence, expectedTree: trees.nodeA, beforeTree: trees.nodeA, afterTree: trees.nodeA }, totalCommandDurationMs: 7, failure: { kind: "attempt", attemptId: "final-validation:000001" } };
+  assert(parseExecutionEvent({ schema: "fanout.execution-event", version: 6, runId: "run", sequence: 1, occurredAt: "2026-07-13T00:00:00.000Z", event: "final-validation-completed", payload: failedAfterPassingRound }).payload.lastRound.status === "passed", "overall failure discarded the passing round");
+  assert(EXECUTION_EVENT_NAMES.join(",") === "run-started,preflight-completed,confirmation-decided,attempt-allocated,attempt-completed,node-completed,final-validation-started,final-validation-completed,run-finished", "execution-event v5 does not expose exactly the nine approved transitions");
   const legacyTimestamp = allocationFor("legacy-time");
   const legacyMetrics = correlateAttemptMetrics(metricEvidence(legacyTimestamp.allocation.attemptId));
-  assert(completeAttempt(legacyTimestamp.allocation, { state: legacyTimestamp.state, startedAt: "2026-07-13T00:00:00Z", finishedAt: "2026-07-13T00:00:01Z", terminalFact: { stage: "apply", code: "applied" }, fallbackAllowed: false, metrics: legacyMetrics.metrics }).durationMs === 1000, "serialized-event hardening changed the existing completeAttempt timestamp contract");
+  expectThrow(() => completeAttempt(legacyTimestamp.allocation, { state: legacyTimestamp.state, startedAt: "2026-07-13T00:00:00Z", finishedAt: "2026-07-13T00:00:01Z", terminalFact: { stage: "apply", code: "applied" }, fallbackAllowed: false, metrics: legacyMetrics.metrics }), "Attempt v5 producer admitted noncanonical envelope timestamps");
   const dryEvents = [
     event(1, "run-started", { mode: "dry-run", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 2, failFast: false, fallbackAllowed: false } }),
     event(2, "preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }),
     event(3, "run-finished", { outcome: "dry-run-completed", durationMs: 2, cause: { kind: "event", eventSequence: 2, code: "dry-run" } }),
   ];
+  const dryJsonl = `${dryEvents.map(JSON.stringify).join("\n")}\n`;
+  assert(isDeepStrictEqual(parseExecutionEventLog(dryJsonl), dryEvents), "core Event Log admission did not return the runtime replay sequence");
+  const dryEnvelope = inspectExecutionEventLogEnvelope(dryJsonl);
+  assert(dryEnvelope.runId === "run" && dryEnvelope.version === 6 && dryEnvelope.eventCount === 3 && dryEnvelope.updatedAt === dryEvents.at(-1).occurredAt, "core Event Log envelope inspection lost current evidence metadata");
+  const legacyJsonl = `${dryEvents.map((item) => JSON.stringify({ ...item, version: 4 })).join("\n")}\n`;
+  assert(inspectExecutionEventLogEnvelope(legacyJsonl).version === 4, "core Event Log envelope inspection rejected the previous generation");
+  expectThrow(() => inspectExecutionEventLogEnvelope(`${JSON.stringify({ ...dryEvents[0], version: 4 })}\n${JSON.stringify(dryEvents[1])}\n`), "core Event Log envelope inspection admitted mixed generations");
+  expectAdmissionError("", "empty-log", undefined);
+  expectAdmissionError(dryJsonl.trimEnd(), "incomplete-frame", undefined);
+  expectAdmissionError(`${JSON.stringify(dryEvents[0])}\n \t\n${JSON.stringify(dryEvents[1])}\n`, "blank-row", 2);
+  expectAdmissionError("{\n", "malformed-json", 1);
+  expectAdmissionError(`${JSON.stringify({ ...dryEvents[0], surprise: true })}\n`, "invalid-event", 1);
+  expectAdmissionError(`${JSON.stringify(dryEvents[0])}\n${JSON.stringify({ ...dryEvents[1], version: 2 })}\n`, "invalid-event", 2);
+  expectAdmissionError("[]\n", "invalid-event", 1);
+  expectAdmissionError(`${JSON.stringify(dryEvents[0])}\n${JSON.stringify({ ...dryEvents[1], sequence: 3 })}\n`, "invalid-log", 2);
   const dry = replayExecutionEvents(dryEvents);
-  assert(dry.version === 3, "execution projection did not advance to v3");
+  assert(dry.version === 7, "execution projection did not advance to v6");
+  assert(JSON.stringify(dry.profile) === JSON.stringify(profile) && JSON.stringify(dry.profileValidation) === JSON.stringify(profileValidation), "projection discarded exact profile authority");
   assert(dry.preflightEvidence.validationCommands[0].manifest.args[0] === "validate", "projection discarded strict preflight evidence");
   assert(dry.mode === "dry-run" && dry.terminalOutcome?.outcome === "dry-run-completed", "A14 lost the explicit dry-run outcome");
   assert(dry.finalValidation.disposition === "not-run" && dry.finalValidation.reason === "dry-run", "A14 inferred final validation from absence");
   assert(dry.phase === "finished" && dry.lastEventSequence === 3, "dry-run projection did not terminate explicitly");
   expectThrow(() => replayExecutionEvents([dryEvents[0], dryEvents[1], event(3, "run-finished", { outcome: "failed", durationMs: 2, cause: { kind: "controller", stage: "preflight", code: "internal-failure", detail: "cannot override dry-run completion" } })]), "controller failure overrode passed dry-run preflight");
+  const cleanupFailed = replayExecutionEvents([dryEvents[0], dryEvents[1], event(3, "run-finished", { outcome: "failed", durationMs: 2, cause: { kind: "controller", stage: "cleanup", code: "internal-failure", detail: "worktree cleanup failed" } })]);
+  assert(cleanupFailed.terminalOutcome?.outcome === "failed" && cleanupFailed.terminalOutcome.cause.stage === "cleanup", "cleanup failure was falsely projected as successful completion");
 
   const declinedEvents = [
     event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false } }),
@@ -92,7 +117,8 @@ try {
   ]), "controller cause contradicted the current phase");
 
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], surprise: true }), "unknown event field was admitted");
-  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], version: 1 }), "legacy execution event v1 was admitted");
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], version: 4 }), "legacy execution event v4 was admitted");
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], version: 7 }), "future execution event v7 was admitted");
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, mode: "preview" } }), "unknown run mode was admitted");
   const { fallbackAllowed: _fallbackAllowed, ...incompletePolicy } = dryEvents[0].payload.policy;
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, policy: incompletePolicy } }), "run-started admitted an incomplete immutable runtime policy");
@@ -142,6 +168,7 @@ try {
   expectThrow(() => reduceExecutionEvent(dry, dryEvents[2]), "event after terminal outcome was admitted");
 
   const { allocation, outcome } = acceptedOutcome();
+  expectThrow(() => parseExecutionEvent(event(5, "attempt-completed", { outcome: { ...outcome, version: 4 }, acceptedTransition: patch })), "event v5 admitted an Attempt Outcome v4 payload");
   const liveEvents = [
     event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: true, fallbackAllowed: false } }),
     event(2, "preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }),
@@ -150,7 +177,7 @@ try {
     event(5, "attempt-completed", { outcome, acceptedTransition: patch }),
     event(6, "node-completed", { nodeId: "node-a", status: "succeeded", cause: { attemptId: allocation.attemptId } }),
     event(7, "final-validation-started", { commandIdentities: ["validation:0"], expectedTree: trees.nodeA }),
-    event(8, "final-validation-completed", { status: "passed", commandCount: 1, durationMs: 3, evidence, expectedTree: trees.nodeA, beforeTree: trees.nodeA, afterTree: trees.nodeA }),
+    event(8, "final-validation-completed", { status: "passed", lastRound: { status: "passed", commandCount: 1, durationMs: 3, evidence, expectedTree: trees.nodeA, beforeTree: trees.nodeA, afterTree: trees.nodeA }, totalCommandDurationMs: 3 }),
     event(9, "run-finished", { outcome: "completed", durationMs: 8, cause: { kind: "event", eventSequence: 8, code: "final-validation-passed" } }),
   ];
   const live = replayExecutionEvents(liveEvents);
@@ -172,8 +199,33 @@ try {
   expectThrow(() => replayExecutionEvents(liveEvents.map((item) => item.event === "attempt-allocated" ? { ...item, payload: { allocation: { ...allocation, budgetTransition: { ...allocation.budgetTransition, before: 1, after: 2 } } } } : item)), "budget reset/overflow was admitted");
   expectThrow(() => replayExecutionEvents(liveEvents.filter((item) => item.event !== "attempt-allocated").map((item, index) => ({ ...item, sequence: index + 1 }))), "completion without allocation was admitted");
   expectThrow(() => replayExecutionEvents(liveEvents.map((item) => item.event === "final-validation-started" ? { ...item, payload: { ...item.payload, expectedTree: trees.base } } : item)), "final validation targeted a stale accepted tree");
-  expectThrow(() => replayExecutionEvents(liveEvents.map((item) => item.event === "final-validation-completed" ? { ...item, payload: { ...item.payload, commandCount: 2 } } : item)), "final-validation aggregate contradicted its launched commands");
+  expectThrow(() => replayExecutionEvents(liveEvents.map((item) => item.event === "final-validation-completed" ? { ...item, payload: { ...item.payload, lastRound: { ...item.payload.lastRound, commandCount: 2 } } } : item)), "final-validation aggregate contradicted its launched commands");
   expectThrow(() => replayExecutionEvents(liveEvents.map((item) => item.event === "run-finished" ? { ...item, payload: { ...item.payload, cause: { ...item.payload.cause, attemptId: "node-a:000001" } } } : item)), "completed cause admitted an inapplicable attempt reference");
+
+  const unauthorized = unauthorizedOutcome();
+  const unauthorizedProjection = replayExecutionEvents([
+    event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: true } }),
+    event(2, "preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }),
+    event(3, "confirmation-decided", { decision: "accepted" }),
+    event(4, "attempt-allocated", { allocation: unauthorized.allocation }),
+    event(5, "attempt-completed", { outcome: unauthorized.outcome }),
+  ]);
+  assert(unauthorizedProjection.attempts[0].outcome.action === "retry" && unauthorizedProjection.budgets["node-a"].retry === 0, "Event-v5 replay rejected or consumed the clean ownership retry before allocation");
+
+  const repairFailure = repairFailureOutcomes();
+  const repairFailureEvents = [
+    event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: true } }),
+    event(2, "preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }),
+    event(3, "confirmation-decided", { decision: "accepted" }),
+    event(4, "attempt-allocated", { allocation: repairFailure.originalAllocation }),
+    event(5, "attempt-completed", { outcome: repairFailure.originalOutcome }),
+    event(6, "attempt-allocated", { allocation: repairFailure.repairAllocation }),
+    event(7, "attempt-completed", { outcome: repairFailure.repairOutcome }),
+  ];
+  assert(replayExecutionEvents(repairFailureEvents).attempts.at(-1).outcome.repairProgress.disposition === "changed", "Event-v5 reducer discarded exact repair progress");
+  const omittedProgressEvents = structuredClone(repairFailureEvents);
+  delete omittedProgressEvents.at(-1).payload.outcome.repairProgress;
+  expectThrow(() => replayExecutionEvents(omittedProgressEvents), "Event-v5 reducer admitted a failed repair without exact progress evidence");
 
   const finalRepairLaunch = allocateAttempt(createNodeAttemptState("final-validation"), {
     runId: "run",
@@ -185,8 +237,8 @@ try {
   const finalRepairMetrics = correlateAttemptMetrics(metricEvidence(finalRepairLaunch.allocation.attemptId));
   const finalRepairOutcome = completeAttempt(finalRepairLaunch.allocation, {
     state: finalRepairLaunch.state,
-    startedAt: "2026-07-13T00:00:00.008Z",
-    finishedAt: "2026-07-13T00:00:00.009Z",
+    startedAt: "2026-07-13T00:00:00.000Z",
+    finishedAt: "2026-07-13T00:00:00.001Z",
     terminalFact: { stage: "apply", code: "applied" },
     fallbackAllowed: true,
     metrics: finalRepairMetrics.metrics,
@@ -196,10 +248,36 @@ try {
     ...liveEvents.slice(0, 7),
     event(8, "attempt-allocated", { allocation: finalRepairLaunch.allocation }),
     event(9, "attempt-completed", { outcome: finalRepairOutcome, acceptedTransition: repairTransition }),
-    event(10, "final-validation-completed", { status: "passed", commandCount: 1, durationMs: 3, evidence, expectedTree: trees.repaired, beforeTree: trees.repaired, afterTree: trees.repaired }),
+    event(10, "final-validation-completed", { status: "passed", lastRound: { status: "passed", commandCount: 1, durationMs: 3, evidence, expectedTree: trees.repaired, beforeTree: trees.repaired, afterTree: trees.repaired }, totalCommandDurationMs: 6 }),
     event(11, "run-finished", { outcome: "completed", durationMs: 10, cause: { kind: "event", eventSequence: 10, code: "final-validation-passed" } }),
   ]);
-  assert(repairedValidation.finalValidation.expectedTree === trees.repaired && repairedValidation.acceptedLedger.length === 2, "final-validation repair did not roll projection authority to the validated accepted tree");
+  assert(repairedValidation.finalValidation.lastRound.expectedTree === trees.repaired && repairedValidation.acceptedLedger.length === 2, "final-validation repair did not roll projection authority to the validated accepted tree");
+
+  const failedFinalLaunch = allocateAttempt(createNodeAttemptState("final-validation"), { runId: "run", nodeId: "final-validation", kind: "validation-repair", assignment: allocation.assignment, sourceFinalValidationEvidence: evidence });
+  const failedFinalOutcome = completeAttempt(failedFinalLaunch.allocation, { state: failedFinalLaunch.state, startedAt: outcome.startedAt, finishedAt: outcome.finishedAt, terminalFact: { stage: "apply", code: "identity-failure" }, fallbackAllowed: false, metrics: correlateAttemptMetrics(metricEvidence(failedFinalLaunch.allocation.attemptId)).metrics });
+  const failedFinalEvents = [
+    ...liveEvents.slice(0, 7),
+    event(8, "attempt-allocated", { allocation: failedFinalLaunch.allocation }),
+    event(9, "attempt-completed", { outcome: failedFinalOutcome }),
+    event(10, "final-validation-completed", { ...failedAfterPassingRound, lastRound: { ...failedAfterPassingRound.lastRound, expectedTree: trees.repaired, beforeTree: trees.repaired, afterTree: trees.repaired }, failure: { kind: "attempt", attemptId: failedFinalLaunch.allocation.attemptId } }),
+    event(11, "run-finished", { outcome: "failed", durationMs: 10, cause: { kind: "event", eventSequence: 10, code: "final-validation-failed" } }),
+  ];
+  const failedFinal = replayExecutionEvents(failedFinalEvents);
+  assert(failedFinal.finalValidation.disposition === "failed" && failedFinal.finalValidation.lastRound.status === "passed" && failedFinal.acceptedLedger.length === 1 && failedFinal.totals.finalValidationDurationMs === 7, "replay confused passing candidate validation with successful final apply or lost all-round time");
+  expectThrow(() => replayExecutionEvents(failedFinalEvents.map((item) => item.event === "final-validation-completed" ? { ...item, payload: { ...item.payload, failure: { kind: "attempt", attemptId: allocation.attemptId } } } : item)), "final failure referenced an accepted ordinary attempt");
+  const unpublishedRound = replayExecutionEvents([...liveEvents.slice(0, 7), event(8, "final-validation-completed", { status: "failed", lastRound: null, totalCommandDurationMs: null, failure: { kind: "controller", code: "publication-failure", detail: "immutable evidence publication failed" } })]);
+  assert(unpublishedRound.finalValidation.lastRound === null && unpublishedRound.totals.finalValidationDurationMs === null, "unpublished final round fabricated earlier evidence or zero command time");
+
+  const failedNodes = ["node-b", "node-a"].map((nodeId) => {
+    const launch = allocationFor(nodeId);
+    return { allocation: launch.allocation, outcome: completeAttempt(launch.allocation, { state: launch.state, startedAt: outcome.startedAt, finishedAt: outcome.finishedAt, terminalFact: { stage: "process", code: "nonzero", exitCode: 1, durationMs: 1 }, fallbackAllowed: false, metrics: correlateAttemptMetrics(metricEvidence(launch.allocation.attemptId)).metrics }) };
+  });
+  const policyEvents = [event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a", "node-b", "node-c"], policy: { maxConcurrency: 2, failFast: true, fallbackAllowed: false } }), ...liveEvents.slice(1, 3)];
+  for (const failed of failedNodes) for (const [name, payload] of [["attempt-allocated", { allocation: failed.allocation }], ["attempt-completed", { outcome: failed.outcome }], ["node-completed", { nodeId: failed.allocation.nodeId, status: "failed", cause: { attemptId: failed.allocation.attemptId } }]]) policyEvents.push(event(policyEvents.length + 1, name, payload));
+  const policySkip = event(10, "node-completed", { nodeId: "node-c", status: "skipped", cause: { policy: "fail-fast", triggerNodeId: "node-b", triggerAttemptId: failedNodes[0].allocation.attemptId } });
+  const policyProjection = replayExecutionEvents([...policyEvents, policySkip]);
+  assert(policyProjection.nodes[2].failFastCause.nodeId === "node-b" && policyProjection.nodes[2].causalUpstreamNodeId === null, "policy skip fabricated an upstream dependency or used packet order instead of first failure");
+  expectThrow(() => replayExecutionEvents([...policyEvents, { ...policySkip, payload: { ...policySkip.payload, cause: { policy: "fail-fast", triggerNodeId: "node-a", triggerAttemptId: failedNodes[1].allocation.attemptId } } }]), "policy skip admitted a later failed trigger");
 
   const bridgeDir = join(root, "runtime-recorder-bridge");
   const bridge = new RuntimeEventRecorder(bridgeDir, "run");
@@ -301,7 +379,7 @@ try {
   await expectReject(torn.record("preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] }), "projection failure did not stop the recorder");
   assert(readFileSync(join(tornDir, "events.jsonl"), "utf8").trim().split("\n").length === 2, "A13 lost the committed authoritative log");
   assert(JSON.parse(readFileSync(join(tornDir, "execution-run.json"), "utf8")).lastEventSequence === 1, "projection failure did not leave the older complete view");
-  await expectReject(torn.record("run-finished", { outcome: "dry-run-completed", durationMs: 2, cause: { kind: "event", eventSequence: 2, code: "dry-run" } }), "recorder continued side effects after derived publication failure");
+  await expectReject(torn.record("run-finished", { outcome: "dry-run-completed", durationMs: 2, cleanupDurationMs: 0, cause: { kind: "event", eventSequence: 2, code: "dry-run" } }), "recorder continued side effects after derived publication failure");
   writeFileSync(join(tornDir, "summary.md"), "stale report\n");
   const repaired = replayExecutionArtifacts(tornDir);
   assert(repaired.lastEventSequence === 2 && !existsSync(join(tornDir, "summary.md")), "A13 replay published or retained a nonterminal summary");
@@ -322,7 +400,7 @@ try {
   });
   await terminal.record("run-started", startedPayload({ mode: "dry-run", packet, planningBaseTree: trees.base, nodeIds: ["node-a"], policy: { maxConcurrency: 1, failFast: false, fallbackAllowed: false } }));
   await terminal.record("preflight-completed", { status: "passed", planningBaseTree: trees.base, repositoryTree: trees.base, issues: [] });
-  await expectReject(terminal.record("run-finished", { outcome: "dry-run-completed", durationMs: 2, cause: { kind: "event", eventSequence: 2, code: "dry-run" } }), "terminal report failure was not surfaced");
+  await expectReject(terminal.record("run-finished", { outcome: "dry-run-completed", durationMs: 2, cleanupDurationMs: 0, cause: { kind: "event", eventSequence: 2, code: "dry-run" } }), "terminal report failure was not surfaced");
   const repairedTerminal = replayExecutionArtifacts(terminalDir);
   assert(repairedTerminal.terminalOutcome?.outcome === "dry-run-completed" && readFileSync(join(terminalDir, "summary.md"), "utf8").includes("dry-run-completed"), "terminal replay did not preserve the committed outcome");
 
@@ -336,7 +414,8 @@ try {
 
 function event(sequence, name, payload) {
   if (name === "run-started") payload = startedPayload(payload);
-  return { schema: "fanout.execution-event", version: 2, runId: "run", sequence, occurredAt: `2026-07-13T00:00:00.${String(sequence).padStart(3, "0")}Z`, event: name, payload };
+  if (name === "run-finished") payload = { cleanupDurationMs: 0, ...payload };
+  return { schema: "fanout.execution-event", version: 6, runId: "run", sequence, occurredAt: `2026-07-13T00:00:00.${String(sequence).padStart(3, "0")}Z`, event: name, payload };
 }
 
 function startedPayload(payload) {
@@ -345,6 +424,8 @@ function startedPayload(payload) {
   const validationCommands = placeFinalEvidence(preflightEvidence.validationCommands, payload.nodeIds.length);
   return {
     ...payload,
+    profile,
+    profileValidation,
     preflightEvidence: {
       ...preflightEvidence,
       commandCounts: {
@@ -408,6 +489,73 @@ function routedOutcome() {
   return { allocation: launch.allocation, outcome };
 }
 
+function unauthorizedOutcome() {
+  const launch = allocationFor("node-a");
+  const outcome = completeAttempt(launch.allocation, {
+    state: launch.state,
+    startedAt: "2026-07-13T00:00:00.000Z",
+    finishedAt: "2026-07-13T00:00:00.001Z",
+    terminalFact: { stage: "worker-gate", code: "unauthorized-change" },
+    fallbackAllowed: true,
+    metrics: correlateAttemptMetrics(metricEvidence(launch.allocation.attemptId)).metrics,
+  });
+  assert(outcome.action === "retry", "unauthorized fixture did not request a clean retry");
+  return { allocation: launch.allocation, outcome };
+}
+
+function repairFailureOutcomes() {
+  const assignment = { tier: "tier1", provider: "test", model: "worker" };
+  let state = createNodeAttemptState("node-a");
+  const original = allocateAttempt(state, { runId: "run", nodeId: "node-a", kind: "original", assignment });
+  state = original.state;
+  const source = validationRecovery(original.allocation.attemptId, "source failure");
+  const originalOutcome = completeAttempt(original.allocation, {
+    state,
+    startedAt: "2026-07-13T00:00:00.000Z",
+    finishedAt: "2026-07-13T00:00:00.001Z",
+    terminalFact: { stage: "validation", code: "timeout", failedCommandIndexes: [0] },
+    fallbackAllowed: true,
+    metrics: correlateAttemptMetrics(metricEvidence(original.allocation.attemptId)).metrics,
+    recovery: source,
+  });
+  const repair = allocateAttempt(state, { runId: "run", nodeId: "node-a", kind: "validation-repair", assignment, sourceAttemptId: original.allocation.attemptId });
+  state = repair.state;
+  const repairOutcome = completeAttempt(repair.allocation, {
+    state,
+    startedAt: "2026-07-13T00:00:00.000Z",
+    finishedAt: "2026-07-13T00:00:00.002Z",
+    terminalFact: { stage: "validation", code: "timeout", failedCommandIndexes: [0] },
+    fallbackAllowed: true,
+    metrics: correlateAttemptMetrics(metricEvidence(repair.allocation.attemptId)).metrics,
+    recovery: validationRecovery(repair.allocation.attemptId, "changed failure"),
+    repairSource: source,
+  });
+  return { originalAllocation: original.allocation, originalOutcome, repairAllocation: repair.allocation, repairOutcome };
+}
+
+function validationRecovery(sourceAttemptId, stderr) {
+  const command = { executable: process.execPath, args: ["check.mjs"] };
+  return {
+    kind: "validation",
+    sourceAttemptId,
+    workContract: {
+      schema: "fanout.work-contract",
+      version: 5,
+      goals: [{ sourcePlanId: "node-a", statement: "Update node A." }],
+      changes: [{ kind: "create", target: { resource: { kind: "file", path: "src/a.ts" }, sourcePlanIds: ["node-a"] }, contentIntent: "Create node A." }],
+      readDependencies: [],
+      forbiddenWrites: [],
+      validationCommands: [command],
+      capabilities: FIXED_WORKER_CAPABILITIES,
+      semanticReviewCriteria: [{ sourcePlanId: "node-a", statement: "Node A validates." }],
+      advisoryNotes: [],
+    },
+    commands: [{ index: 0, command, status: "timeout", exitCode: null, signal: null, timeoutMs: 1, stdout: "", stderr, durationMs: 1 }],
+    rejectedPatch: { ...patch.patch, artifact: { ...patch.patch.artifact, path: `executions/run/${sourceAttemptId}.patch` } },
+    reconstructedTree: trees.nodeA,
+  };
+}
+
 function allocationFor(nodeId) {
   return allocateAttempt(createNodeAttemptState(nodeId), { runId: "run", nodeId, kind: "original", assignment: { tier: "tier1", provider: "test", model: "worker" } });
 }
@@ -416,7 +564,7 @@ function metricEvidence(attemptId) {
   return {
     attemptId,
     compatibility: "generic",
-    turns: [{ attemptId, turnId: "turn-1", terminal: "completed", provider: "test", model: "worker", tier: "tier1", inputTokens: 1, outputTokens: 2, totalTokens: 3, costUsd: 0.01, pricingSource: "test", responseIds: [], toolCallIds: [] }],
+    turns: [{ attemptId, turnId: "turn-1", terminal: "completed", provider: "test", model: "worker", tier: "tier1", requestedAt: "2026-07-13T00:00:00.000Z", firstOutputAt: "2026-07-13T00:00:00.000Z", finishedAt: "2026-07-13T00:00:00.001Z", durationMs: 1, inputTokens: 1, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 3, costUsd: 0.01, pricingSource: "test", responseIds: [], toolCallIds: [] }],
     responses: [],
     polls: [],
     tools: [],
@@ -445,6 +593,17 @@ function expectThrow(fn, message) {
     return;
   }
   throw new Error(message);
+}
+
+function expectAdmissionError(bytes, code, line) {
+  try {
+    parseExecutionEventLog(bytes);
+  } catch (error) {
+    assert(error instanceof ExecutionEventLogAdmissionError, `${code} did not return a typed Event Log admission error`);
+    assert(error.code === code && error.line === line, `${code} returned the wrong typed admission details`);
+    return;
+  }
+  throw new Error(`${code} Event Log was admitted`);
 }
 
 async function expectReject(promise, message) {

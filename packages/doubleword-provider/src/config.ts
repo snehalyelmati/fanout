@@ -3,13 +3,13 @@ import type { Api, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 export const UNIFIED_STUB_PROVIDER = "doubleword-stub";
 export const UNIFIED_LIVE_PROVIDER = "doubleword";
 export const DOUBLEWORD_API_BASE_URL = process.env.DOUBLEWORD_BASE_URL ?? "https://api.doubleword.ai/v1";
-export const LIVE_GLM_MODEL_ID = "zai-org/GLM-5.2-FP8";
+export const LIVE_GLM_MODEL_ID = "zai-org/GLM-5.3-Flash";
 export const LIVE_DEEPSEEK_MODEL_ID = "deepseek-ai/DeepSeek-V4-Flash";
 export const ASYNC_SERVICE_TIER = "flex";
 export const DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
 export const DEFAULT_ASYNC_TIMEOUT_MS = 600_000;
 export const DEFAULT_CANCEL_TIMEOUT_MS = 10_000;
-export const BATCHING_DISCIPLINE_MARKER = "## Think-ahead batching";
+export const BATCHING_DISCIPLINE_MARKER = "Batch every independent tool call needed for the next decision into one assistant turn.";
 
 export type ExecutionMode = "realtime" | "async";
 

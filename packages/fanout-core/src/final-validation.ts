@@ -1,9 +1,10 @@
-import { parseAcceptedStateTransition, parseGitCommitId, parseGitTreeId, type AcceptedStateTransition, type ArtifactIdentity, type GitCommitId, type GitTreeId } from "./artifact-identity.ts";
+import type { FinalControllerFailure } from "./execution-event.ts";
+import { parseAcceptedStateTransition, parseArtifactIdentity, parseGitCommitId, parseGitTreeId, type AcceptedStateTransition, type ArtifactIdentity, type GitCommitId, type GitTreeId } from "./artifact-identity.ts";
 import { parseValidationCommand, type ValidationCommand } from "./validation-command.ts";
 import { FIXED_WORKER_CAPABILITIES, validateWorkContract, type WorkContract } from "./work-contract.ts";
 
 export const FINAL_VALIDATION_EVIDENCE_SCHEMA = "fanout.final-validation-evidence";
-export const FINAL_VALIDATION_EVIDENCE_VERSION = 1;
+export const FINAL_VALIDATION_EVIDENCE_VERSION = 2;
 export const FINAL_VALIDATION_TRUST_BOUNDARY = "Validation programs are trusted local code. Fanout checks the planning commit, index relation, tracked files, modes, symlinks, and non-ignored untracked files at sequence boundaries; ignored files, external paths, network, processes, services, inherited environment, and mutate-then-restore effects remain outside containment.";
 
 export type FinalValidationProgramOutcome = "nonzero" | "timeout" | "signal";
@@ -43,6 +44,7 @@ export interface FinalValidationEvidence {
 	active: { before: RepositoryBoundaryIdentity; after: RepositoryBoundaryIdentity };
 	commands: FinalValidationCommandEvidence[];
 	durationMs: number;
+	preparation: ArtifactIdentity;
 	failure?: FinalValidationFailure;
 	candidate?: AcceptedStateTransition;
 	acceptedRepair?: { transition: AcceptedStateTransition; activeAfterApply: RepositoryBoundaryIdentity };
@@ -59,8 +61,15 @@ export interface FinalValidationResult {
 	repairable: boolean;
 }
 
+export interface FinalControllerResult {
+	status: "passed" | "failed";
+	lastRound: FinalValidationResult | null;
+	totalCommandDurationMs: number | null;
+	failure?: FinalControllerFailure;
+}
+
 export function parseFinalValidationEvidence(value: unknown): FinalValidationEvidence {
-	const root = exactRecord(value, ["schema", "version", "roundId", "status", "expectedValidationTree", "expectedActiveTree", "validation", "active", "commands", "durationMs", "failure", "candidate", "acceptedRepair", "trustBoundary"], ["failure", "candidate", "acceptedRepair"], "final validation evidence");
+	const root = exactRecord(value, ["schema", "version", "roundId", "status", "expectedValidationTree", "expectedActiveTree", "validation", "active", "commands", "durationMs", "preparation", "failure", "candidate", "acceptedRepair", "trustBoundary"], ["failure", "candidate", "acceptedRepair"], "final validation evidence");
 	if (root.schema !== FINAL_VALIDATION_EVIDENCE_SCHEMA || root.version !== FINAL_VALIDATION_EVIDENCE_VERSION) throw new TypeError("unsupported final validation evidence generation");
 	if (root.status !== "passed" && root.status !== "failed") throw new TypeError("final validation evidence status is invalid");
 	const roundId = identity(root.roundId, "roundId");
@@ -117,6 +126,7 @@ export function parseFinalValidationEvidence(value: unknown): FinalValidationEvi
 		active,
 		commands,
 		durationMs,
+		preparation: parseArtifactIdentity(root.preparation),
 		...(failure ? { failure } : {}),
 		...(candidate ? { candidate } : {}),
 		...(acceptedRepair ? { acceptedRepair } : {}),
@@ -137,7 +147,8 @@ export function classifyFinalValidationFailure(
 	return { kind: "hard", code: failed.outcome === "spawn" ? "spawn" : failed.outcome === "aborted" ? "abort" : "malformed-evidence", detail: `final validation command ${failed.index} ended as ${failed.outcome}` };
 }
 
-export function deriveFinalRepairWorkContract(upstream: readonly WorkContract[], finalValidation: WorkContract): WorkContract {
+export function deriveFinalRepairWorkContract(upstream: readonly WorkContract[], finalValidation: WorkContract, authoritativeCommands: readonly ValidationCommand[] = finalValidation.validationCommands): WorkContract {
+	if (!authoritativeCommands.length || finalValidation.validationCommands.some((command, index) => JSON.stringify(command) !== JSON.stringify(authoritativeCommands[index]))) throw new Error("final repair requires its focused commands to be an ordered prefix of nonempty authoritative final gates");
 	const candidate = {
 		schema: finalValidation.schema,
 		version: finalValidation.version,
@@ -145,13 +156,12 @@ export function deriveFinalRepairWorkContract(upstream: readonly WorkContract[],
 		changes: upstream.flatMap((contract) => contract.changes),
 		readDependencies: uniqueBy(upstream.flatMap((contract) => contract.readDependencies), (value) => JSON.stringify(value)),
 		forbiddenWrites: uniqueBy(upstream.flatMap((contract) => contract.forbiddenWrites), (value) => JSON.stringify(value)),
-		candidateNormalizationCommands: finalValidation.candidateNormalizationCommands,
 		validationCommands: finalValidation.validationCommands,
 		capabilities: FIXED_WORKER_CAPABILITIES,
 		semanticReviewCriteria: uniqueBy(upstream.flatMap((contract) => contract.semanticReviewCriteria), (value) => `${value.sourcePlanId}\0${value.statement}`),
 		advisoryNotes: uniqueBy(upstream.flatMap((contract) => contract.advisoryNotes), (value) => JSON.stringify(value)),
 	};
-	const validation = validateWorkContract(candidate);
+	const validation = validateWorkContract(candidate, { allowEmptyValidation: true });
 	if (!validation.ok || !validation.contract) throw new Error(`cannot derive final-repair authority: ${validation.errors.map((issue) => issue.message).join("; ")}`);
 	return validation.contract;
 }

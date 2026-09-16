@@ -5,16 +5,14 @@ import type { ThinkingLevel } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerDoublewordDevProviders } from "../../doubleword-provider/src/dev.ts";
 import { setDoublewordActiveTurnIndex, setDoublewordRunId } from "../../doubleword-provider/src/index.ts";
-import { BATCHING_DISCIPLINE, BATCHING_DISCIPLINE_MARKER } from "../../fanout-core/src/batching-discipline.ts";
+import { BATCHING_DISCIPLINE, BATCHING_DISCIPLINE_MARKER, PLANNING_BATCHING_DISCIPLINE } from "../../fanout-core/src/batching-discipline.ts";
 import { durationMs, RUN_ID, writeJsonl } from "../../fanout-core/src/observability.ts";
 import { configureFanoutTier } from "./fanout-config.ts";
 import { executeFanout } from "./fanout-execute.ts";
 import {
 	augmentRegistryModels,
 	configureMainObservability,
-	FANOUT_CONTEXT_MARKER,
 	fanoutRuntimeContext,
-	fanoutRuntimePrompt,
 	globalSettingsPath,
 	isRecord,
 	rememberDoublewordModels,
@@ -24,6 +22,7 @@ import { FanoutPlanningController } from "./fanout-planning-controller.ts";
 import { roundedDuration } from "./planning-observability.ts";
 import { displayFanoutExecutionReport, registerFanoutReportPresentation } from "./report-presentation.ts";
 import { workerToolBlockReason } from "./worker-capabilities.ts";
+import { loadWorkerValidationContext, registerWorkerValidationTool, workerValidationBatchBlockReason } from "./worker-validation.ts";
 
 export default async function (pi: ExtensionAPI) {
 	let agentStarted: number | undefined;
@@ -33,11 +32,13 @@ export default async function (pi: ExtensionAPI) {
 	let activeModel: unknown;
 	let activeThinking: unknown;
 	const turnStats = new Map<number, { started: number; toolCallCount: number; firstAssistantUpdateMs?: number }>();
-	const toolStarts = new Map<string, { started: number; turnIndex?: number; planRunId?: string; phase?: "implementation" | "details" }>();
+	const toolStarts = new Map<string, { started: number; turnIndex?: number; planRunId?: string; phase?: "profile" | "implementation" | "details" }>();
 	let fanoutExecutionInProgress = false;
 	const reportPresentationAvailable = registerFanoutReportPresentation(pi);
 	const planning = new FanoutPlanningController(pi, { reportPresentationAvailable, activeModel: () => activeModel, activeThinking: () => activeThinking });
+	const workerValidation = loadWorkerValidationContext();
 	planning.register();
+	if (workerValidation) registerWorkerValidationTool(pi, workerValidation);
 
 	setDoublewordRunId(RUN_ID);
 	configureMainObservability(fanoutRuntimeContext(process.cwd(), undefined, undefined));
@@ -88,6 +89,7 @@ export default async function (pi: ExtensionAPI) {
 			ctx.ui.setStatus("fanout-execute", "fanout:executing");
 			try {
 				const context = fanoutRuntimeContext(ctx.cwd, activeModel ?? ctx.model, activeThinking ?? pi.getThinkingLevel(), ctx.modelRegistry?.getAll?.());
+				ctx.ui.notify("Fanout invocation runs the previously approved profile validation, including during dry-run; commands may have external/network effects. Live confirmation gates workers and active apply.", "info");
 				const result = await executeFanout({
 					cwd: ctx.cwd,
 					activePointerPath: context.activePointerPath,
@@ -131,14 +133,15 @@ export default async function (pi: ExtensionAPI) {
 		writeFanoutRuntimeContext(ctx.cwd, activeModel ?? ctx.model, activeThinking, ctx.modelRegistry?.getAll?.());
 	});
 
-	pi.on("before_agent_start", (event, ctx) => {
-		const batchingPrompt = event.systemPrompt.includes(BATCHING_DISCIPLINE_MARKER) ? event.systemPrompt : `${event.systemPrompt}\n\n${BATCHING_DISCIPLINE}`;
-		const runtimePrompt = batchingPrompt.includes(FANOUT_CONTEXT_MARKER) ? batchingPrompt : `${batchingPrompt}\n\n${fanoutRuntimePrompt(ctx.cwd, activeModel ?? ctx.model, activeThinking ?? pi.getThinkingLevel(), ctx.modelRegistry?.getAll?.())}`;
+	pi.on("before_agent_start", (event) => {
 		const phasePrompt = planning.beginTurn();
-		return {
-			systemPrompt: phasePrompt ? `${batchingPrompt}\n\n${phasePrompt}` : runtimePrompt,
-		};
+		if (!phasePrompt) return { systemPrompt: event.systemPrompt.includes(BATCHING_DISCIPLINE_MARKER) ? event.systemPrompt : `${event.systemPrompt}\n\n${BATCHING_DISCIPLINE}` };
+		if (event.systemPrompt.includes(BATCHING_DISCIPLINE)) return { systemPrompt: event.systemPrompt.replace(BATCHING_DISCIPLINE, `${phasePrompt}\n\n${PLANNING_BATCHING_DISCIPLINE}`) };
+		if (event.systemPrompt.includes(BATCHING_DISCIPLINE_MARKER)) return { systemPrompt: event.systemPrompt.replace(BATCHING_DISCIPLINE_MARKER, `${phasePrompt}\n\n${PLANNING_BATCHING_DISCIPLINE}`) };
+		return { systemPrompt: `${event.systemPrompt}\n\n${phasePrompt}\n\n${PLANNING_BATCHING_DISCIPLINE}` };
 	});
+
+	pi.on("context", (event) => ({ messages: planning.filterContext(event.messages) as any }));
 
 	pi.on("agent_start", (_event, ctx) => {
 		agentStarted = performance.now();
@@ -151,8 +154,11 @@ export default async function (pi: ExtensionAPI) {
 		const activePlan = planning.active;
 		writeJsonl("agent_end", { planRunId: activePlan?.runId, phase: activePlan?.phase, durationMs: agentStarted === undefined ? undefined : durationMs(agentStarted), turnCount: agentTurnCount, toolCallCount: agentToolCallCount }, ctx.cwd);
 		agentStarted = undefined;
-		await planning.finishTurn(ctx);
 	});
+
+	pi.on("agent_settled", async (_event, ctx) => { await planning.finishTurn(ctx); });
+	pi.on("session_before_compact", (_event, ctx) => { planning.captureCompactionContext(ctx.sessionManager.buildSessionContext().messages); });
+	pi.on("session_compact", (_event, ctx) => planning.compactContext(ctx.sessionManager.buildSessionContext().messages));
 
 	pi.on("message_update", (_event, ctx) => {
 		if (activeTurnIndex === undefined) return;
@@ -236,10 +242,13 @@ export default async function (pi: ExtensionAPI) {
 		);
 	});
 
-	pi.on("tool_call", (event) => {
-		const reason = planning.blockReason(event.toolName);
+	pi.on("tool_call", (event, ctx) => {
+		const sessionMessages = ctx.sessionManager?.buildSessionContext?.().messages;
+		const messages = Array.isArray(sessionMessages) ? sessionMessages : [];
+		const reason = planning.blockReason(event.toolName, event.toolCallId, messages)
+			?? workerValidationBatchBlockReason(event.toolName, event.toolCallId, messages, Boolean(workerValidation));
 		if (reason) return { block: true, reason };
-		const workerReason = workerToolBlockReason(event.toolName, event.input, process.env.FANOUT_WORKTREE_ROOT);
+		const workerReason = workerToolBlockReason(event.toolName, event.input, process.env.FANOUT_WORKTREE_ROOT, workerValidation);
 		if (workerReason) return { block: true, reason: workerReason };
 	});
 

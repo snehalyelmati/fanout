@@ -8,6 +8,10 @@ Fanout turns a reviewed repository objective into bounded parallel work while pr
 The user-approved repository outcome that one planning run is trying to achieve.
 _Avoid_: Prompt, request
 
+**Planning Run**:
+One controller-owned planning lifecycle that binds an implementation plan and implementation details to a planning base and may produce an execution packet.
+_Avoid_: Plan, packet
+
 **Implementation Plan**:
 The accepted semantic decomposition and maximum repository scope for an objective. It expresses intent, not executable worker authority.
 _Avoid_: Packet, execution plan, plan result
@@ -66,6 +70,14 @@ _Avoid_: Task description, implementation note
 The exact repository commit and Git-visible tree against which a plan was accepted.
 _Avoid_: Base branch, current checkout
 
+**Project Execution Profile**:
+The immutable user-approved direct-argv authority for isolated preparation, readiness, candidate normalization, and project-wide final gates, versioned separately from task packets.
+_Avoid_: Packet configuration, model profile
+
+**Active Profile Pointer**:
+The atomically published exact identity of the Project Execution Profile used for new planning and execution.
+_Avoid_: Latest setup, environment defaults
+
 ## Execution language
 
 **DAG Node**:
@@ -105,7 +117,7 @@ The repository state produced by an attempt before it is accepted into the repos
 _Avoid_: Patch, result
 
 **Candidate Normalization**:
-A packet-declared deterministic transformation applied once to a candidate before its patch is captured and validated.
+A Project Execution Profile-declared deterministic transformation applied once to a candidate before its patch is captured and validated.
 _Avoid_: Auto-fix inference, repair
 
 **Validation**:
@@ -136,6 +148,14 @@ _Avoid_: Repair candidate, accepted patch
 The repository state produced by a repair attempt, which must pass fresh reconstruction and the normal acceptance gates before it can enter the ledger.
 _Avoid_: Repair seed, accepted state
 
+**Repair State**:
+The exact digest pair of candidate identity and typed failure state used to prove progress between repair attempts.
+_Avoid_: Similarity score, retry counter
+
+**Deterministic Reconciliation**:
+The controller-only recapture of a stale candidate onto the latest accepted tree when every intervening accepted transition is exactly path-disjoint.
+_Avoid_: Rebase, merge, fuzzy reconciliation
+
 **Accepted Patch**:
 Exact binary Git patch bytes bound to their changed paths, planning commit, base tree, and result tree.
 _Avoid_: Diff file, overlay
@@ -147,6 +167,32 @@ _Avoid_: Apply result
 **Accepted Ledger**:
 The ordered chain of accepted-state transitions for a run.
 _Avoid_: Patch list, current files
+
+**Vertical Serial-Chain Fusion**:
+Compiler-owned replacement of an eligible unique predecessor/successor chain with one deterministic node while preserving ordered source provenance, authority, validation, and external dependencies.
+_Avoid_: Runtime fusion, batching
+
+## Profiler language
+
+**Workflow Lineage**:
+The traceable relationship from one planning run through its execution packet and execution runs to node, attempt, provider, tool, validation, and accepted-state evidence.
+_Avoid_: Run, trace
+
+**Source Reference**:
+A precise pointer from a profiler fact to source evidence, preserving the strongest available artifact identity and location.
+_Avoid_: Filename, inferred provenance
+
+**Evidence Receipt**:
+The provenance for a calculated metric, comparison, diagnostic observation, or counterfactual scenario result, including its evidence class, artifact generation, source references, derivation, and limitations.
+_Avoid_: Confidence score, explanation
+
+**Provider Profile**:
+A user-configured deterministic timing and cost model applied to all recorded provider calls in one tier of a Counterfactual Scenario.
+_Avoid_: Provider prediction, model profile
+
+**Scenario Completion Chain**:
+The dependency and resource chain that determines a Counterfactual Scenario's calculated execution boundary.
+_Avoid_: Observed critical path, predicted path
 
 ## Audit language
 
@@ -175,11 +221,23 @@ A deterministic human view of authoritative planning or execution state that nev
 _Avoid_: Execution plan, run state
 
 **Accepted Metrics**:
-The complete correlated usage, pricing, tool, worker-timing, and compatibility-class-specific provider evidence required before an attempt may be accepted.
-_Avoid_: Best-effort telemetry, partial success metrics
+Canonical correlated measurements admitted alongside an accepted attempt. Acceptance requires positively observed matching provider/model identity, controller-bound tier provenance, and all repository gates; measurements may be complete or validly partial. Supplied contradictions are rejected, missing totals remain unavailable, and observed partial spend is distinct from complete cost.
+_Avoid_: Assumed totals, acceptance without observed identity
+
+**Artifact Generation**:
+The coordinated set of planning and execution artifact versions admitted and interpreted as one compatibility boundary.
+_Avoid_: Schema version, format version
+
+**Diagnostic Observation**:
+A deterministic evidence-backed statement about recorded or derived run behavior that does not recommend or rank changes.
+_Avoid_: Optimization signal, recommendation
+
+**Counterfactual Scenario**:
+A user-configured deterministic calculation that preserves observed work and outcomes while varying bounded scheduling or provider timing and cost inputs.
+_Avoid_: Prediction, forecast
 
 **Local Trust Boundary**:
 The boundary under which Fanout hardens deterministic repository integration while trusted Pi code and approved local programs retain the user's host permissions.
 _Avoid_: Sandbox, containment
 
-Sources: [Wayfinder map #8](https://github.com/snehalyelmati/fanout/issues/8), [trust boundary #9](https://github.com/snehalyelmati/fanout/issues/9), [repository authority #11](https://github.com/snehalyelmati/fanout/issues/11), [identity #12](https://github.com/snehalyelmati/fanout/issues/12), [attempt outcomes #14](https://github.com/snehalyelmati/fanout/issues/14), [run events #15](https://github.com/snehalyelmati/fanout/issues/15), [work contract #17](https://github.com/snehalyelmati/fanout/issues/17), [final validation #18](https://github.com/snehalyelmati/fanout/issues/18), [implementation spec #21](https://github.com/snehalyelmati/fanout/issues/21), [worktree preparation #30](https://github.com/snehalyelmati/fanout/issues/30), and [candidate normalization #32](https://github.com/snehalyelmati/fanout/issues/32).
+Sources: [Wayfinder map #8](https://github.com/snehalyelmati/fanout/issues/8), [trust boundary #9](https://github.com/snehalyelmati/fanout/issues/9), [repository authority #11](https://github.com/snehalyelmati/fanout/issues/11), [identity #12](https://github.com/snehalyelmati/fanout/issues/12), [attempt outcomes #14](https://github.com/snehalyelmati/fanout/issues/14), [run events #15](https://github.com/snehalyelmati/fanout/issues/15), [work contract #17](https://github.com/snehalyelmati/fanout/issues/17), [final validation #18](https://github.com/snehalyelmati/fanout/issues/18), [implementation spec #21](https://github.com/snehalyelmati/fanout/issues/21), [worktree preparation #30](https://github.com/snehalyelmati/fanout/issues/30), [candidate normalization #32](https://github.com/snehalyelmati/fanout/issues/32), and [counterfactual scheduling simulations #41](https://github.com/snehalyelmati/fanout/issues/41).

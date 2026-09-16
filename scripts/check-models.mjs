@@ -23,9 +23,9 @@ const rows = result.stdout
 
 const available = new Set(rows.map(([provider, model]) => `${provider}/${model}`));
 const expected = [
-  ["doubleword-stub", "glm-5-2"],
+  ["doubleword-stub", "glm-5-3-flash"],
   ["doubleword-stub", "deepseek-v4-flash"],
-  ["doubleword", "zai-org/GLM-5.2-FP8"],
+  ["doubleword", "zai-org/GLM-5.3-Flash"],
   ["doubleword", "deepseek-ai/DeepSeek-V4-Flash"],
 ];
 

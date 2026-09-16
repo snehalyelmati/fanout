@@ -1,0 +1,14 @@
+{
+  "name": "fanout-profiler",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun src/cli.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "fanout-core": "0.0.0"
+  }
+}
