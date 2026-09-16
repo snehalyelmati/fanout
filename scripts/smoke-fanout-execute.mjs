@@ -328,7 +328,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
     runId: "interrupted-normalization",
     extensionEntry: "packages/fanout-pi/src/index.ts",
     piCommand: fakePi,
-    validationTimeoutMs: 40,
+    validationTimeoutMs: 1_000,
     recorder: { async recordAttemptAllocated(allocation) { interruptedAllocations.push(allocation); }, async recordAttemptCompleted(outcome) { interruptedCompletions.push(outcome); }, async flush() {} },
   });
   let interruptedResult;
@@ -359,7 +359,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
     runId: "diagnostic-normalization",
     extensionEntry: "packages/fanout-pi/src/index.ts",
     piCommand: fakePi,
-    validationTimeoutMs: 40,
+    validationTimeoutMs: 1_000,
     recorder: { async recordAttemptAllocated(allocation) { diagnosticAllocations.push(allocation); }, async recordAttemptCompleted(outcome) { diagnosticCompletions.push(outcome); }, async flush() {} },
   });
   let diagnosticResult;
