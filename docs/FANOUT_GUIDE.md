@@ -54,4 +54,3 @@ The normal repository check includes profiler unit and loopback HTTP smoke check
 ```text
 npm run benchmark:profiler
 ```
-
