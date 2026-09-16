@@ -1,22 +1,24 @@
 # Fanout efficiency progress
 
-Status: active under the broader [study protocol](../benchmarks/fanout-high-latency-study.md). Completed implementation and both p-map pilot pairs remain evidence; the cost/time/correctness target is not established across tasks. Independent acceptance v2, two ordinary-Pi baselines, the controlled prompt pair and the complete-edit-batch cohort are complete. The exploratory whole-task batch trial and two predeclared repeats passed faster/cheaper than the frozen raw mean; all required two corrections. The Fanout trial was slower/costlier and retains a harness-error outcome. The complete-diagnostics follow-up also passed, but averaged 326.352s/$0.5050845 and exposed incomplete initial submissions; separate task-completion gates are implemented. The qs raw pair exposed an artifact-checker false rejection, so its mean is not a fair control. The normal-Terra-continuation pair is complete and rejected for the high-latency target. Candidate batching remains experimental; polished presentation is deferred.
+Current scope (2026-09-16): prepare the public research preview described in the [study](../STUDY.md) and [roadmap](../ROADMAP.md). The implementation and historical experiments below are preserved. Do not resume the old open-ended optimization sequence for this release. Parallel Fanout remains primary; whole-task/fresh-repair variants remain experiments. Source/report/static figures are in scope; new paid runs and interactive presentation are not.
 
-## Objective and authorization
+Historical experiment summary (2026-09-06–08), under the [study protocol](../benchmarks/fanout-high-latency-study.md). Completed implementation and both p-map pilot pairs remain evidence; the cost/time/correctness target is not established across tasks. Independent acceptance v2, two ordinary-Pi baselines, the controlled prompt pair and the complete-edit-batch cohort are complete. The exploratory whole-task batch trial and two predeclared repeats passed faster/cheaper than the frozen raw mean; all required two corrections. The Fanout trial was slower/costlier and retains a harness-error outcome. The complete-diagnostics follow-up also passed, but averaged 326.352s/$0.5050845 and exposed incomplete initial submissions; separate task-completion gates are implemented. The qs raw pair exposed an artifact-checker false rejection, so its mean is not a fair control. The normal-Terra-continuation pair is complete and rejected for the high-latency target. Candidate batching remains experimental. The September 16 preview presents these findings through the study report and static figures.
+
+## Historical objective and scope — 2026-09-06–08
 
 Develop and evaluate orchestration for coding agents on high-TTFT, low-cost inference, targeting correct completion at lower full E2E user cost and similar or lower time than ordinary realtime Pi while preserving provider economics. Study both orchestration for today's per-request delay and complementary provider improvements. Use p-map plus a small varied fast-validating task set, retaining Execa for occasional stress runs. Reduce sequential requests and control overhead without moving the cheap worker's implementation reasoning into Tier 1. The full framework, matrices, metrics, simulations, provider hypotheses and deferred work live in the study protocol.
 
-The initial staged implementation and p-map pilot were approved and completed. The user subsequently authorized canaries and atomic commits, transferred the expanded study direction from the side conversation, and replaced the prior blanket approval gates with the updated global AGENTS instructions. Continue here as the main task. Apply code-review before commits; keep core/provider boundaries and existing recovery authority. Broad canary permission does not turn speculative designs into proven architecture.
-
-Stored goal: after the user deleted the paused goal on 2026-09-07, the goal tool created and verified a new active **Codex-first orchestration study** goal (no token budget requested). It requires the bounded qs transfer, a concrete task coverage matrix, fixed-configuration Codex comparisons across real fast tasks, full E2E/acceptance and preserved evidence. Scarce Doubleword experiments are deferred until repeatable Codex savings and plausible timing headroom justify them; credentials do not block this phase. The realtime/async comparison matrix and provider hypotheses remain later requirements.
+The initial implementation and p-map pilot were completed. The September 7 expansion prioritized a bounded qs transfer, a task-coverage matrix and fixed Codex comparisons across fast real tasks, with full E2E accounting and independent acceptance. It deferred scarce Doubleword trials until repeated relevant Codex wins and plausible latency headroom justified them; the full realtime/async matrix and provider hypotheses remained open. This records the historical research order, not an active task or authorization to resume experiments.
 
 Baseline Fanout revision: `07db63f`. Preserve historical runs and benchmark prices. Current measurements are evidence, not predictions for another provider.
 
-## Current next decision
+## Frozen experiment status — 2026-09-08
 
-The fixed qs transfer passed (174.992s/$0.56494; one Terra and four Sol responses). The subsequent fixed Pi screen is recorded below; its PR787 failures now motivate acceptance improvements and a fresh Sol repair-session experiment. Record named tasks/pins/checkers/measured validation/readiness and honest gaps across width, depth, volume, coupling and reasoning difficulty. Use existing replay to screen long request delays; do not infer async quality or billing. Limited or negative outcomes are acceptable. This approved sequence supersedes the earlier immediate-async-next ordering below while preserving its measured results. The Pi764 fixed cohort subsequently stopped on a provider usage-limit error; raw passed, batch completion is unmeasured, and no cohort mean is admitted. The separate PR787 fixed cohort is now complete: raw quality passes 2/3; batch quality passes 0/2, despite all final automated checks passing. Neither arm has an admitted mean. Both batch costs exceed either accepted raw point; whole-01 spends 84.22% on Sol repairs and whole-02 needs two initial Terra responses. The fresh Sol repair-session prototype and reviewed public-scope/Markdown checks now pass offline validation. Next freeze two whole observations with the same budgets and qualified raw references; no new raw runs. Product Fanout already starts fresh attempts; this tests prototype context retention. Preserve the closed cohorts and reuse qualified individual controls. Future live work requires a new declaration.
+At the September 8 checkpoint, the first fresh-repair cohort stopped on sandbox fetch failure before edits. A separately frozen network-enabled cohort was prepared, but automatic approval review rejected its launches before execution over the full benchmark payload sent to Codex. Both trials remain unrun; temporary credentials are removed. See the [benchmark record](../BENCHMARKS.md#pr787-fresh-repair-network-failure--2026-09-08).
 
-## Decisions and scope
+The fixed qs transfer passed (174.992s/$0.56494; one Terra and four Sol responses). The subsequent fixed Pi screen is recorded below; its PR787 failures motivated acceptance improvements and a fresh Sol repair-session experiment. Record named tasks/pins/checkers/measured validation/readiness and honest gaps across width, depth, volume, coupling and reasoning difficulty. Use existing replay to screen long request delays; do not infer async quality or billing. Limited or negative outcomes are acceptable. This approved sequence supersedes the earlier immediate-async-next ordering below while preserving its measured results. The Pi764 fixed cohort subsequently stopped on a provider usage-limit error; raw passed, batch completion is unmeasured, and no cohort mean is admitted. The separate PR787 fixed cohort is now complete: raw quality passes 2/3; batch quality passes 0/2, despite all final automated checks passing. Neither arm has an admitted mean. Both batch costs exceed either accepted raw point; whole-01 spends 84.22% on Sol repairs and whole-02 needs two initial Terra responses. The fresh Sol repair-session prototype and reviewed public-scope/Markdown checks now pass offline validation. The planned next experiment was two whole-task observations with the same budgets and qualified raw references, without new raw runs; its subsequent infrastructure and launch stops are recorded above. Product Fanout already starts fresh attempts; this tests prototype context retention. Preserve the closed cohorts and reuse qualified individual controls. Future live work requires a new declaration.
+
+## Implementation decisions retained from the study
 
 - Merge model planning Phase A/B into one context and combined submission; retain deterministic validation/compilation and the existing persisted plan/details/packet contracts.
 - Reuse approved execution profiles and supplied conversation findings. Keep semantic planning sharp; the planner must not implement the task.
@@ -26,9 +28,9 @@ The fixed qs transfer passed (174.992s/$0.56494; one Terra and four Sol response
 - Align validation with ownership and compact duplicate repair prompt material. Retain complete audit records, candidate continuity, Tier 1 validation repairs, fixed budgets and independent controller acceptance.
 - Keep isolation, direct argv, exact identities, immutable accepted state and final validation unchanged.
 
-## Progress
+## Historical progress through 2026-09-08
 
-| Stage | Status | Validation/evidence | Next step |
+| Stage | Recorded status | Validation/evidence | Decision at that checkpoint |
 | --- | --- | --- | --- |
 | 0 — Tracker and decisions | Done | Scope and decisions recorded | Keep measurement evidence current |
 | 1 — Combined planning | Implemented, focused checks pass | One-context SDK lifecycle/retry/compaction, combined compile, mutation rejection, plan-bound fallback | Passed full suite and both review axes |
@@ -40,11 +42,11 @@ The fixed qs transfer passed (174.992s/$0.56494; one Terra and four Sol response
 | 7 — Complete-edit-batch experiment | Complete; no adoption | Whole arm passed at 158.180s/`$0.3086735`; modified Fanout native gates passed at 490.575s/`$0.7992885`, but primary harness outcome is error | Preserve frozen evidence; fix reporting and prompt activation only in a new runner revision |
 | 8 — Whole-task repeats | Complete | Two passes, mean 181.206s/$0.330543; both need two corrections | Preserve repeat mean separately from exploratory trial |
 | 9 — Complete diagnostics | Complete; no speed benefit established | Two passes, mean 326.352s/$0.5050845; both initial candidates incomplete | Completion-v3 added and timed; retain evidence, no further p-map variants |
-| 10 — Codex task coverage and fixed transfer | In progress | qs passes; Pi764 stops on provider error; PR787 completes with raw quality 2/3 and batch 0/2, no admitted means | Fresh repair and acceptance-v2 pass offline; freeze two whole observations, reuse qualified controls; actual async deferred |
+| 10 — Codex task coverage and fixed transfer | Fixed screen complete; coverage incomplete | qs passes; Pi764 stops on provider error; PR787 completes with raw quality 2/3 and batch 0/2, no admitted means | Fresh repair and acceptance-v2 pass offline; first cohort stopped before edits, second cohort unrun; actual async deferred |
 
-Update each row after implementation and checks. Record failures and limitations here; never mark a stage measured from offline checks alone.
+Statuses describe their recorded checkpoints. Offline checks establish implementation behavior, not measured model performance.
 
-## Validation and measurement
+## Historical validation and measurement protocol
 
 Run focused planning, worker-pipeline, contract, recovery and final-validation checks at their changed boundaries. Run typecheck regularly; run full offline checks and provider tests on the integrated change, followed by code review. Record commands/results below.
 
@@ -54,15 +56,15 @@ User-selected pilot routing: `openai-codex/gpt-5.6-sol` medium for raw Pi and Ti
 
 Observed routing: planning/raw Pi used Sol medium; every ordinary Fanout worker in the initial and repeated runs used Terra medium immediately because async Tier 2 was disabled. Native allocations call this realtime assignment `tier1`; it is the configured Tier 2 fallback model, not a Sol worker or a reactive fallback after failure.
 
-Preserved baseline source snapshot: `/private/tmp/fanout-efficiency-baseline-07db63f`. The existing p-map checkout has a user modification in `readme.md`; use isolated clones from its fixed baseline and leave that checkout untouched.
+Preserved baseline source snapshot: `<local-workspace>/fanout-efficiency-baseline-07db63f`. The existing p-map checkout has a user modification in `readme.md`; use isolated clones from its fixed baseline and leave that checkout untouched.
 
 ## Validation log
 
 - 2026-09-06: inspected baseline and approved scope; no code changes or new provider measurements yet.
 
-## Deferred
+## Deferred at the initial checkpoint
 
-Custom one-shot candidate transport is an option after prompt evidence, not the next mandated architecture. Speculative duplicate workers, predictive/adaptive routing, budget-aware repair routing, validation caching, increased concurrency, broad model sweeps and Pi-with-subagents comparisons remain deferred. Varied tasks and actual async trials follow correctness and trace screening; a polished website/slides follows useful measurements. Release remains separate from implementation; atomic commits require code review first.
+Custom one-shot candidate transport is an option after prompt evidence, not the next mandated architecture. Speculative duplicate workers, predictive/adaptive routing, budget-aware repair routing, validation caching, increased concurrency, broad model sweeps and Pi-with-subagents comparisons remain deferred. At that checkpoint, varied tasks and actual async trials were to follow correctness and trace screening. The later September 16 release scope is source, report and static figures; a website or slides are outside it.
 
 - Focused checks passed: planning-boundary, planning, worker-pipeline, final-validation; configured typecheck passes (limited existing final-validation entrypoints). Full suite initially hit sandbox localhost restriction, then exposed one outdated public repair-prompt assertion, updated to verify retained recovery.json. Provider mock regressions pass.
 - Code review: Standards reports no remaining violations; Spec found context bounds and baseline/current labeling gaps, both corrected with focused regression checks.
@@ -71,16 +73,14 @@ Custom one-shot candidate transport is an option after prompt evidence, not the 
 - Integrated `npm run check` passed, including executor recovery checks and 49 profiler tests. `npm run test:doubleword-provider` passed all mock provider tests. Both required localhost socket permission. Expanded strict TypeScript probe of planner/worker entrypoints reports no new diagnostics against 07db63f; existing unrelated diagnostics remain outside configured typecheck coverage.
 - Final code-review recheck: Standards 0 findings; Spec 0 residual findings after context corrections.
 
-- Commit attempt blocked by automatic approval review: it did not accept the user-updated goal as explicit commit authorization. No files staged or commits created. Continue authorized measurement; obtain direct confirmation before committing.
-
 - Raw Pi pilot completed:307.421s,20 assistant responses,$0.627699 reported usage cost; frozen external acceptance passed. Full independent npm test passed54 tests. Current-Fanout pilot now started.
 
 - Current Fanout completed:486.832s including146.604s planning,$0.8119022 total. Planning4 requests; workers24 (runtime16, types4, docs4),3 original attempts, no controller repair. Native event replay used because profiler catalog currently rejects profile-only final gates at planning admission.
 
 - Improved Fanout completed: 393.781s including 89.811s planning; $0.5128764 total. Two planning requests and 16 worker requests (runtime 13, public contract 3). Both original attempts accepted; no controller repairs. Full independent suite: 56 tests; frozen acceptance passed.
 - Compared with raw Pi: 18.3% cheaper, 28.1% slower. Compared with current Fanout: 36.8% cheaper, 19.1% faster. These single samples do not demonstrate reliable performance.
-- Fixed-60-second worker-latency floor for the observed improved graph: 869.811s, even before generation/local overhead. Need a different cheap-worker request shape; the proposed terminating candidate experiment is documented in the pilot report and requires approval because custom candidate transport was deferred.
-- Durable evidence is preserved under `runs/p-map-efficiency-20260906/`; original user p-map checkout still has only its pre-existing readme modification. No commits were created after automatic approval review rejected the recorded goal as commit authorization.
+- Fixed-60-second worker-latency floor for the observed improved graph: 869.811s, even before generation/local overhead. Need a different cheap-worker request shape; the terminating candidate experiment was proposed in the pilot report while custom candidate transport remained deferred. Later benchmark-only trials are recorded below.
+- Durable evidence is preserved under `runs/p-map-efficiency-20260906/`; original user p-map checkout still has only its pre-existing readme modification. Commit authorization was resolved before the implementation commits recorded below.
 
 ## Standards review
 
@@ -94,21 +94,14 @@ Review totals: Standards 0 remaining findings, worst issue none; Spec 0 remainin
 
 ## Follow-up audit
 
-- Prior goal turn: progress (implemented and measured the approved changes). Revalidated source/test bytes against the tested frozen snapshot: no differences. The goal remains incomplete because the high-latency E2E target has not been met.
-- Automatic approval review again rejected committing, saying the goal continuation does not establish direct user commit authorization. No staging or commits occurred. The candidate-submission prototype also remains pending explicit approval under the design decision gate.
+- Revalidated source/test bytes against the tested frozen snapshot: no differences. The measurements did not establish the high-latency E2E target.
 - Offline replay of all five successful runtime edits reproduces exact final source/test bytes. All intermediate versions pass the original frozen independent acceptance, demonstrating a gap in that checker rather than readiness for early termination.
 - Supplemental promised-source-value abort check: raw Pi passes, current Fanout fails (one mapper starts after abort), improved Fanout passes. Updated the benchmark report to distinguish native controller completion from semantic failure; measured time/cost remain unchanged.
 - Replaying the improved state before response 11 reproduces the same semantic failure even though response 10 advisory validation passed. The last runtime fix was necessary; terminating merely on a passing validation is not a safe shortcut. No new paid runs or proposed prototype implementation occurred.
 
-## Blocked audit
+## Implementation commits and historical pause
 
-Historical note: the following audit describes the deleted original goal and superseded approval gates. It is not a current work blocker.
-
-The approval boundary has persisted across three consecutive goal turns: the initial implementation/pilot turn and two goal continuations. The first continuation made further progress through offline replay and supplemental semantic checks; the latest revalidation confirms unchanged tested source bytes and terminal benchmark runs. No direct approval for the proposed worker-workflow change has arrived. Automatic approval review has also repeatedly rejected commits, requiring direct user confirmation. Further implementation would change the documented deferred workflow; no authorized action remains that can achieve the latency objective. Mark the goal blocked until that approval is supplied, without marking the objective complete.
-
-## Commit authorization resolved
-
-The user subsequently said “You can commit,” resolving the commit authorization blocker. Reviewed implementation is committed as `a7b5ef6` (combined planning) and `b6a6fab` (prepared worker sources and early ownership checks). Source/test bytes remain identical to the tested improved snapshot. Benchmark findings and this tracker accompany the implementation in a separate documentation commit. The proposed candidate-submission experiment still requires approval; commit authorization does not change that scope.
+An initial administrative pause delayed commits and candidate-submission work; it was resolved before the later experiments. The reviewed implementation was committed as `a7b5ef6` (combined planning) and `b6a6fab` (prepared worker sources and early ownership checks), with source/test bytes identical to the tested improved snapshot. Benchmark findings and this tracker followed in a separate documentation commit. This past pause is not a current research or publication blocker.
 
 ## Additional canary authorization
 
@@ -125,8 +118,6 @@ The user subsequently authorized canary runs. Revalidated the clean committed wo
 ## Expanded study work — 2026-09-07
 
 - Transferred the complete side-conversation framework into one [study protocol](../benchmarks/fanout-high-latency-study.md), covering five explanatory layers, all four workflow configurations and requested comparisons, varied task selection, provider economics, continuation/cache hypotheses, simulation limits and deferred presentation. Updated benchmark index, roadmap and adopted decisions without rewriting historical run evidence.
-- Reread `/Users/snehalyelmati/.codex/AGENTS.md` from disk as requested. It calls for the main task to orchestrate useful subagents, defaults new agents to Sol medium, and requires cohesive changes and atomic commits. The former blanket approval gates are absent. New acceptance, raw-baseline-driver and task-shortlist work is delegated accordingly.
-- Created and verified the new active stored goal after the user deleted the old blocked goal. Both orchestration and provider research are in its actual objective; current per-request high latency and proposed fast continuations are distinct.
 - Acceptance v2 is implemented as `scripts/benchmarks/p-map-acceptance-v2.mjs`, protocol `p-map-iterable-abort-acceptance` version 2. It preserves post-abort no-yield checks and the 2s semantic hang deadline, handles native once-listener removal, adds the promised-value abort case, and checks scope against the pinned baseline even for a committed candidate. An inner 10s watchdog retains asynchronous failure evidence; a separate supervisor kills a blocked evaluation process group after 12s, including synchronous module loops. The external process runner retains its own command timeout.
 - Offline matrix: original raw/improved pass; original current and both repeat candidates fail promised-value abort; clean baseline fails the missing abort behaviors. Default-cwd, committed-candidate scope, unexpected paths, active handles, watchdog and once-listener regressions were exercised. Final-source replay and hashes are recorded under `runs/p-map-acceptance-v2-20260907/`; these checks do not establish a new performance baseline.
 - Implemented `scripts/benchmarks/p-map-raw-canary-v2.mjs`: required acceptance/full-suite checks and up to two predeclared correction prompts share one E2E clock. It freezes candidate identity across all gates, records configuration/environment and final patch provenance, and rejects mutations of benchmark inputs. This changes the benchmark protocol, not Fanout's production recovery limits. Verified live baseline results follow below.
@@ -194,11 +185,11 @@ The user subsequently authorized canary runs. Revalidated the clean committed wo
 
 - Both predeclared trials and all final quality reviews passed. Native-01: 347.510s/$0.589717, 8 Terra + 9 Sol responses; native-02: 363.822s/$0.6271475, 13 Terra + 5 Sol; one correction each. Mean 355.666s/$0.60843225 is 18.75% slower/2.29% cheaper than frozen raw. Both initial candidates failed the same real promised-source-value abort boundary plus authored test/lint checks.
 - Reject this configuration for per-request high latency. Preserve all evidence under `runs/p-map-native-continuation-v1-20260907/`; frozen hashes stayed unchanged, handles 96434/8660 ended exit 0, isolated auth removed. Both final immutable-tree quality reviews pass. No product behavior changed.
-- Stop further p-map variants and harness polishing unless a validity defect blocks the decision. At this checkpoint, actual async and one fixed qs transfer were next. The Codex-first sequence below supersedes that ordering: qs is complete, actual async is deferred, and credentials do not block current work. Reuse valid qs raw-01 only, not its biased pair mean. Transfer inputs and mature qs driver/gates are available; no new submission tool or model sweep.
+- Stop further p-map variants and harness polishing unless a validity defect blocks the decision. At this checkpoint, actual async and one fixed qs transfer were next. The Codex-first sequence below supersedes that ordering: qs is complete, actual async is deferred, and credentials did not block that Codex phase. Reuse valid qs raw-01 only, not its biased pair mean. Transfer inputs and mature qs driver/gates are available; no new submission tool or model sweep.
 
-### Codex-first goal and fixed qs transfer
+### Codex-first checkpoint and fixed qs transfer — 2026-09-07
 
-- The user removed the paused goal; a replacement active goal was created and verified through the goal tool. It explicitly defers scarce Doubleword credits until repeated relevant Codex savings and plausible latency headroom justify a bounded pilot. Credential availability does not block this phase.
+- The research order deferred scarce Doubleword trials until repeated relevant Codex savings and plausible latency headroom justified a bounded pilot. The Codex screen did not depend on Doubleword credential availability.
 - The single qs transfer passed in 174.992s/$0.56494, one Terra plus four Sol responses and one correction. The sole valid raw reference is 265.166s/$0.754926: 34.01% faster and 25.17% cheaper, with routing/context/tool differences disclosed. The biased raw pair mean is excluded.
 - Initial independent semantics passed but four obsolete native expectations and required focused tests needed repair. Final 877 assertions, all six gates, lock/scope/identity and manual quality review passed. Frozen protocol `b75a164ab1b7b117389f076d172922dde021718c471599178f6aa27193bb7518` retained all 113 runtime/input hashes; handle 46024 ended exit 0, auth removed. Full records are under `runs/qs-whole-transfer-v1-20260907/`.
 - The task inventory records p-map, qs, Execa stress, Pi narrow-terminal and changelog-trace candidates with pins where known, independent checks, measured validation scope and readiness. Runtime await depth and historical worker counts are not intrinsic task-work depth or useful width. Significant volume/depth/width contrasts remain unfilled; do not claim full coverage or add six artificial fixtures.
@@ -208,7 +199,7 @@ The user subsequently authorized canary runs. Revalidated the clean committed wo
 
 - Exact56 rendering preflight passes: base rejected for the expected 78-column overflow; reference and an alternative shorter informative hint pass. Required reference wrapper 5.073s, command sum 4.314s, including all read-only repository check subcommands, 11 relevant tests and independent renderer/scope/lock/identity checks. No live model run.
 - Preserve initial missing-dependency-output and sandbox IPC failures separately from final admission. Pinned lock install took 11.598s; unchanged dependency compilation 0.762s. Reference checkout is clean; final checker and task hashes are in `runs/pi-task-preflight-20260907/preflight-receipt.json`.
-- Frozen inventory v2 adds this admitted very-small-edit task and verified PR787 pins. The API candidate remains unready until evaluator/timing/context-fit evidence exists. Neither historical debug loops nor source/file counts prove depth, reasoning difficulty or useful width. The Codex-first goal remains active; prepare bounded fixed comparisons and fill remaining contrasts before provider work.
+- Frozen inventory v2 adds this admitted very-small-edit task and verified PR787 pins. The API candidate remains unready until evaluator/timing/context-fit evidence exists. Neither historical debug loops nor source/file counts prove depth, reasoning difficulty or useful width. The proposed next step at that checkpoint was bounded fixed comparison and broader task coverage before provider work; the subsequent Pi outcomes are recorded below.
 
 ### Pi764 cohort infrastructure stop — 2026-09-08
 

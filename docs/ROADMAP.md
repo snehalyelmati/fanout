@@ -39,27 +39,23 @@ Fanout should preserve developer velocity by using slower tiers only where laten
 
 ## Current Fanout workflow roadmap
 
-### High-latency study in progress
+### Public research preview — 2026-09-16
 
-Current decision: the bounded qs transfer passed in 174.992s/$0.56494 (one Terra + four Sol responses), 34.01% faster/25.17% cheaper than one valid raw observation. The fixed **Codex-first** screen now includes qs, Pi764 and PR787; PR787 failed batch quality in both observations. Acceptance fixes and the fresh Sol repair prototype now pass offline checks; next freeze the bounded two-observation comparison, preserving the fixed screen as historical evidence. Freeze named tasks, pinned revisions, independent acceptance, measured validation durations, readiness and missing coverage; distinguish inherent width/depth from the produced worker graph. Doubleword credits are limited, so actual provider runs follow repeatable Codex savings plus plausible latency headroom; credentials do not block this phase. Reuse the p-map raw mean, valid qs raw-01, Pi764 raw-01 and individually qualified PR787 raw-02/raw-03; do not average selected successes. Native continuation remains rejected; no further p-map variants or broad model sweeps. The full realtime/async matrix and provider hypotheses remain later requirements.
+Current scope: prepare repository source, the [study report](STUDY.md), curated per-run summaries and static figures. Parallel Fanout remains the primary architecture. Complete-candidate workers and whole-task submissions investigate request depth; the whole-task prototype is not the replacement product. No new paid benchmark, interactive explorer, website, slide deck or orchestration layer is required for this release.
 
-Coverage v2 admits the exact56 Pi rendering task offline (5.073s validation wrapper) and pins PR 787 as an unready shared-contract candidate. The Pi764 fixed comparison is now closed after a provider usage-limit error: raw-01 passed at 118.149s/$0.192988; whole-01 stopped at 28.118s/$0.0709225 during repair. Neither arm has a valid cohort mean; retain the failure and do not resume or replace frozen observations. PR787 independent validation now passes on a separate complete positive fixture in 10.120s (36 focused tests); its historical reference remains unchanged and documentation-incomplete for the explicit task. Coverage v3 preserves all previous evidence. The separately frozen PR787 live cohort is now complete: raw quality passes 2/3 and batch quality passes 0/2 despite all final automated gates passing. Neither arm has an admitted mean; batch costs ($2.593488/$1.392048) exceed both accepted raw points. The fresh Sol repair prototype and reviewed acceptance-v2 now pass offline checks, including a nine-command/36-test positive gate boundary (9.419s command sum). Final live freeze for two whole observations is next; no new raw runs. Product Fanout already starts fresh attempts; no product architecture, excerpt policy or performance change is adopted. Reuse valid individual controls and preserve every failed observation. Historical long investigation and file/source counts do not close the remaining task-shape gaps.
+The study identifies conditional modeled wins from useful parallelism, capable inexpensive workers and bounded overhead. Current measurements quantify planning, sequential-request, acceptance and repair bottlenecks. p-map and qs whole-task observations are positive under their declared configurations; Pi764 was interrupted and PR787 whole-task candidates failed manual quality. Reliable coverage across task/model/provider combinations remains incomplete. Preserve all outcomes and do not pool incompatible cohorts.
 
-The [study protocol](benchmarks/fanout-high-latency-study.md) expands the investigation to orchestration for today's per-request latency and complementary provider designs, including bounded fast continuations, context reuse and economical scheduling. The [progress tracker](impl/fanout-efficiency-progress.md) preserves completed combined planning, source preparation, ownership and repair improvements and the p-map pilot evidence. The initial improved pair was cheaper but slower; the repeat was costlier and slower, and both repeat candidates failed supplemental semantic acceptance.
+Release preparation includes source-only installation checks, MIT licensing, static-figure arithmetic and provenance review. Raw model sessions, Fanout traces and tool-event streams stay local. Recorded fixtures and the old event-filled prototype are removed from the proposed public tree, while originals remain local. A normal merge/public visibility change would still expose raw blobs in history; choose a separate reviewed publication strategy before making the repository public. See [publication checks](PUBLICATION.md).
 
-Stronger independent acceptance is implemented; two ordinary-Pi v2 trials passed all required gates at 274.137s/$0.547710 and 324.892s/$0.697646. The complete-before-validation prompt canary finished without an improvement. The complete-edit-batch cohort also finished: its whole-task arm passed in 158.180s at `$0.3086735`, while the modified Fanout arm consumed 490.575s/`$0.7992885` and retains a primary harness-error outcome despite passing native candidate gates. A separate audit confirms the intended medium Sol/Terra assignments; exact worker argv was not persisted. Another audit found that the canonical batch-prompt branch was inactive while the extension batch instruction/termination was active alongside normal canonical instructions. Both Fanout originals nevertheless met the one-response target, but no benefit is attributed to the inactive source change; a Sol validation repair needed nine responses. No product change follows from one mixed-configuration sample. Two predeclared whole-task p-map repeats now pass at a mean 181.206s/$0.330543, 39.50% faster and 46.92% cheaper than the frozen raw mean, but both require the full two-correction allowance. Offline replay exposed test failures hidden by the initial lint failure. The complete-diagnostics follow-up now passes at 326.352s/$0.5050845 mean, 8.96% slower and 18.89% cheaper than raw, with no speed benefit established. Both initial Terra submissions omitted required types/tests/docs that Sol later supplied. A separate public-type/artifact completion prototype now rejects incomplete candidates and passes seven archived finals. The context-preserving completion-v3 gate was subsequently bound into the completed native-continuation cohort above. The fixed qs transfer and subsequent Pi screening are recorded above; the next hypothesis addresses PR787 acceptance and repair context; the wider study still calls for roughly three varied fast-validating tasks (qs strict-merge passed independent red/green preflight with a 6.64s sum of successful local gate times; public-solution bias remains), retain occasional Execa stress runs, and measure actual async service. The standalone async/native-batch path passes fake-transport initialization; this is compatibility evidence only. Any further modified Fanout arm needs a new runner revision fixing reporting and prompt activation. Use trace replay to screen configurations before broader paid work. Do not move implementation reasoning into Tier 1 merely to make cheap workers apply precomputed edits.
-
-The qs raw pair completed, but its 327.4325s/$0.959769 mean is not a fair control: an artifact-checker false rejection induced an unnecessary correction in the second run. Preserve both full outcomes and keep raw-01 as one valid observation. Separate qs-v2 and p-map-v3 context-preserving gates now pass offline checks; they do not repair historical timing bias. That finding motivated the now-completed ordinary-Terra-continuation pair above. Its long cheap request chains and continued semantic repairs reject that configuration for the target service; the later fixed Pi screening is complete or stopped as recorded above, and acceptance/repair-context investigation is next; actual async waits for the evidence gate above. No product workflow is adopted.
-
-Compare ordinary Pi and Fanout under realtime and async service with explicit routing and acceptance boundaries. Current latency applies to every request; fast continuation windows are a hypothetical provider improvement. Broader model sweeps, Pi-with-subagents comparisons and the final interactive report/slides are deferred until useful execution evidence exists.
+The September 8 fresh-repair status is preserved: the first cohort failed networking before edits, and the separately frozen network-enabled cohort was never launched after approval rejection. No measured repair benefit exists. That operational interruption does not block this documentation/source release work. Historical [benchmark records](BENCHMARKS.md), [study protocol](benchmarks/fanout-high-latency-study.md) and [efficiency tracker](impl/fanout-efficiency-progress.md) retain the prior sequence; their dated next actions are not the current objective.
 
 ### End-to-end hardening
 
 Status: The current closed generation is Project Execution Profile v1, plan v4, details v7, packet v10, pointer v2, work contract v5, Attempt Outcome v6, final evidence v2, Event v6, Projection v7, and presentation entry v1. Planning uses canonical TypeBox structures, a compiler-validated combined plan/details submission publishing at settlement, one compaction-aware implementation context, Pi-native read-only filesystem access, and Phase A-only global forbidden writes. Workers have six file tools plus manifest-bound advisory `fanout_validate`; controller validation remains authoritative. Work contract v3 and packet v8 require replanning; older execution evidence remains descriptive Legacy data.
 
-Live `/fanout-execute` remains blocked from release until the explicitly authorized macOS p-map canary, fresh review, and repository-owner approval pass for the same immutable commit. Offline readiness does not satisfy those external gates.
+The prior stable-runtime release gate required a macOS p-map canary, fresh review and repository-owner acceptance on one immutable candidate. Later canaries do not automatically satisfy that exact-candidate gate. This source research preview exposes the experimental implementation with that limitation; it does not claim stable-runtime acceptance or require a new paid run merely to publish the research.
 
-Audit follow-up: [`docs/impl/fanout-audit-progress.md`](impl/fanout-audit-progress.md) tracks the prompt-to-execution strictness, correctness, efficiency, and documentation findings against `0e1f260`. All 38 policy dispositions are resolved: 32 implementation directions, four retained choices and two deferrals. The [fresh-session implementation handoff](impl/fanout-audit-implementation-plan.md) records approved batches, compatibility choices and validation gates. Implementation and atomic commits were approved on 2026-09-05. The approved offline implementation, full integration checks and independent correction reviews passed; results are tracked in the register; the separate user-operated E2E and immutable-candidate release gates remain pending.
+Historical audit record (2026-09-05): [`docs/impl/fanout-audit-progress.md`](impl/fanout-audit-progress.md) tracks the prompt-to-execution strictness, correctness, efficiency, and documentation findings against `0e1f260`. All 38 policy dispositions are resolved: 32 implementation directions, four retained choices and two deferrals. The [completed implementation plan](impl/fanout-audit-implementation-plan.md) records approved batches, compatibility choices and validation gates. Implementation and atomic commits were approved on 2026-09-05. The approved offline implementation, full integration checks and independent correction reviews passed; results are tracked in the register; the separate user-operated E2E and immutable-candidate release gates remain pending.
 
 ### Phase 1: User-owned research and planning
 
@@ -137,9 +133,9 @@ Phase 2 acceptance criteria:
 
 ### Phase 3: Execution via `/fanout-execute`
 
-Status: The profile-bound runtime cutover is implemented. Focused gates cover isolated preparation, deterministic reconciliation, exact no-progress, fusion, cleanup-before-terminal timing, replay, and profiler compatibility. The controlled p-map canary plus three identical repetitions and repository-owner approval remain release gates.
+Status: The profile-bound runtime cutover is implemented. Focused gates cover isolated preparation, deterministic reconciliation, exact no-progress, fusion, cleanup-before-terminal timing, replay, and profiler compatibility. The controlled p-map canary plus three identical repetitions and repository-owner approval are stable-runtime acceptance gates for an exact immutable candidate; this source research preview does not claim those gates passed. See the [execution reference](impl/phase-3-fanout-execute.md#stable-runtime-release-gates) and [publication checks](PUBLICATION.md).
 
-The Execa asynchronous Web Stream transfer/complexity benchmark completed one controlled canary at its fixed reproducible baseline. It follows the p-map release gate rather than replacing it; no repetitions, reliability rate, cross-task speed comparison, or universal SLO exist. Post-canary evidence exposed duplicated project-wide final validation and broader-than-needed node checks, now addressed at the Phase B planning boundary. See [`docs/benchmarks/execa-web-streams-manual-e2e.md`](benchmarks/execa-web-streams-manual-e2e.md).
+The Execa asynchronous Web Stream transfer/complexity benchmark began with a controlled canary at its fixed reproducible baseline. A later [2026-08-05 five-repetition cohort](benchmarks/execa-web-streams-manual-e2e.md#2026-08-05-five-repetition-cohort) held corrected packet/profile/routing inputs fixed and all five runs passed final validation. Those repetitions remain separate from earlier canaries and later single-run configurations; they do not retroactively qualify the original canary, prove the current candidate's stable readiness, replace the p-map gate, or establish a cross-task speed advantage or universal SLO. The original Execa canary exposed duplicated project-wide final validation and broader-than-needed node checks, subsequently addressed at the planning boundary.
 
 Goal: execute the active accepted packet, manage workers, validate outputs, run authoritative final validation, and return control with summary plus metrics.
 
@@ -308,17 +304,17 @@ Key limitation to validate live: async responses may not stream; Pi may only rec
 
 ## Track 6: Stub/trace benchmarks
 
-Status: initial offline trace summarizer, smoke fixtures, deterministic hybrid policy simulation, and target evidence docs are in place. It reads local `observability.jsonl` files, raw Pi session JSONL traces, and versioned synthetic hybrid workflow JSONL fixtures, then produces `runs/phase6/summary.json` plus `summary.md`; no live calls or replay engine. Manual semantic subagent reviews now supersede the coarse optimistic-DAG heuristic. Hybrid fixture reports now include policy matrices with active TAT, background completion, target status, per-node schedules, budget/deadline/fallback/speculative evidence, and tier2 concurrency caps. The mixed fixture command demonstrates synthetic non-baseline tier2 passes for eligible workflow shapes and marks linear mandatory active critical paths infeasible. Results are tracked in `docs/BENCHMARKS.md`, [`docs/benchmarks/semantic-dag-and-rpe.md`](benchmarks/semantic-dag-and-rpe.md), and [`docs/benchmarks/hybrid-target-evidence.md`](benchmarks/hybrid-target-evidence.md).
+This track records the early offline summarizer scope. The later bounded executor, core Event replay and profiler scenarios are implemented; see the [current architecture](ARCHITECTURE.md) and Track 9 below.
+
+Status: initial offline trace summarizer, smoke fixtures, deterministic hybrid policy simulation, and target evidence docs are in place. It reads local `observability.jsonl` files, raw Pi session JSONL traces, and versioned synthetic hybrid workflow JSONL fixtures, then produces `runs/phase6/summary.json` plus `summary.md`. This summarizer makes no live calls and is separate from the later core Event replay and profiler scenarios. Manual semantic subagent reviews now supersede the coarse optimistic-DAG heuristic. Hybrid fixture reports now include policy matrices with active TAT, background completion, target status, per-node schedules, budget/deadline/fallback/speculative evidence, and tier2 concurrency caps. The mixed fixture command demonstrates synthetic non-baseline tier2 passes for eligible workflow shapes and marks linear mandatory active critical paths infeasible. Results are tracked in `docs/BENCHMARKS.md`, [`docs/benchmarks/semantic-dag-and-rpe.md`](benchmarks/semantic-dag-and-rpe.md), and [`docs/benchmarks/hybrid-target-evidence.md`](benchmarks/hybrid-target-evidence.md).
 
 Run:
 
 ```bash
-rtk npm run benchmark:traces -- datasets/fixtures/phase6-observability.jsonl
-rtk npm run benchmark:traces -- datasets/fixtures/pi-session-trace.jsonl --model glm-5-2
-rtk npm run benchmark:traces -- datasets/fixtures --model glm-5-2 --out runs/mission-hybrid-benchmark
+npm run benchmark:traces -- datasets/fixtures --model glm-5-2 --out runs/mission-hybrid-benchmark
 # after placing ignored external samples under datasets/traces/pi-mono-sample:
-rtk npm run benchmark:traces -- datasets/traces/pi-mono-sample --model glm-5-2
-rtk npm run smoke:benchmarks
+npm run benchmark:traces -- datasets/traces/pi-mono-sample --model glm-5-2
+npm run smoke:benchmarks
 ```
 
 Candidate datasets:
@@ -332,12 +328,7 @@ Candidate datasets:
 - `nebius/SWE-rebench-openhands-trajectories` — OpenHands trajectories.
 - `nvidia/Open-SWE-Traces` and `nvidia/SWE-Zero-openhands-trajectories` — large SWE trace sets.
 
-Store local samples under:
-
-```text
-datasets/traces/
-datasets/fixtures/
-```
+Store external trace samples only under ignored `datasets/traces/`. `datasets/fixtures/` is reserved for synthetic inputs and curated prediction records; recorded sessions and event streams are excluded from public source.
 
 Current benchmark questions answered by the summarizer and `docs/BENCHMARKS.md`:
 
@@ -350,7 +341,7 @@ Current benchmark questions answered by the summarizer and `docs/BENCHMARKS.md`:
 - Which workflow classes are ineligible? Linear mandatory critical-path fixtures are reported as infeasible instead of as tier2 feasibility passes.
 - Which evidence is observed versus synthetic? Mixed reports preserve `observability`, `pi-session`, and synthetic `hybrid-workflow` source labels.
 
-Deferred until the summaries prove they are needed: external dataset downloader, trace replay engine, strict DAG executor, subagents, and indexing.
+Historical deferral: this early track postponed a strict DAG executor and trace replay until there was supporting evidence. Bounded packet DAG execution, event-derived replay and fixed-behavior profiler scenarios were subsequently implemented. External dataset downloading, general live re-execution of external traces, in-extension subagents and predictive indexing remain deferred; none is required for the research preview.
 
 ## Track 7: Planned Parallel RPE prototypes
 
@@ -382,9 +373,9 @@ The hardened Phase 2 and Phase 3 contracts are implemented. Next work is evidenc
 
 After stubs, traces, and RPE routing policies:
 
-- Run small live realtime baseline with `rtk npm run smoke:live:realtime`.
-- Run same tasks through live async with `rtk npm run smoke:live:async`.
-- Probe batch creation/cancel with `DOUBLEWORD_LIVE_BATCH=1 rtk npm run smoke:live:batch`.
+- Run small live realtime baseline with `npm run smoke:live:realtime`.
+- Run same tasks through live async with `npm run smoke:live:async`.
+- Probe batch creation/cancel with `DOUBLEWORD_LIVE_BATCH=1 npm run smoke:live:batch`.
 - Compare wall-clock time, TTFT, total time, tool count, token usage, and cost.
 - Keep live tests opt-in and API-key gated.
 

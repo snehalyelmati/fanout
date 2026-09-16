@@ -1,6 +1,7 @@
 {
   "name": "@snehalyelmati/pi-doubleword-provider",
   "version": "0.1.4",
+  "license": "MIT",
   "type": "module",
   "publishConfig": {
     "access": "public"

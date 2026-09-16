@@ -5,3 +5,6 @@ runs/
 datasets/traces/*
 !datasets/traces/.gitkeep
 .envrc
+
+# Local Python figure-tool caches
+__pycache__/

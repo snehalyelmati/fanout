@@ -1,5 +1,7 @@
 # Fanout DAG Prompt Experiment Template
 
+Archived July 2026 methodology. The `subagent` call, GPT-5.5 setting, launch command, task examples and packet-v3 example below describe the original scoring environment; they are not mandatory or validated instructions for a current Fanout run. Use the [current source guide](../GETTING_STARTED.md) and [runtime guide](../FANOUT_GUIDE.md) for today's setup and artifact contracts. Keep full prompt text and evaluator output in ignored local artifacts; publish only curated summaries.
+
 Artifact directory: `runs/fanout-dag-prompt-experiments/<run-id>`
 
 ## Goal
@@ -17,7 +19,7 @@ A candidate graduates only if:
 - no repeated false serialization of tests/docs/fixtures behind implementation;
 - run used a fresh Pi process/session.
 
-## Hard constraints
+## Original hard constraints
 
 - Use the `subagent` tool. First call: `subagent({ action: "list" })`.
 - Use GPT-5.5 with medium reasoning/effort for generator and evaluator subagents when supported.
@@ -42,7 +44,7 @@ Create/maintain:
 - `../RESULTS.md` — one row per tested variant.
 - `../BEST_PROMPTS.md` — full text for graduated, near-miss, or mutation-seed prompts.
 
-## Launch shape
+## Original launch shape
 
 ```bash
 pi --approve \

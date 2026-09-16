@@ -15,8 +15,8 @@ This task is not directly comparable with p-map for speed or cost because the re
 | Item | Value |
 | --- | --- |
 | Task | Add `readableStream()`, `writableStream()`, and `transformStream()` |
-| Task brief | `/Users/snehalyelmati/Documents/execa-web-streams/TASK.md` |
-| Repository | `/Users/snehalyelmati/Documents/execa-web-streams/repo` |
+| Task brief | `<execa-benchmark>/TASK.md` |
+| Repository | `<execa-benchmark>/repo` |
 | Upstream SHA | `c31c94c2c65e1aaf1b4d3295eaf927b910a2dc46` |
 | Upstream tree | `01ca61578861dda1e7f191bc44febe5525be3922` |
 | Reproducible local baseline | `33e0ba6175e03cc85cbdee982f878cbd6670af4d` |
@@ -33,7 +33,7 @@ The repository is a shallow single-history checkout with no remote, so the histo
 Run from the repository and require exact clean baseline identity:
 
 ```bash
-cd /Users/snehalyelmati/Documents/execa-web-streams/repo
+cd <execa-benchmark>/repo
 rtk git status --short --branch
 rtk git rev-parse HEAD
 rtk git rev-parse HEAD^{tree}
@@ -166,7 +166,7 @@ This is one separately planned canary, not a byte-identical repetition of either
 The normal control restored the same primary checkout to clean baseline commit `6e9ed1185adca485097d299da263a38d74ee636b` and tree `475de97e8bce060242e1ce9025d10e7f763735bd`. Dependencies were already initialized and the baseline suite had already passed, so setup was not repeated. Pi ran in retained tmux pane `%272` with `openai-codex/gpt-5.6-sol` medium and no Fanout extension loaded. The session was `019fb39b-b700-738e-b75b-3193a92357d4`; its immutable trace is:
 
 ```text
-/Users/snehalyelmati/.pi/agent/sessions/--Users-snehalyelmati-Documents-execa-web-streams-repo--/2026-07-30T15-19-14-432Z_019fb39b-b700-738e-b75b-3193a92357d4.jsonl
+<local-pi-agent>/sessions/<execa-session-directory>/2026-07-30T15-19-14-432Z_019fb39b-b700-738e-b75b-3193a92357d4.jsonl
 ```
 
 The user prompt was recorded at `2026-07-30T15:19:48.212Z`. Normal Pi inspected the task and repository, proposed a plan, and paused for approval. Approval was recorded at `15:21:55.444Z`; the final response was produced at `15:31:40.284Z`. Prompt-to-final wall time was 712.072s, including the 127.232s approval interval; post-approval implementation time was 584.840s.
@@ -319,8 +319,8 @@ Record Execa results in [`../BENCHMARKS.md`](../BENCHMARKS.md) only after observ
 
 ```text
 Runbook: docs/benchmarks/execa-web-streams-manual-e2e.md
-Task: /Users/snehalyelmati/Documents/execa-web-streams/TASK.md
-Repo: /Users/snehalyelmati/Documents/execa-web-streams/repo
+Task: <execa-benchmark>/TASK.md
+Repo: <execa-benchmark>/repo
 Baseline: 33e0ba6175e03cc85cbdee982f878cbd6670af4d
 Mode: manual transfer/complexity E2E; one canary before any repetitions
 Constraint: do not initiate live or cost-incurring calls without explicit authorization

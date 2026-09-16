@@ -1,8 +1,22 @@
 # Benchmark Metrics
 
-## Current experiment ordering — Codex first
+## Research preview — 2026-09-16
+
+Read the [public study](STUDY.md) for the curated narrative and [summary data/static figures](study/README.md) for reproducible calculations. Parallel Fanout remains the primary architecture; whole-task submission is a request-depth experiment. Conditional winning mechanisms and modeled feasibility are distinct from repeated empirical task/model/provider coverage.
+
+This ledger preserves historical outcomes and accounting. Operational “next” instructions below describe their dated checkpoints and do not authorize new runs. Current work is public research-preview preparation: source setup, report and static figures, with no interactive explorer or paid canaries. Raw sessions, prompts, tool logs and event streams remain local. `runs/...` identifiers name private local archives, not files included in the release; public summaries cannot replay them. Historical recorded fixtures were removed from the proposed public tree; [Git history still needs a publication decision](PUBLICATION.md).
+
+## Historical experiment ordering — Codex first
 
 The bounded qs transfer and subsequent fixed Codex screen are recorded below. PR787 quality and repair costs now make independent acceptance improvements and a fresh Sol repair-session experiment the next step; task-shape coverage remains incomplete. Keep Sol medium raw/planning and Terra medium initial/fallback assignments, valid frozen references, independent acceptance and all failed work. Task coverage must distinguish inherent useful width/depth from the generated graph and include volume, coupling, reasoning difficulty and measured validation duration. Doubleword credits are scarce: actual provider pilots are deferred until repeated relevant Codex wins and plausible high-latency headroom justify them. Missing credentials do not block this phase. Timing replay is screening evidence only; the full realtime/async matrix remains later work. This ordering supersedes immediate-async-next statements in historical notes without changing any measured result.
+
+### PR787 fresh-repair network failure — 2026-09-08
+
+The first separately frozen fresh-repair cohort closed on an infrastructure error before any edit, gate or repair. Whole-01 recorded four SDK fetch-error events: **14.688s inner failed-execution time**, **15.758s supervisor time to termination**. Whole-02 remains unrun under the stop rule; neither candidates nor the failed observation were replaced. SDK-reported usage is zero, without a billed-cost claim. No mean, repair benefit or latency replay conclusion is admitted.
+
+An unauthenticated reachability check failed DNS resolution inside the sandbox (`ENOTFOUND`) and reached HTTP 403 with network-enabled execution. This diagnoses network access, not authenticated model availability. The cohort remains immutable at `runs/pi787-fresh-repair-v1-20260908/` (110 manifest-verified files, protocol `d9a358ea876b0e14df738505b8178453c7c74e0d066449a907d0407db849f582`). Its isolated credential was removed and both candidates remain clean. A separately declared network-enabled cohort keeps the reviewed configuration and individual raw references; no new raw run is needed.
+
+The separate network-enabled declaration (`runs/pi787-fresh-repair-v2-20260908/`, protocol `e415e10ff746a1c429a6d9f51ed37153de922a275a672b209ea593757d7c819a`) passed focused identity review, with the same 114 controller/input and 533 runtime bindings. Automatic approval review rejected both launch attempts before process execution, including after the public source commit/tree was verified against unauthenticated GitHub metadata. It requested explicit permission for the local TASK/full prompt/tool metadata sent to Codex. Both observations remain unrun; credentials were removed. This is a launch-approval interruption, not another benchmark failure or performance result. The frozen experimental source remains `86ce382`; this later reporting update does not change the unrun cohort's source identity.
 
 ### PR787 fresh-repair prototype passes offline checks — 2026-09-08
 
@@ -238,11 +252,11 @@ An authorized reverse-order repeat on unchanged source measured improved Fanout 
 
 This is the primary running document for Doubleword cost/time experiments. Update it whenever workflow changes, routing changes, pricing changes, or benchmark datasets change.
 
-Benchmark procedure: [`docs/benchmarks/fanout-execution-benchmark-procedure.md`](benchmarks/fanout-execution-benchmark-procedure.md) defines the staged path from read-only Fanout DAG prompt experiments through `/fanout-execute` and TermBench-style execution benchmarks.
+Historical benchmark procedure: [`docs/benchmarks/fanout-execution-benchmark-procedure.md`](benchmarks/fanout-execution-benchmark-procedure.md) records the staged path from read-only Fanout DAG prompt experiments through `/fanout-execute` and TermBench-style execution benchmarks.
 
 ## 2026-09-05 audit implementation boundary
 
-The [audit register](impl/fanout-audit-progress.md) records the new workflow and evidence generation. Repository acceptance now permits valid partial measurement evidence; unsupported comparisons/scenarios still require complete measurements. No benchmark, paid provider run, or efficiency improvement is claimed by this implementation. Historical inputs, prices, failures and results below are preserved. A new user-operated canary and separate release approval remain pending.
+The [historical audit register](impl/fanout-audit-progress.md) records the September 5 workflow and evidence-generation cutover. Repository acceptance now permits valid partial measurement evidence; unsupported comparisons/scenarios still require complete measurements. No benchmark, paid provider run, or efficiency improvement is claimed by this implementation. Historical inputs, prices, failures and results below are preserved. The exact-candidate stable-runtime canary and approval gates were not discharged by those offline checks; they are separate from publication of this research preview.
 
 ## P0 — Fanout prompt-DAG dry-run benchmark
 
@@ -331,7 +345,7 @@ Live tracker: [`docs/benchmarks/p-map-abort-signal-canary-tracker.md`](benchmark
 
 Reliability/latency investigation: [`docs/benchmarks/fanout-speed-reliability.md`](benchmarks/fanout-speed-reliability.md)
 
-Purpose: exercise `/fanout-config` → `/fanout-plan` → `/fanout-execute --dry-run` → `/fanout-execute` manually against a fixed `sindresorhus/p-map` task before building a benchmark harness or routing variations. The run prioritizes correctness, UX, recovery, artifact quality, and observability. It uses local baseline `c3c261e2189f94d1a09724e8f03d5345af518017` and the decision-complete `pMapIterable` AbortSignal benchmark under `/Users/snehalyelmati/Documents/p-map-abort-signal`.
+Purpose: exercise `/fanout-config` → `/fanout-plan` → `/fanout-execute --dry-run` → `/fanout-execute` manually against a fixed `sindresorhus/p-map` task before building a benchmark harness or routing variations. The run prioritizes correctness, UX, recovery, artifact quality, and observability. It uses local baseline `c3c261e2189f94d1a09724e8f03d5345af518017` and the decision-complete `pMapIterable` AbortSignal benchmark under `<p-map-benchmark>`.
 
 The user operates Pi and authorizes every live or cost-incurring step. Preserve failed artifacts, diagnose the owning component before edits, and record results only after comparing Fanout reports with the nested repository Git state and independent `npm test` output. The 2026-07-27 sequence ran from clean independent 51-test baselines with Tier 1 `openai-codex/gpt-5.6-sol` medium, async Tier 2 disabled, and `openai-codex/gpt-5.6-terra` medium as the realtime worker fallback; the Pi process had the Doubleword credential removed. Across the three completed identical runs, wall time had median 306.291s and range 278.563–408.114s, tokens median 502,710 and range 348,095–617,895, and estimated cost median `$0.624695` and range `$0.547498`–`$0.843834`. See the tracker for phase, critical-path, overlap, repair, pane, cleanup, tree, and failed-run evidence.
 
@@ -347,8 +361,8 @@ Purpose: exercise the same manual product-debugging path on a larger repository 
 
 Fixed fixture:
 
-- task: `/Users/snehalyelmati/Documents/execa-web-streams/TASK.md`;
-- repository: `/Users/snehalyelmati/Documents/execa-web-streams/repo`;
+- task: `<execa-benchmark>/TASK.md`;
+- repository: `<execa-benchmark>/repo`;
 - upstream commit: `c31c94c2c65e1aaf1b4d3295eaf927b910a2dc46`;
 - reproducible local baseline: `33e0ba6175e03cc85cbdee982f878cbd6670af4d`;
 - local baseline tree: `dc79b511fdf12392c97c12ff97e1f13af126da78`;
@@ -680,7 +694,7 @@ Run summary:
 | Formats in one run | `hybrid-workflow`, `observability`, `pi-session` |
 | Non-baseline pass results with tier2 calls and active ratio <= 3 | 49 |
 
-Source labels in the generated JSON keep observed and synthetic evidence separate. `phase6-observability.jsonl` is summarized as `observability`, `pi-session-trace.jsonl` is summarized as `pi-session`, and the hybrid workflow fixtures are summarized as `hybrid-workflow` with `sourceType: "synthetic"` and `provenance.synthetic: true`.
+Historical source labels separated `observability`, `pi-session` and synthetic `hybrid-workflow` inputs. The recorded observability/session inputs are no longer published; the table above is a historical summary, not the output of the current public fixture set. Current smoke checks generate fictional inputs locally. The retained hybrid fixtures remain explicitly synthetic.
 
 Representative synthetic target passes:
 
@@ -967,13 +981,13 @@ Combined exact-snapshot cost was `$1.89414678`. Relative to each short-prompt me
 
 ## Reproduction notes
 
-External traces are intentionally ignored under `datasets/traces/`; keep committed fixtures under `datasets/fixtures/`.
+External traces are intentionally ignored under `datasets/traces/`. Only synthetic contract/policy fixtures and curated prediction records belong under `datasets/fixtures/`; never commit recorded sessions or event streams.
 
 Fetch a trace manually if needed:
 
 ```bash
-rtk mkdir -p datasets/traces/pi-mono-sample
-rtk curl -L --fail \
+mkdir -p datasets/traces/pi-mono-sample
+curl -L --fail \
   https://huggingface.co/datasets/badlogicgames/pi-mono/resolve/main/<trace-file>.jsonl \
   -o datasets/traces/pi-mono-sample/<trace-file>.jsonl
 ```
@@ -981,5 +995,5 @@ rtk curl -L --fail \
 Validation command:
 
 ```bash
-rtk npm run smoke:benchmarks
+npm run smoke:benchmarks
 ```

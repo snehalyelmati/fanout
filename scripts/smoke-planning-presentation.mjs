@@ -1,7 +1,6 @@
-import { execFileSync } from "node:child_process";
-import { realpathSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { buildSessionContext } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import {
   appendFanoutReport,
@@ -56,9 +55,6 @@ function testReportPresentation(root) {
 }
 
 async function testA15ProviderContext(root) {
-  const piCli = realpathSync(execFileSync("which", ["pi"], { encoding: "utf8" }).trim());
-  const sessionManagerUrl = pathToFileURL(join(dirname(piCli), "core", "session-manager.js")).href;
-  const { buildSessionContext } = await import(sessionManagerUrl);
   for (const mode of ["tui", "rpc", "json", "print"]) {
     const appended = [];
     const pi = { registerEntryRenderer() {}, appendEntry: (customType, data) => appended.push({ customType, data }) };
