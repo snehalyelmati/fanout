@@ -304,7 +304,9 @@ Key limitation to validate live: async responses may not stream; Pi may only rec
 
 ## Track 6: Stub/trace benchmarks
 
-Status: initial offline trace summarizer, smoke fixtures, deterministic hybrid policy simulation, and target evidence docs are in place. It reads local `observability.jsonl` files, raw Pi session JSONL traces, and versioned synthetic hybrid workflow JSONL fixtures, then produces `runs/phase6/summary.json` plus `summary.md`; no live calls or replay engine. Manual semantic subagent reviews now supersede the coarse optimistic-DAG heuristic. Hybrid fixture reports now include policy matrices with active TAT, background completion, target status, per-node schedules, budget/deadline/fallback/speculative evidence, and tier2 concurrency caps. The mixed fixture command demonstrates synthetic non-baseline tier2 passes for eligible workflow shapes and marks linear mandatory active critical paths infeasible. Results are tracked in `docs/BENCHMARKS.md`, [`docs/benchmarks/semantic-dag-and-rpe.md`](benchmarks/semantic-dag-and-rpe.md), and [`docs/benchmarks/hybrid-target-evidence.md`](benchmarks/hybrid-target-evidence.md).
+This track records the early offline summarizer scope. The later bounded executor, core Event replay and profiler scenarios are implemented; see the [current architecture](ARCHITECTURE.md) and Track 9 below.
+
+Status: initial offline trace summarizer, smoke fixtures, deterministic hybrid policy simulation, and target evidence docs are in place. It reads local `observability.jsonl` files, raw Pi session JSONL traces, and versioned synthetic hybrid workflow JSONL fixtures, then produces `runs/phase6/summary.json` plus `summary.md`. This summarizer makes no live calls and is separate from the later core Event replay and profiler scenarios. Manual semantic subagent reviews now supersede the coarse optimistic-DAG heuristic. Hybrid fixture reports now include policy matrices with active TAT, background completion, target status, per-node schedules, budget/deadline/fallback/speculative evidence, and tier2 concurrency caps. The mixed fixture command demonstrates synthetic non-baseline tier2 passes for eligible workflow shapes and marks linear mandatory active critical paths infeasible. Results are tracked in `docs/BENCHMARKS.md`, [`docs/benchmarks/semantic-dag-and-rpe.md`](benchmarks/semantic-dag-and-rpe.md), and [`docs/benchmarks/hybrid-target-evidence.md`](benchmarks/hybrid-target-evidence.md).
 
 Run:
 
@@ -326,12 +328,7 @@ Candidate datasets:
 - `nebius/SWE-rebench-openhands-trajectories` — OpenHands trajectories.
 - `nvidia/Open-SWE-Traces` and `nvidia/SWE-Zero-openhands-trajectories` — large SWE trace sets.
 
-Store local samples under:
-
-```text
-datasets/traces/
-datasets/fixtures/
-```
+Store external trace samples only under ignored `datasets/traces/`. `datasets/fixtures/` is reserved for synthetic inputs and curated prediction records; recorded sessions and event streams are excluded from public source.
 
 Current benchmark questions answered by the summarizer and `docs/BENCHMARKS.md`:
 
@@ -344,7 +341,7 @@ Current benchmark questions answered by the summarizer and `docs/BENCHMARKS.md`:
 - Which workflow classes are ineligible? Linear mandatory critical-path fixtures are reported as infeasible instead of as tier2 feasibility passes.
 - Which evidence is observed versus synthetic? Mixed reports preserve `observability`, `pi-session`, and synthetic `hybrid-workflow` source labels.
 
-Deferred until the summaries prove they are needed: external dataset downloader, trace replay engine, strict DAG executor, subagents, and indexing.
+Historical deferral: this early track postponed a strict DAG executor and trace replay until there was supporting evidence. Bounded packet DAG execution, event-derived replay and fixed-behavior profiler scenarios were subsequently implemented. External dataset downloading, general live re-execution of external traces, in-extension subagents and predictive indexing remain deferred; none is required for the research preview.
 
 ## Track 7: Planned Parallel RPE prototypes
 
