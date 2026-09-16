@@ -1,5 +1,15 @@
 # Design Decisions
 
+## 2026-09-16
+
+### Prepare a public research preview with curated evidence
+
+Decision: Keep parallel Fanout as the primary architecture. Publish repository source, a readable [study report](STUDY.md), curated scalar results and static figures. Whole-task candidate submission remains a request-depth experiment that can inform individual Fanout workers; it is not adopted as the replacement product. Modeled winning conditions are meaningful under their declared assumptions, while reliable real task/model/provider coverage remains incomplete.
+
+Raw Fanout traces, model sessions, prompts and tool-event streams remain local and ignored. Synthetic test inputs must be clearly fictional. Historical raw blobs in Git require a separately reviewed publication strategy; deleting current files does not sanitize history. The original evidence is preserved locally. Use MIT for original project code/documentation and retain third-party licenses/notices.
+
+This release needs no additional paid canary, interactive explorer, website, slide deck, routing system or executor redesign. It does not itself merge branches, change visibility, publish packages or rewrite history. Earlier next-experiment directions remain historical context, not the current preparation task. See [publication checks](PUBLICATION.md).
+
 ## 2026-09-08
 
 ### Prepare the fresh-repair experiment with independently checked acceptance
@@ -714,9 +724,9 @@ Reason: The benchmark is cheap and prompt-only, so the threshold should be high.
 
 ### Promote durable prompt benchmark summaries, not raw runs
 
-Decision: Keep raw prompt-DAG generator/evaluator artifacts ignored under `runs/`, but promote durable summaries, best prompt text, and the experiment template into tracked `docs/benchmarks/fanout-dag-*.md` files.
+Historical decision: keep raw prompt-DAG generator/evaluator artifacts ignored under `runs/` and promote durable results into tracked benchmark notes. The September 16 publication policy supersedes copying full recorded prompt text: publish scores, strategy summaries and generic experiment templates only; preserve recorded prompt bodies locally.
 
-Reason: Raw artifacts are useful for local audit but too noisy to commit. Tracked summaries preserve the benchmark result, reproducible procedure, and current prompt candidates for future clones and reviews.
+Reason: Raw artifacts are useful for local audit but too noisy to commit. Tracked summaries preserve benchmark results and procedures; public materials do not reproduce historical prompt payloads.
 
 ## 2026-07-08
 

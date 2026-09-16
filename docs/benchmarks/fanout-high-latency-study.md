@@ -1,8 +1,14 @@
 # Coding agents on high-latency, low-cost inference
 
-Status: active engineering study, 2026-09-07. This protocol carries the direction transferred from the side conversation into the main task. Existing implementation and historical evidence remain intact. A presentation is deferred until useful results exist.
+Status: historical experiment protocol, retained for methodology. Current scope (2026-09-16) is a public research preview: repository source, [study report](../STUDY.md), curated summaries and static figures. This supersedes the operational next-run sequence below without changing frozen evidence. No new paid run, interactive explorer or website is required. Parallel Fanout remains primary; whole-task candidate submission investigates request depth rather than replacing it.
+
+The architecture has conditional modeled winning regions when useful width and worker economics outweigh coordination, sequential calls and repair. Repeated success across real task/model/provider combinations remains incomplete. One response per worker is not a universal requirement; several slow requests can still win for sufficiently wide work. Public summaries exclude raw traces and local archive contents.
 
 ## Current approved sequence: Codex first
+
+Historical sequence approved on 2026-09-07; research-preview preparation now takes precedence.
+
+Current execution status (2026-09-08): the first fresh-repair cohort stopped on sandbox fetch failure before edits. A separately frozen network-enabled cohort is ready, but automatic approval review rejected its launches before execution and requires explicit approval of the full benchmark payload sent to Codex. Both trials remain unrun; temporary credentials are removed. See the latest benchmark record.
 
 The user approved this sequence on 2026-09-07 and replaced the stored goal. Doubleword credits are limited. The bounded qs transfer is now complete (174.992s/$0.56494, all required gates and manual review pass). The fixed Codex screen has since reached Pi764 (stopped on provider error) and PR787 (all trials complete, both batch candidates fail quality). Reviewed acceptance-v2 and the fresh Sol repair-session prototype now pass offline checks. Next freeze the two-observation live comparison while preserving the fixed screen and reusing qualified raw references. Doubleword access is not a blocker for this phase; actual provider experiments are deferred until repeatable Codex savings and plausible high-latency headroom justify spending credits.
 

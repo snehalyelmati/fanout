@@ -1,6 +1,7 @@
 {
   "name": "fanout",
   "version": "0.0.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "workspaces": ["packages/*"],
@@ -8,7 +9,6 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.typecheck.json",
     "build": "echo 'nothing to build'",
-    "prototype:run-profiler": "python3 -m http.server 4173 --directory prototypes/run-profiler",
     "profiler": "bun scripts/start-profiler.ts",
     "test:profiler": "npm run test --workspace fanout-profiler",
     "check": "node scripts/check-models.mjs && node scripts/test-doubleword-model-cache.mjs && bun scripts/test-doubleword-metadata.mjs && node --disable-warning=ExperimentalWarning scripts/smoke-repository-resources.mjs && node --disable-warning=ExperimentalWarning scripts/smoke-validation-runner.mjs && node --disable-warning=ExperimentalWarning scripts/smoke-artifact-identity.mjs && node --disable-warning=ExperimentalWarning scripts/smoke-work-contract.mjs && node --disable-warning=ExperimentalWarning scripts/smoke-attempt-outcomes.mjs && node --disable-warning=ExperimentalWarning scripts/smoke-execution-events.mjs && node --disable-warning=ExperimentalWarning scripts/smoke-worker-pipeline.mjs && node --disable-warning=ExperimentalWarning scripts/smoke-final-validation.mjs && node --disable-warning=ExperimentalWarning scripts/smoke-fanout-compiler.mjs && node --disable-warning=ExperimentalWarning scripts/smoke-fanout-packet.mjs && bun scripts/smoke-fanout-config.mjs && bun scripts/smoke-planning-boundary.mjs && node scripts/smoke-planning.mjs && node --disable-warning=ExperimentalWarning scripts/smoke-fanout-execute.mjs && npm run test --workspace fanout-profiler",

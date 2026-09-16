@@ -61,8 +61,8 @@ Do not automate the benchmark, create routing variations, or modify benchmark fi
 | Item | Value |
 | --- | --- |
 | Task | Add `AbortSignal` support to `pMapIterable` |
-| Task brief | `/Users/snehalyelmati/Documents/p-map-abort-signal/TASK.md` |
-| Nested repository | `/Users/snehalyelmati/Documents/p-map-abort-signal/repo` |
+| Task brief | `<p-map-benchmark>/TASK.md` |
+| Nested repository | `<p-map-benchmark>/repo` |
 | Upstream SHA | `3ada5f36632aca8df860c376856270b6d2ba2de8` |
 | Reproducible local baseline | `c3c261e2189f94d1a09724e8f03d5345af518017` |
 | Baseline difference | committed `package-lock.json` only |
@@ -89,7 +89,7 @@ The benchmark lives outside the Fanout repository, and the nested p-map reposito
 Change to the nested repository:
 
 ```bash
-cd /Users/snehalyelmati/Documents/p-map-abort-signal/repo
+cd <p-map-benchmark>/repo
 ```
 
 Confirm the fixed baseline:
@@ -122,7 +122,7 @@ rtk tmux list-windows -t doubleword
 For every canary or repetition, create a new pane rooted at that run's absolute clean p-map worktree, record the returned pane ID, then select it:
 
 ```bash
-rtk tmux split-window -t doubleword:fanout-canary -c <absolute-run-worktree> -P -F '#{pane_id}' -- env -u DOUBLEWORD_API_KEY pi -e /Users/snehalyelmati/Documents/doubleword-pi/packages/fanout-pi/src/index.ts
+rtk tmux split-window -t doubleword:fanout-canary -c <absolute-run-worktree> -P -F '#{pane_id}' -- env -u DOUBLEWORD_API_KEY pi -e <fanout-source>/packages/fanout-pi/src/index.ts
 rtk tmux select-pane -t <pane-id>
 ```
 
@@ -381,8 +381,8 @@ Start the monitoring chat with this document as the source of truth and provide:
 
 ```text
 Runbook: docs/benchmarks/p-map-abort-signal-manual-e2e.md
-Task: /Users/snehalyelmati/Documents/p-map-abort-signal/TASK.md
-Repo: /Users/snehalyelmati/Documents/p-map-abort-signal/repo
+Task: <p-map-benchmark>/TASK.md
+Repo: <p-map-benchmark>/repo
 Baseline: c3c261e2189f94d1a09724e8f03d5345af518017
 Mode: manual product-debugging E2E; no automated variations
 Constraint: do not initiate live or cost-incurring calls without explicit authorization

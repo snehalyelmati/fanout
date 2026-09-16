@@ -8,7 +8,7 @@ Inspected: the 38-entry audit register; repository instructions, architecture, d
 
 Audit Fanout from user objective through planning, compilation, execution, acceptance, recovery and reporting. Fix proven correctness defects and approved strictness/efficiency problems without creating another orchestrator or weakening repository authority. The [progress register](fanout-audit-progress.md) is the detailed policy/evidence source: **32 implementation directions, four Retained choices, two Deferred items; all 38 dispositions resolved.** Retention/deferral is not a fix.
 
-- Repository: `/Users/snehalyelmati/Documents/doubleword-pi`.
+- Repository: `<fanout-source>`.
 - Audit/review baseline: `0e1f260835c5fc1429118ff4aeaf636416477715`; HEAD still matched it during handoff preparation.
 - Expected handoff diff: modified `docs/ROADMAP.md`; new/untracked `docs/impl/fanout-audit-progress.md` and this file. Preserve these files and any subsequent user changes. Do not stage/commit just to make review tools see them.
 - Source abbreviations below: `core/` = `packages/fanout-core/src/`, `pi/` = `packages/fanout-pi/src/`, `profiler/` = `packages/fanout-profiler/src/`, `prompts/` = `packages/fanout-pi/prompts/`. Brace lists identify exact filenames, not permission for directory-wide refactoring.
@@ -242,7 +242,7 @@ Before live work, obtain explicit task/routing/cost authorization and an approve
 ## 7. Original documentation-only starting prompt (historical; superseded by approval above)
 
 ```text
-Work in /Users/snehalyelmati/Documents/doubleword-pi.
+Work in <fanout-source>.
 Read AGENTS.md, CODING_STANDARDS.md, docs/impl/fanout-audit-progress.md,
 and docs/impl/fanout-audit-implementation-plan.md completely.
 Audit baseline: 0e1f260835c5fc1429118ff4aeaf636416477715.
