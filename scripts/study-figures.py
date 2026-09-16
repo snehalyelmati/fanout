@@ -67,6 +67,9 @@ def save(fig, stem, title, description):
             bbox_inches="tight",
             metadata={"Title": title, "Description": description} if extension == "svg" else {"Title": title},
         )
+        if extension == "svg":
+            path = OUT / f"{stem}.{extension}"
+            path.write_text("\n".join(line.rstrip() for line in path.read_text().splitlines()) + "\n")
     plt.close(fig)
 
 
