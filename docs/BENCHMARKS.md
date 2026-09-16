@@ -252,11 +252,11 @@ An authorized reverse-order repeat on unchanged source measured improved Fanout 
 
 This is the primary running document for Doubleword cost/time experiments. Update it whenever workflow changes, routing changes, pricing changes, or benchmark datasets change.
 
-Benchmark procedure: [`docs/benchmarks/fanout-execution-benchmark-procedure.md`](benchmarks/fanout-execution-benchmark-procedure.md) defines the staged path from read-only Fanout DAG prompt experiments through `/fanout-execute` and TermBench-style execution benchmarks.
+Historical benchmark procedure: [`docs/benchmarks/fanout-execution-benchmark-procedure.md`](benchmarks/fanout-execution-benchmark-procedure.md) records the staged path from read-only Fanout DAG prompt experiments through `/fanout-execute` and TermBench-style execution benchmarks.
 
 ## 2026-09-05 audit implementation boundary
 
-The [audit register](impl/fanout-audit-progress.md) records the new workflow and evidence generation. Repository acceptance now permits valid partial measurement evidence; unsupported comparisons/scenarios still require complete measurements. No benchmark, paid provider run, or efficiency improvement is claimed by this implementation. Historical inputs, prices, failures and results below are preserved. A new user-operated canary and separate release approval remain pending.
+The [historical audit register](impl/fanout-audit-progress.md) records the September 5 workflow and evidence-generation cutover. Repository acceptance now permits valid partial measurement evidence; unsupported comparisons/scenarios still require complete measurements. No benchmark, paid provider run, or efficiency improvement is claimed by this implementation. Historical inputs, prices, failures and results below are preserved. The exact-candidate stable-runtime canary and approval gates were not discharged by those offline checks; they are separate from publication of this research preview.
 
 ## P0 — Fanout prompt-DAG dry-run benchmark
 
@@ -986,8 +986,8 @@ External traces are intentionally ignored under `datasets/traces/`. Only synthet
 Fetch a trace manually if needed:
 
 ```bash
-rtk mkdir -p datasets/traces/pi-mono-sample
-rtk curl -L --fail \
+mkdir -p datasets/traces/pi-mono-sample
+curl -L --fail \
   https://huggingface.co/datasets/badlogicgames/pi-mono/resolve/main/<trace-file>.jsonl \
   -o datasets/traces/pi-mono-sample/<trace-file>.jsonl
 ```
@@ -995,5 +995,5 @@ rtk curl -L --fail \
 Validation command:
 
 ```bash
-rtk npm run smoke:benchmarks
+npm run smoke:benchmarks
 ```

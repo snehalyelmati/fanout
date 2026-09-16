@@ -2,7 +2,7 @@
 
 ## Status
 
-The coordinated caller cutover is implemented with focused offline coverage. It is not an approved live release: one controlled p-map canary, three identical repetitions, evidence inspection, and repository-owner approval remain external gates.
+This is the current technical reference for execution contracts and the named offline acceptance matrix. The coordinated caller cutover is implemented. Stable-runtime acceptance of an exact immutable candidate requires a controlled p-map canary, three identical repetitions, evidence inspection and repository-owner approval; those gates are not marked passed here. Publishing the [source research preview](../PUBLICATION.md) does not claim stable live readiness.
 
 ## Executable generation
 
@@ -65,16 +65,16 @@ npm run check
 Standalone package validation is separate:
 
 ```bash
-rtk npm run test:doubleword-provider
+npm run test:doubleword-provider
 ```
 
 ## Audit artifacts
 
 Each execution directory contains authoritative `events.jsonl`, derived `execution-run.json`, deterministic `summary.md`, per-attempt evidence including the immutable worker-validation manifest and per-call advisory results, accepted patch artifacts, and final-validation rounds. Presentation entries link to these artifacts but do not become execution authority.
 
-## Release gates
+## Stable-runtime release gates
 
-Do not claim live readiness, latency, cost, routing, or provider behavior from offline checks. Release requires an explicitly authorized macOS p-map canary using the immutable candidate, inspection of its event/projection/patch/final-validation evidence, and repository-owner approval of the same commit.
+Do not infer live readiness or measured latency, cost, routing or provider behavior from offline checks. Stable-runtime acceptance requires an explicitly authorized macOS p-map canary and three identical repetitions using the immutable candidate, inspection of event/projection/patch/final-validation evidence, and repository-owner approval of the same commit. Historical canaries on other source or artifact generations do not discharge this exact-candidate gate. The research preview publishes the implementation and qualified findings without claiming that gate complete.
 
 ## 2026-09-06 efficiency update
 
