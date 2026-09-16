@@ -6,7 +6,7 @@
 
 Decision: Keep parallel Fanout as the primary architecture. Publish repository source, a readable [study report](STUDY.md), curated scalar results and static figures. Whole-task candidate submission remains a request-depth experiment that can inform individual Fanout workers; it is not adopted as the replacement product. Modeled winning conditions are meaningful under their declared assumptions, while reliable real task/model/provider coverage remains incomplete.
 
-Raw Fanout traces, model sessions, prompts and tool-event streams remain local and ignored. Synthetic test inputs must be clearly fictional. Historical raw blobs in Git require a separately reviewed publication strategy; deleting current files does not sanitize history. The original evidence is preserved locally. Use MIT for original project code/documentation and retain third-party licenses/notices.
+New raw Fanout traces, model sessions, prompts and tool-event streams remain local and ignored. Synthetic test inputs must be clearly fictional. The original evidence is preserved locally. Use MIT for original project code/documentation and retain third-party licenses/notices.
 
 This release needs no additional paid canary, interactive explorer, website, slide deck, routing system or executor redesign. It does not itself merge branches, change visibility, publish packages or rewrite history. Earlier next-experiment directions remain historical context, not the current preparation task. See [publication checks](PUBLICATION.md).
 

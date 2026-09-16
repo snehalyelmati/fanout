@@ -60,7 +60,7 @@ The Fanout workspaces are source-only and marked private for package publishing.
 
 ## Evidence and reproducibility
 
-Public research materials contain curated per-run metrics, methodology, static figures and synthetic test fixtures. Raw Fanout traces, model sessions, prompts and tool-event streams stay local and are excluded from public research assets. Historical measurements cannot be independently replayed from summaries alone. Figure arithmetic is reproducible from the published inputs; rerunning a model workflow is a new experiment. See [data provenance and limitations](docs/study/README.md) and the [publication checklist](docs/PUBLICATION.md) for the Git-history boundary.
+The current research materials contain curated per-run metrics, methodology, static figures and synthetic test fixtures. New raw Fanout traces, model sessions, prompts and tool-event streams stay local and are excluded from tracked research assets. Historical measurements cannot be independently replayed from summaries alone. Figure arithmetic is reproducible from the published inputs; rerunning a model workflow is a new experiment. See [data provenance and limitations](docs/study/README.md) and the [publication checklist](docs/PUBLICATION.md).
 
 ## Project documentation
 
