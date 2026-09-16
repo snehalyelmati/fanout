@@ -14,14 +14,14 @@ Doubleword's APIs are OpenAI-compatible and let you trade latency for lower cost
 - **Async / flex**: reduced pricing with background polling; Doubleword docs say submitted async work starts within about a minute.
 - **Batch**: lowest pricing for bulk jobs with a 24h SLA.
 
-Current published prices per 1M input/cache-read/output tokens:
+Bundled historical price snapshot (retrieved 2026-08-29), per 1M input/cache-read/output tokens:
 
 | Model | Realtime | Async | Batch |
 | --- | --- | --- | --- |
 | DeepSeek V4 Flash 0731 | $0.09 / $0.02 / $0.18 | $0.07 / $0.01 / $0.14 | $0.05 / $0.01 / $0.09 |
 | GLM 5.3 Flash | $0.15 / $0.03 / $0.50 | $0.11 / $0.02 / $0.38 | $0.08 / $0.02 / $0.25 |
 
-Prices are synchronized manually from the [official model catalogue](https://docs.doubleword.ai/inference-api/models) into a reviewed snapshot; provider startup never scrapes pricing.
+Check current service terms and prices before a live run. Prices are synchronized manually from the [official model catalogue](https://docs.doubleword.ai/inference-api/models) into a reviewed snapshot; provider startup never scrapes pricing.
 
 This provider exposes realtime and async in Pi; batch is better suited for offline evals and bulk jobs.
 

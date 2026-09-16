@@ -2,7 +2,7 @@
 
 Date: 2026-06-25
 
-This note records the reproducible evidence for the hybrid tier1/tier2 active TAT target. It intentionally scopes the target passes to synthetic workflow fixtures. The same command also includes existing observability and Pi session fixtures so source labels can be checked in one report.
+This note records reproducible synthetic-workflow evidence for the hybrid tier1/tier2 active TAT target. Earlier mixed-format checks also used recorded observability and Pi session inputs; those originals are kept outside the public tree.
 
 Update: later full `pi-mono` code-shard evaluation adds trace-derived support for some Planned Parallel RPE shapes, but this document's target-pass rows remain synthetic simulator evidence, not live runtime evidence.
 
@@ -21,14 +21,12 @@ runs/mission-hybrid-benchmark/summary.md
 
 ## Source labels
 
-The run includes four input files:
+The public run includes two input files:
 
 | Input | Format label | Evidence scope |
 | --- | --- | --- |
 | `datasets/fixtures/hybrid-workflows.jsonl` | `hybrid-workflow` | synthetic workflow assumptions |
 | `datasets/fixtures/hybrid-workflows-out-of-order.jsonl` | `hybrid-workflow` | synthetic parser/scheduler fixture |
-| `datasets/fixtures/phase6-observability.jsonl` | `observability` | observed local observability fixture |
-| `datasets/fixtures/pi-session-trace.jsonl` | `pi-session` | observed Pi-session-shaped fixture |
 
 The target-pass rows below come from `hybrid-workflow` traces with `sourceType: "synthetic"`. They are not claims that observed Pi traces can meet the target.
 

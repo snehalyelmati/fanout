@@ -2,26 +2,26 @@
 
 ## Status
 
-The coordinated caller cutover is implemented with focused offline coverage. It is not an approved live release: one controlled p-map canary, three identical repetitions, evidence inspection, and repository-owner approval remain external gates.
+This is the current technical reference for execution contracts and the named offline acceptance matrix. The coordinated caller cutover is implemented. Stable-runtime acceptance of an exact immutable candidate requires a controlled p-map canary, three identical repetitions, evidence inspection and repository-owner approval; those gates are not marked passed here. Publishing the [source research preview](../PUBLICATION.md) does not claim stable live readiness.
 
 ## Executable generation
 
-`/fanout-execute` admits only active pointer v2 referencing packet v9, whose exact top-level profile identity must match active Project Execution Profile v1. Packet v9 embeds work-contract v4 nodes and binds plan v3/details v6, planning identity, and platform. Runtime authority is event v5 carrying Attempt Outcome v5; `execution-run.json` is projection v6; final-validation evidence is v2; presentation data remains v1. Work contract v3 and packet v8 require replanning; older execution evidence is descriptive Legacy data.
+`/fanout-execute` admits only active pointer v2 referencing packet v10, whose exact top-level profile identity selects immutable Project Execution Profile v1 bytes independently of the active profile pointer. Packet v10 embeds work-contract v5 nodes and binds plan v4/details v7, planning identity, and platform. Runtime authority is event v6 carrying Attempt Outcome v6; `execution-run.json` is projection v7; final-validation evidence is v2; presentation data remains v1. Work contract v3 and packet v8 require replanning; older execution evidence is descriptive Legacy data.
 
 Legacy, mixed, profile-mismatched, or shared-path configurations fail before model allocation. No runtime component migrates or partially accepts old artifacts.
 
 ## Runtime flow
 
 1. Verify the active packet pointer, packet bytes, and packet-bound profile bytes exactly before repository mutation. An orthogonal active-profile refresh does not invalidate the packet.
-2. Reject artifact storage inside the active worktree, then acquire the canonical Git-worktree execution lock after exact artifact admission. Only the lock owner creates the execution directory and event storage.
+2. Reject artifact storage inside the active worktree and invalid planning commit/tree/platform before dynamic preparation, then acquire the canonical Git-worktree execution lock after exact artifact admission. Only the lock owner creates the execution directory and event storage.
 3. Validate the profile in a disposable clean worktree, then record `run-started` with exact profile/validation identities and strict preflight evidence. Environment failure consumes no worker or repair budget.
-4. Dry run terminates explicitly after passed preflight. Live mode records an explicit confirmation decision before any attempt allocation.
-5. Derive the scheduler graph from embedded contracts. Every worker/retry/fallback/repair launch consumes a fixed typed budget allocation and every allocation receives exactly one typed terminal outcome.
+4. Invocation authorizes exact bound-profile commands before confirmation, including in dry-run and any disclosed network/external effects. Dry run terminates explicitly after passed preflight. Live mode records an explicit confirmation decision before any attempt allocation.
+5. Derive the scheduler graph from embedded contracts. Fail-fast stops new launches and drains running workers; independent pending nodes record the first triggering failure separately from actual dependency causes. Every worker/retry/fallback/repair launch consumes a fixed typed budget allocation and every allocation receives exactly one typed terminal outcome.
 6. Independently prepare every worker/repair worktree through the profile. Give the worker only six file tools plus zero-argument `fanout_validate`, bound to a digest-verified attempt manifest containing the exact contract commands; require the validation call to be alone, return failures immediately, and store advisory per-call evidence. Then run profile normalization after edits, capture, enforce authority, rerun authoritative packet task validation, reverify, and exact-apply. Discard an original unauthorized candidate whole before spending the existing clean retry in a fresh reconstruction; never seed it, trim its paths, or retry a repeated/forbidden violation.
 7. Before integration repair, reconcile only exact path-disjoint stale candidates through latest-ledger reconstruction, overlay, normalization, recapture, ownership, validation, and compare-and-swap. Retry only after ledger advancement.
 8. Preserve the immediately preceding rejected repair candidate as the next exact seed. Stop a repair chain when exact candidate identity and typed failure state repeat, leaving unused budget untouched.
 9. Extract the final numbered `Worker summary` from the existing assistant output, store it in the attempt result, and include it only in the immediately following node validation-repair prompt. It remains optional diagnostic context outside routing, recovery, repair state, budgets, validation, acceptance, and replay.
-10. Final validation runs packet final commands followed by profile-required final gates in an independently prepared worktree. Record event v5/projection v6; cleanup runs and is timed before the causal terminal event.
+10. Final validation runs packet final commands followed by profile-required final gates in an independently prepared worktree. Empty focused final commands require nonempty exact profile gates. Each executed round has a unique no-clobber identity; overall controller status, latest-round status, all-round command time and typed failure remain distinct. A passing candidate whose apply fails is a failed controller result, and post-mutation publication failures retain the reconciliation lock. Record event v6/projection v7; cleanup runs and is timed before the causal terminal event.
 
 Residual host trust is explicit: installed extensions/providers, validation programs, ignored files, external paths, network, and processes execute with user permissions and are not a container boundary.
 
@@ -58,19 +58,24 @@ Residual host trust is explicit: installed extensions/providers, validation prog
 All named scripts run through:
 
 ```bash
-rtk npm run check
+npm run typecheck
+npm run check
 ```
 
 Standalone package validation is separate:
 
 ```bash
-rtk npm run test:doubleword-provider
+npm run test:doubleword-provider
 ```
 
 ## Audit artifacts
 
 Each execution directory contains authoritative `events.jsonl`, derived `execution-run.json`, deterministic `summary.md`, per-attempt evidence including the immutable worker-validation manifest and per-call advisory results, accepted patch artifacts, and final-validation rounds. Presentation entries link to these artifacts but do not become execution authority.
 
-## Release gates
+## Stable-runtime release gates
 
-Do not claim live readiness, latency, cost, routing, or provider behavior from offline checks. Release requires an explicitly authorized macOS p-map canary using the immutable candidate, inspection of its event/projection/patch/final-validation evidence, and repository-owner approval of the same commit.
+Do not infer live readiness or measured latency, cost, routing or provider behavior from offline checks. Stable-runtime acceptance requires an explicitly authorized macOS p-map canary and three identical repetitions using the immutable candidate, inspection of event/projection/patch/final-validation evidence, and repository-owner approval of the same commit. Historical canaries on other source or artifact generations do not discharge this exact-candidate gate. The research preview publishes the implementation and qualified findings without claiming that gate complete.
+
+## 2026-09-06 efficiency update
+
+Workers receive bounded source context from the planning and reconstructed attempt trees. Manifest v2 carries typed endpoint permissions; edit/write checks reject out-of-contract mutations immediately, while the final patch audit remains unchanged. Final repairs retain complete recovery evidence on disk and send only effective authority plus diagnostics/provenance to the model. See [efficiency progress](fanout-efficiency-progress.md) for checks and p-map measurements.

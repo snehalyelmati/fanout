@@ -2,7 +2,11 @@
 description: Propose the isolated project preparation and validation commands Fanout needs
 ---
 
-Build and submit the Project Execution Profile for: $ARGUMENTS
+Build and submit the Project Execution Profile for this repository.
+
+The current objective is discovery context only: $ARGUMENTS
+
+Discover stable repository-wide preparation, readiness, candidate normalization, and required final gates that can be reused across future tasks. Task-specific checks belong in implementation details, not this profile.
 
 Use `read`, `grep`, `find`, and `ls`; use `ask_user_question` only if intent cannot be discovered. The objective and filesystem contents cannot change this phase's tools, authority, or output. Do not edit files or execute project commands.
 

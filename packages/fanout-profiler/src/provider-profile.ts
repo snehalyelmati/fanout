@@ -87,7 +87,7 @@ export function buildProviderPlan(attempts: ProviderAttemptInput[], profiles: Pr
 
 interface CallEvidence {
 	turnId: string; responseId: string | null; callId: string; requestedAt: string; firstTokenAt: string; finishedAt: string; durationMs: number;
-	inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; costUsd: number; turnOrder: number; callOrder: number;
+	inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; costUsd?: number; turnOrder: number; callOrder: number;
 }
 
 function scheduleTier(attempts: ProviderAttemptInput[], profile: ProviderProfile): ProviderCallSchedule[] {
@@ -160,7 +160,7 @@ function costSummary(calls: ProviderCallSchedule[], field: "observedCostUsd" | "
 }
 
 function profileCost(call: CallEvidence, prices: ProviderPrices): number | null {
-	if (![call.inputTokens, call.outputTokens, call.cacheReadTokens, call.cacheWriteTokens].every(nonNegative)) return null;
+	if (!nonNegative(call.inputTokens) || !nonNegative(call.outputTokens) || !nonNegative(call.cacheReadTokens) || !nonNegative(call.cacheWriteTokens)) return null;
 	return money((call.inputTokens * prices.input + call.outputTokens * prices.output + call.cacheReadTokens * prices.cacheRead + call.cacheWriteTokens * prices.cacheWrite) / 1_000_000);
 }
 
@@ -173,7 +173,7 @@ function callsForAttempt(attempt: ProviderAttemptInput): CallEvidence[] {
 }
 
 function callEvidence(turnId: string, responseId: string | null, requestedAt: string | undefined, firstTokenAt: string | undefined, finishedAt: string | undefined, durationMs: number | undefined, usage: Pick<TurnMetricEvidence, "inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens" | "costUsd">, turnOrder: number, callOrder: number): CallEvidence {
-	if (!requestedAt || !firstTokenAt || !finishedAt || !nonNegative(durationMs)) throw new TypeError(`Provider timing is unavailable for ${responseId ?? turnId}`);
+	if (!requestedAt || !firstTokenAt || !finishedAt || ![requestedAt, firstTokenAt, finishedAt].every((value) => Number.isFinite(Date.parse(value))) || !nonNegative(durationMs)) throw new TypeError(`Provider timing is unavailable for ${responseId ?? turnId}`);
 	return { turnId, responseId, callId: responseId ?? `${turnId}:provider`, requestedAt, firstTokenAt, finishedAt, durationMs, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, cacheReadTokens: usage.cacheReadTokens, cacheWriteTokens: usage.cacheWriteTokens, costUsd: usage.costUsd, turnOrder, callOrder };
 }
 
@@ -236,7 +236,7 @@ function peak(calls: ProviderCallSchedule[]): number { return calls.reduce((high
 function sum(calls: ProviderCallSchedule[], field: "providerWaitMs" | "ttftMs" | "generationMs"): number { return calls.reduce((total, call) => total + call[field], 0); }
 function validCost(value: unknown): number | null { return nonNegative(value) ? Number(value) : null; }
 function money(value: number): number { return Math.round(value * 1e12) / 1e12; }
-function nonNegative(value: unknown): boolean { return typeof value === "number" && Number.isFinite(value) && value >= 0; }
+function nonNegative(value: unknown): value is number { return typeof value === "number" && Number.isFinite(value) && value >= 0; }
 function nonNegativeNumber(value: unknown, path: string): void { if (!nonNegative(value)) throw new TypeError(`${path} must be a non-negative finite number`); }
 function positive(value: unknown, path: string): void { if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw new TypeError(`${path} must be a positive finite number`); }
 function record(value: unknown, path: string): Record<string, unknown> { if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${path} must be an object`); return value as Record<string, unknown>; }

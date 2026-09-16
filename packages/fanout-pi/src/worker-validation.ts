@@ -4,12 +4,13 @@ import { resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { parseArtifactIdentity, type ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
 import { parseValidationCommands, type ValidationCommand } from "../../fanout-core/src/validation-command.ts";
+import { parseResource, type Resource } from "../../fanout-core/src/repository-resource.ts";
 import { readVerifiedArtifact, writeArtifactAtomically } from "./artifact-store.ts";
 import { runValidationCommands, type ValidationCommandResult, type ValidationRunResult } from "./validation-runner.ts";
 
 export const FANOUT_VALIDATE_TOOL = "fanout_validate";
 export const WORKER_VALIDATION_MANIFEST_SCHEMA = "fanout.worker-validation-manifest";
-export const WORKER_VALIDATION_MANIFEST_VERSION = 1;
+export const WORKER_VALIDATION_MANIFEST_VERSION = 2;
 const MANIFEST_PATH = "worker-validation-manifest.json";
 const MODEL_VISIBLE_FAILURE_OUTPUT_LIMIT = 8_000;
 
@@ -23,6 +24,8 @@ export interface WorkerValidationManifest {
 	worktreeRoot: string;
 	platform: NodeJS.Platform;
 	commands: ValidationCommand[];
+	writeResources: Resource[];
+	forbiddenWrites: Resource[];
 	timeoutMs: number;
 }
 
@@ -47,6 +50,8 @@ export function publishWorkerValidationManifest(
 		worktreeRoot: realpathSync(resolve(input.worktreeRoot)),
 		platform: input.platform,
 		commands: parseValidationCommands(input.commands, input.platform),
+		writeResources: parseResources(input.writeResources),
+		forbiddenWrites: parseResources(input.forbiddenWrites),
 		timeoutMs: positiveInteger(input.timeoutMs, "timeoutMs"),
 	};
 	return writeArtifactAtomically(manifest.attemptRoot, MANIFEST_PATH, Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`));
@@ -68,7 +73,11 @@ export function loadWorkerValidationContext(env: NodeJS.ProcessEnv = process.env
 	return context;
 }
 
-export function registerWorkerValidationTool(pi: Pick<ExtensionAPI, "registerTool">, context: WorkerValidationContext): void {
+export function registerWorkerValidationTool(pi: Pick<ExtensionAPI, "registerTool" | "on">, context: WorkerValidationContext): void {
+	pi.on("tool_result", (event) => {
+		if (event.toolName !== FANOUT_VALIDATE_TOOL || !isRecord(event.details)) return;
+		if (event.details.error || isRecord(event.details.result) && event.details.result.status !== "passed") return { isError: true };
+	});
 	pi.registerTool({
 		name: FANOUT_VALIDATE_TOOL,
 		label: "Fanout Validate",
@@ -141,7 +150,7 @@ export async function runWorkerValidation(
 	};
 }
 
-function readManifest(context: WorkerValidationContext): WorkerValidationManifest {
+export function readManifest(context: WorkerValidationContext): WorkerValidationManifest {
 	const manifest = parseManifest(JSON.parse(readVerifiedArtifact(context.attemptRoot, context.identity).toString("utf8")));
 	if (manifest.attemptRoot !== context.attemptRoot || manifest.worktreeRoot !== context.worktreeRoot) throw new Error("worker validation manifest path identity mismatch");
 	if (manifest.runId !== context.expected.runId || manifest.nodeId !== context.expected.nodeId || manifest.attemptId !== context.expected.attemptId) throw new Error("worker validation manifest attempt identity mismatch");
@@ -150,7 +159,7 @@ function readManifest(context: WorkerValidationContext): WorkerValidationManifes
 }
 
 function parseManifest(value: unknown): WorkerValidationManifest {
-	const fields = ["schema", "version", "runId", "nodeId", "attemptId", "attemptRoot", "worktreeRoot", "platform", "commands", "timeoutMs"];
+	const fields = ["schema", "version", "runId", "nodeId", "attemptId", "attemptRoot", "worktreeRoot", "platform", "commands", "writeResources", "forbiddenWrites", "timeoutMs"];
 	if (!isRecord(value) || Object.keys(value).length !== fields.length || fields.some((field) => !Object.hasOwn(value, field))) throw new TypeError("worker validation manifest has unknown or missing fields");
 	if (value.schema !== WORKER_VALIDATION_MANIFEST_SCHEMA || value.version !== WORKER_VALIDATION_MANIFEST_VERSION) throw new TypeError("unsupported worker validation manifest generation");
 	const platform = value.platform as NodeJS.Platform;
@@ -167,11 +176,19 @@ function parseManifest(value: unknown): WorkerValidationManifest {
 		worktreeRoot,
 		platform,
 		commands: parseValidationCommands(value.commands, platform),
+		writeResources: parseResources(value.writeResources),
+		forbiddenWrites: parseResources(value.forbiddenWrites),
 		timeoutMs: positiveInteger(value.timeoutMs, "timeoutMs"),
 	};
 }
 
+function parseResources(value: unknown): Resource[] {
+	if (!Array.isArray(value)) throw new TypeError("worker manifest resource lists must be arrays");
+	return value.map((resource) => parseResource(resource));
+}
+
 function formatResult(result: ValidationRunResult): string {
+	if (!result.commands.length) return "fanout_validate: No focused validation commands are declared for this attempt. The controller still runs the combined authoritative final gates.";
 	const lines = [`fanout_validate ${result.status}: ${result.executedCount}/${result.commands.length} commands executed in ${result.durationMs}ms.`];
 	for (const command of result.commands) {
 		lines.push(`[${command.index}] ${command.outcome} (exit ${command.exitCode ?? "none"}, ${command.durationMs}ms)`);

@@ -1,6 +1,7 @@
 {
   "name": "fanout-pi",
   "version": "0.0.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "keywords": ["pi-package", "fanout"],
@@ -9,7 +10,7 @@
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-coding-agent": ">=0.83.0",
     "@earendil-works/pi-tui": "*"
   },
   "pi": {

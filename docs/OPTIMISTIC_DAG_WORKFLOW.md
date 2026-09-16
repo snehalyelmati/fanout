@@ -1,6 +1,6 @@
 # Planned Parallel RPE Workflow
 
-Status: design target, not implemented.
+Status: historical experimental design. The bounded packet DAG executor is now implemented; speculative portfolios, batch orchestration and the broader RPE proposals below remain unimplemented. See [current architecture](ARCHITECTURE.md) and [audit scope](impl/fanout-audit-implementation-plan.md). Historical trace results below are unchanged.
 
 Goal: keep the active developer loop near realtime/tier1 speed while using Doubleword tier2 only where latency can be hidden. Realtime/tier1 remains the speed baseline; tier2 is for cost reduction on background work. The current direction is **planned parallel RPE**, not a generic tier2 DAG router.
 

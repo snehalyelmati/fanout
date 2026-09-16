@@ -59,6 +59,7 @@ export interface CompileExecutionPacketInput {
 	detailsIdentity: ArtifactIdentity;
 	tierPlan: FanoutTierPlan;
 	runtimePolicy: FanoutRuntimePolicy;
+	profile?: ProjectExecutionProfile;
 	sequentialReadFallback?: boolean;
 	createdAt?: Date | string;
 }
@@ -76,12 +77,13 @@ export function validateImplementationDetailsArtifact(value: unknown, expected: 
 	const planIds = expected.plan?.implementationItems.map((item) => item.id) ?? expected.planIds;
 	const details = errors.length ? undefined : parseDetails(value as Record<string, unknown>, { planIdentity: expected.planIdentity, planIds }, errors);
 	if (details && expected.profile) errors.push(...profileGateDuplicateErrors(details, expected.profile));
+	if (details && details.finalValidationCommands.length === 0 && !expected.profile?.requiredFinalGates.length) errors.push("finalValidationCommands may be empty only when the exact bound Project Execution Profile supplies at least one required final gate");
 	return { ok: errors.length === 0, errors, itemCount: details?.items.length ?? 0, ...(errors.length || !details ? {} : { details }) };
 }
 
 function profileGateDuplicateErrors(details: ImplementationDetails, profile: ProjectExecutionProfile): string[] {
 	const gates = profile.requiredFinalGates.map((entry) => entry.command);
-	const duplicate = (command: ImplementationDetails["finalValidationCommands"][number]) => gates.findIndex((gate) => isDeepStrictEqual(command, gate));
+	const duplicate = (command: ImplementationDetails["finalValidationCommands"][number]) => gates.findIndex((gate) => isDeepStrictEqual({ ...command, env: command.env ?? {} }, { ...gate, env: gate.env ?? {} }));
 	const errors = details.items.flatMap((item, itemIndex) => item.validationCommands.flatMap((command, commandIndex) => {
 		const gateIndex = duplicate(command);
 		return gateIndex < 0 ? [] : [`items[${itemIndex}].validationCommands[${commandIndex}] duplicates Project Execution Profile requiredFinalGates[${gateIndex}].command`];
@@ -106,10 +108,10 @@ export function buildRequiredReadClassifications(value: unknown): RequiredReadCl
 
 export function compileExecutionPacket(input: CompileExecutionPacketInput): CompileExecutionPacketResult {
 	const planResult = validateImplementationPlan(input.implementationPlan);
-	const detailsResult = validateImplementationDetailsArtifact(input.implementationDetails, { planIdentity: input.planIdentity, plan: planResult.plan });
+	const detailsResult = validateImplementationDetailsArtifact(input.implementationDetails, { planIdentity: input.planIdentity, plan: planResult.plan, profile: input.profile });
 	const errors = [...planResult.errors, ...detailsResult.errors];
 	if (!planResult.plan || !detailsResult.details || errors.length) return { ok: false, errors, warnings: [], issues: errors.map((message) => ({ code: "artifact-admission", message })), warningIssues: [] };
-	const compiled = compileWorkContracts(planResult.plan.implementationItems, detailsResult.details.items, detailsResult.details.finalValidationCommands, { sequentialReadFallback: input.sequentialReadFallback });
+	const compiled = compileWorkContracts(planResult.plan.implementationItems, detailsResult.details.items, detailsResult.details.finalValidationCommands, { sequentialReadFallback: input.sequentialReadFallback, profileFinalGateCount: input.profile?.requiredFinalGates.length });
 	if (!compiled.ok) return { ok: false, errors: compiled.errors.map(showIssue), warnings: compiled.warnings.map(showIssue), issues: compiled.errors, warningIssues: compiled.warnings };
 	const initialNodes: FanoutPacketNode[] = compiled.nodes.map((node) => {
 		const tier = deriveTierAssignment(derivePreferredTier(node.kind as WorkUnitKind), input.tierPlan);

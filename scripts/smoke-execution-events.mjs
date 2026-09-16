@@ -52,6 +52,8 @@ const preflightEvidence = {
 };
 
 try {
+  const failedAfterPassingRound = { status: "failed", lastRound: { status: "passed", commandCount: 1, durationMs: 3, evidence, expectedTree: trees.nodeA, beforeTree: trees.nodeA, afterTree: trees.nodeA }, totalCommandDurationMs: 7, failure: { kind: "attempt", attemptId: "final-validation:000001" } };
+  assert(parseExecutionEvent({ schema: "fanout.execution-event", version: 6, runId: "run", sequence: 1, occurredAt: "2026-07-13T00:00:00.000Z", event: "final-validation-completed", payload: failedAfterPassingRound }).payload.lastRound.status === "passed", "overall failure discarded the passing round");
   assert(EXECUTION_EVENT_NAMES.join(",") === "run-started,preflight-completed,confirmation-decided,attempt-allocated,attempt-completed,node-completed,final-validation-started,final-validation-completed,run-finished", "execution-event v5 does not expose exactly the nine approved transitions");
   const legacyTimestamp = allocationFor("legacy-time");
   const legacyMetrics = correlateAttemptMetrics(metricEvidence(legacyTimestamp.allocation.attemptId));
@@ -64,7 +66,7 @@ try {
   const dryJsonl = `${dryEvents.map(JSON.stringify).join("\n")}\n`;
   assert(isDeepStrictEqual(parseExecutionEventLog(dryJsonl), dryEvents), "core Event Log admission did not return the runtime replay sequence");
   const dryEnvelope = inspectExecutionEventLogEnvelope(dryJsonl);
-  assert(dryEnvelope.runId === "run" && dryEnvelope.version === 5 && dryEnvelope.eventCount === 3 && dryEnvelope.updatedAt === dryEvents.at(-1).occurredAt, "core Event Log envelope inspection lost current evidence metadata");
+  assert(dryEnvelope.runId === "run" && dryEnvelope.version === 6 && dryEnvelope.eventCount === 3 && dryEnvelope.updatedAt === dryEvents.at(-1).occurredAt, "core Event Log envelope inspection lost current evidence metadata");
   const legacyJsonl = `${dryEvents.map((item) => JSON.stringify({ ...item, version: 4 })).join("\n")}\n`;
   assert(inspectExecutionEventLogEnvelope(legacyJsonl).version === 4, "core Event Log envelope inspection rejected the previous generation");
   expectThrow(() => inspectExecutionEventLogEnvelope(`${JSON.stringify({ ...dryEvents[0], version: 4 })}\n${JSON.stringify(dryEvents[1])}\n`), "core Event Log envelope inspection admitted mixed generations");
@@ -77,7 +79,7 @@ try {
   expectAdmissionError("[]\n", "invalid-event", 1);
   expectAdmissionError(`${JSON.stringify(dryEvents[0])}\n${JSON.stringify({ ...dryEvents[1], sequence: 3 })}\n`, "invalid-log", 2);
   const dry = replayExecutionEvents(dryEvents);
-  assert(dry.version === 6, "execution projection did not advance to v6");
+  assert(dry.version === 7, "execution projection did not advance to v6");
   assert(JSON.stringify(dry.profile) === JSON.stringify(profile) && JSON.stringify(dry.profileValidation) === JSON.stringify(profileValidation), "projection discarded exact profile authority");
   assert(dry.preflightEvidence.validationCommands[0].manifest.args[0] === "validate", "projection discarded strict preflight evidence");
   assert(dry.mode === "dry-run" && dry.terminalOutcome?.outcome === "dry-run-completed", "A14 lost the explicit dry-run outcome");
@@ -116,7 +118,7 @@ try {
 
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], surprise: true }), "unknown event field was admitted");
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], version: 4 }), "legacy execution event v4 was admitted");
-  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], version: 6 }), "future execution event v6 was admitted");
+  expectThrow(() => parseExecutionEvent({ ...dryEvents[0], version: 7 }), "future execution event v7 was admitted");
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, mode: "preview" } }), "unknown run mode was admitted");
   const { fallbackAllowed: _fallbackAllowed, ...incompletePolicy } = dryEvents[0].payload.policy;
   expectThrow(() => parseExecutionEvent({ ...dryEvents[0], payload: { ...dryEvents[0].payload, policy: incompletePolicy } }), "run-started admitted an incomplete immutable runtime policy");
@@ -175,7 +177,7 @@ try {
     event(5, "attempt-completed", { outcome, acceptedTransition: patch }),
     event(6, "node-completed", { nodeId: "node-a", status: "succeeded", cause: { attemptId: allocation.attemptId } }),
     event(7, "final-validation-started", { commandIdentities: ["validation:0"], expectedTree: trees.nodeA }),
-    event(8, "final-validation-completed", { status: "passed", commandCount: 1, durationMs: 3, evidence, expectedTree: trees.nodeA, beforeTree: trees.nodeA, afterTree: trees.nodeA }),
+    event(8, "final-validation-completed", { status: "passed", lastRound: { status: "passed", commandCount: 1, durationMs: 3, evidence, expectedTree: trees.nodeA, beforeTree: trees.nodeA, afterTree: trees.nodeA }, totalCommandDurationMs: 3 }),
     event(9, "run-finished", { outcome: "completed", durationMs: 8, cause: { kind: "event", eventSequence: 8, code: "final-validation-passed" } }),
   ];
   const live = replayExecutionEvents(liveEvents);
@@ -197,7 +199,7 @@ try {
   expectThrow(() => replayExecutionEvents(liveEvents.map((item) => item.event === "attempt-allocated" ? { ...item, payload: { allocation: { ...allocation, budgetTransition: { ...allocation.budgetTransition, before: 1, after: 2 } } } } : item)), "budget reset/overflow was admitted");
   expectThrow(() => replayExecutionEvents(liveEvents.filter((item) => item.event !== "attempt-allocated").map((item, index) => ({ ...item, sequence: index + 1 }))), "completion without allocation was admitted");
   expectThrow(() => replayExecutionEvents(liveEvents.map((item) => item.event === "final-validation-started" ? { ...item, payload: { ...item.payload, expectedTree: trees.base } } : item)), "final validation targeted a stale accepted tree");
-  expectThrow(() => replayExecutionEvents(liveEvents.map((item) => item.event === "final-validation-completed" ? { ...item, payload: { ...item.payload, commandCount: 2 } } : item)), "final-validation aggregate contradicted its launched commands");
+  expectThrow(() => replayExecutionEvents(liveEvents.map((item) => item.event === "final-validation-completed" ? { ...item, payload: { ...item.payload, lastRound: { ...item.payload.lastRound, commandCount: 2 } } } : item)), "final-validation aggregate contradicted its launched commands");
   expectThrow(() => replayExecutionEvents(liveEvents.map((item) => item.event === "run-finished" ? { ...item, payload: { ...item.payload, cause: { ...item.payload.cause, attemptId: "node-a:000001" } } } : item)), "completed cause admitted an inapplicable attempt reference");
 
   const unauthorized = unauthorizedOutcome();
@@ -246,10 +248,36 @@ try {
     ...liveEvents.slice(0, 7),
     event(8, "attempt-allocated", { allocation: finalRepairLaunch.allocation }),
     event(9, "attempt-completed", { outcome: finalRepairOutcome, acceptedTransition: repairTransition }),
-    event(10, "final-validation-completed", { status: "passed", commandCount: 1, durationMs: 3, evidence, expectedTree: trees.repaired, beforeTree: trees.repaired, afterTree: trees.repaired }),
+    event(10, "final-validation-completed", { status: "passed", lastRound: { status: "passed", commandCount: 1, durationMs: 3, evidence, expectedTree: trees.repaired, beforeTree: trees.repaired, afterTree: trees.repaired }, totalCommandDurationMs: 6 }),
     event(11, "run-finished", { outcome: "completed", durationMs: 10, cause: { kind: "event", eventSequence: 10, code: "final-validation-passed" } }),
   ]);
-  assert(repairedValidation.finalValidation.expectedTree === trees.repaired && repairedValidation.acceptedLedger.length === 2, "final-validation repair did not roll projection authority to the validated accepted tree");
+  assert(repairedValidation.finalValidation.lastRound.expectedTree === trees.repaired && repairedValidation.acceptedLedger.length === 2, "final-validation repair did not roll projection authority to the validated accepted tree");
+
+  const failedFinalLaunch = allocateAttempt(createNodeAttemptState("final-validation"), { runId: "run", nodeId: "final-validation", kind: "validation-repair", assignment: allocation.assignment, sourceFinalValidationEvidence: evidence });
+  const failedFinalOutcome = completeAttempt(failedFinalLaunch.allocation, { state: failedFinalLaunch.state, startedAt: outcome.startedAt, finishedAt: outcome.finishedAt, terminalFact: { stage: "apply", code: "identity-failure" }, fallbackAllowed: false, metrics: correlateAttemptMetrics(metricEvidence(failedFinalLaunch.allocation.attemptId)).metrics });
+  const failedFinalEvents = [
+    ...liveEvents.slice(0, 7),
+    event(8, "attempt-allocated", { allocation: failedFinalLaunch.allocation }),
+    event(9, "attempt-completed", { outcome: failedFinalOutcome }),
+    event(10, "final-validation-completed", { ...failedAfterPassingRound, lastRound: { ...failedAfterPassingRound.lastRound, expectedTree: trees.repaired, beforeTree: trees.repaired, afterTree: trees.repaired }, failure: { kind: "attempt", attemptId: failedFinalLaunch.allocation.attemptId } }),
+    event(11, "run-finished", { outcome: "failed", durationMs: 10, cause: { kind: "event", eventSequence: 10, code: "final-validation-failed" } }),
+  ];
+  const failedFinal = replayExecutionEvents(failedFinalEvents);
+  assert(failedFinal.finalValidation.disposition === "failed" && failedFinal.finalValidation.lastRound.status === "passed" && failedFinal.acceptedLedger.length === 1 && failedFinal.totals.finalValidationDurationMs === 7, "replay confused passing candidate validation with successful final apply or lost all-round time");
+  expectThrow(() => replayExecutionEvents(failedFinalEvents.map((item) => item.event === "final-validation-completed" ? { ...item, payload: { ...item.payload, failure: { kind: "attempt", attemptId: allocation.attemptId } } } : item)), "final failure referenced an accepted ordinary attempt");
+  const unpublishedRound = replayExecutionEvents([...liveEvents.slice(0, 7), event(8, "final-validation-completed", { status: "failed", lastRound: null, totalCommandDurationMs: null, failure: { kind: "controller", code: "publication-failure", detail: "immutable evidence publication failed" } })]);
+  assert(unpublishedRound.finalValidation.lastRound === null && unpublishedRound.totals.finalValidationDurationMs === null, "unpublished final round fabricated earlier evidence or zero command time");
+
+  const failedNodes = ["node-b", "node-a"].map((nodeId) => {
+    const launch = allocationFor(nodeId);
+    return { allocation: launch.allocation, outcome: completeAttempt(launch.allocation, { state: launch.state, startedAt: outcome.startedAt, finishedAt: outcome.finishedAt, terminalFact: { stage: "process", code: "nonzero", exitCode: 1, durationMs: 1 }, fallbackAllowed: false, metrics: correlateAttemptMetrics(metricEvidence(launch.allocation.attemptId)).metrics }) };
+  });
+  const policyEvents = [event(1, "run-started", { mode: "live", packet, planningBaseTree: trees.base, nodeIds: ["node-a", "node-b", "node-c"], policy: { maxConcurrency: 2, failFast: true, fallbackAllowed: false } }), ...liveEvents.slice(1, 3)];
+  for (const failed of failedNodes) for (const [name, payload] of [["attempt-allocated", { allocation: failed.allocation }], ["attempt-completed", { outcome: failed.outcome }], ["node-completed", { nodeId: failed.allocation.nodeId, status: "failed", cause: { attemptId: failed.allocation.attemptId } }]]) policyEvents.push(event(policyEvents.length + 1, name, payload));
+  const policySkip = event(10, "node-completed", { nodeId: "node-c", status: "skipped", cause: { policy: "fail-fast", triggerNodeId: "node-b", triggerAttemptId: failedNodes[0].allocation.attemptId } });
+  const policyProjection = replayExecutionEvents([...policyEvents, policySkip]);
+  assert(policyProjection.nodes[2].failFastCause.nodeId === "node-b" && policyProjection.nodes[2].causalUpstreamNodeId === null, "policy skip fabricated an upstream dependency or used packet order instead of first failure");
+  expectThrow(() => replayExecutionEvents([...policyEvents, { ...policySkip, payload: { ...policySkip.payload, cause: { policy: "fail-fast", triggerNodeId: "node-a", triggerAttemptId: failedNodes[1].allocation.attemptId } } }]), "policy skip admitted a later failed trigger");
 
   const bridgeDir = join(root, "runtime-recorder-bridge");
   const bridge = new RuntimeEventRecorder(bridgeDir, "run");
@@ -387,7 +415,7 @@ try {
 function event(sequence, name, payload) {
   if (name === "run-started") payload = startedPayload(payload);
   if (name === "run-finished") payload = { cleanupDurationMs: 0, ...payload };
-  return { schema: "fanout.execution-event", version: 5, runId: "run", sequence, occurredAt: `2026-07-13T00:00:00.${String(sequence).padStart(3, "0")}Z`, event: name, payload };
+  return { schema: "fanout.execution-event", version: 6, runId: "run", sequence, occurredAt: `2026-07-13T00:00:00.${String(sequence).padStart(3, "0")}Z`, event: name, payload };
 }
 
 function startedPayload(payload) {
@@ -512,7 +540,7 @@ function validationRecovery(sourceAttemptId, stderr) {
     sourceAttemptId,
     workContract: {
       schema: "fanout.work-contract",
-      version: 4,
+      version: 5,
       goals: [{ sourcePlanId: "node-a", statement: "Update node A." }],
       changes: [{ kind: "create", target: { resource: { kind: "file", path: "src/a.ts" }, sourcePlanIds: ["node-a"] }, contentIntent: "Create node A." }],
       readDependencies: [],

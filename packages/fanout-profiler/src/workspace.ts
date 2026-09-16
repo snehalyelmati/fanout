@@ -1,6 +1,8 @@
-import { resolveExecutionEvidence, type ExecutionRunProjection } from "../../fanout-core/src/execution-projection";
+import { EXECUTION_EVENT_VERSION } from "../../fanout-core/src/execution-event";
+import { EXECUTION_PROJECTION_VERSION, resolveExecutionEvidence, type ExecutionRunProjection } from "../../fanout-core/src/execution-projection";
 import type { ArtifactIdentity } from "../../fanout-core/src/artifact-identity";
 import { deepFreeze } from "../../fanout-core/src/contract-value";
+import { deriveAttemptMetricTotals } from "../../fanout-core/src/attempt-metrics";
 import { EXECUTION_PACKET_VERSION } from "../../fanout-core/src/execution-packet";
 import { IMPLEMENTATION_DETAILS_VERSION, IMPLEMENTATION_PLAN_VERSION } from "../../fanout-core/src/fanout-compiler";
 import { FINAL_VALIDATION_NODE_ID } from "../../fanout-core/src/work-contract-graph";
@@ -39,7 +41,7 @@ export interface TimingRow {
 	selection: WorkspaceSelection;
 }
 
-export const CURRENT_EXECUTION_GENERATION = "Event v5 / Projection v6";
+export const CURRENT_EXECUTION_GENERATION = `Event v${EXECUTION_EVENT_VERSION} / Projection v${EXECUTION_PROJECTION_VERSION}`;
 
 export function executionArtifactGeneration(admissions: readonly CatalogAdmission[]): string {
 	return admissions.some((admission) => admission === "Legacy") ? "Legacy execution generation" : admissions.some((admission) => admission !== "Current") ? "Unverifiable execution generation" : CURRENT_EXECUTION_GENERATION;
@@ -209,7 +211,7 @@ function timingRows(projection: ExecutionRunProjection, run: CatalogExecutionRun
 	}
 	const started = run.events.find(({ event }) => event === "final-validation-started");
 	const completed = run.events.find(({ event }) => event === "final-validation-completed");
-	rows.push(row(FINAL_VALIDATION_NODE_ID, `run:${run.selectionId}`, "final-validation", FINAL_VALIDATION_NODE_ID, null, null, origin, started?.occurredAt, completed?.occurredAt, projection.finalValidation.disposition === "passed" || projection.finalValidation.disposition === "failed" ? projection.finalValidation.durationMs : undefined, "Event Log", "Final Validation", projection.finalValidation.disposition, { kind: "node", id: FINAL_VALIDATION_NODE_ID }));
+	rows.push(row(FINAL_VALIDATION_NODE_ID, `run:${run.selectionId}`, "final-validation", FINAL_VALIDATION_NODE_ID, null, null, origin, started?.occurredAt, completed?.occurredAt, undefined, "Event Log", "Final Validation controller wall span", projection.finalValidation.disposition, { kind: "node", id: FINAL_VALIDATION_NODE_ID }));
 	for (const attempt of projection.attempts.filter(({ allocation }) => allocation.nodeId === FINAL_VALIDATION_NODE_ID)) appendAttempt(attempt, FINAL_VALIDATION_NODE_ID);
 	return rows;
 }
@@ -289,37 +291,43 @@ function inspectorFor(run: CatalogExecutionRun, projection: ExecutionRunProjecti
 	}
 	const attemptId = selection.kind === "attempt" || selection.kind === "stage" ? selection.id : selection.attemptId;
 	const attempt = projection && attemptId ? resolveExecutionEvidence(projection, { attemptId }).attempt : null;
-	if (selection.kind === "stage" && attempt?.outcome) return { title: `${attempt.outcome.terminalFact.stage}/${attempt.outcome.terminalFact.code}`, kind: "Stage Fact", fields: [["Controller action", attempt.outcome.action], ["Controller disposition", attempt.outcome.disposition], ["Stage Fact", `${attempt.outcome.terminalFact.stage}/${attempt.outcome.terminalFact.code}`]], receipt: receipt("Observed", "Typed terminal Stage Fact, action, and disposition from Attempt Outcome v5", [], [], sources) };
+	if (selection.kind === "stage" && attempt?.outcome) return { title: `${attempt.outcome.terminalFact.stage}/${attempt.outcome.terminalFact.code}`, kind: "Stage Fact", fields: [["Controller action", attempt.outcome.action], ["Controller disposition", attempt.outcome.disposition], ["Stage Fact", `${attempt.outcome.terminalFact.stage}/${attempt.outcome.terminalFact.code}`]], receipt: receipt("Observed", "Typed terminal Stage Fact, action, and disposition from Attempt Outcome v6", [], [], sources) };
 	if (selection.kind === "tool" && attempt?.outcome) {
 		const tool = attempt.outcome.metrics.tools.find(({ toolCallId, turnId }) => toolCallId === selection.id && turnId === selection.turnId)!;
-		return { title: tool.name, kind: "Tool Invocation", fields: [["Tool ID", tool.toolCallId], ["Duration", show(tool.durationMs)]], receipt: receipt("Observed", "Correlated Tool Invocation interval from Attempt Outcome v5", tool.durationMs === undefined ? ["tool duration"] : [], [], sources) };
+		return { title: tool.name, kind: "Tool Invocation", fields: [["Tool ID", tool.toolCallId], ["Duration", show(tool.durationMs)]], receipt: receipt("Observed", "Correlated Tool Invocation interval from Attempt Outcome v6", tool.durationMs === undefined ? ["tool duration"] : [], [], sources) };
 	}
 	if (selection.kind === "turn" && attempt?.outcome) {
 		const turn = attempt.outcome.metrics.turns.find(({ turnId }) => turnId === selection.id)!;
-		return { title: turn.turnId, kind: "Worker Turn", fields: [["Provider", turn.provider], ["Model", turn.model], ["Tier", turn.tier]], receipt: receipt("Observed", "Correlated Worker Turn from Attempt Outcome v5", [], [], sources) };
+		return { title: turn.turnId, kind: "Worker Turn", fields: [["Provider", turn.provider], ["Model", turn.model], ["Tier", turn.tier]], receipt: receipt("Observed", "Correlated Worker Turn from Attempt Outcome v6", [], [], sources) };
 	}
-	if (attempt) return { title: attempt.allocation.attemptId, kind: "Attempt", fields: [["Kind", attempt.allocation.kind], ["Observed routing", `${attempt.allocation.assignment.tier} · ${attempt.allocation.assignment.provider}/${attempt.allocation.assignment.model}`], ["Controller action", attempt.outcome?.action ?? "unknown"], ["Controller disposition", attempt.outcome?.disposition ?? "unknown"]], relatedSelections: attempt.outcome ? [{ label: "Stage Fact", selection: { kind: "stage", id: attempt.allocation.attemptId } }] : [], receipt: receipt(attempt.outcome ? "Observed" : "Partial", "Attempt allocation and admitted terminal outcome", attempt.outcome ? [] : ["terminal Attempt Outcome"], [], sources) };
+	if (attempt) return { title: attempt.allocation.attemptId, kind: "Attempt", fields: [["Kind", attempt.allocation.kind], ["Observed routing", `${attempt.allocation.assignment.tier} · ${attempt.allocation.assignment.provider}/${attempt.allocation.assignment.model}`], ["Controller action", attempt.outcome?.action ?? "unknown"], ["Controller disposition", attempt.outcome?.disposition ?? "unknown"], ["Measurements", attempt.outcome?.metrics.status ?? "unavailable"], ["Measurement issues", JSON.stringify(attempt.outcome?.metrics.issues ?? [])]], relatedSelections: attempt.outcome ? [{ label: "Stage Fact", selection: { kind: "stage", id: attempt.allocation.attemptId } }] : [], receipt: receipt(attempt.outcome ? "Observed" : "Partial", "Attempt allocation and admitted terminal outcome", attempt.outcome ? [] : ["terminal Attempt Outcome"], [], sources) };
 	const node = projection?.nodes.find(({ id }) => id === selection.id);
-	if (selection.id === FINAL_VALIDATION_NODE_ID && projection) return { title: selection.id, kind: "DAG Node", fields: [["Observed state", projection.finalValidation.disposition]], receipt: receipt("Derived", "Packet topology joined to Final Validation state replayed through fanout-core", [], ["Packet topology is structural; validation disposition is replay state"], sources) };
-	return { title: selection.id, kind: "DAG Node", fields: [["Observed state", node?.status ?? "unknown"]], receipt: receipt(node ? "Derived" : "Unavailable", "Packet topology joined to Node state replayed through fanout-core", node ? [] : ["current replayed Node state"], ["Packet topology is structural; Node status is observed replay state"], sources) };
+	const finalCompletion = projection?.finalValidation.disposition === "passed" || projection?.finalValidation.disposition === "failed" ? projection.finalValidation : null;
+	if (selection.id === FINAL_VALIDATION_NODE_ID && projection) return { title: selection.id, kind: "DAG Node", fields: [["Observed state", projection.finalValidation.disposition], ["Latest command round", finalCompletion?.lastRound?.status ?? "unavailable"], ["All-round command time (ms)", show(finalCompletion?.totalCommandDurationMs ?? undefined)]], receipt: receipt("Derived", "Packet topology joined to Final Validation state replayed through fanout-core", [], ["Packet topology is structural; validation disposition is replay state"], sources) };
+	return { title: selection.id, kind: "DAG Node", fields: [["Observed state", node?.status ?? "unknown"], ...(node?.causalUpstreamNodeId ? [["Dependency cause", node.causalUpstreamNodeId]] : []), ...(node?.failFastCause ? [["Fail-fast policy cause", `${node.failFastCause.nodeId} · ${node.failFastCause.attemptId}`]] : [])], receipt: receipt(node ? "Derived" : "Unavailable", "Packet topology joined to Node state replayed through fanout-core", node ? [] : ["current replayed Node state"], ["Packet topology is structural; Node status is observed replay state"], sources) };
 }
 
 function metricViews(projection: ExecutionRunProjection, scopedRows: TimingRow[], selection: WorkspaceSelection, receipt: (evidenceClass: EvidenceClass, derivation: string, missingInputs?: string[], limitations?: string[]) => EvidenceReceipt): Record<string, unknown>[] {
 	const selectedAttemptId = selection.kind === "attempt" || selection.kind === "stage" ? selection.id : selection.attemptId;
 	const attempts = projection.attempts.filter(({ allocation }) => selectedAttemptId ? allocation.attemptId === selectedAttemptId : selection.kind === "node" || selection.nodeId ? allocation.nodeId === (selection.kind === "node" ? selection.id : selection.nodeId) : true);
 	const metrics = attempts.flatMap(({ outcome }) => outcome ? [outcome.metrics] : []);
-	const sum = (values: Array<number | undefined>, required = true): number | null => values.length && (!required || values.every((value) => value !== undefined)) ? values.reduce((total, value) => total + (value ?? 0), 0) : null;
-	const view = (id: string, label: string, value: number | null, unit: string, category: string, evidenceClass: "Observed" | "Derived", derivation: string, limitation?: string) => ({ id, label, value, unit, category, evidenceClass: value === null ? "Unavailable" : evidenceClass, receipt: receipt(value === null ? "Unavailable" : evidenceClass, derivation, value === null ? [label] : [], limitation ? [limitation] : []) });
-	const turns = selection.kind === "tool" ? [] : metrics.flatMap(({ turns }) => turns.filter(({ turnId }) => selection.kind !== "turn" || turnId === selection.id));
+	const sum = (values: Array<number | undefined>): number | null => values.length && values.every((value) => typeof value === "number" && Number.isFinite(value)) ? values.reduce<number>((total, value) => total + value!, 0) : null;
+	const complete = metrics.length === attempts.length && metrics.every((item) => item.complete);
+	const view = (id: string, label: string, value: number | null, unit: string, category: string, evidenceClass: "Observed" | "Derived" | "Partial", derivation: string, limitation?: string) => ({ id, label, value, unit, category, evidenceClass: value === null ? "Unavailable" : evidenceClass, receipt: receipt(value === null ? "Unavailable" : evidenceClass, derivation, value === null ? [label] : [], limitation ? [limitation] : []) });
+	const scopedMetrics = metrics.map((item) => ({ ...item, turns: selection.kind === "tool" ? [] : item.turns.filter(({ turnId }) => selection.kind !== "turn" || turnId === selection.id) }));
+	const turns = scopedMetrics.flatMap(({ turns }) => turns);
+	const observedCosts = scopedMetrics.filter((item) => item.turns.some((turn) => turn.costUsd !== undefined || item.responses.some((response) => response.turnId === turn.turnId && response.costUsd !== undefined))).map((item) => deriveAttemptMetricTotals(item).observedCostUsd);
 	const views = [
 		...(selection.kind === "run" || selection.kind === "event" && !selection.nodeId && !selection.attemptId ? [view("run-duration", "Run duration", projection.terminalOutcome?.durationMs ?? null, "ms", "wall-clock-boundary", "Observed", "Terminal Run Event duration is the authoritative execution boundary")] : []),
 		view("attempt-envelopes", "Attempt envelopes", sum(scopedRows.filter(({ kind }) => kind === "attempt").map(({ durationMs }) => durationMs ?? undefined)), "ms", "overlapping-measured-work", "Derived", "Sum of selected Attempt Outcome envelopes", "Concurrent Attempt envelopes may overlap and are not a wall-clock partition"),
-		view("worker-duration", "Worker duration", sum(scopedRows.filter(({ kind }) => kind === "worker").map(({ durationMs }) => durationMs ?? undefined)), "ms", "overlapping-measured-work", "Derived", "Sum of recorded worker durations", "Measured work may overlap other rows"),
-		view("provider-duration", "Provider duration", sum(scopedRows.filter(({ kind }) => kind === "response").map(({ durationMs }) => durationMs ?? undefined)), "ms", "overlapping-measured-work", "Derived", "Sum of correlated Provider Response durations", "Measured work may overlap other rows"),
-		view("tool-duration", "Tool duration", sum(scopedRows.filter(({ kind }) => kind === "tool").map(({ durationMs }) => durationMs ?? undefined)), "ms", "overlapping-measured-work", "Derived", "Sum of correlated Tool Invocation durations", "Measured work may overlap other rows"),
-		view("poll-duration", "Poll duration", sum(scopedRows.filter(({ kind }) => kind === "poll").map(({ durationMs }) => durationMs ?? undefined)), "ms", "overlapping-measured-work", "Derived", "Sum of correlated Provider Poll durations", "Poll durations have no absolute placement"),
-		view("tokens", "Tokens", turns.length ? turns.reduce((total, turn) => total + turn.totalTokens, 0) : null, "tokens", "usage", "Derived", "Sum of selected Worker Turn total tokens"),
-		view("cost", "Estimated cost", turns.length ? turns.reduce((total, turn) => total + turn.costUsd, 0) : null, "USD", "usage", "Derived", "Sum of selected Worker Turn recorded cost"),
+		view("worker-duration", "Worker duration", complete ? sum(scopedRows.filter(({ kind }) => kind === "worker").map(({ durationMs }) => durationMs ?? undefined)) : null, "ms", "overlapping-measured-work", "Derived", "Sum of recorded worker durations", "Measured work may overlap other rows"),
+		view("provider-duration", "Provider duration", complete ? sum(scopedRows.filter(({ kind }) => kind === "response").map(({ durationMs }) => durationMs ?? undefined)) : null, "ms", "overlapping-measured-work", "Derived", "Sum of correlated Provider Response durations", "Measured work may overlap other rows"),
+		view("tool-duration", "Tool duration", complete ? sum(scopedRows.filter(({ kind }) => kind === "tool").map(({ durationMs }) => durationMs ?? undefined)) : null, "ms", "overlapping-measured-work", "Derived", "Sum of correlated Tool Invocation durations", "Measured work may overlap other rows"),
+		view("poll-duration", "Poll duration", complete ? sum(scopedRows.filter(({ kind }) => kind === "poll").map(({ durationMs }) => durationMs ?? undefined)) : null, "ms", "overlapping-measured-work", "Derived", "Sum of correlated Provider Poll durations", "Poll durations have no absolute placement"),
+		view("tokens", "Tokens", complete ? sum(turns.map(({ totalTokens }) => totalTokens)) : null, "tokens", "usage", "Derived", "Sum of selected Worker Turn total tokens"),
+		...(!complete ? [view("observed-cost", "Observed partial cost", sum(observedCosts), "USD", "usage", "Partial", "Canonical observed spend for selected Worker Turns, including response costs when turn cost is missing", "Partial spend is not a complete total")] : []),
+		...(scopedRows.some(({ kind }) => kind === "final-validation") ? [view("final-validation-command-duration", "Final Validation command time (all rounds)", "totalCommandDurationMs" in projection.finalValidation ? projection.finalValidation.totalCommandDurationMs : null, "ms", "overlapping-measured-work", "Derived", "Sum of controller command durations across every executed final-validation round", "Excludes model, preparation and repair apply time")] : []),
+		view("cost", "Estimated cost", complete ? sum(turns.map(({ costUsd }) => costUsd)) : null, "USD", "usage", "Derived", "Sum of selected Worker Turn recorded cost"),
 	];
 	return views;
 }

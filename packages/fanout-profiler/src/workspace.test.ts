@@ -7,7 +7,7 @@ const source = { id: "source-8-1", path: "packet/executions/run-1/events.jsonl",
 const packetSource = { id: "source-8-2", path: "packet/execution-packet.json", kind: "planning" as const, byteLength: 456, modifiedAtMs: 1 };
 const profile = { path: "profiles/default.json", sha256: "a".repeat(64), byteLength: 10 };
 const packet = {
-	version: 9,
+	version: 10,
 	profile,
 	objective: "Keep <script>alert('no')</script> as evidence text",
 	nodes: [
@@ -27,7 +27,7 @@ const projection = {
 			attemptId: "work:000001", nodeId: "work", kind: "original", startedAt: "2026-07-20T00:00:00.100Z", finishedAt: "2026-07-20T00:00:00.900Z", durationMs: 800,
 			action: "accept", disposition: "deterministic-reconciliation", terminalFact: { stage: "apply", code: "applied" }, evidenceRefs: ["attempt-outcome.json"],
 			metrics: {
-				compatibility: "generic", complete: true, workerDurationMs: 700,
+				compatibility: "generic", status: "complete", issues: [], complete: true, workerDurationMs: 700,
 				turns: [{ turnId: "turn-1", requestedAt: "2026-07-20T00:00:00.200Z", firstOutputAt: "2026-07-20T00:00:00.300Z", finishedAt: "2026-07-20T00:00:00.800Z", durationMs: 600, provider: "observed-provider", model: "observed-model", tier: "tier1", inputTokens: 2, outputTokens: 3, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 5, costUsd: 0.1, pricingSource: "fixture", responseIds: [], toolCallIds: ["tool-1"] }],
 				responses: [], polls: [{ pollId: "poll-1", turnId: "turn-1", durationMs: 25, status: "completed" }],
 				tools: [{ toolCallId: "tool-1", turnId: "turn-1", name: "<b>read</b>", startedAt: "2026-07-20T00:00:00.400Z", finishedAt: "2026-07-20T00:00:00.450Z", durationMs: 50 }],
@@ -95,7 +95,7 @@ test("timing views distinguish boundaries, overlapping measured work, unavailabl
 	expect(workspace.metrics.find(({ id }) => id === "worker-duration")).toMatchObject({ value: 700, category: "overlapping-measured-work" });
 	expect(workspace.metrics.find(({ id }) => id === "worker-duration")).toMatchObject({ evidenceClass: "Derived", receipt: { evidenceClass: "Derived" } });
 	expect(workspace.metrics.find(({ id }) => id === "provider-duration")).toMatchObject({ value: null, evidenceClass: "Unavailable" });
-	expect(workspace.metrics.every(({ receipt }) => receipt.artifactGeneration === "Event v5 / Projection v6" && JSON.stringify(receipt.profileIdentity) === JSON.stringify(profile))).toBe(true);
+	expect(workspace.metrics.every(({ receipt }) => receipt.artifactGeneration === "Event v6 / Projection v7" && JSON.stringify(receipt.profileIdentity) === JSON.stringify(profile))).toBe(true);
 	expect(workspace.ledger.find(({ id }) => id === "poll:poll-1")).toMatchObject({ startMs: null, endMs: null, durationMs: 25, placement: "unavailable" });
 	expect(workspace.inspector.receipt).toMatchObject({ evidenceClass: "Observed", derivation: expect.any(String), missingInputs: expect.any(Array), assumptions: expect.any(Array), limitations: expect.any(Array) });
 	expect(workspace.objective).toContain("<script>");
@@ -140,9 +140,49 @@ test("planning-only Workflow Lineages are openable without invented execution st
 	expect(workspace.events).toEqual([]);
 	expect(workspace.metrics).toEqual([]);
 	expect(workspace.inspector).toMatchObject({ kind: "Workflow Lineage", fields: [["Admission", "Planning-only"], ["Execution state", "Unavailable — no admitted Execution Run"]], receipt: { evidenceClass: "Partial", sourceReferences: [packetSource] } });
-	expect(workspace.inspector.receipt.artifactGeneration).toBe("Planning v3");
+	expect(workspace.inspector.receipt.artifactGeneration).toBe("Planning v4");
 
 	const currentLineage = queryWorkspace(snapshot, { selection: { kind: "lineage", id: "packet" } });
 	expect(currentLineage.inspector.fields).toContainEqual(["Execution state", "1 admitted Execution Run available; none selected"]);
-	expect(currentLineage.inspector.receipt).toMatchObject({ artifactGeneration: "Planning v3 / Details v6 / Packet v9", profileIdentity: profile, missingInputs: ["selected Execution Run"] });
+	expect(currentLineage.inspector.receipt).toMatchObject({ artifactGeneration: "Planning v4 / Details v7 / Packet v10", profileIdentity: profile, missingInputs: ["selected Execution Run"] });
+});
+
+
+test("partial measurement stays inspectable without invented totals or intervals", () => {
+	const state = structuredClone(snapshot) as any;
+	const metrics = state.executionRuns[0].projection.attempts[0].outcome.metrics;
+	metrics.complete = false; metrics.status = "partial"; metrics.issues = [{ code: "missing-timing", path: "turn", message: "unavailable" }];
+	delete metrics.turns[0].requestedAt; delete metrics.turns[0].finishedAt; delete metrics.turns[0].durationMs; delete metrics.turns[0].totalTokens;
+	const view = queryWorkspace(state, {});
+	expect(view.ledger.find((row) => row.kind === "turn")).toMatchObject({ startMs: null, endMs: null, durationMs: null, placement: "unavailable" });
+	expect(view.metrics.find(({ id }) => id === "tokens")).toMatchObject({ value: null });
+	expect(view.metrics.find(({ id }) => id === "cost")).toMatchObject({ value: null });
+	expect(view.metrics.find(({ id }) => id === "observed-cost")).toMatchObject({ value: 0.1, evidenceClass: "Partial" });
+});
+
+test("final controller wall span differs from all-round command time and reports policy causes", () => {
+	const state = structuredClone(snapshot) as any;
+	const run = state.executionRuns[0];
+	run.projection.finalValidation = { disposition: "failed", lastRound: { status: "passed", durationMs: 20 }, totalCommandDurationMs: 70 };
+	run.projection.totals = { finalValidationDurationMs: 70 };
+	run.events.push({ sequence: 7, event: "final-validation-started", occurredAt: "2026-07-20T00:00:00.900Z", payload: {} }, { sequence: 8, event: "final-validation-completed", occurredAt: "2026-07-20T00:00:01.000Z", payload: {} });
+	run.projection.nodes[0].failFastCause = { nodeId: "failed", attemptId: "failed:1" };
+	const view = queryWorkspace(state, {});
+	expect(view.ledger.find(({ id }) => id === "final-validation")).toMatchObject({ durationMs: 100, operation: "Final Validation controller wall span" });
+	expect(view.metrics.find(({ id }) => id === "final-validation-command-duration")).toMatchObject({ value: 70 });
+	expect(queryWorkspace(state, { selection: { kind: "node", id: "work" } }).inspector.fields).toContainEqual(["Fail-fast policy cause", "failed · failed:1"]);
+});
+
+test("partial spend includes response-only costs within the selected turn without double counting", () => {
+	const state = structuredClone(snapshot) as any;
+	const metrics = state.executionRuns[0].projection.attempts[0].outcome.metrics;
+	metrics.complete = false; metrics.status = "partial";
+	metrics.turns.push({ ...metrics.turns[0], turnId: "turn-2", costUsd: 0.3, toolCallIds: [] });
+	delete metrics.turns[0].costUsd;
+	metrics.responses = [{ responseId: "response-1", turnId: "turn-1", costUsd: 0.2 }, { responseId: "response-2", turnId: "turn-2", costUsd: 0.3 }];
+	const cost = (selection?: any) => queryWorkspace(state, { selection }).metrics.find(({ id }) => id === "observed-cost").value;
+	expect(cost()).toBe(0.5);
+	expect(cost({ kind: "turn", id: "turn-1" })).toBe(0.2);
+	expect(cost({ kind: "turn", id: "turn-2" })).toBe(0.3);
+	expect(cost({ kind: "tool", id: "tool-1" })).toBeNull();
 });

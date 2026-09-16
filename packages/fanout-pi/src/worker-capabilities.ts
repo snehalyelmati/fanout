@@ -1,20 +1,27 @@
 import { lstatSync, realpathSync } from "node:fs";
 import { isAbsolute, resolve, sep } from "node:path";
-import { parseRepoPath } from "../../fanout-core/src/repository-resource.ts";
+import { resourceCovers, parseRepoPath, parseResource } from "../../fanout-core/src/repository-resource.ts";
+import { readManifest, type WorkerValidationContext } from "./worker-validation.ts";
 
 export const WORKER_MODEL_TOOLS = ["read", "grep", "find", "ls", "edit", "write", "fanout_validate"] as const;
 
 export const WORKER_TRUST_BOUNDARY =
 	"Local Pi workers, discovered trusted extensions, and validation programs run with the user's permissions; ignored files, external paths, network, and processes are outside Fanout containment.";
 
-export function workerToolBlockReason(toolName: string, input: unknown, worktreeRoot: string | undefined): string | undefined {
+export function workerToolBlockReason(toolName: string, input: unknown, worktreeRoot: string | undefined, context?: WorkerValidationContext): string | undefined {
 	if (!worktreeRoot) return undefined;
 	if (!WORKER_MODEL_TOOLS.includes(toolName as (typeof WORKER_MODEL_TOOLS)[number])) {
 		return `Fanout workers allow only ${WORKER_MODEL_TOOLS.join(", ")}; ${toolName} is unavailable.`;
 	}
 	if (toolName !== "edit" && toolName !== "write") return undefined;
 	try {
-		guardWorkerWritePath(worktreeRoot, pathField(input));
+		const path = guardWorkerWritePath(worktreeRoot, pathField(input));
+		if (!context) throw new Error("Worker write requires a verified ownership manifest");
+		if (realpathSync(resolve(worktreeRoot)) !== context.worktreeRoot) throw new Error("Worker write manifest belongs to another worktree");
+		const authority = readManifest(context);
+		const resource = parseResource({ kind: "file", path });
+		if (authority.forbiddenWrites.some((ban) => resourceCovers(ban, resource))) throw new Error(`Worker write is forbidden by the contract: ${path}`);
+		if (!authority.writeResources.some((owned) => resourceCovers(owned, resource))) throw new Error(`Worker write is outside this node's ownership: ${path}. Complete only your assigned work; other nodes own their changes.`);
 		return undefined;
 	} catch (error) {
 		return error instanceof Error ? error.message : String(error);

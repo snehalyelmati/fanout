@@ -89,10 +89,10 @@ export default async function (pi: ExtensionAPI) {
 			ctx.ui.setStatus("fanout-execute", "fanout:executing");
 			try {
 				const context = fanoutRuntimeContext(ctx.cwd, activeModel ?? ctx.model, activeThinking ?? pi.getThinkingLevel(), ctx.modelRegistry?.getAll?.());
+				ctx.ui.notify("Fanout invocation runs the previously approved profile validation, including during dry-run; commands may have external/network effects. Live confirmation gates workers and active apply.", "info");
 				const result = await executeFanout({
 					cwd: ctx.cwd,
 					activePointerPath: context.activePointerPath,
-					activeProfilePointerPath: context.activeProfilePointerPath,
 					projectArtifactRoot: context.projectArtifactRoot,
 					extensionEntry: fileURLToPath(import.meta.url),
 					dryRun: argument === "--dry-run",
@@ -154,8 +154,11 @@ export default async function (pi: ExtensionAPI) {
 		const activePlan = planning.active;
 		writeJsonl("agent_end", { planRunId: activePlan?.runId, phase: activePlan?.phase, durationMs: agentStarted === undefined ? undefined : durationMs(agentStarted), turnCount: agentTurnCount, toolCallCount: agentToolCallCount }, ctx.cwd);
 		agentStarted = undefined;
-		await planning.finishTurn(ctx);
 	});
+
+	pi.on("agent_settled", async (_event, ctx) => { await planning.finishTurn(ctx); });
+	pi.on("session_before_compact", (_event, ctx) => { planning.captureCompactionContext(ctx.sessionManager.buildSessionContext().messages); });
+	pi.on("session_compact", (_event, ctx) => planning.compactContext(ctx.sessionManager.buildSessionContext().messages));
 
 	pi.on("message_update", (_event, ctx) => {
 		if (activeTurnIndex === undefined) return;
@@ -245,7 +248,7 @@ export default async function (pi: ExtensionAPI) {
 		const reason = planning.blockReason(event.toolName, event.toolCallId, messages)
 			?? workerValidationBatchBlockReason(event.toolName, event.toolCallId, messages, Boolean(workerValidation));
 		if (reason) return { block: true, reason };
-		const workerReason = workerToolBlockReason(event.toolName, event.input, process.env.FANOUT_WORKTREE_ROOT);
+		const workerReason = workerToolBlockReason(event.toolName, event.input, process.env.FANOUT_WORKTREE_ROOT, workerValidation);
 		if (workerReason) return { block: true, reason: workerReason };
 	});
 

@@ -8,15 +8,15 @@ import { validateExecutionPacket } from "../packages/fanout-core/src/execution-p
 import { publishExecutionPacket } from "../packages/fanout-pi/src/planning-publication.ts";
 
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
-const root = mkdtempSync(join(tmpdir(), "fanout-v9-packet-"));
+const root = mkdtempSync(join(tmpdir(), "fanout-v10-packet-"));
 try {
   const runDir = join(root, "run"); mkdirSync(runDir);
   const git = "1".repeat(40);
   const profileIdentity = artifactIdentity("profiles/test.json", Buffer.from("{}\n"));
-  const plan = { schema: "fanout.implementation-plan", version: 3, planId: "p", createdAt: new Date(0).toISOString(), planningHost: { platform: process.platform }, planningBase: { headCommit: git, tree: git }, profile: profileIdentity, objective: "x", userContext: [], discoveredRepoFacts: [], assumptions: [], implementationItems: [{ id: "x", goals: ["x"], writeResources: [{ kind: "file", path: "x.ts" }], readResources: [], forbiddenWrites: [], semanticReviewCriteria: ["x"], advisoryNotes: [] }] };
+  const plan = { schema: "fanout.implementation-plan", version: 4, planId: "p", createdAt: new Date(0).toISOString(), planningHost: { platform: process.platform }, planningBase: { headCommit: git, tree: git }, profile: profileIdentity, objective: "x", userContext: [], discoveredRepoFacts: [], assumptions: [], implementationItems: [{ id: "x", goals: ["x"], writeResources: [{ kind: "file", path: "x.ts" }], readResources: [], forbiddenWrites: [], semanticReviewCriteria: ["x"], advisoryNotes: [] }] };
   const planIdentity = artifactIdentity("implementation-plan.json", Buffer.from(JSON.stringify(plan)));
   const command = { executable: "node", args: ["--version"] };
-  const details = { schema: "fanout.implementation-details", version: 6, detailsId: "p", createdAt: new Date(0).toISOString(), plan: planIdentity, items: [{ id: "x", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "x.ts" }, sourcePlanIds: ["x"] }, contentIntent: "x" }], readDependencies: [], validationCommands: [command], advisoryNotes: [] }], finalValidationCommands: [command] };
+  const details = { schema: "fanout.implementation-details", version: 7, detailsId: "p", createdAt: new Date(0).toISOString(), plan: planIdentity, items: [{ id: "x", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "x.ts" }, sourcePlanIds: ["x"] }, contentIntent: "x" }], readDependencies: [], validationCommands: [command], advisoryNotes: [] }], finalValidationCommands: [command] };
   const detailsIdentity = artifactIdentity("implementation-details.json", Buffer.from(JSON.stringify(details)));
   const summary = { provider: "p", model: "m", thinking: "off", source: "test", status: "available", reason: "test" };
   const result = compileExecutionPacket({ implementationPlan: plan, implementationDetails: details, planIdentity, detailsIdentity, tierPlan: { tier1: summary, tier2: { ...summary, status: "unavailable", fallback: "tier1" }, tier2Fallback: summary }, runtimePolicy: { maxConcurrency: 2, failFast: false, fallbackAllowed: true }, createdAt: new Date(0).toISOString() });
@@ -27,7 +27,7 @@ try {
   const malformedNode = structuredClone(result.packet); malformedNode.nodes[0].workContract = null;
   assert(!validateExecutionPacket(malformedNode).ok, "malformed node contract was silently dropped");
   const legacyContract = structuredClone(result.packet); legacyContract.nodes[0].workContract.version = 1;
-  assert(!validateExecutionPacket(legacyContract).ok, "packet v9 admitted a legacy work-contract v1 node");
+  assert(!validateExecutionPacket(legacyContract).ok, "packet v10 admitted a legacy work-contract v1 node");
   const packetNormalizer = structuredClone(result.packet); packetNormalizer.nodes[0].workContract.candidateNormalizationCommands = [];
   assert(!validateExecutionPacket(packetNormalizer).ok, "packet admission accepted profile-owned normalization authority");
   const renamedFinal = structuredClone(result.packet); renamedFinal.nodes.find((node) => node.kind === "final-validation").id = "renamed-final";
@@ -52,7 +52,7 @@ try {
   assert(validateExecutionPacket(missingUnavailableFallback).errors.some((error) => error.code === "invalid-tier-fallback-policy"), "packet admission accepted unavailable tier2 without the declared tier1 fallback");
   const paths = publishExecutionPacket(result.packet, root, runDir, join(root, "active-packet.json"));
   const loaded = loadActiveExecutionPacket(paths.activePointerPath, root);
-  assert(loaded.packet.version === 9 && loaded.pointer.version === 2, "v9/v2 tuple did not load");
+  assert(loaded.packet.version === 10 && loaded.pointer.version === 2, "v10/v2 tuple did not load");
   assert(loaded.packet.nodes.every((node) => !Object.hasOwn(node.workContract, "candidateNormalizationCommands")), "packet retained profile normalization");
   const historical = JSON.stringify({ schema: "fanout.active-packet", version: 1, updatedAt: "old", packetPath: paths.packetPath });
   writeFileSync(join(root, "legacy-pointer.json"), historical);

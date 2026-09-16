@@ -22,7 +22,7 @@ import { repairStateDigest } from "./repair-state.ts";
 import { FINAL_VALIDATION_NODE_ID } from "./work-contract-graph.ts";
 
 export const EXECUTION_PROJECTION_SCHEMA = "fanout.execution-run";
-export const EXECUTION_PROJECTION_VERSION = 6;
+export const EXECUTION_PROJECTION_VERSION = 7;
 
 export interface AttemptProjection {
 	allocationSequence: number;
@@ -38,6 +38,7 @@ export interface NodeProjection {
 	attemptIds: string[];
 	causalAttemptId: string | null;
 	causalUpstreamNodeId: string | null;
+	failFastCause: { nodeId: string; attemptId: string } | null;
 }
 
 export interface AcceptedLedgerEntry {
@@ -50,21 +51,22 @@ export interface ExecutionTotals {
 	attempts: number;
 	attemptKinds: Record<AttemptKind, number>;
 	actions: Record<AttemptOutcome["action"], number>;
-	inputTokens: number;
-	outputTokens: number;
-	cacheReadTokens: number;
-	cacheWriteTokens: number;
-	totalTokens: number;
-	estimatedCostUsd: number;
-	workerDurationMs: number;
-	toolDurationMs: number;
-	pollDurationMs: number;
-	pollCount: number;
+	inputTokens: number | null;
+	outputTokens: number | null;
+	cacheReadTokens: number | null;
+	cacheWriteTokens: number | null;
+	totalTokens: number | null;
+	estimatedCostUsd: number | null;
+	observedCostUsd: number;
+	workerDurationMs: number | null;
+	toolDurationMs: number | null;
+	pollDurationMs: number | null;
+	pollCount: number | null;
 	filesChanged: number;
 	insertions: number;
 	deletions: number;
-	finalValidationDurationMs: number;
-	runDurationMs: number;
+	finalValidationDurationMs: number | null;
+	runDurationMs: number | null;
 }
 
 export type FinalValidationProjection =
@@ -110,7 +112,7 @@ export interface ExecutionEvidenceContext {
 
 export function resolveExecutionEvidence(projection: ExecutionRunProjection, identity: { nodeId?: string; attemptId?: string; turnId?: string; toolCallId?: string }): ExecutionEvidenceContext {
 	const attempts = projection.attempts.filter(({ allocation }) => !identity.attemptId || allocation.attemptId === identity.attemptId);
-	const matches = attempts.flatMap((attempt) => {
+	const matches = attempts.flatMap<Omit<ExecutionEvidenceContext, "node"> & { attempt: AttemptProjection }>((attempt) => {
 		if (!attempt.outcome && (identity.turnId || identity.toolCallId)) return [];
 		const turns = attempt.outcome?.metrics.turns.filter(({ turnId }) => !identity.turnId || turnId === identity.turnId) ?? [];
 		const tools = attempt.outcome?.metrics.tools.filter(({ turnId, toolCallId }) => (!identity.turnId || turnId === identity.turnId) && (!identity.toolCallId || toolCallId === identity.toolCallId)) ?? [];
@@ -142,6 +144,7 @@ function executionEvidenceNode(projection: ExecutionRunProjection, nodeId: strin
 		attemptIds: projection.attempts.filter(({ allocation }) => allocation.nodeId === FINAL_VALIDATION_NODE_ID).map(({ allocation }) => allocation.attemptId),
 		causalAttemptId: null,
 		causalUpstreamNodeId: null,
+		failFastCause: null,
 	};
 }
 
@@ -165,7 +168,7 @@ export function reduceExecutionEvent(previous: ExecutionRunProjection | undefine
 			mode: payload.mode, phase: "preflight", terminalOutcome: null, packet: payload.packet, profile: payload.profile, profileValidation: payload.profileValidation, planningBaseTree: payload.planningBaseTree, policy: payload.policy, preflightEvidence: payload.preflightEvidence,
 			startedAt: event.occurredAt, updatedAt: event.occurredAt, finishedAt: null, preflight: null,
 			confirmation: payload.mode === "live" ? "pending" : "not-required", confirmationEventSequence: null,
-			nodes: payload.nodeIds.map((id) => ({ id, status: "pending", completionSequence: null, attemptIds: [], causalAttemptId: null, causalUpstreamNodeId: null })),
+			nodes: payload.nodeIds.map((id) => ({ id, status: "pending", completionSequence: null, attemptIds: [], causalAttemptId: null, causalUpstreamNodeId: null, failFastCause: null })),
 			attempts: [], budgets: Object.fromEntries(payload.nodeIds.map((id) => [id, emptyBudgets()])), acceptedLedger: [], finalValidation: { disposition: "not-started" }, totals: emptyTotals(),
 		});
 	}
@@ -300,6 +303,11 @@ function applyNodeCompletion(state: ExecutionRunProjection, sequence: number, pa
 		const attempt = completedAttempt(state, String(cause.attemptId));
 		if (attempt.allocation.nodeId !== node.id || attempt.outcome?.action !== "fail") throw new Error("node failure requires its terminal fail action");
 		node.causalAttemptId = attempt.allocation.attemptId;
+	} else if (cause.policy === "fail-fast") {
+		const trigger = nodeById(state, String(cause.triggerNodeId));
+		const firstFailure = state.nodes.filter((candidate) => candidate.status === "failed").sort((a, b) => a.completionSequence! - b.completionSequence!)[0];
+		if (!state.policy.failFast || trigger !== firstFailure || trigger.causalAttemptId !== cause.triggerAttemptId || node.attemptIds.length) throw new Error("policy skip requires the first failed node and its exact attempt");
+		node.failFastCause = { nodeId: trigger.id, attemptId: String(cause.triggerAttemptId) };
 	} else {
 		const upstream = nodeById(state, String(cause.upstreamNodeId));
 		if (upstream.id === node.id || (upstream.status !== "failed" && upstream.status !== "skipped")) throw new Error("node skip requires an earlier failed or skipped node");
@@ -318,9 +326,15 @@ function applyFinalValidationStart(state: ExecutionRunProjection, payload: Recor
 }
 
 function applyFinalValidationCompletion(state: ExecutionRunProjection, sequence: number, payload: FinalValidationCompletedPayload): void {
-	if (state.finalValidation.disposition !== "running" || payload.expectedTree !== state.finalValidation.expectedTree || payload.beforeTree !== payload.expectedTree) throw new Error("final-validation completion does not match its start state");
-	if (payload.commandCount !== state.finalValidation.commandIdentities.length) throw new Error("final-validation aggregate does not match the launched command identities");
-	if (payload.status === "passed" && payload.afterTree !== payload.expectedTree) throw new Error("passed final validation must preserve the expected tree");
+	if (state.finalValidation.disposition !== "running" || state.attempts.some((attempt) => !attempt.outcome)) throw new Error("final-validation completion requires a running gate and completed attempts");
+	const round = payload.lastRound;
+	if (round && round.commandCount !== state.finalValidation.commandIdentities.length) throw new Error("final-validation aggregate does not match the launched command identities");
+	if (payload.failure?.kind === "attempt") {
+		const attempt = completedAttempt(state, payload.failure.attemptId);
+		if (attempt.allocation.nodeId !== FINAL_VALIDATION_NODE_ID || attempt.outcome?.action === "accept") throw new Error("final failure must reference a failed final-repair attempt");
+	}
+	// Failed candidates are validated before apply and need not equal the accepted ledger tree.
+	if (payload.status === "passed" && round?.expectedTree !== state.finalValidation.expectedTree) throw new Error("successful final validation must match the accepted ledger");
 	state.finalValidation = { disposition: payload.status, completionSequence: sequence, ...payload };
 }
 
@@ -375,27 +389,28 @@ function deriveTotals(state: ExecutionRunProjection): ExecutionTotals {
 	for (const attempt of state.attempts) {
 		totals.attempts++;
 		totals.attemptKinds[attempt.allocation.kind]++;
-		if (!attempt.outcome) continue;
-		totals.actions[attempt.outcome.action]++;
-		const metrics = deriveAttemptMetricTotals(attempt.outcome.metrics);
-		totals.inputTokens += metrics.inputTokens;
-		totals.outputTokens += metrics.outputTokens;
-		totals.cacheReadTokens += metrics.cacheReadTokens;
-		totals.cacheWriteTokens += metrics.cacheWriteTokens;
-		totals.totalTokens += metrics.totalTokens;
-		totals.estimatedCostUsd += metrics.costUsd;
-		totals.workerDurationMs += attempt.outcome.metrics.workerDurationMs ?? 0;
-		totals.toolDurationMs += metrics.toolDurationMs;
-		totals.pollDurationMs += metrics.pollDurationMs;
-		totals.pollCount += metrics.pollCount;
+		const metrics = attempt.outcome ? deriveAttemptMetricTotals(attempt.outcome.metrics) : null;
+		if (attempt.outcome) totals.actions[attempt.outcome.action]++;
+		totals.inputTokens = addKnown(totals.inputTokens, metrics?.inputTokens ?? null);
+		totals.outputTokens = addKnown(totals.outputTokens, metrics?.outputTokens ?? null);
+		totals.cacheReadTokens = addKnown(totals.cacheReadTokens, metrics?.cacheReadTokens ?? null);
+		totals.cacheWriteTokens = addKnown(totals.cacheWriteTokens, metrics?.cacheWriteTokens ?? null);
+		totals.totalTokens = addKnown(totals.totalTokens, metrics?.totalTokens ?? null);
+		totals.estimatedCostUsd = addKnown(totals.estimatedCostUsd, metrics?.costUsd ?? null);
+		totals.observedCostUsd += metrics?.observedCostUsd ?? 0;
+		totals.workerDurationMs = addKnown(totals.workerDurationMs, attempt.outcome?.metrics.workerDurationMs ?? null);
+		totals.toolDurationMs = addKnown(totals.toolDurationMs, metrics?.toolDurationMs ?? null);
+		totals.pollDurationMs = addKnown(totals.pollDurationMs, metrics?.pollDurationMs ?? null);
+		totals.pollCount = addKnown(totals.pollCount, metrics?.pollCount ?? null);
 	}
 	for (const entry of state.acceptedLedger) {
 		totals.filesChanged += entry.transition.patch.stats.filesChanged;
 		totals.insertions += entry.transition.patch.stats.insertions;
 		totals.deletions += entry.transition.patch.stats.deletions;
 	}
-	if (state.finalValidation.disposition === "passed" || state.finalValidation.disposition === "failed") totals.finalValidationDurationMs = state.finalValidation.durationMs;
-	totals.runDurationMs = state.terminalOutcome?.durationMs ?? 0;
+	if (state.finalValidation.disposition === "passed" || state.finalValidation.disposition === "failed") totals.finalValidationDurationMs = state.finalValidation.totalCommandDurationMs;
+	else if (state.finalValidation.disposition === "running") totals.finalValidationDurationMs = null;
+	totals.runDurationMs = state.terminalOutcome?.durationMs ?? null;
 	return totals;
 }
 
@@ -403,7 +418,7 @@ function emptyTotals(): ExecutionTotals {
 	return {
 		attempts: 0, attemptKinds: { original: 0, retry: 0, fallback: 0, "validation-repair": 0, "integration-repair": 0 },
 		actions: { accept: 0, retry: 0, fallback: 0, "validation-repair": 0, "integration-repair": 0, fail: 0, abort: 0 },
-		inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, estimatedCostUsd: 0, workerDurationMs: 0, toolDurationMs: 0, pollDurationMs: 0, pollCount: 0,
+		inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, estimatedCostUsd: 0, observedCostUsd: 0, workerDurationMs: 0, toolDurationMs: 0, pollDurationMs: 0, pollCount: 0,
 		filesChanged: 0, insertions: 0, deletions: 0, finalValidationDurationMs: 0, runDurationMs: 0,
 	};
 }
@@ -431,3 +446,5 @@ function completedAttempt(state: ExecutionRunProjection, attemptId: string): Att
 function sameAssignment(left: { assignment: AttemptAllocation["assignment"] }, right: { assignment: AttemptAllocation["assignment"] }): boolean {
 	return left.assignment.tier === right.assignment.tier && left.assignment.provider === right.assignment.provider && left.assignment.model === right.assignment.model;
 }
+
+function addKnown(left: number | null, right: number | null): number | null { return left === null || right === null ? null : left + right; }

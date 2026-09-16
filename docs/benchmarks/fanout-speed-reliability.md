@@ -1,8 +1,8 @@
 # Fanout speed and reliability investigation
 
-Status: approved prerequisite and Points 1–4 implemented; controlled Point 5 attempted but release gate not met
+Status: historical investigation and implementation record, 2026-07-27–30. The prerequisite and Points 1–4 were implemented; controlled Point 5 was attempted but did not meet its all-successful validation gate.
 
-Date: 2026-07-27
+The status labels, present-tense descriptions, schema generations and next-run instructions below describe those July checkpoints. They are retained as design and measurement history, not a current work queue. Later implementation supersedes the original gap descriptions. Read the [current architecture](../ARCHITECTURE.md), [runtime guide](../FANOUT_GUIDE.md) and [research study](../STUDY.md) for the preview. The historical Point 5 runtime-confidence gate is distinct from publishing this source research preview.
 
 ## Purpose
 

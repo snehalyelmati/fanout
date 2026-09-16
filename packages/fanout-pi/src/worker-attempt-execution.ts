@@ -5,14 +5,13 @@ import type { CorrelatedAttemptMetrics } from "../../fanout-core/src/attempt-met
 import type { AttemptAllocation, StageFact } from "../../fanout-core/src/execution-attempt.ts";
 import type { AttemptRecoveryContext } from "../../fanout-core/src/recovery-evidence.ts";
 import type { FanoutExecutionPacket, FanoutWorkUnit, TierName } from "../../fanout-core/src/execution-packet.ts";
-import type { WorkerMetrics } from "../../fanout-core/src/worker-metrics.ts";
 import type { ProjectExecutionProfile } from "../../fanout-core/src/project-execution-profile.ts";
 import { contractWriteResources, type WorkContract } from "../../fanout-core/src/work-contract.ts";
 import { correlatedWorkerMetrics, emptyAttemptMetrics, processStageFact, retryableProcessFailure } from "./attempt-evidence.ts";
 import { writeArtifactAtomically } from "./artifact-store.ts";
 import { normalizeCandidate, type CandidateNormalizationEvidence, type CandidateNormalizationFailure } from "./candidate-normalization.ts";
 import { artifactSegment, normalizeRepoPath, runProcess, writeJson } from "./fanout-git.ts";
-import { buildCanonicalWorkerPrompt, extractWorkerSummary, importWorkerMetrics, type SourceTaggedRepositoryInstruction } from "./fanout-worker-contract.ts";
+import { buildCanonicalWorkerPrompt, extractWorkerSummary, type SourceTaggedRepositoryInstruction } from "./fanout-worker-contract.ts";
 import {
 	applyRepairSeedOverlay,
 	capturePatchCandidate,
@@ -20,6 +19,7 @@ import {
 	type PlanningBase,
 } from "./repository-identity.ts";
 import { WORKER_MODEL_TOOLS } from "./worker-capabilities.ts";
+import { buildWorkerSourceContext } from "./worker-context.ts";
 import { publishWorkerValidationManifest } from "./worker-validation.ts";
 
 export interface WorkerTier {
@@ -40,7 +40,6 @@ export interface WorkerAttempt {
 	base?: PlanningBase;
 	tier: WorkerTier;
 	kind: AttemptKind;
-	metrics?: WorkerMetrics;
 	patch?: AcceptedPatch;
 	error?: string;
 	failureKind?: FailureKind;
@@ -111,6 +110,7 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 		const stderrPath = join(attemptDir, "stderr.log");
 		const observabilityPath = join(attemptDir, "observability.jsonl");
 		const sessionDir = join(attemptDir, "session");
+		if (options.recovery) writeJson(join(attemptDir, "recovery.json"), options.recovery);
 		writeFileSync(promptPath, buildCanonicalWorkerPrompt(
 			{
 				objective: packet.objective,
@@ -122,6 +122,7 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 			collectRepositoryInstructions(worktreePath, unit),
 			options.recovery,
 			options.precedingWorkerSummary,
+			buildWorkerSourceContext(worktreePath, options.planningBase.tree, contract),
 		), "utf8");
 		writeFileSync(observabilityPath, "", { encoding: "utf8", flag: "wx" });
 		mkdirSync(sessionDir);
@@ -132,6 +133,8 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 			worktreeRoot: worktreePath,
 			platform: packet.planningHost.platform,
 			commands: contract.validationCommands,
+			writeResources: contractWriteResources(contract),
+			forbiddenWrites: contract.forbiddenWrites.map((entry) => entry.resource),
 			timeoutMs: options.validationTimeoutMs,
 		});
 
@@ -177,22 +180,7 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 		writeFileSync(stderrPath, processResult.stderr, "utf8");
 		base.workerSummary = extractWorkerSummary(stdoutPath);
 
-		const imported = importWorkerMetrics({
-			stdoutPath,
-			observabilityPath,
-			tier: tier.tier,
-			workerDurationMs: processResult.durationMs,
-			firstOutputMs: processResult.firstOutputMs,
-			expectedProvider: tier.provider,
-			expectedModel: tier.model,
-		});
-		base.correlatedMetrics = correlatedWorkerMetrics(attemptId, imported.metrics ?? {
-			provider: typeof imported.partialMetrics.provider === "string" ? imported.partialMetrics.provider : tier.provider,
-			model: typeof imported.partialMetrics.model === "string" ? imported.partialMetrics.model : tier.model,
-			tier: tier.tier,
-			workerDurationMs: processResult.durationMs,
-		}, stdoutPath, observabilityPath, processResult.firstOutputMs);
-		const metricsCorrelated = base.correlatedMetrics.complete;
+		base.correlatedMetrics = correlatedWorkerMetrics({ allocation, attemptEnvelope: { startedAt, finishedAt: new Date().toISOString() }, providerRunId, stdoutPath, observabilityPath, workerDurationMs: processResult.durationMs, workerFirstOutputMs: processResult.firstOutputMs });
 
 		let patch: AcceptedPatch | undefined;
 		let patchError: string | undefined;
@@ -210,10 +198,8 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 			kind,
 			tier,
 			process: { ...processResult, stdout: undefined, stderr: undefined },
-			metrics: imported.metrics ?? imported.partialMetrics,
-			metricsComplete: imported.ok,
 			correlatedMetrics: base.correlatedMetrics,
-			metricErrors: imported.errors,
+			metricErrors: base.correlatedMetrics.issues,
 			workerSummary: base.workerSummary,
 			patch: patch ? { artifact: patch.artifact, changedFiles: patch.changedPaths, stats: patch.stats, baseTree: patch.baseTree, resultTree: patch.resultTree } : undefined,
 			patchError,
@@ -228,18 +214,17 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 				...base,
 				worktreePath,
 				base: attemptBase,
-				metrics: imported.metrics,
 				patch,
 				error: details || "worker subprocess failed",
 				failureKind: "process",
-				retryable: (!hasUsablePatch || !imported.metrics) && retryableProcessFailure(processResult, observabilityPath, { runId: providerRunId, provider: tier.provider, model: tier.model }),
+				retryable: !hasUsablePatch && retryableProcessFailure(processResult, observabilityPath, { runId: providerRunId, provider: tier.provider, model: tier.model }),
 				terminalFact: processStageFact(processResult, observabilityPath, { runId: providerRunId, provider: tier.provider, model: tier.model }),
 			};
 		}
-		if (!imported.ok || !imported.metrics || !metricsCorrelated) {
+		if (base.correlatedMetrics.status === "invalid") {
 			capturePatch();
 			writeResult();
-			return { ...base, worktreePath, base: attemptBase, patch, error: [...imported.errors, ...(metricsCorrelated ? [] : ["attempt identity correlation incomplete"])].join("; "), failureKind: "metrics", retryable: false, terminalFact: { stage: "metrics", code: metricsCorrelated ? "malformed" : "correlation-mismatch" } };
+			return { ...base, worktreePath, base: attemptBase, patch, error: base.correlatedMetrics.issues.map((issue) => issue.message).join("; "), failureKind: "metrics", retryable: false, terminalFact: { stage: "metrics", code: "malformed" } };
 		}
 
 		if (options.profile.candidateNormalization.length) {
@@ -265,8 +250,7 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 					...base,
 					worktreePath,
 					base: attemptBase,
-					metrics: imported.metrics,
-					error: failure.detail ?? `candidate normalization ${failure.code}`,
+						error: failure.detail ?? `candidate normalization ${failure.code}`,
 					failureKind: "normalization",
 					retryable: false,
 					excludedEvidenceRefs,
@@ -277,7 +261,7 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 			try {
 				publishNormalization(normalization);
 			} catch (error) {
-				return { ...base, worktreePath, base: attemptBase, metrics: imported.metrics, error: `candidate normalization audit publication failed: ${errorMessage(error)}`, failureKind: "normalization", retryable: false, terminalFact: { stage: "candidate-normalization", code: "audit-failure" } };
+				return { ...base, worktreePath, base: attemptBase, error: `candidate normalization audit publication failed: ${errorMessage(error)}`, failureKind: "normalization", retryable: false, terminalFact: { stage: "candidate-normalization", code: "audit-failure" } };
 			}
 			if (normalization.failure) return failNormalization(normalization.failure);
 			if (signal?.aborted) {
@@ -294,9 +278,9 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 
 		capturePatch();
 		writeResult();
-		if (!patch) return { ...base, worktreePath, base: attemptBase, metrics: imported.metrics, error: patchError ?? "patch could not be captured", failureKind: "patch", retryable: false, terminalFact: { stage: "worker-gate", code: "malformed-patch" } };
-		if (patch.artifact.byteLength === 0 && contractWriteResources(contract).length > 0) return { ...base, worktreePath, base: attemptBase, metrics: imported.metrics, patch, error: "worker produced no patch for a mutating work unit", failureKind: "patch", retryable: false, terminalFact: { stage: "worker-gate", code: "mutating-noop" } };
-		return { ...base, ok: true, worktreePath, base: attemptBase, metrics: imported.metrics, patch };
+		if (!patch) return { ...base, worktreePath, base: attemptBase, error: patchError ?? "patch could not be captured", failureKind: "patch", retryable: false, terminalFact: { stage: "worker-gate", code: "malformed-patch" } };
+		if (patch.artifact.byteLength === 0 && contractWriteResources(contract).length > 0) return { ...base, worktreePath, base: attemptBase, patch, error: "worker produced no patch for a mutating work unit", failureKind: "patch", retryable: false, terminalFact: { stage: "worker-gate", code: "mutating-noop" } };
+		return { ...base, ok: true, worktreePath, base: attemptBase, patch };
 	} catch (error) {
 		const durationMs = Math.max(0, Date.now() - Date.parse(startedAt));
 		const aborted = signal?.aborted === true || (error instanceof Error && error.name === "AbortError");

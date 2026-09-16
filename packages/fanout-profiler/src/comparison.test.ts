@@ -9,7 +9,7 @@ const profile = { path: "profiles/default.json", sha256: "c".repeat(64), byteLen
 const otherProfile = { path: "profiles/other.json", sha256: "d".repeat(64), byteLength: 10 };
 const packetSource: SourceReference = { id: "packet-source", path: packet.path, kind: "planning", byteLength: 10, modifiedAtMs: 1 };
 const base = { headCommit: "1".repeat(40), tree: "2".repeat(40) };
-const contract = { schema: "fanout.work-contract", version: 4, goals: [{ sourcePlanId: "goal", statement: "Do exact work" }], changes: [], readDependencies: [], forbiddenWrites: [], validationCommands: [], capabilities: { modelCallableTools: ["read", "grep", "find", "ls", "edit", "write", "fanout_validate"], validationExecution: "worker-advisory-controller-authoritative", shell: "unavailable", extensionTools: "fanout-validate-only" }, semanticReviewCriteria: [{ sourcePlanId: "criterion", statement: "It works" }], advisoryNotes: [] };
+const contract = { schema: "fanout.work-contract", version: 5, goals: [{ sourcePlanId: "goal", statement: "Do exact work" }], changes: [], readDependencies: [], forbiddenWrites: [], validationCommands: [], capabilities: { modelCallableTools: ["read", "grep", "find", "ls", "edit", "write", "fanout_validate"], validationExecution: "worker-advisory-controller-authoritative", shell: "unavailable", extensionTools: "fanout-validate-only" }, semanticReviewCriteria: [{ sourcePlanId: "criterion", statement: "It works" }], advisoryNotes: [] };
 
 function totals(runDurationMs: number, totalTokens: number, estimatedCostUsd: number): ExecutionTotals {
 	return {
@@ -41,7 +41,7 @@ function run(
 	const outcome = options.outcome === undefined ? null : { outcome: options.outcome, durationMs: options.duration ?? 100, cause: {} };
 	const attemptId = `${id}:attempt`;
 	const metrics = {
-		complete: options.complete ?? true, compatibility: "instrumented", workerDurationMs: 20,
+		status: options.complete === false ? "partial" : "complete", issues: [], complete: options.complete ?? true, compatibility: "instrumented", workerDurationMs: 20,
 		turns: [{ inputTokens: options.tokens ?? 10, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: options.tokens ?? 10, costUsd: options.cost ?? 1 }],
 		responses: [{ durationMs: 4 }], polls: [], tools: [{ durationMs: 5 }],
 	};
@@ -226,4 +226,13 @@ test("aligned incomplete Node evidence remains unknown and emits no performance 
 	expect(nodePair.totals.find(({ id }) => id === "tokens")).toMatchObject({ runA: 10, runB: null, receipt: { evidenceClass: "Partial" } });
 	expect(nodePair.receipt.assumptions).not.toContain("Completed live Node evidence");
 	expect(nodePair.receipt.missingInputs).toContain("two completed live runs with succeeded selected Nodes");
+});
+
+
+test("unverifiable all-round command totals are omitted from comparisons", () => {
+	const a = run("a", { outcome: "completed" }), b = run("b", { outcome: "completed" });
+	b.projection!.totals.finalValidationDurationMs = null;
+	const result = queryComparison(snapshot([a, b]), { runAId: a.selectionId, runBId: b.selectionId });
+	expect(result.pair.deltas.some(({ id }) => id === "final-validation-duration")).toBe(false);
+	expect(result.pair.omittedMetrics).toContainEqual(expect.objectContaining({ id: "final-validation-duration" }));
 });

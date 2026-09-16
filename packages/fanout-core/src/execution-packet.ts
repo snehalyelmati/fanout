@@ -1,15 +1,16 @@
+import { ORDINARY_WORK_KINDS } from "./planning-artifact-schema.ts";
 import { parseArtifactIdentity, parseGitCommitId, parseGitTreeId, type ArtifactIdentity, type GitCommitId, type GitTreeId } from "./artifact-identity.ts";
 import { validateWorkContractNodes, type WorkContractGraph } from "./work-contract-graph.ts";
 import { type WorkContract, type WorkContractIssue } from "./work-contract.ts";
 
 export const EXECUTION_PACKET_SCHEMA = "fanout.execution-packet";
-export const EXECUTION_PACKET_VERSION = 9;
+export const EXECUTION_PACKET_VERSION = 10;
 export const ACTIVE_PACKET_SCHEMA = "fanout.active-packet";
 
 export type TierName = "tier1" | "tier2";
 export type TierStatus = "available" | "unavailable";
 export type WorkActiveState = "active" | "background";
-export type WorkUnitKind = "implement" | "test" | "docs" | "inspect" | "validate-shard" | "review-shard" | "final-validation";
+export type WorkUnitKind = typeof ORDINARY_WORK_KINDS[number] | "final-validation";
 
 export interface TierModelSummary {
 	provider: string;
@@ -96,7 +97,7 @@ const PACKET_FIELDS = new Set(["schema", "version", "createdAt", "sourceArtifact
 const NODE_FIELDS = new Set(["id", "kind", "tier", "active", "workContract"]);
 const SUMMARY_FIELDS = new Set(["provider", "model", "thinking", "source", "status", "reason", "fallback"]);
 const ASSIGNMENT_FIELDS = new Set(["preferred", "assigned", "fallback", "provider", "model", "thinking", "reason"]);
-const VALID_KINDS = new Set<WorkUnitKind>(["implement", "test", "docs", "inspect", "validate-shard", "review-shard", "final-validation"]);
+const VALID_KINDS = new Set<WorkUnitKind>([...ORDINARY_WORK_KINDS, "final-validation"]);
 
 export function validateExecutionPacket(value: unknown): PacketValidationResult {
 	const errors: WorkContractIssue[] = [];

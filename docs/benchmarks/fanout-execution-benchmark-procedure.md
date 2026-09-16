@@ -2,6 +2,8 @@
 
 Purpose: define the benchmark path from read-only Fanout DAG prompt experiments through executable `/fanout-execute` benchmarks, including TermBench-style terminal task suites.
 
+This staged procedure began in July 2026. P0's `subagent` tool, GPT-5.5 setting, six-child concurrency and launch command record that prompt experiment, not a required current launch workflow. Use the [source setup](../GETTING_STARTED.md) and [runtime guide](../FANOUT_GUIDE.md) for current Pi commands and artifact generations.
+
 Use [`fanout-canary-run-protocol.md`](fanout-canary-run-protocol.md) for the common operational procedure for live canaries, repetitions, concurrent worktree isolation, tmux lifecycle, evidence capture, and stop conditions. Task-specific runbooks add only their fixed inputs and gates.
 
 Evidence scope: this procedure tracks workflow quality, runtime execution quality, and provider/model cost separately. A good prompt-DAG score is not proof of executable correctness; a good executable benchmark is not proof of provider-tier savings unless cost/time telemetry is captured.
@@ -18,7 +20,7 @@ Evidence scope: this procedure tracks workflow quality, runtime execution qualit
 
 ## P0: prompt-DAG dry-run benchmark
 
-Use this while improving `/fanout-plan` prompt wording; executable-runtime claims still require P1/P2 evidence.
+The July 2026 P0 experiment tested `/fanout-plan` prompt wording; executable-runtime claims still require P1/P2 evidence.
 
 Tracked durable summaries:
 
@@ -42,17 +44,17 @@ runs/fanout-dag-prompt-experiments/<run-id>/synthesis.md
 
 Raw run artifacts stay ignored under `runs/`. After a graduated or otherwise important run, promote durable summaries into the tracked docs above.
 
-### Run protocol
+### Original P0 run protocol
 
 - Use a new Pi process/session per experiment run.
-- Use the same model/effort across generator and evaluator subagents for a run; current target is GPT-5.5 with medium effort when the runtime exposes it.
+- The recorded P0 protocol used the same GPT-5.5 medium model/effort across generator and evaluator subagents.
 - Test multiple prompt variants against known tasks plus heldout tasks.
 - Generate execution DAGs only, not full packets.
 - Keep artifacts under `runs/fanout-dag-prompt-experiments/`.
 - Update `RESULTS.md` with one row per variant.
 - For important runs, update tracked durable summaries in `docs/benchmarks/fanout-dag-*.md` from the ignored working ledgers/templates.
 
-### P0 process model and concurrency
+### Original P0 process model and concurrency
 
 Each loop has one parent coordinator and many child generator/evaluator subagents:
 
@@ -64,7 +66,7 @@ shell-launched Pi process
       -> synthesis + RESULTS.md update
 ```
 
-The coordinator must read `<run-id>/experiment.md` as the source of truth, then use `subagent({ action: "list" })` before launching children.
+The original coordinator read `<run-id>/experiment.md` as the source of truth, then used `subagent({ action: "list" })` before launching children. That tool call belongs to the historical environment and is not a current Fanout dependency.
 
 Launch shape:
 
@@ -113,7 +115,7 @@ After each P0 loop:
 - Do not overwrite prior best prompts; append or mark them superseded.
 - Record batching, spawn-cap, direct-completion, or model-effort caveats in `synthesis.md`.
 - Run a final source-status check and record whether repo files outside ignored run artifacts changed.
-- For graduated prompts or durable procedure changes, copy `RESULTS.md`, `BEST_PROMPTS.md`, and `TEMPLATE.md` to their tracked `docs/benchmarks/fanout-dag-*` counterparts before committing docs.
+- For graduated prompts or durable procedure changes, curate scores, strategy summaries, and methodology into tracked `docs/benchmarks/fanout-dag-*` files. Keep full prompt text and run artifacts in ignored storage.
 
 ### P0 scoring rubric
 
@@ -150,7 +152,7 @@ Minimum task set:
 - missing active pointer is rejected;
 - malformed, unsafe, or escaping packets are rejected;
 - dirty worktrees and in-repo artifact roots are rejected;
-- user decline and dry-run paths do not mutate worktree files;
+- user decline and dry-run paths launch no workers or active apply; standing-approved profile commands may run in disposable worktrees and have disclosed network/external effects;
 - ownership, validation, apply, retry/fallback, and typed-recovery gates are exercised;
 - deterministic final validation and audit artifacts match the observed behavior.
 
@@ -158,8 +160,8 @@ Required metrics:
 
 | Metric | Notes |
 | --- | --- |
-| run/node/worker duration | Projection-v6 run totals plus correlated Attempt Outcome v5 metrics |
-| worker launch count | Canonical Event-v5 `attempt-allocated` records and projection attempts |
+| run/node/worker duration | Projection-v7 run totals plus correlated Attempt Outcome v6 metrics; unavailable totals are not zero |
+| worker launch count | Canonical Event-v6 `attempt-allocated` records and projection attempts |
 | retry/fallback/rejection count | Typed attempt kinds/actions and projection totals |
 | validation pass/fail and duration | Worker `worker-validation/*.json` advisory calls, authoritative attempt `validation.json`, final-validation evidence v2, and projection disposition; report them separately |
 | token/cost provenance | Correlated attempt outcomes, including observed partial failed-attempt usage |
@@ -167,7 +169,7 @@ Required metrics:
 | tool/poll timing | Correlated provider/extension observability per attempt |
 | summary fields present | unified title; mode/phase/outcome; node status/attempts; totals; final-validation disposition; ledger tree transitions; stable audit links |
 
-Current executable planning inputs are profile v1, plan v3, details v6, work contract v4, packet v9, and pointer v2. Work contract v3 and packet v8 are historical inputs only and must not be reused for a current P1/P2 run.
+Current executable planning inputs are profile v1, plan v4, details v7, work contract v5, packet v10, and pointer v2. Work contract v3 and packet v8 are historical inputs only and must not be reused for a current P1/P2 run.
 
 For the worker-validation experiment, compare otherwise identical runs by advisory `fanout_validate` call count/status/duration, authoritative node-validation failures, validation-repair attempts, final-repair attempts, wall time, tokens, and cost. Do not count an advisory pass as acceptance or combine its duration with controller validation.
 
@@ -263,7 +265,7 @@ Always report:
 
 ## What not to build yet
 
-- No custom DAG executor benchmark harness before `/fanout-execute` exists.
+- Reuse the implemented executor smokes and benchmark ledgers before adding another DAG benchmark harness.
 - No scoring database; markdown ledgers are enough until automation is needed.
 - No provider-tier optimization claims without token/cost/timing traces.
 - No task-specific prompt templates just to win the prompt-DAG benchmark.

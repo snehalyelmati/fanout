@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { DOUBLEWORD_PRICING_PROVENANCE } from "../packages/doubleword-provider/src/pricing.ts";
@@ -18,7 +18,7 @@ import { publishProjectExecutionProfile } from "../packages/fanout-pi/src/projec
 import { capturePlanningBase, fullGitVisibleTree } from "../packages/fanout-pi/src/repository-identity.ts";
 
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
-const root = mkdtempSync(join(tmpdir(), "fanout-v9-execute-"));
+const root = mkdtempSync(join(tmpdir(), "fanout-v10-execute-"));
 try {
   const repo = join(root, "repo"); const artifacts = join(root, "artifacts"); const runDir = join(artifacts, "plan");
   mkdirSync(repo); mkdirSync(runDir, { recursive: true });
@@ -38,14 +38,15 @@ try {
   try { parseProjectExecutionProfile(invalidPreparationDisclosure); } catch { invalidPreparationRejected = true; }
   assert(invalidPreparationRejected, "preparation command gained candidate-owned mutation disclosure outside normalization");
   const publishedDefaultProfile = publishProjectExecutionProfile(defaultProfile, artifacts, activeProfilePath);
-  const plan = { schema: "fanout.implementation-plan", version: 3, planId: "p", createdAt: new Date(0).toISOString(), planningHost: { platform: process.platform }, planningBase: base, profile: publishedDefaultProfile.identity, objective: "Add x", userContext: [], discoveredRepoFacts: [], assumptions: [], implementationItems: [{ id: "x", goals: ["Add x"], writeResources: [{ kind: "file", path: "x.ts" }], readResources: [], forbiddenWrites: [], semanticReviewCriteria: ["x exists"], advisoryNotes: [] }] };
+  const plan = { schema: "fanout.implementation-plan", version: 4, planId: "p", createdAt: new Date(0).toISOString(), planningHost: { platform: process.platform }, planningBase: base, profile: publishedDefaultProfile.identity, objective: "Add x", userContext: [], discoveredRepoFacts: [], assumptions: [], implementationItems: [{ id: "x", goals: ["Add x"], writeResources: [{ kind: "file", path: "x.ts" }], readResources: [], forbiddenWrites: [], semanticReviewCriteria: ["x exists"], advisoryNotes: [] }] };
   const planIdentity = artifactIdentity("implementation-plan.json", Buffer.from(JSON.stringify(plan)));
   const command = { executable: process.execPath, args: ["-e", "if (require('node:fs').readFileSync('x.ts','utf8') !== 'export const x = 1;\\n') process.exit(1)"] };
-  const details = { schema: "fanout.implementation-details", version: 6, detailsId: "p", createdAt: new Date(0).toISOString(), plan: planIdentity, items: [{ id: "x", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "x.ts" }, sourcePlanIds: ["x"] }, contentIntent: "x" }], readDependencies: [], validationCommands: [command], advisoryNotes: [] }], finalValidationCommands: [command] };
+  const details = { schema: "fanout.implementation-details", version: 7, detailsId: "p", createdAt: new Date(0).toISOString(), plan: planIdentity, items: [{ id: "x", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "x.ts" }, sourcePlanIds: ["x"] }, contentIntent: "x" }], readDependencies: [], validationCommands: [command], advisoryNotes: [] }], finalValidationCommands: [command] };
   const detailsIdentity = artifactIdentity("implementation-details.json", Buffer.from(JSON.stringify(details)));
   const summary = { provider: "doubleword", model: "deepseek-ai/DeepSeek-V4-Flash-0731", thinking: "off", source: "test", status: "available", reason: "test" };
   const compiled = compileExecutionPacket({ implementationPlan: plan, implementationDetails: details, planIdentity, detailsIdentity, tierPlan: { tier1: summary, tier2: { ...summary, status: "unavailable", fallback: "tier1" }, tier2Fallback: summary }, runtimePolicy: { maxConcurrency: 2, failFast: false, fallbackAllowed: true }, createdAt: new Date(0).toISOString() });
   assert(compiled.packet, compiled.errors.join("; "));
+  await testFailFast(compiled.packet);
   const paths = publishExecutionPacket(compiled.packet, artifacts, runDir, join(artifacts, "active-packet.json"));
   const packetIdentity = JSON.parse(readFileSync(paths.activePointerPath, "utf8")).packet;
   let traversalRejected = false;
@@ -53,13 +54,13 @@ try {
   catch (error) { traversalRejected = /canonical path segment/.test(String(error)); }
   assert(traversalRejected && !existsSync(join(artifacts, "escape")) && !existsSync(join(repo, ".git", "fanout-execution.lock")), "path-traversing run identity escaped execution storage or acquired the repository lock");
   const result = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", dryRun: true, runId: "dry-run", maxConcurrency: 99 });
-  assert(result.status === "succeeded" && result.snapshot.version === 6 && result.snapshot.mode === "dry-run" && result.snapshot.terminalOutcome.outcome === "dry-run-completed" && Number.isFinite(result.snapshot.terminalOutcome.cleanupDurationMs), "hardened dry run did not project explicit state and cleanup timing");
+  assert(result.status === "succeeded" && result.snapshot.version === 7 && result.snapshot.mode === "dry-run" && result.snapshot.terminalOutcome.outcome === "dry-run-completed" && Number.isFinite(result.snapshot.terminalOutcome.cleanupDurationMs), "hardened dry run did not project explicit state and cleanup timing");
   assert(result.snapshot.policy.maxConcurrency === 2, "execution options overrode immutable packet runtime policy");
   assert(result.snapshot.preflightEvidence.planningCommit.actual === base.headCommit && result.snapshot.preflightEvidence.repositoryTree.actual === base.tree && result.snapshot.preflightEvidence.platform.actual === process.platform, "dry run did not preserve exact repository/platform preflight evidence");
   assert(result.snapshot.preflightEvidence.worker.launcher.resolvedExecutable && result.snapshot.preflightEvidence.worker.extension.resolved && result.snapshot.preflightEvidence.worker.modelCallableTools.join(",") === "read,grep,find,ls,edit,write,fanout_validate", "dry run did not preserve worker capability evidence");
   assert(result.snapshot.preflightEvidence.validationCommands.some((entry) => entry.nodeId === "x" && entry.manifest.args.join("\0") === command.args.join("\0") && entry.resolution.status === "available"), "dry run did not preserve resolved validation argv evidence");
   const events = readFileSync(result.paths.eventsPath, "utf8").trim().split("\n").map(JSON.parse);
-  assert(events.map((event) => event.sequence).join(",") === "1,2,3" && events.every((event) => event.version === 5), "events are not gapless v5 authority");
+  assert(events.map((event) => event.sequence).join(",") === "1,2,3" && events.every((event) => event.version === 6), "events are not gapless v6 authority");
   const profileValidation = JSON.parse(readFileSync(join(result.paths.runDir, events[0].payload.profileValidation.path), "utf8"));
   assert(JSON.stringify(profileValidation.profile) === JSON.stringify(events[0].payload.profile)
     && profileValidation.platform === process.platform
@@ -96,9 +97,40 @@ try {
   const dirtyRunDir = join(artifacts, "dirty-plan");
   const dirtyPaths = publishExecutionPacket(dirtyCompiled.packet, artifacts, dirtyRunDir, join(artifacts, "dirty-active-packet.json"));
   let dirtyConfirmed = false;
-  const dirtyResult = await executeFanout({ cwd: repo, activePointerPath: dirtyPaths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", piCommand: process.execPath, runId: "dirty-base", confirm: () => { dirtyConfirmed = true; return true; } });
-  assert(dirtyResult.status === "failed" && !dirtyConfirmed && dirtyResult.snapshot.totals.attempts === 0 && dirtyResult.snapshot.preflight.issues.some((issue) => issue.code === "planning-base-mismatch" && issue.detail.includes("non-HEAD content")), "non-reconstructable planning base passed preflight or reached confirmation/worker allocation");
+  let dirtyRejected = false;
+  try { await executeFanout({ cwd: repo, activePointerPath: dirtyPaths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", piCommand: process.execPath, runId: "dirty-base", confirm: () => { dirtyConfirmed = true; return true; } }); }
+  catch (error) { dirtyRejected = String(error).includes("non-HEAD content"); }
+  assert(dirtyRejected && !dirtyConfirmed && !existsSync(join(dirtyRunDir, "executions", "dirty-base")), "invalid planning base reached profile preparation, confirmation or allocation");
   rmSync(join(repo, "uncommitted-planning-input.txt"));
+
+  for (const staged of [false, true]) {
+    writeFileSync(join(repo, "README.md"), "changed after planning\n");
+    if (staged) git(repo, ["add", "README.md"]);
+    const id = staged ? "staged-drift" : "unstaged-drift";
+    let rejected = false;
+    try { await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", dryRun: true, runId: id }); }
+    catch (error) { rejected = String(error).includes("Git-visible tree differs"); }
+    assert(rejected && !existsSync(join(runDir, "executions", id)) && !existsSync(lockPath), `${id} reached dynamic profile preparation`);
+    if (staged) git(repo, ["reset", "-q", "HEAD", "README.md"]);
+    writeFileSync(join(repo, "README.md"), "# Fixture\n");
+  }
+  const wrongPlatformPacket = structuredClone(compiled.packet);
+  wrongPlatformPacket.planningHost.platform = process.platform === "win32" ? "linux" : "win32";
+  const wrongPlatformDir = join(artifacts, "wrong-platform-plan");
+  const wrongPlatformPaths = publishExecutionPacket(wrongPlatformPacket, artifacts, wrongPlatformDir, join(artifacts, "wrong-platform-active.json"));
+  let platformRejected = false;
+  try { await executeFanout({ cwd: repo, activePointerPath: wrongPlatformPaths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", dryRun: true, runId: "wrong-platform" }); }
+  catch (error) { platformRejected = String(error).includes("packet was planned for"); }
+  assert(platformRejected && !existsSync(join(wrongPlatformDir, "executions", "wrong-platform")), "known platform mismatch reached profile preparation");
+
+  const driftingProfile = profile("preparation-drifts-active");
+  driftingProfile.preparation[0].command.args[1] += `;fs.writeFileSync(${JSON.stringify(join(repo, "README.md"))}, 'profile changed active\\n')`;
+  const driftingPacket = { ...compiled.packet, profile: publishProjectExecutionProfile(driftingProfile, artifacts, activeProfilePath).identity };
+  const driftingPaths = publishExecutionPacket(driftingPacket, artifacts, join(artifacts, "drifting-profile-plan"), join(artifacts, "drifting-profile-active.json"));
+  let driftConfirmed = false;
+  const driftResult = await executeFanout({ cwd: repo, activePointerPath: driftingPaths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", runId: "profile-drift", confirm: () => { driftConfirmed = true; return true; } });
+  assert(driftResult.status === "failed" && driftResult.snapshot.preflight.issues.some((issue) => issue.code === "repository-tree-mismatch") && !driftConfirmed && driftResult.snapshot.attempts.length === 0, "post-profile independent drift check reused stale pre-command identity");
+  writeFileSync(join(repo, "README.md"), "# Fixture\n");
 
   const fakePi = join(root, "fake-pi.mjs");
   writeFileSync(fakePi, `#!/usr/bin/env node
@@ -115,7 +147,7 @@ if (process.env.FANOUT_RUN_ID === "provider-abort") {
   appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_error", runId: process.env.DOUBLEWORD_RUN_ID, provider, model, turnIndex: 0, responseId: "response-1", failureCode: "abort" }) + "\\n");
   process.exit(1);
 }
-if (!['post-worker-abort', 'repair-overlay', 'worker-summary-chain', 'exact-no-progress', 'disjoint-reconciliation', 'overlap-reconciliation', 'fused-execution', 'normalized-candidate', 'unauthorized-worker-retry', 'unauthorized-normalization', 'interrupted-normalization', 'identity-normalization', 'diagnostic-normalization', 'normalization-boundary-abort', 'normalization-boundary-abort-rewrite-failure', 'final-normalization', 'final-normalization-widened', 'final-validation-routing'].includes(process.env.FANOUT_RUN_ID) && process.env.FANOUT_WORKER_DIR.endsWith("001-original")) {
+if (!['post-worker-abort', 'repair-overlay', 'worker-summary-chain', 'exact-no-progress', 'disjoint-reconciliation', 'overlap-reconciliation', 'fused-execution', 'normalized-candidate', 'accepted-publication-failure', 'unauthorized-worker-retry', 'unauthorized-normalization', 'interrupted-normalization', 'identity-normalization', 'diagnostic-normalization', 'normalization-boundary-abort', 'normalization-boundary-abort-rewrite-failure', 'final-normalization', 'final-normalization-widened', 'final-validation-routing'].includes(process.env.FANOUT_RUN_ID) && process.env.FANOUT_WORKER_DIR.endsWith("001-original")) {
   appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, JSON.stringify({ event: "provider_error", runId: process.env.DOUBLEWORD_RUN_ID, provider, model, turnIndex: 0, responseId: "response-1", failureCode: "rate-limit", httpStatus: 429 }) + "\\n");
   process.exit(1);
 }
@@ -190,6 +222,21 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   assert(normalizedCompletions.length === 1 && normalizedCompletions[0].outcome.evidenceRefs.some((reference) => reference.endsWith("candidate-normalization.json")) && normalizedCompletions[0].acceptedTransition, "accepted normalized attempt omitted its audit evidence or transition");
   rmSync(join(repo, "x.ts"));
   assert(fullGitVisibleTree(repo) === base.tree, "normalized candidate fixture did not restore the planning tree");
+
+  const publicationRunDir = join(runDir, "executions", "accepted-publication-failure");
+  let publicationCalls = 0;
+  const publicationExecutor = new FanoutNodeExecutor({
+    packet: normalizedPacket, packetIdentity: artifactIdentity(packetIdentity.path, executionPacketBytes(normalizedPacket)),
+    profile: normalizedProfile, profileIdentity: normalizedProfileIdentity, repoRoot: repo,
+    runDir: publicationRunDir, runId: "accepted-publication-failure", extensionEntry: "packages/fanout-pi/src/index.ts", piCommand: fakePi,
+    recorder: { async recordAttemptAllocated() {}, async recordAttemptCompleted() { publicationCalls++; throw new Error("injected accepted Event publication failure"); }, async flush() {} },
+  });
+  let publicationError;
+  try { await publicationExecutor.runNode(normalizedNode); } catch (error) { publicationError = error; }
+  finally { publicationExecutor.cleanupWorktrees(); }
+  assert(String(publicationError).includes("injected accepted Event publication failure") && publicationCalls === 1 && publicationExecutor.manualReconciliationRequired, "post-apply Event publication failure was rewritten or released its reconciliation latch");
+  assert(readFileSync(join(repo, "x.ts"), "utf8") === "export const x = 2;\n" && !existsSync(join(publicationRunDir, "workers", artifactSegment("x"), "attempts", "001-original", "attempt-outcome.json")), "publication failure rolled back active state or exposed a standalone terminal outcome");
+  rmSync(join(repo, "x.ts"));
 
   const normalizationPlanDir = join(artifacts, "normalization-confirm-plan");
   const normalizationPaths = publishExecutionPacket(normalizedPacket, artifacts, normalizationPlanDir, join(artifacts, "normalization-confirm-active.json"));
@@ -281,7 +328,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
     runId: "interrupted-normalization",
     extensionEntry: "packages/fanout-pi/src/index.ts",
     piCommand: fakePi,
-    validationTimeoutMs: 40,
+    validationTimeoutMs: 1_000,
     recorder: { async recordAttemptAllocated(allocation) { interruptedAllocations.push(allocation); }, async recordAttemptCompleted(outcome) { interruptedCompletions.push(outcome); }, async flush() {} },
   });
   let interruptedResult;
@@ -312,7 +359,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
     runId: "diagnostic-normalization",
     extensionEntry: "packages/fanout-pi/src/index.ts",
     piCommand: fakePi,
-    validationTimeoutMs: 40,
+    validationTimeoutMs: 1_000,
     recorder: { async recordAttemptAllocated(allocation) { diagnosticAllocations.push(allocation); }, async recordAttemptCompleted(outcome) { diagnosticCompletions.push(outcome); }, async flush() {} },
   });
   let diagnosticResult;
@@ -424,7 +471,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const finalNormalizationAttempt = finalNormalizationResult.snapshot.attempts.find((attempt) => attempt.allocation.nodeId === "final-validation");
   const finalNormalizationAttemptDir = join(finalNormalizationResult.paths.runDir, "workers", artifactSegment("final-validation"), "attempts", "001-validation-repair");
   const finalNormalizationAudit = JSON.parse(readFileSync(join(finalNormalizationAttemptDir, "candidate-normalization.json"), "utf8"));
-  assert(finalNormalizationResult.status === "succeeded" && readFileSync(join(repo, "x.ts"), "utf8") === "export const x = 2;\n" && finalNormalizationResult.finalValidation.evidence.acceptedRepair, "derived final-repair normalization did not make final validation pass before capture");
+  assert(finalNormalizationResult.status === "succeeded" && readFileSync(join(repo, "x.ts"), "utf8") === "export const x = 2;\n" && finalNormalizationResult.finalValidation.lastRound?.evidence.acceptedRepair, `derived final-repair normalization did not make final validation pass before capture: ${JSON.stringify(finalNormalizationResult.snapshot)}`);
   assert(finalNormalizationAttempt?.outcome?.terminalFact.stage === "apply" && finalNormalizationAttempt.outcome.action === "accept" && finalNormalizationAttempt.outcome.evidenceRefs.some((reference) => reference.endsWith("candidate-normalization.json")) && finalNormalizationAudit.status === "completed", "accepted final repair omitted its derived normalization audit or causal apply outcome");
   rmSync(join(repo, "x.ts"));
   assert(fullGitVisibleTree(repo) === base.tree, "final normalization success fixture did not restore the planning tree");
@@ -732,7 +779,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const fusedPlanIdentity = artifactIdentity("fused-execution-plan.json", Buffer.from(JSON.stringify(fusedPlan)));
   const fusedDetails = {
     schema: "fanout.implementation-details",
-    version: 6,
+    version: 7,
     detailsId: "fused-execution",
     createdAt: new Date(0).toISOString(),
     plan: fusedPlanIdentity,
@@ -771,10 +818,12 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const failingPaths = publishExecutionPacket(failingPacket, artifacts, failingRunDir, join(artifacts, "final-failure-active.json"));
   const failingPacketIdentity = JSON.parse(readFileSync(failingPaths.activePointerPath, "utf8")).packet;
   const finalFailure = await executeFanout({ cwd: repo, activePointerPath: failingPaths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: () => true, piCommand: fakePi, runId: "final-failure", workerTimeoutMs: 10_000, validationTimeoutMs: 10_000 });
-  assert(finalFailure.status === "failed" && finalFailure.snapshot.finalValidation.disposition === "failed" && finalFailure.snapshot.finalValidation.commandCount === 3 && finalFailure.snapshot.terminalOutcome.outcome === "failed" && finalFailure.snapshot.attempts.every((attempt) => attempt.outcome), "fail-fast/exhausted repair with a profile final gate did not commit explicit accepted-tree final-validation failure and terminal attempt accounting");
-  assert(finalFailure.finalValidation.evidence.expectedValidationTree === finalFailure.snapshot.acceptedLedger.at(-1).transition.patch.resultTree && !finalFailure.finalValidation.evidence.candidate, "rejected final-repair candidate became completion-tree authority");
+  assert(finalFailure.status === "failed" && finalFailure.snapshot.finalValidation.disposition === "failed" && finalFailure.snapshot.finalValidation.lastRound.commandCount === 3 && finalFailure.snapshot.terminalOutcome.outcome === "failed" && finalFailure.snapshot.attempts.every((attempt) => attempt.outcome), "fail-fast/exhausted repair with a profile final gate did not commit explicit accepted-tree final-validation failure and terminal attempt accounting");
+  assert(finalFailure.finalValidation.lastRound.evidence.expectedValidationTree === (finalFailure.finalValidation.lastRound.evidence.candidate?.patch.resultTree ?? finalFailure.snapshot.acceptedLedger.at(-1).transition.patch.resultTree) && finalFailure.finalValidation.lastRound.evidence.expectedActiveTree === finalFailure.snapshot.acceptedLedger.at(-1).transition.patch.resultTree, "failed completion lost the latest candidate round or confused it with accepted-tree authority");
   const finalRepairPrompt = readFileSync(join(finalFailure.paths.runDir, "workers", artifactSegment("final-validation"), "attempts", "001-validation-repair", "prompt.md"), "utf8");
-  assert(finalRepairPrompt.startsWith("Repair the reconstructed accepted state") && finalRepairPrompt.includes(failingPacketIdentity.sha256) && finalRepairPrompt.includes('"nodeId": "x"') && finalRepairPrompt.includes('"finalValidationContract"'), "public final-repair prompt omitted its action, immutable packet identity, original final contract, or packet-ordered upstream contracts");
+  assert(finalRepairPrompt.startsWith("Repair the reconstructed accepted state") && finalRepairPrompt.includes(failingPacketIdentity.sha256) && finalRepairPrompt.includes('"upstreamNodeIds"') && !finalRepairPrompt.includes('"finalValidationContract"'), "public final-repair prompt lost effective authority or duplicated source contracts");
+  const finalRepairEvidence = JSON.parse(readFileSync(join(finalFailure.paths.runDir, "workers", artifactSegment("final-validation"), "attempts", "001-validation-repair", "recovery.json"), "utf8"));
+  assert(finalRepairEvidence.packetIdentity.sha256 === failingPacketIdentity.sha256 && finalRepairEvidence.finalValidationContract && finalRepairEvidence.upstreamWorkContracts[0].nodeId === "x", "complete recovery evidence was not retained on disk");
   rmSync(join(repo, "x.ts"));
   assert(fullGitVisibleTree(repo) === base.tree, "final-validation failure fixture did not restore the pre-execution repository tree");
 
@@ -823,15 +872,15 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   const routingFirstRepairPrompt = readFileSync(join(firstRepairDir, "prompt.md"), "utf8");
   const routingSecondRepairPrompt = readFileSync(join(secondRepairDir, "prompt.md"), "utf8");
   assert(initialFinalEvidence.commands.length === 3 && initialFinalEvidence.commands[0].outcome === "nonzero" && initialFinalEvidence.commands[0].stdout === "focused failure stdout" && initialFinalEvidence.commands[0].stderr === "focused failure stderr" && initialFinalEvidence.commands.slice(1).every((command) => command.outcome === "unexecuted"), "fresh final repair lost complete fail-fast controller evidence");
-  assert(routingFirstRepairPrompt.includes(finalRoutingPacketIdentity.sha256) && routingFirstRepairPrompt.includes("focused failure stdout") && routingFirstRepairPrompt.includes("focused failure stderr") && routingFirstRepairPrompt.includes('"finalValidationContract"'), "fresh final-repair prompt omitted packet identity or complete failure evidence");
+  assert(routingFirstRepairPrompt.includes(finalRoutingPacketIdentity.sha256) && routingFirstRepairPrompt.includes("focused failure stdout") && routingFirstRepairPrompt.includes("focused failure stderr") && routingFirstRepairPrompt.includes("recovery.json"), "fresh final-repair prompt omitted packet identity, diagnostics or audit reference");
   assert(firstRejectedEvidence.status === "failed" && firstRejectedEvidence.candidate && routingSecondRepairPrompt.includes(firstRejectedEvidence.candidate.patch.artifact.sha256), "second final repair lost the rejected-candidate seed or its failure evidence");
-  const authoritativeCommands = finalRouting.finalValidation.evidence.commands.map((command) => command.command);
-  assert(JSON.stringify(authoritativeCommands) === JSON.stringify([...finalRoutingDetails.finalValidationCommands, profileNpmTest]) && finalRouting.finalValidation.evidence.commands.every((command) => command.outcome === "passed"), "controller final evidence lost focused commands, the profile npm test gate, or successful outcomes");
+  const authoritativeCommands = finalRouting.finalValidation.lastRound.evidence.commands.map((command) => command.command);
+  assert(JSON.stringify(authoritativeCommands) === JSON.stringify([...finalRoutingDetails.finalValidationCommands, profileNpmTest]) && finalRouting.finalValidation.lastRound.evidence.commands.every((command) => command.outcome === "passed"), "controller final evidence lost focused commands, the profile npm test gate, or successful outcomes");
   assert(readFileSync(npmMarker, "utf8") === "npm test\n", "profile npm test did not run exactly once under controller authority");
-  const acceptedFinalRepair = finalRouting.finalValidation.evidence.acceptedRepair;
+  const acceptedFinalRepair = finalRouting.finalValidation.lastRound.evidence.acceptedRepair;
   assert(!initialFinalEvidence.candidate && !initialFinalEvidence.acceptedRepair && initialFinalEvidence.active.before.tree === initialFinalEvidence.active.after.tree, "initial failed final validation changed active authority");
   assert(firstRejectedEvidence.candidate && !firstRejectedEvidence.acceptedRepair && firstRejectedEvidence.active.before.tree === firstRejectedEvidence.active.after.tree && firstRejectedEvidence.active.after.tree === initialFinalEvidence.expectedActiveTree, "rejected final repair applied before authoritative validation passed");
-  assert(acceptedFinalRepair && JSON.stringify(finalRouting.finalValidation.evidence.candidate) === JSON.stringify(acceptedFinalRepair.transition) && acceptedFinalRepair.activeAfterApply.tree === acceptedFinalRepair.transition.patch.resultTree && fullGitVisibleTree(repo) === acceptedFinalRepair.transition.patch.resultTree && readFileSync(join(repo, "x.ts"), "utf8") === "export const x = 2;\n", "passing authoritative final validation did not bind and apply the repaired immutable candidate");
+  assert(acceptedFinalRepair && JSON.stringify(finalRouting.finalValidation.lastRound.evidence.candidate) === JSON.stringify(acceptedFinalRepair.transition) && acceptedFinalRepair.activeAfterApply.tree === acceptedFinalRepair.transition.patch.resultTree && fullGitVisibleTree(repo) === acceptedFinalRepair.transition.patch.resultTree && readFileSync(join(repo, "x.ts"), "utf8") === "export const x = 2;\n", "passing authoritative final validation did not bind and apply the repaired immutable candidate");
   rmSync(join(repo, "x.ts"));
   assert(fullGitVisibleTree(repo) === base.tree, "final-validation routing fixture did not restore the pre-execution repository tree");
 
@@ -847,10 +896,11 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   publishProjectExecutionProfile(defaultProfile, artifacts, activeProfilePath);
   const live = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: (_title, message) => { liveConfirmation = message; return true; }, piCommand: fakePi, runId: "live", workerTimeoutMs: 10_000, validationTimeoutMs: 10_000 });
   assert(live.status === "succeeded" && existsSync(join(repo, "x.ts")) && readFileSync(join(repo, "x.ts"), "utf8") === "export const x = 1;\n", `public executeFanout live seam did not apply the accepted patch: ${JSON.stringify({ status: live.status, error: live.error, snapshot: live.snapshot })}`);
-  assert(live.snapshot.acceptedLedger.length === 1 && live.snapshot.finalValidation.disposition === "passed" && live.snapshot.totals.totalTokens === 12 && live.snapshot.totals.attemptKinds.retry === 1 && live.snapshot.totals.attemptKinds["validation-repair"] === 1, "live projection lost retry success, repair, accepted transition, final validation, or metrics");
+  assert(live.snapshot.acceptedLedger.length === 1 && live.snapshot.finalValidation.disposition === "passed" && live.snapshot.totals.totalTokens === null && live.snapshot.totals.observedCostUsd > 0 && live.snapshot.totals.attemptKinds.retry === 1 && live.snapshot.totals.attemptKinds["validation-repair"] === 1, "live projection lost retry/repair/acceptance or fabricated complete totals for an unmeasured failed provider attempt");
   assert(live.snapshot.preflightEvidence.worker.launcher.resolvedExecutable && live.snapshot.preflightEvidence.worker.extension.resolved, "live projection did not preserve resolved worker evidence");
   assert(live.snapshot.preflightEvidence.validationCommands.some((entry) => entry.nodeId === "x" && entry.manifest.args.join("\0") === command.args.join("\0") && entry.resolution.status === "available"), "live projection did not preserve resolved validation argv evidence");
-  assert(liveConfirmation.includes(`Packet: ${packetIdentity.sha256.slice(0, 12)} / base ${compiled.packet.planningBase.tree}`) && !liveConfirmation.includes(`Packet: ${detailsIdentity.sha256.slice(0, 12)} /`), "live confirmation did not display the authoritative active-packet identity");
+  assert(liveConfirmation.includes(`Packet: ${realpathSync(paths.packetPath)}`) && liveConfirmation.includes(`SHA-256: ${packetIdentity.sha256}`) && liveConfirmation.includes(`Bytes: ${packetIdentity.byteLength}`), "live confirmation did not display the full admitted packet identity and location");
+  assert(liveConfirmation.includes("external/network effects") && liveConfirmation.includes("already authorized"), "confirmation omitted standing profile effects disclosure");
   assert(liveConfirmation.includes("Preparation commands: 1") && liveConfirmation.includes("Project Execution Profile: default"), "live confirmation omitted isolated Project Execution Profile preparation");
   const liveEvents = readFileSync(live.paths.eventsPath, "utf8").trim().split("\n").map(JSON.parse);
   assert(liveEvents.length === 13 && liveEvents.every((event, index) => event.sequence === index + 1), "live executeFanout retry/repair seam did not produce a gapless causal lifecycle");
@@ -869,7 +919,7 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   let rejected = false; try { await executeFanout({ cwd: repo, activePointerPath: legacyPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", dryRun: true, runId: "legacy" }); } catch (error) { rejected = /rerun \/fanout-plan/.test(String(error)); }
   assert(rejected, "A18 legacy pointer did not get replan guidance");
   assert(readFileSync(legacyPath, "utf8") === legacy && git(repo, ["status", "--porcelain=v1"]) === before && !existsSync(join(repo, ".git", "fanout-execution.lock")), "A18 rejection mutated history, repository, or lock");
-  console.log("fanout execute cutover smoke passed (live public seam/event v5/projection v6/A18)");
+  console.log("fanout execute cutover smoke passed (live public seam/event v6/projection v7/A18)");
 } finally { rmSync(root, { recursive: true, force: true }); }
 
 function git(cwd, args) { return execFileSync("git", ["-c", "core.fsmonitor=false", ...args], { cwd, encoding: "utf8" }).trim(); }
@@ -887,4 +937,29 @@ function profile(profileId, normalizers = [], finalGates = []) {
     candidateNormalization: normalizers.map((command) => declaration(command, "Normalize candidate", "candidate-owned")),
     requiredFinalGates: finalGates.map((command) => declaration(command, "Run required final gate")),
   };
+}
+
+async function testFailFast(packet) {
+  const nodes = ["slow", "trigger", "independent", "dependent"].map((id) => {
+    const node = structuredClone(packet.nodes[0]);
+    node.id = id;
+    node.workContract.changes[0].target.resource.path = `${id}.ts`;
+    node.workContract.readDependencies = id === "dependent" ? [{ resource: { kind: "file", path: "trigger.ts" }, sourcePlanIds: ["x"], timing: "post-change-required", reason: "Needs trigger output", timingSource: "phase-b" }] : [];
+    return node;
+  });
+  let finishSlow;
+  const launched = [];
+  const result = await runDag({ ...packet, nodes: [...nodes, packet.nodes.at(-1)] }, {
+    maxConcurrency: 2, failFast: true,
+    runNode(node, signal) {
+      launched.push(node.id);
+      if (node.id === "slow") return new Promise((resolve) => { finishSlow = () => { assert(!signal.aborted, "ordinary fail-fast cancelled a running worker"); resolve({ ok: false, attemptId: "slow:000001" }); }; });
+      return { ok: false, attemptId: "trigger:000001" };
+    },
+    onNodeCompleted(node) { if (node.id === "trigger") finishSlow(); },
+  });
+  const independent = result.nodes.find((node) => node.id === "independent");
+  const dependent = result.nodes.find((node) => node.id === "dependent");
+  assert(launched.join(",") === "slow,trigger" && independent.failFastCause.nodeId === "trigger" && independent.failFastCause.attemptId === "trigger:000001" && !independent.upstreamNodeId, "fail-fast invented dependency causality or used packet order for its trigger");
+  assert(dependent.upstreamNodeId === "trigger" && !dependent.failFastCause, "true dependency lost its causal skip");
 }

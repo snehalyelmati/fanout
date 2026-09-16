@@ -37,7 +37,7 @@ interface PairSuppression { reason: string; evidenceClass: EvidenceClass; missin
 const terminal = ({ projection }: ComparisonContext) => projection.terminalOutcome !== null;
 const telemetry = ({ projection }: ComparisonContext) => terminalProjection(projection) && projection.attempts.every(({ outcome }) => outcome?.metrics.complete === true);
 const providerTelemetry = (context: ComparisonContext) => telemetry(context) && context.projection.attempts.every(({ outcome }) => outcome?.metrics.compatibility === "instrumented");
-const validation = ({ projection }: ComparisonContext) => projection.finalValidation.disposition === "passed" || projection.finalValidation.disposition === "failed";
+const validation = ({ projection }: ComparisonContext) => (projection.finalValidation.disposition === "passed" || projection.finalValidation.disposition === "failed") && projection.totals.finalValidationDurationMs !== null;
 const METRICS: readonly MetricDefinition[] = [
 	{ id: "run-duration", label: "Run duration", unit: "ms", value: ({ projection }) => projection.totals.runDurationMs, complete: terminal },
 	{ id: "attempt-envelope-duration", label: "Attempt envelopes", unit: "ms", value: ({ projection }) => projection.attempts.reduce((total, { outcome }) => total + outcome!.durationMs, 0), complete: terminal },
@@ -70,7 +70,7 @@ const METRICS: readonly MetricDefinition[] = [
 	{ id: "insertions", label: "Insertions", unit: "lines", value: ({ projection }) => projection.totals.insertions, complete: terminal },
 	{ id: "deletions", label: "Deletions", unit: "lines", value: ({ projection }) => projection.totals.deletions, complete: terminal },
 	{ id: "accepted-transitions", label: "Accepted transitions", unit: "transitions", value: ({ projection }) => projection.acceptedLedger.length, complete: terminal },
-	{ id: "final-validation-duration", label: "Final Validation duration", unit: "ms", value: ({ projection }) => projection.totals.finalValidationDurationMs, complete: validation, missingReason: () => "one or more contributors lack terminal Final Validation timing" },
+	{ id: "final-validation-duration", label: "Final Validation command time (all rounds)", unit: "ms", value: ({ projection }) => projection.totals.finalValidationDurationMs, complete: validation, missingReason: () => "one or more contributors lack verified all-round Final Validation command timing" },
 ];
 
 export function queryComparison(snapshot: CatalogSnapshot, request: ComparisonRequest): Readonly<Record<string, any>> {
@@ -277,7 +277,7 @@ function catalogue(context: ComparisonContext): Record<string, unknown> {
 		attempts,
 		readinessQueue: context.queue,
 		structuralPaths: { edges: context.lineage?.graph?.edges ?? null, criticalPath: context.lineage?.graph?.criticalPath ?? null },
-		causalPaths: { nodes: projection.nodes.map(({ id, causalAttemptId, causalUpstreamNodeId }) => ({ id, causalAttemptId, causalUpstreamNodeId })), terminalCause: projection.terminalOutcome?.cause ?? null },
+		causalPaths: { nodes: projection.nodes.map(({ id, causalAttemptId, causalUpstreamNodeId, failFastCause }) => ({ id, causalAttemptId, causalUpstreamNodeId, failFastCause })), terminalCause: projection.terminalOutcome?.cause ?? null },
 		observedRouting: projection.attempts.map(({ allocation }) => ({ attemptId: allocation.attemptId, nodeId: allocation.nodeId, tier: allocation.assignment.tier, provider: allocation.assignment.provider, model: allocation.assignment.model })),
 		acceptedLedger: projection.acceptedLedger.map(({ eventSequence, attemptId, transition }) => ({ eventSequence, attemptId, baseTree: transition.patch.baseTree, resultTree: transition.patch.resultTree, changedPaths: transition.patch.changedPaths, stats: transition.patch.stats })),
 		patchStatistics: { filesChanged: projection.totals.filesChanged, insertions: projection.totals.insertions, deletions: projection.totals.deletions },
