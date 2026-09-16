@@ -2,7 +2,7 @@
 
 Inspected: the 38-entry audit register; repository instructions, architecture, design decisions and ADRs; planning/compiler/execution/recovery/profiler producers and consumers; existing smoke scripts and package manifests; workspace/global Pi APIs; Git state at the baseline below. Four fresh read-only delegates prepared the implementation reconnaissance, and the parent cross-checked submission, metrics, final-repair, replay and presentation boundaries.
 
-**Status: approved for implementation on 2026-09-05.** The user approved B0–B6 and section 3, dev-only installation, native subagents in this orchestrator task, removal of the obsolete core worker-metrics package export, and atomic commits after completed changes are reviewed. See the [register](fanout-audit-progress.md#implementation-validation-record--2026-09-05) for actual results. Live providers, benchmarks, user-operated E2E and release remain separately gated. The original handoff/review history below is retained as history.
+**Status: completed historical implementation handoff (2026-09-05).** The user approved B0–B6 and section 3, dev-only installation, native subagents in that orchestrator task, removal of the obsolete core worker-metrics package export, and reviewed atomic commits. The [register](fanout-audit-progress.md#implementation-validation-record--2026-09-05) records the completed offline implementation. Current architecture and study status are in the [architecture](../ARCHITECTURE.md), [design decisions](../DESIGN_DECISIONS.md), and [efficiency record](fanout-efficiency-progress.md). This dated plan is not an instruction to start another implementation or live run. Its two-phase planning and F15 retention were later superseded by combined planning; historical E2E and release gates below are not source-preview publication gates.
 
 ## 1. Objective, baseline and reading order
 
@@ -10,7 +10,7 @@ Audit Fanout from user objective through planning, compilation, execution, accep
 
 - Repository: `<fanout-source>`.
 - Audit/review baseline: `0e1f260835c5fc1429118ff4aeaf636416477715`; HEAD still matched it during handoff preparation.
-- Expected handoff diff: modified `docs/ROADMAP.md`; new/untracked `docs/impl/fanout-audit-progress.md` and this file. Preserve these files and any subsequent user changes. Do not stage/commit just to make review tools see them.
+- At handoff, the expected diff was modified `docs/ROADMAP.md` plus new/untracked `docs/impl/fanout-audit-progress.md` and this file. That worktree note described the September starting state, not the present checkout.
 - Source abbreviations below: `core/` = `packages/fanout-core/src/`, `pi/` = `packages/fanout-pi/src/`, `profiler/` = `packages/fanout-profiler/src/`, `prompts/` = `packages/fanout-pi/prompts/`. Brace lists identify exact filenames, not permission for directory-wide refactoring.
 - Read repository/global `AGENTS.md`, [coding standards](../../CODING_STANDARDS.md), the entire register and this handoff first. Then read [architecture](../ARCHITECTURE.md), [design decisions](../DESIGN_DECISIONS.md), [Phase 2B](phase-2b-fanout-plan.md), [Phase 3](phase-3-fanout-execute.md), and relevant [ADRs](../adr/0002-use-one-strict-execution-authority.md).
 - Approved register decisions supersede the specific older policies they explicitly revise; unamended project decisions still apply. This proposal does not silently approve additional changes. Source line numbers in the register refer to the audit baseline.
@@ -25,7 +25,7 @@ Reconnaissance reproduced split runtime/test ownership, incomplete per-owner rea
 - Preserve ambiguity lock retention; never automatically commit, stash, reset, discard, rebase or roll back user changes. F08 rejects even unrelated staged/unstaged/non-ignored untracked changes before paid planning. A separate clean worktree excludes those uncommitted changes; dirty snapshot support is not authorized.
 - Declared reads are scheduling/provenance, **not confidentiality**. `workerToolBlockReason()` restricts writes, not arbitrary reads. Pi extensions, approved commands and local tools remain trusted; worktrees do not provide a host/network/process sandbox.
 - F09 retains standing approval for exact bound-profile validation on invocation, including dry-run. Disclose command/network/external effects; live confirmation gates workers and active apply. Do not convert dry-run into static-only mode.
-- Keep the normal Pi loop, two planning phases, independent Doubleword provider, and provider-agnostic core. No DAG/product redesign, predictive scheduler, automatic command repair, general cache, benchmark framework or new runtime mode.
+- At this audit checkpoint, keep the normal Pi loop, two planning phases, independent Doubleword provider, and provider-agnostic core. The later [combined-planning implementation](fanout-efficiency-progress.md#implementation-decisions-retained-from-the-study) superseded the phase-count choice; the other boundaries remain historical audit scope.
 - F36 means the smallest deterministic regression attached to each relevant fix plus minimal typechecking. It does not create a test project. Separate E2E runs remain integration gates after logical fix sets, including this audit.
 
 **Decisions followed:** the approved register and section 3 cutover. **Proposed changes to prior decisions:** none beyond those approved revisions. **Deferred/skipped:** section 6 and separate live/E2E/release gates. Atomic commits are expressly authorized after review.
@@ -179,9 +179,11 @@ Files: `profiler/{catalog,workspace,comparison,diagnostics,scenario,provider-pro
 
 Files: `AGENTS.md`, `README.md`, `docs/{ARCHITECTURE,DESIGN_DECISIONS,ROADMAP,BENCHMARKS,OPTIMISTIC_DAG_WORKFLOW,TIER_MODEL_RESOLUTION,phase3_notes}.md`; `docs/impl/{phase-2b-fanout-plan,phase-3-fanout-execute,fanout-audit-progress,fanout-audit-implementation-plan}.md`; `docs/adr/{0002-use-one-strict-execution-authority,0004-make-events-authoritative-and-reports-context-free,0005-route-attempts-from-typed-facts-and-fixed-budgets}.md`; `docs/benchmarks/{fanout-execution-benchmark-procedure,fanout-canary-run-protocol}.md`.
 
+This is the historical B6 file list. The former `docs/phase3_notes.md` was later removed from the current tree after its rationale was accounted for in the architecture, design decisions and [Phase 3 reference](phase-3-fanout-execute.md).
+
 Document all four packages including profiler, the actually implemented cutover, approved policy reversals and current limitations. In ADR 0005 replace the superseded complete-metrics acceptance rule and distinguish the combined authoritative final manifest from focused worker advisory commands. Correct the common canary protocol's misleading “dry-run is inert” language under F09 without altering historical run records. Repair relative links and label historical versions/results explicitly; no mass search/replace of historical numbers. Keep exact release/E2E gates and do not mark prospective changes implemented before their tests/reviews.
 
-## 5. Concrete validation and completion gates
+## 5. Historical audit validation and completion gates
 
 **Baseline/returning-session reconnaissance:** recheck HEAD, worktree diff, installed SDK/CLI/tool versions and scripts before execution. This is drift detection after a session boundary, not authorization to rerun the audit or reopen settled policies. Before changing persistence/serialization/cross-module boundaries, add the focused behavioral regression first. Existing tautological/phrase-only assertions are not substitutes for behavior. The original handoff ran no code tests; current implementation results are recorded in the register.
 
@@ -233,30 +235,15 @@ Before live work, obtain explicit task/routing/cost authorization and an approve
 | ID | Approved disposition | Trigger / prohibition |
 | --- | --- | --- |
 | F10 | Retained: immutable direct argv and repository-grounded command guidance | Prefer an existing broader script over invented syntax. Correct drafts/replan bad manifests; executable discovery cannot prove argv. Revisit only after repeated grounding failures. No shell expansion, generic syntax validator or new pre-freeze execution. |
-| F15 | Retained: two planning phases | Separately authorized equivalent-task cost/time/acceptance comparison against normal Pi before phase merging or alternative workflow. |
+| F15 | Retained at the audit checkpoint: two planning phases | Later superseded by [combined planning](fanout-efficiency-progress.md#implementation-decisions-retained-from-the-study); this row preserves the original decision and evidence trigger. |
 | F17 | Deferred: broader efficiency/reliability/async claims and runtime changes based on them | Varied tasks, independent acceptance and complete cost/failure accounting; no automated evaluation framework or paid comparison now. |
 | F22 | Deferred: command-resolution reuse | Material measured resolution overhead first; no persistent cache. |
 | F25 | Retained: safe fusion predicates | Measured frequency/cycles saved before expansion or deletion. F11/F14 correctness fixes remain in scope; do not weaken predicates to force utilization. |
 | F26 | Retained: atomic whole-log replacement | Material event-volume/publication-latency evidence before append recovery/database redesign. Preserve its documented quadratic ceiling. |
 
-## 7. Original documentation-only starting prompt (historical; superseded by approval above)
+## 7. Original documentation-only starting prompt (retired)
 
-```text
-Work in <fanout-source>.
-Read AGENTS.md, CODING_STANDARDS.md, docs/impl/fanout-audit-progress.md,
-and docs/impl/fanout-audit-implementation-plan.md completely.
-Audit baseline: 0e1f260835c5fc1429118ff4aeaf636416477715.
-All 38 policy dispositions are resolved; do not rerun the audit or reopen them
-without new evidence. Preserve the existing docs and any subsequent user edits.
-The prior session prepared documentation ONLY. Implementation, compatibility
-cutover, dependency installation, commits and live runs were NOT authorized.
-Recheck Git/runtime drift, surface any concrete incompatibility, then ask me to
-approve the scoped implementation proposal (including section 3 choices) before
-editing code/config/tests. Once approved, follow B0-B6 with single-writer shared
-files, fresh foreground delegate agents, focused regressions and independent
-Standards/Spec reviews. Keep the register current with actual results. Stop before
-the separately authorized audit E2E/release gate; never auto-commit or clean my work.
-```
+The handoff prompt was used to start the approved September audit implementation. It is retired and is not reproduced as current launch guidance. The decisions, scope, validation results and review findings remain in this plan and its register.
 
 ## 8. Handoff validation record (historical document review only)
 
