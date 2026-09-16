@@ -1,6 +1,6 @@
 # Best Fanout DAG prompt candidates
 
-Curated summaries of historical prompt strategies. Original prompt text and run records remain local and are not part of this public note.
+Curated summaries of the July 2026 GPT-5.5 prompt experiment. Scores and rankings describe that fixed task set and rubric; they are not a current model or runtime recommendation. Original prompt text and run records remain local and are not part of this public note.
 
 ## Graduated candidate
 
@@ -9,7 +9,7 @@ Curated summaries of historical prompt strategies. Original prompt text and run 
 - Source run: `loop-20260707-145016`
 - Score: avg `4.916`, min task `4.88`
 - Tasks: 5 total, including 2 heldout tasks
-- Status: graduated under current stop condition
+- Status: graduated under the July 2026 stop condition
 - Known strengths: contract-first fanout, same-file conflict proof, early docs/tests/fixtures, edge proof, concise final validation
 - Known risks: contract node can still grow if the task is vague; keep it to shared facts needed by multiple workers
 
@@ -34,7 +34,7 @@ Strategy: freeze exact shared interfaces, launch work that can proceed from the 
 
 - Source run: `loop-20260707-145016`
 - Score: avg `4.892`, min task `4.86`
-- Status: near miss; useful for shorter prompt mutation, not current default
+- Status: near miss under the July 2026 stop condition
 - Known strength: terse while preserving most safety rails
 - Known risk: just below stop condition; terseness may under-specify schema/prompt/docs migration edges
 
@@ -50,6 +50,6 @@ Strategy: minimize the safe critical path with one contract step, a disjoint fir
 
 Strategy: require a named upstream artifact, file, or decision for every dependency edge; remove convenience and redundant edges.
 
-## Current default recommendation
+## Historical recommendation
 
-Use `combined-general-conflict-proof` for `/fanout-plan` DAG prompt tuning. Keep `lean-safe-near5` as the compression target only after it can pass the same 5-task stop condition.
+The July 2026 experiment selected `combined-general-conflict-proof` for further `/fanout-plan` DAG prompt tuning and kept `lean-safe-near5` as a compression candidate. Later combined-planning changes and the current packet generation require fresh evaluation before reusing that ranking.

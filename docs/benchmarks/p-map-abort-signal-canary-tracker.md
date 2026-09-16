@@ -15,7 +15,7 @@ Status: Candidate `c75ff9a` and Attempt 14 remain historical successful evidence
 
 | Run | Pane/worktree | Outcome and final tree | Independent validation/cleanup | Timing, tokens, and cost |
 | --- | --- | --- | --- | --- |
-| Canary | `%263` (retained); `controlled-20260729-prompt-update/canary-3` | Completed; types/README accepted on originals, runtime accepted on validation repair 1, and both final gates passed; exact accepted tree `02541d0d3dc8b18df9a36220664e873ac3d53cc9`; five allowed files, +295/-49 | Independent 55-test suite and diff check passed; cleanup 6.366s; no current-run worker process, worker worktree, or execution lock | 267.536s wall; 224.839s profiler completion boundary; 48.313s observed node overlap; 340,140 tokens; `$0.497531`; 4 attempts |
+| Canary `2026-07-29T17-07-55-275Z-f8eca267` | `%263` (retained); `controlled-20260729-prompt-update/canary-3` | Completed; types/README accepted on originals, runtime accepted on validation repair 1, and both final gates passed; exact accepted tree `02541d0d3dc8b18df9a36220664e873ac3d53cc9`; five allowed files, +295/-49 | Independent 55-test suite and diff check passed; cleanup 6.366s; no current-run worker process, worker worktree, or execution lock | 267.536s wall; 224.839s profiler completion boundary; 48.313s observed node overlap; 340,140 tokens; `$0.497531`; 4 attempts |
 
 The original runtime candidate failed XO on three `no-await-in-loop` findings in `test.js` and one `no-inner-declarations` finding in `index.js`. Validation repair 1 received the original's immediate Worker summary, repaired the same cumulative candidate, passed XO and AVA, and entered the accepted ledger. The original and repair summaries remained optional `result.json` evidence and absent from Event v4.
 
@@ -39,7 +39,7 @@ Fixed controls and planning evidence:
 
 | Run | Pane/worktree | Outcome and final tree | Independent validation/cleanup | Timing, tokens, and cost |
 | --- | --- | --- | --- | --- |
-| Canary | `%262` (retained); `controlled-20260729-prompt-update/canary-2` | Completed; runtime accepted on validation repair 2, types/docs accepted on originals, and both final gates passed; exact accepted tree `7cd01449805065d2a57f732e2d7431875d216b9e`; five allowed files, +298/-44 | Independent 54-test suite passed; diff check passed; cleanup 7.681s; no current-run worker, worker worktree, process, or lock leak | 525.529s wall; 467.485s profiler completion boundary; zero node overlap; 539,203 tokens; `$0.833411`; 5 attempts |
+| Canary `2026-07-29T16-35-28-543Z-9dbcf498` | `%262` (retained); `controlled-20260729-prompt-update/canary-2` | Completed; runtime accepted on validation repair 2, types/docs accepted on originals, and both final gates passed; exact accepted tree `7cd01449805065d2a57f732e2d7431875d216b9e`; five allowed files, +298/-44 | Independent 54-test suite passed; diff check passed; cleanup 7.681s; no current-run worker, worker worktree, process, or lock leak | 525.529s wall; 467.485s profiler completion boundary; zero node overlap; 539,203 tokens; `$0.833411`; 5 attempts |
 
 The original runtime candidate failed XO on `no-void` and `no-await-in-loop`. Repair 1 received the original's 456-character summary, passed XO, and failed AVA's existing `pMapIterable - index in mapper (out-of-order-settling promises)` test. Repair 2 received repair 1's 391-character summary and not the original; it passed and emitted a 368-character summary. Summaries remained optional `result.json` evidence and absent from Event v4.
 
@@ -62,13 +62,15 @@ Fixed controls and planning evidence:
 
 | Run | Pane/worktree | Outcome and final tree | Independent validation/cleanup | Timing, tokens, and cost |
 | --- | --- | --- | --- | --- |
-| Canary | `%261` (retained); `controlled-20260729-prompt-update/canary` | Completed; one all-files node accepted after one validation repair; both final gates passed; exact tree `8ab065bea4d19f73bae7036278666028d0b3db55`; five allowed files, +292/-36 | Independent 56-test suite passed; diff check passed; cleanup 2.879s; no current-run worker, worker worktree, process, or lock leak | 416.529s wall; 381.009s profiler completion boundary; zero node overlap; 629,129 tokens; `$0.657389`; 2 attempts |
+| Canary `2026-07-29T15-40-31-736Z-90f6d680` | `%261` (retained); `controlled-20260729-prompt-update/canary` | Completed; one all-files node accepted after one validation repair; both final gates passed; exact tree `8ab065bea4d19f73bae7036278666028d0b3db55`; five allowed files, +292/-36 | Independent 56-test suite passed; diff check passed; cleanup 2.879s; no current-run worker, worker worktree, process, or lock leak | 416.529s wall; 381.009s profiler completion boundary; zero node overlap; 629,129 tokens; `$0.657389`; 2 attempts |
 
 The original Terra candidate failed four XO checks: three formatting errors in `test.js` and `no-inner-declarations` in `index.js`. The Sol validation repair received the original worker summary, fixed the candidate, passed `npm test`, and entered the accepted ledger. The repair's own summary remained optional `result.json` evidence, and summaries were absent from Event v4. Profile preparation/readiness/normalization timings were 4.670s/0.381s/0s. The profiler admitted complete Current evidence with 25 Tier 1 calls, 48.379s aggregate TTFT, 271.722s aggregate generation, 15.293s capacity wait, and 1 ms acceptance-gate wait.
 
 This canary is a reliability result for the updated prompt state, not a speed comparison with prior multi-node packets. No reconciliation, fusion, exact no-progress termination, repetition, median, range, reliability rate, or SLO claim is reported.
 
 ## 2026-07-28 realistic-task repair-boundary canary
+
+Live execution ID: `2026-07-28T13-19-03-879Z-2f6c81a7`.
 
 Fixed controls:
 

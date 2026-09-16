@@ -1,54 +1,6 @@
 # p-map AbortSignal manual Fanout E2E
 
-Status: the profile-v1/packet-v7 sequence ran on 2026-07-27. The canary and repetitions 1–2 completed; repetition 3 stopped on bounded fused-node validation-repair exhaustion. The 2026-07-28 Worker-summary sequence first exposed and stopped on a confirmation-label defect. After the reviewed `3fef090` fix, its restarted canary completed and repetition 1 stopped on bounded runtime-test validation-repair exhaustion. The later realistic-task canary naturally joined runtime implementation and behavioral tests under reviewed planning fix `0f008e1`, then stopped when that joint node exhausted its two validation repairs. All three 2026-07-29 live prompt canaries completed: the first used one all-files work node, the second preserved three serial independently owned items, and the third made those three work nodes concurrently ready while retaining a joint runtime/test boundary. The user paused the third canary's repetitions before any were started. Exact evidence is retained in the tracker.
-
-## 2026-07-29 parallelism prompt canary
-
-Source commit `3926f8f57d4b454cf31f0fe676ac74ddd9b51069` plus batching-discipline SHA-256 `84e9661ee7325a98b0003518e2e9d6846efbbe9b67387e403a7bfac389209898` and implementation-plan/details prompt SHA-256 identities `09ba7e3336621a54e0eeb07f9114995e0dad835a19d0c2f05b93f4391046e8b3` / `f2427fec894a41c51eeb94a4c7c5ea95fdf3090daaf350ccbc081e4cfd4fce9f` passed focused planning gates. Pane `%263` ran from clean detached worktree `controlled-20260729-prompt-update/canary-3` at the fixed baseline; all 51 baseline tests passed.
-
-Ordinary planning used the unchanged realistic task without a decomposition override. The immutable graph made the joint runtime/test item, types item, and README item concurrently ready, followed only by final validation. Profile SHA-256 was `712517fe7194f0343c9e65077ed1661a38b54d36f4936a2702cef52712e1e099`, 1,884 bytes; packet SHA-256 was `19aae3ecf5629efe52d771cba408659bd7ace8c5ca228b24297a14e4a2feecba`, 30,042 bytes. Dry-run `2026-07-29T17-04-06-745Z-0ccaa087` passed with zero attempts or tokens.
-
-Live canary `2026-07-29T17-07-55-275Z-f8eca267` completed after types and README passed on their original Terra attempts and the original Terra runtime candidate failed four XO checks. Sol validation repair 1 received the original Worker summary, repaired the cumulative candidate, and passed. Both ordered final `npm test` gates and an independent 55-test run passed on exact accepted tree `02541d0d3dc8b18df9a36220664e873ac3d53cc9`.
-
-The run took 267.536s, used 340,140 tokens, and cost `$0.497531`; the profiler recorded a 224.839s completion boundary and 48.313s node overlap. Cleanup took 6.366s with no current-run worker process, worker worktree, or execution lock. Pane `%263` remains visible. The user paused repetitions 1–3 before any repetition resources or runs were created, so no median, range, reliability rate, or SLO is reported.
-
-## 2026-07-29 safe-parallelism prompt canary
-
-Source commit `3926f8f57d4b454cf31f0fe676ac74ddd9b51069` plus the user's uncommitted batching-discipline SHA-256 `84e9661ee7325a98b0003518e2e9d6846efbbe9b67387e403a7bfac389209898` and implementation-plan prompt SHA-256 `e6d7a3c46f8d05278cc6803886c16e01ed41e6c83087c81c00e25b236c2b1b48` passed the full Fanout check, provider tests, and diff check. Pane `%262` ran from clean detached worktree `controlled-20260729-prompt-update/canary-2` at the fixed baseline; all 51 baseline tests passed. Pane `%261` was closed only after `%262` was confirmed alive.
-
-Ordinary planning used the unchanged realistic task without a decomposition override. Phase A produced a joint runtime/test item (`index.js`, `test.js`), a types item (`index.d.ts`, `index.test-d.ts`), and a documentation item (`readme.md`). Honest typed reads from types to `index.js` and documentation to `index.d.ts` made the immutable graph serial; no fusion occurred. The fresh profile included isolated preparation, offline readiness, deterministic XO candidate normalization, and `npm test`. Profile SHA-256 was `b0b890d05e72ebe3afea325e09b2250841a22bce9cac8cf59c7a200004e88894`, 1,873 bytes; packet SHA-256 was `d9a09e778e3290ee5ba14de71fc954ce38acce85ed09f10a26f99328e586b55b`, 30,974 bytes.
-
-Dry-run `2026-07-29T16-34-47-209Z-b71541d6` passed. Live canary `2026-07-29T16-35-28-543Z-9dbcf498` completed after the original Terra runtime candidate failed two XO checks, Sol repair 1 passed XO but failed one existing out-of-order iterable test, and Sol repair 2 passed. Types and documentation passed on their original Terra attempts. Both ordered final `npm test` gates and an independent 54-test run passed on exact accepted tree `7cd01449805065d2a57f732e2d7431875d216b9e`.
-
-The run took 525.529s, used 539,203 tokens, and cost `$0.833411`; the profiler recorded a 467.485s completion boundary and zero node overlap. Cleanup took 7.681s with no current-run worker, worker worktree, process, or lock leak. Runtime summary continuity held original → repair 1 → repair 2, and summaries remained outside Event v4. Pane `%262` remains visible. This is another fresh packet/profile sample, not an identical repetition, so no median, range, reliability rate, or SLO is reported.
-
-## 2026-07-29 action-first prompt canary
-
-Source commit `3926f8f57d4b454cf31f0fe676ac74ddd9b51069` plus the user's uncommitted batching-discipline SHA-256 `25597ad6f2447a08073b20ac7b44921a60745811e7833bea82ce9826435e4281` passed the full Fanout and provider gates before execution. Pane `%261` ran from fresh detached worktree `controlled-20260729-prompt-update/canary` at the fixed p-map baseline; all 51 baseline tests passed.
-
-Fresh planning used the realistic task without a boundary override. The action-first Phase A prompt grouped `index.js`, `test.js`, types, type tests, and documentation into one work item. This safely preserved the inseparable runtime/test boundary but removed the previous parallel types/docs branches. The fresh profile omitted candidate normalization. Profile SHA-256 was `7e1adb3fda9cf4c2846020292f53cdc80f9496e85dde2ef3189a553df013a633`, 1,380 bytes; packet SHA-256 was `c0855dbdaf07d2a642e0eb16c52f450d22b38efea75051abcd3bde554eb76779`, 24,650 bytes.
-
-Dry-run `2026-07-29T15-39-45-828Z-f95147c9` passed. Live canary `2026-07-29T15-40-31-736Z-90f6d680` completed after the original Terra candidate failed XO and one Sol validation repair passed. Both ordered final `npm test` gates and an independent 56-test run passed on exact tree `8ab065bea4d19f73bae7036278666028d0b3db55`.
-
-The run took 416.529s, used 629,129 tokens, and cost `$0.657389`; the profiler recorded a 381.009s completion boundary and zero node overlap. Cleanup took 2.879s with no current-run worker, worktree, process, or lock leak. Immediate worker-summary continuity held and summaries remained outside events. Pane `%261` was retained through evidence capture, then closed after replacement pane `%262` was alive. Because the plan shape and profile changed, this is not an identical repeat and no median, range, reliability rate, or SLO is reported.
-
-## 2026-07-28 realistic-task stopping result
-
-Reviewed planning fix `0f008e1a94b6abad78e188fbac6d74517d7b89b3` ran from pane `%259` against realistic issue-style task SHA-256 `fbce63dd802d73b83d7861c3981d7a4fd4f1b4bd79aff92c5e0e3175c737e585`. Ordinary planning used no decomposition override and produced one runtime work contract owning and reading both `index.js` and `test.js`.
-
-The fresh profile was SHA-256 `441847c95a17aa63dbb949556c7126809fbc7498e60a7972563d304e9a7908e6`, 2,054 bytes; packet SHA-256 `d2f5aba9b5c91e3bea50b13025b875b56e34f1a9e8a62726706c7cb51a690c72`, 46,540 bytes. Their pointer and artifact bytes remained unchanged through dry-run and live execution.
-
-Dry-run `2026-07-28T13-18-11-916Z-43f4ee83` passed. Live canary `2026-07-28T13-19-03-879Z-2f6c81a7` stopped after the joint runtime/test node used both validation repairs. The terminal AVA output passed the new deterministic abort coverage but failed the existing timing-bound `pMapIterable - concurrency: 2` assertion at 304.840 ms. One isolated byte-exact replay of rejected tree `f25f683277d723bc9419151564eaec7103fae947` failed the same assertion at 303.720 ms while the new tests again passed, indicating a repeatable candidate scheduling regression rather than a simple one-off flake. The documentation node's accepted tree `01fe048ef351ae311607da711ae456b7c1e060e8` passed the independent 51-test baseline. Cleanup removed current-run workers, worktrees, processes, and the lock; failed pane `%259` remains visible.
-
-The run took 387.393s, used 548,192 tokens, and cost `$1.028695`; the profiler recorded a 367.567s prefix and 71.500s parallel overlap. Immediate worker-summary continuity held through both runtime repairs and the documentation repair, while summaries remained outside outcomes and events. The stop rule prevented repetitions 1–3. This revised-task input is not byte-identical to prior cohorts, so no completed-run median, range, reliability rate, or SLO is reported.
-
-## 2026-07-28 Worker-summary stopping result
-
-Reviewed Worker-summary commit `a06755bf3bbfab06e64a3915cfed1cdbb0647409` plus reviewed confirmation fix `3fef09013dde4ad32e1446bd76201d8f2f161e49` used fresh panes `%252` and `%253` in detached `controlled-20260728-worker-summary/{canary,rep-1}` worktrees. Tier 1 was `openai-codex/gpt-5.6-sol` medium, async Tier 2 was disabled, and the Tier 2 fallback was `openai-codex/gpt-5.6-terra` medium. The exact packet was SHA-256 `d2a0e3726b78abfdba02709ba86798e91d0f2975cbc97e737c66ed0fb4cd76ea`, 38,661 bytes; its profile was SHA-256 `77573f46e3b2f8dbbb975a3e6ca73ee583ad37ca454d6ff6842edd3c1172c6c0`, 2,230 bytes. Pointer and artifact identities matched exactly across both runs.
-
-Corrected canary `2026-07-28T10-59-03-363Z-f88ca6ff` completed in 420.728s for 486,170 tokens and `$0.8393655`; final validation and an independent 55-test run passed on tree `73e501a361dbb433faae3bc4ef6c013021076584`. Repetition 1 `2026-07-28T11-11-03-020Z-81129b36` stopped after `runtime-tests` exhausted its two validation repairs: its deterministic pending-abort test exposed production `index.js` destructuring an undefined abort-race result, which the test-only worker could not repair. The accepted partial tree `f1863b2c735f9d82ece8d31664ea1dde5490d52c` passed the original 51 tests. It ran 396.535s, used 529,343 tokens, and cost `$1.0167785`.
-
-The canary proved original → repair 1 and repair 1 → repair 2 summary continuity; summaries remained confined to prompts and optional `result.json` evidence and were absent from authoritative outcomes/events/projections. Pane `%252` was closed after capture; failed pane `%253` remains visible. No lock or current-run worker/worktree leaked. The stop rule prevented repetitions 2–3. With only one completed run, no median, completed-run range, reliability rate, or SLO is reported.
+This is the historical task definition and operator procedure. The detailed 2026-07-14 through 2026-07-29 canary outcomes, qualifications, source identities and metrics are in the [canary tracker](p-map-abort-signal-canary-tracker.md). Its latest prompt canary completed, but the user paused repetitions before they began; the stable-runtime release gate remains open.
 
 ## Objective
 
@@ -66,8 +18,8 @@ Do not automate the benchmark, create routing variations, or modify benchmark fi
 | Upstream SHA | `3ada5f36632aca8df860c376856270b6d2ba2de8` |
 | Reproducible local baseline | `c3c261e2189f94d1a09724e8f03d5345af518017` |
 | Baseline difference | committed `package-lock.json` only |
-| Install | `rtk npm ci --ignore-scripts` |
-| Baseline validation | `rtk npm test`; 51 tests |
+| Install | `npm ci --ignore-scripts` |
+| Baseline validation | `npm test`; 51 tests |
 
 The benchmark lives outside the Fanout repository, and the nested p-map repository must have no Git-visible changes when planning or executing. Hardened preflight requires the captured planning tree to equal its commit tree so detached workers can reconstruct it, then requires the active commit/full Git-visible tree to remain identical to that packet base.
 
@@ -76,7 +28,6 @@ The benchmark lives outside the Fanout repository, and the nested p-map reposito
 - The user operates Pi and explicitly authorizes every live or cost-incurring step; this runbook is not authorization.
 - The monitoring assistant must not initiate provider calls or live execution.
 - Run benchmark Git commands from the nested p-map repository.
-- Prefix executable shell commands with `rtk`.
 - Do not expose or commit API keys.
 - Preserve outer-repository work.
 - Do not commit benchmark or Fanout changes unless explicitly requested.
@@ -95,9 +46,9 @@ cd <p-map-benchmark>/repo
 Confirm the fixed baseline:
 
 ```bash
-rtk git status --short --branch
-rtk git rev-parse HEAD
-rtk npm test
+git status --short --branch
+git rev-parse HEAD
+npm test
 ```
 
 Required state:
@@ -115,15 +66,15 @@ The nested branch being one commit ahead of upstream is expected because the rep
 Confirm the existing visible target:
 
 ```bash
-rtk tmux has-session -t doubleword
-rtk tmux list-windows -t doubleword
+tmux has-session -t doubleword
+tmux list-windows -t doubleword
 ```
 
 For every canary or repetition, create a new pane rooted at that run's absolute clean p-map worktree, record the returned pane ID, then select it:
 
 ```bash
-rtk tmux split-window -t doubleword:fanout-canary -c <absolute-run-worktree> -P -F '#{pane_id}' -- env -u DOUBLEWORD_API_KEY pi -e <fanout-source>/packages/fanout-pi/src/index.ts
-rtk tmux select-pane -t <pane-id>
+tmux split-window -t doubleword:fanout-canary -c <absolute-run-worktree> -P -F '#{pane_id}' -- env -u DOUBLEWORD_API_KEY pi -e <fanout-source>/packages/fanout-pi/src/index.ts
+tmux select-pane -t <pane-id>
 ```
 
 Do not set `FANOUT_WORKTREE_SHARED_PATHS`; current execution rejects it. Do not automatically kill the pane after completion. Visible output remains benchmark evidence, and pane cleanup is manual after evidence collection.
@@ -199,7 +150,7 @@ The active profile, not details or the packet, declares candidate
 normalization. Packet final commands execute before profile-required final
 gates.
 
-Evaluate this contract semantically rather than by textual equality with the table. Safe, non-mutating validation commands may be added when they are traceable to task requirements and preserve the authoritative final validation. Command wrappers such as `rtk` are operational conveniences, not packet-correctness requirements. Record harmless presentation differences separately; reject only behavior that changes ownership, dependencies, safety boundaries, required behavior, or authoritative validation. Generated summaries must either agree with the authoritative packet or clearly label omitted detail.
+Evaluate this contract semantically rather than by textual equality with the table. Safe, non-mutating validation commands may be added when they are traceable to task requirements and preserve the authoritative final validation. Optional command wrappers are operational conveniences, not packet-correctness requirements. Record harmless presentation differences separately; reject only behavior that changes ownership, dependencies, safety boundaries, required behavior, or authoritative validation. Generated summaries must either agree with the authoritative packet or clearly label omitted detail.
 
 Only these files may be writable:
 
@@ -241,7 +192,7 @@ Expected behavior:
 After dry-run, confirm from the nested repository:
 
 ```bash
-rtk git status --short --branch
+git status --short --branch
 ```
 
 A difference between the accepted plan and dry-run output is a Fanout correctness or observability finding. Do not proceed until it is understood.
@@ -274,13 +225,13 @@ Do not manually edit p-map while execution is active.
 After execution, run from the nested repository:
 
 ```bash
-rtk git status --short
-rtk git diff --name-only
-rtk git diff --check
-rtk npm test
-rtk git worktree list --porcelain
-rtk ps -axo pid,etime,command
-rtk tmux list-panes -t doubleword:fanout-canary -F '#{pane_id} #{pane_current_path} #{pane_dead} #{pane_current_command}'
+git status --short
+git diff --name-only
+git diff --check
+npm test
+git worktree list --porcelain
+ps -axo pid,etime,command
+tmux list-panes -t doubleword:fanout-canary -F '#{pane_id} #{pane_current_path} #{pane_dead} #{pane_current_command}'
 ```
 
 Verify:
@@ -288,7 +239,7 @@ Verify:
 - only the five allowed files changed;
 - Fanout did not commit the active worktree;
 - the integrated diff implements the task rather than merely satisfying a test;
-- independent `rtk npm test` agrees with reported final validation;
+- independent `npm test` agrees with reported final validation;
 - reported status agrees with actual Git state.
 
 ## 9. Artifact inspection
