@@ -6,6 +6,8 @@ Dataset: <https://huggingface.co/datasets/badlogicgames/pi-mono>
 
 The original sample contains three raw Pi session JSONL files. These external files live under ignored `datasets/traces/pi-mono-sample/` when fetched locally; do not commit them.
 
+An earlier revision accidentally tracked one complete sample session. The public tree no longer includes it. The counts below are historical summaries from the original external data; rerunning those measurements requires obtaining the dataset separately. The repository smoke check uses generated synthetic input and does not reproduce these observed results.
+
 Later experiments also downloaded the full `badlogicgames/pi-mono` dataset under ignored local storage `datasets/traces/pi-mono-full/` for TAT bucket code-shard evaluation. See [`tat-bucket-code-shards.md`](tat-bucket-code-shards.md).
 
 ## Trace inventory
@@ -16,13 +18,13 @@ Later experiments also downloaded the full `badlogicgames/pi-mono` dataset under
 | medium-pr-review-merge | `2026-01-16T11-12-35-796Z_105b45a9-be31-4997-95c3-c95ab814daf8.jsonl` | `105b45a9-be31-4997-95c3-c95ab814daf8` | 49 | 2 | 22 | 25 |
 | large-issue-732 | `2026-01-16T02-37-34-075Z_4293a326-81ca-4327-b450-85275e1ca645.jsonl` | `4293a326-81ca-4327-b450-85275e1ca645` | 320 | 19 | 157 | 144 |
 
-## First user request snippets
+## Task descriptions
 
-| Label | First user text |
+| Label | Task type |
 | --- | --- |
-| tiny-tools | `ok, do some stuff` |
-| medium-pr-review-merge | `You are given one or more GitHub PR URLs: https://github.com/badlogic/pi-mono/pull/765 ...` |
-| large-issue-732 | `Analyze GitHub issue(s): https://github.com/badlogic/pi-mono/issues/732 ...` |
+| tiny-tools | Short tool-use session |
+| medium-pr-review-merge | Pull request review and merge |
+| large-issue-732 | Issue analysis |
 
 ## Assistant turns between user messages
 

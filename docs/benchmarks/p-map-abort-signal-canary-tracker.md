@@ -215,8 +215,8 @@ sequence and therefore requires a new canary before any further repetitions.
 | Fanout branch | `feature/fanout-execute` |
 | Fanout candidate | `c75ff9a` |
 | p-map fixture | `c3c261e2189f94d1a09724e8f03d5345af518017` |
-| Task brief | `/Users/snehalyelmati/Documents/p-map-abort-signal/TASK.md` |
-| p-map repository | `/Users/snehalyelmati/Documents/p-map-abort-signal/repo` |
+| Task brief | `<p-map-benchmark>/TASK.md` |
+| p-map repository | `<p-map-benchmark>/repo` |
 | Baseline | clean; 51 tests passed |
 | Visible session | tmux `doubleword:fanout-canary` |
 
@@ -254,7 +254,7 @@ Historical Attempt 14 used `FANOUT_WORKTREE_SHARED_PATHS`. The current generatio
 | Offline diagnosis and repair | Pi 0.80.6 queues `sendUserMessage(..., {deliverAs: "followUp"})` called from `agent_end` without emitting `before_agent_start`. Phase B therefore missed its controller prompt, tool state, `planRunId`, and `phase`. Candidate `7020ea0` defers initial and repair turns until Pi settles, removes unpublished pointer context from internal planning prompts, and clarifies controller-owned output semantics. | Focused planning smokes and full `rtk npm run check` passed. First two-axis review: Standards 0, Spec 2; both findings fixed. Second review: Standards 0, Spec 0. No provider call. |
 | Attempt 3 after `/quit`, fixed-candidate restart, and `/new` | Phase A recovered from one invalid `advisoryNotes.kind` submission and was accepted. The repaired Phase B handoff carried `planRunId`/`phase`, submitted details, and passed details validation. Compilation then rejected the apparently correct `final-validation` item with `invalid-final-validation-id` and `final-validation-count`. | Artifact run `20260714-064938099-read-task-md-and-implement-that-benchmar`; observability session `2026-07-14T06-49-19-903Z-11902`. Wall 276.526s; 11 turns; 27 tools; 475,066 total tokens including cache reads; estimated cost `$1.096699`; Phase A 151.265s; Phase B 125.261s. |
 | Offline final-validation diagnosis and repair | Phase B had duplicated compiler authority by submitting a reserved `final-validation` item in addition to top-level `finalValidationCommands`. Candidate `28fe079` rejects the reserved item at details admission with actionable recovery and tells Phase B that commands are the sole input for the compiler-owned node. | Artifact-shaped compiler regression, focused planning smokes, and full `rtk npm run check` passed. Two-axis review: Standards 0, Spec 0. No provider call. |
-| Attempt 4 after `/quit`, candidate restart, and `/new` | Phase A was accepted. The user requested stopping during Phase B so the benchmark could be moved out of the Fanout repository; no details artifact or packet was published. | Artifact run `20260714-065927102-read-task-md-and-implement-that-benchmar`; observability session `2026-07-14T06-59-08-331Z-45053`. Wall 109.261s; 5 turns; 20 tools; 88,017 total tokens including cache reads; estimated cost `$0.341871`. The full benchmark folder was moved cleanly to `/Users/snehalyelmati/Documents/p-map-abort-signal`. |
+| Attempt 4 after `/quit`, candidate restart, and `/new` | Phase A was accepted. The user requested stopping during Phase B so the benchmark could be moved out of the Fanout repository; no details artifact or packet was published. | Artifact run `20260714-065927102-read-task-md-and-implement-that-benchmar`; observability session `2026-07-14T06-59-08-331Z-45053`. Wall 109.261s; 5 turns; 20 tools; 88,017 total tokens including cache reads; estimated cost `$0.341871`. The full benchmark folder was moved cleanly to `<p-map-benchmark>`. |
 | Attempt 5 from the relocated repository after fresh `/new` | Phase A and Phase B each recovered from one schema-guided submission correction and were accepted. Compilation rejected the synthesized final-validation node: its reads of the five owned files were not grounded, and the runtime-test node's typed forbidden write for `index.js` collided with the runtime implementation owner and final validation. | Artifact run `20260714-070403903-read-task-md-and-implement-that-benchmar`; observability session `2026-07-14T07-03-42-404Z-48572`. Wall 269.194s; 9 turns; 23 tools; 292,351 total tokens including cache reads; estimated cost `$0.901173`; Phase A 145.227s; Phase B 123.968s. Compiler errors: one `owned-forbidden-overlap`, five `planned-read-not-grounded`, and one `write-forbidden-overlap`. |
 | Offline Attempt 5 diagnosis and repair | Exact-byte replay reproduced all seven errors. Removing the reserved Phase A final item removed the five grounding errors; removing `index.js` from the runtime-test forbidden sets removed both authority collisions; removing both produced the intended five nodes and runtime-to-tests-to-final edges. Candidate `fd5ca1f` rejects reserved Phase A final authority and any Phase A packet-global forbidden write overlapping planned write authority, with planning prompt guidance. | Focused compiler, planning, planning-boundary, and diff checks passed; full `rtk npm run check` passed. First two-axis review: Standards P2 because Phase A did not yet explain packet-global forbidden scope; Spec P1 because a Phase-B-only cross-owner forbidden write still passed details admission. No provider call. |
 | Review-finding repair | Candidate `a250e4e` explains packet-global forbidden scope before Phase A submission and passes the accepted plan into Phase B admission, where cross-owner forbiddens now fail immediately with actionable guidance. The regression models separate implementation and test items so the test-only forbidden guard cannot cancel implementation authority. | Focused compiler/planning/lifecycle smokes and full `rtk npm run check` passed. Final two-axis re-review: Standards 0, Spec 0. No provider call. |
@@ -305,31 +305,31 @@ Do not treat the displayed cost as a provider comparison or a completed-canary b
 ## Evidence paths
 
 - Runbook: `docs/benchmarks/p-map-abort-signal-manual-e2e.md`
-- 2026-07-28 Worker-summary planning artifacts: `/Users/snehalyelmati/.pi/agent/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar`
-- 2026-07-28 initial Worker-summary dry-run: `/Users/snehalyelmati/.pi/agent/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-24-22-168Z-8dab93a2`
-- 2026-07-28 initial stopped live run: `/Users/snehalyelmati/.pi/agent/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-24-49-234Z-12637a82`
-- 2026-07-28 corrected canary dry-run: `/Users/snehalyelmati/.pi/agent/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-58-27-522Z-6667ab27`
-- 2026-07-28 corrected canary live run: `/Users/snehalyelmati/.pi/agent/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-59-03-363Z-f88ca6ff`
-- 2026-07-28 repetition 1 dry-run: `/Users/snehalyelmati/.pi/agent/fanout/rep-1-b59f00098cff/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T11-10-26-097Z-f2a54d08`
-- 2026-07-28 stopped repetition 1 live run: `/Users/snehalyelmati/.pi/agent/fanout/rep-1-b59f00098cff/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T11-11-03-020Z-81129b36`
-- Accepted Phase A plan: `/Users/snehalyelmati/.pi/agent/fanout/repo-f3c0f3a183c0/20260714-062207785-read-task-md-and-implement-that-benchmar/implementation-plan.json`
-- Planning observability: `/Users/snehalyelmati/.pi/agent/fanout/repo-f3c0f3a183c0/observability/2026-07-14T06-18-43-347Z-33114/observability.jsonl`
-- Attempt 5 accepted plan: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-070403903-read-task-md-and-implement-that-benchmar/implementation-plan.json`
-- Attempt 5 accepted details: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-070403903-read-task-md-and-implement-that-benchmar/implementation-details.json`
-- Attempt 5 observability: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/observability/2026-07-14T07-03-42-404Z-48572/observability.jsonl`
-- Attempt 6 packet: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/execution-packet.json`
-- Attempt 6 pointer: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/active-packet.json`
-- Attempt 6 observability: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/observability/2026-07-14T07-22-35-922Z-49213/observability.jsonl`
-- Attempt 6 Pi crash: `/Users/snehalyelmati/.pi/agent/pi-crash.log`
-- Attempt 7 dry-run: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T07-39-21-318Z-75ca7aa4`
-- Attempt 8 live run: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T07-41-08-446Z-9fb2cd67`
-- Attempt 9 live run: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T07-58-00-678Z-d3bc6308`
-- Attempt 10 live run: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T08-22-47-500Z-f9d53ccf`
-- Attempt 11 live run: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T08-38-52-393Z-b11e33ea`
-- Attempt 12 live run: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T08-58-32-203Z-97a3eab5`
-- Attempt 13 packet and planning artifacts: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-095921357-read-task-md-and-implement-that-benchmar`
-- Attempt 13 live run: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-095921357-read-task-md-and-implement-that-benchmar/executions/2026-07-14T10-06-43-516Z-b1be4b1d`
-- Attempt 14 successful live run: `/Users/snehalyelmati/.pi/agent/fanout/repo-066724ea2003/20260714-095921357-read-task-md-and-implement-that-benchmar/executions/2026-07-14T10-17-57-391Z-5895ab5f`
+- 2026-07-28 Worker-summary planning artifacts: `<local-pi-agent>/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar`
+- 2026-07-28 initial Worker-summary dry-run: `<local-pi-agent>/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-24-22-168Z-8dab93a2`
+- 2026-07-28 initial stopped live run: `<local-pi-agent>/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-24-49-234Z-12637a82`
+- 2026-07-28 corrected canary dry-run: `<local-pi-agent>/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-58-27-522Z-6667ab27`
+- 2026-07-28 corrected canary live run: `<local-pi-agent>/fanout/canary-542788e65f3f/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T10-59-03-363Z-f88ca6ff`
+- 2026-07-28 repetition 1 dry-run: `<local-pi-agent>/fanout/rep-1-b59f00098cff/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T11-10-26-097Z-f2a54d08`
+- 2026-07-28 stopped repetition 1 live run: `<local-pi-agent>/fanout/rep-1-b59f00098cff/20260728-101941514-read-task-md-and-implement-that-benchmar/executions/2026-07-28T11-11-03-020Z-81129b36`
+- Accepted Phase A plan: `<local-pi-agent>/fanout/repo-f3c0f3a183c0/20260714-062207785-read-task-md-and-implement-that-benchmar/implementation-plan.json`
+- Planning observability: `<local-pi-agent>/fanout/repo-f3c0f3a183c0/observability/2026-07-14T06-18-43-347Z-33114/observability.jsonl`
+- Attempt 5 accepted plan: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-070403903-read-task-md-and-implement-that-benchmar/implementation-plan.json`
+- Attempt 5 accepted details: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-070403903-read-task-md-and-implement-that-benchmar/implementation-details.json`
+- Attempt 5 observability: `<local-pi-agent>/fanout/repo-066724ea2003/observability/2026-07-14T07-03-42-404Z-48572/observability.jsonl`
+- Attempt 6 packet: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/execution-packet.json`
+- Attempt 6 pointer: `<local-pi-agent>/fanout/repo-066724ea2003/active-packet.json`
+- Attempt 6 observability: `<local-pi-agent>/fanout/repo-066724ea2003/observability/2026-07-14T07-22-35-922Z-49213/observability.jsonl`
+- Attempt 6 Pi crash: `<local-pi-agent>/pi-crash.log`
+- Attempt 7 dry-run: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T07-39-21-318Z-75ca7aa4`
+- Attempt 8 live run: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T07-41-08-446Z-9fb2cd67`
+- Attempt 9 live run: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T07-58-00-678Z-d3bc6308`
+- Attempt 10 live run: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T08-22-47-500Z-f9d53ccf`
+- Attempt 11 live run: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T08-38-52-393Z-b11e33ea`
+- Attempt 12 live run: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-072338237-read-task-md-and-implement-that-benchmar/executions/2026-07-14T08-58-32-203Z-97a3eab5`
+- Attempt 13 packet and planning artifacts: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-095921357-read-task-md-and-implement-that-benchmar`
+- Attempt 13 live run: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-095921357-read-task-md-and-implement-that-benchmar/executions/2026-07-14T10-06-43-516Z-b1be4b1d`
+- Attempt 14 successful live run: `<local-pi-agent>/fanout/repo-066724ea2003/20260714-095921357-read-task-md-and-implement-that-benchmar/executions/2026-07-14T10-17-57-391Z-5895ab5f`
 
 ## Next decision
 

@@ -113,7 +113,7 @@ After each P0 loop:
 - Do not overwrite prior best prompts; append or mark them superseded.
 - Record batching, spawn-cap, direct-completion, or model-effort caveats in `synthesis.md`.
 - Run a final source-status check and record whether repo files outside ignored run artifacts changed.
-- For graduated prompts or durable procedure changes, copy `RESULTS.md`, `BEST_PROMPTS.md`, and `TEMPLATE.md` to their tracked `docs/benchmarks/fanout-dag-*` counterparts before committing docs.
+- For graduated prompts or durable procedure changes, curate scores, strategy summaries, and methodology into tracked `docs/benchmarks/fanout-dag-*` files. Keep full prompt text and run artifacts in ignored storage.
 
 ### P0 scoring rubric
 
