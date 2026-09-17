@@ -1,44 +1,60 @@
 # Fanout — Research Preview
 
-Fanout is an experimental parallel coding-agent harness for high-latency, low-cost inference. Models propose work; deterministic contracts govern scheduling, ownership, validation and bounded repair. Isolated workers produce candidates that the controller checks and integrates.
+**A parallel coding-agent harness for exploring high-latency, low-cost inference.**
 
-**When can parallel execution make inexpensive, slower inference competitive with an ordinary realtime coding agent?** This repository contains the working Pi integration, a standalone Doubleword provider, a local execution profiler, and a study of the conditions that determine completion time and cost.
+Fanout pairs a capable coordinator with parallel coding workers. Built on Pi, a coding agent, it turns repository tasks into reviewable work plans, runs workers in isolated Git worktrees, and validates their changes before integration. Planning, execution and repair are recorded so you can investigate where time and money go.
 
-- [Read the study](docs/STUDY.md): findings, experiment families, static figures and limitations.
-- [Try Fanout from source](docs/GETTING_STARTED.md): setup, offline checks and Pi commands.
-- [Inspect the curated results](docs/study/README.md): per-run summaries and figure reproduction.
-- [Use the Doubleword provider independently](packages/doubleword-provider/README.md).
+[Read the study](docs/STUDY.md) · [Run from source](docs/GETTING_STARTED.md) · [Explore the architecture](docs/ARCHITECTURE.md) · [Results and figures](docs/study/README.md)
 
-## What the study finds
+## Why Fanout?
 
-Earlier [Execa parallel-execution trials](docs/STUDY.md#historical-parallel-execution-execa) completed five fixed-packet runs with observed worker overlap and deterministic integration. Those historical execution results demonstrate the mechanism; full task savings depend on planning, validation and recovery. The [engineering lessons](docs/STUDY.md#lessons-from-building-the-harness) explain how repair ownership, validation scope and preserving repair progress shape that tradeoff.
+Slower inference can become useful when enough independent work runs together. A capable coordinator can establish scope and dependencies, while less expensive workers execute in parallel. Better worker quality and fewer sequential requests leave more room for coordination and repair.
 
-Parallel execution can overlap request latency and amortize coordination when there is enough independent work. Its modeled winning region depends on useful width, sequential requests, worker throughput, prices and repair overhead. Parallelism alone does not reduce total token cost.
-
-Experiments identified concrete bottlenecks: repeated planning, long worker request chains, validation scope and expensive repairs. Combined planning and prepared source context reduced overhead in the p-map pilot, but did not establish a reliable advantage over ordinary Pi. Complete-candidate experiments explore reducing request depth, both inside Fanout and in a separate whole-task experiment. The whole-task variant produced positive p-map and qs observations and failed quality/cost comparisons on a larger shared-contract task.
-
-These are useful constraints on the architecture. Which task/model/provider combinations repeatedly deliver correct completion at lower cost and comparable time remains an empirical question. The [report](docs/STUDY.md) separates measured results, fixed-trace counterfactuals and hypothetical provider designs. This preview does not claim a completed successful async-versus-realtime coding benchmark or a production reliability guarantee.
+Fanout gives that idea a working implementation and an experimental foundation: a Pi integration, an independent Doubleword provider, a local execution profiler, and a study of the conditions under which the tradeoff can work.
 
 ## How Fanout works
 
 ```mermaid
-flowchart LR
-  A[Repository objective] --> B[Fast planning and source preparation]
-  B --> C[Controller compiles contracts and derives the DAG]
-  C --> W1[Isolated worker]
-  C --> W2[Isolated worker]
-  C --> W3[Isolated worker]
-  W1 --> V[Ownership and candidate checks]
+flowchart TD
+  A[Repository task] --> B[Plan and compile work]
+  B --> W1[Worker A]
+  B --> W2[Worker B]
+  B --> W3[Worker C]
+  W1 --> V[Check candidate changes]
   W2 --> V
   W3 --> V
-  V -->|Recoverable failure within budget| R[Bounded repair]
+  V -->|Recoverable failure| R[Repair within budget]
   R --> V
-  V -->|Pass| I[Verified integration and final checks]
+  V -->|Pass| I[Integrate and validate]
 ```
 
-Concurrency follows actual dependencies and repair authority. Each worker can use Pi's normal iterative loop; complete-candidate delivery is an independent experimental dimension. Runtime code and its tightly coupled tests usually need one repair owner. Separate coordinator and worker model roles support different capability/cost choices, while the packet freezes each run's assignments.
+Models propose the work; the controller compiles dependencies, enforces write boundaries and integrates validated changes. Actual dependencies determine concurrency. Coordinator and worker models can differ, each worker keeps Pi's normal iterative loop, and fixed retry and repair budgets keep recovery bounded.
 
-In a configured Pi session:
+## Problems that shaped Fanout
+
+The coding benchmarks use feature tasks in real open-source projects. [p-map](https://github.com/sindresorhus/p-map) is a JavaScript library for running asynchronous work concurrently; [Execa](https://github.com/sindresorhus/execa) runs external commands from Node.js. These are projects the agents worked on.
+
+**A convincing plan can still be impossible to execute.** An early evaluation accepted individual work units whose combined dependencies formed a cycle. Models describe changes and required inputs; a deterministic compiler constructs and checks the execution graph before workers launch. [Why the compiler owns scheduling](docs/STUDY.md#architecture-and-comparison-framework).
+
+**Workers need tasks they can repair.** Splitting implementation and tests looked parallel, but left a test worker able to detect a defect it had no permission to fix. Fanout groups tightly coupled code and tests under one owner, while independently authorable work can proceed concurrently. [How task boundaries evolved](docs/STUDY.md#decompose-around-repair-ownership).
+
+**Some model failures were formatting problems.** Two early p-map runs exhausted their final repairs on formatting. An offline reconstruction passed all 55 tests after one formatter run. Repository profiles now declare normalization steps that run before validation, leaving model repair for remaining failures. [The normalization decision](docs/DESIGN_DECISIONS.md#normalize-candidates-only-through-packet-declared-commands).
+
+**Failed attempts can contain progress worth keeping.** Rebuilding repairs from accepted code discarded earlier corrections. Fanout now carries verified changes that failed validation into the next repair, keeping them separate from accepted changes until a candidate passes the required checks. [How repair continuity works](docs/DESIGN_DECISIONS.md#preserve-rejected-repair-candidates-cumulatively).
+
+Other lessons include [sharing planning context](docs/STUDY.md#separate-artifact-structure-from-model-context) and [displaying reports without feeding them back to the model](docs/research/pi-report-context-boundary.md).
+
+## Explore the study
+
+The study follows the investigation from ordinary agent workflows to working parallel execution. Five fixed-configuration [Execa runs](docs/STUDY.md#historical-parallel-execution-execa) completed with worker overlap and validated integration. Further experiments explored planning overhead, worker request depth, repair costs and provider latency.
+
+**Parallel Fanout is the primary architecture.** Whole-task candidate submission is a separate experiment in reducing sequential requests. The report brings both together with curated results, static figures and a model of favorable operating conditions.
+
+This is a research preview: measured outcomes apply to their tested configurations, and the matched realtime/async coding comparison remains open. The [study](docs/STUDY.md) documents the evidence and limits; the [methodology](docs/study/METHODOLOGY.md) explains reproducibility and new experiments. Raw execution traces stay local.
+
+## Try Fanout
+
+Follow the [source setup guide](docs/GETTING_STARTED.md), which includes an offline check requiring no Doubleword account. After loading the extension in Pi:
 
 ```text
 /fanout-config
@@ -47,38 +63,25 @@ In a configured Pi session:
 /fanout-execute
 ```
 
-Start with a clean target Git repository. Planning creates reviewable artifacts; execution asks for confirmation. Repository profiles declare preparation, normalization and validation commands. These are trusted local programs, and even dry-run preflight can invoke approved profile commands. See the [setup guide](docs/GETTING_STARTED.md) and [runtime guide](docs/FANOUT_GUIDE.md) before a live run.
+Start with a clean target Git repository. Planning creates reviewable artifacts; live execution asks for confirmation. Repository profiles declare trusted preparation, normalization and validation commands. Even dry-run preflight can invoke approved profile commands; review the profile before running it.
 
 ## Packages
 
 | Package | Responsibility |
 | --- | --- |
-| `doubleword-provider` | Standalone Pi provider for Doubleword realtime and async inference, with offline stubs |
 | `fanout-core` | Agent-independent contracts, compilation, scheduling, validation policy and evidence |
 | `fanout-pi` | Pi planning and execution adapter; keeps provider support separate from core |
-| `fanout-profiler` | Local, read-only evidence inspection, comparisons and fixed-behavior scheduling scenarios |
+| `doubleword-provider` | Standalone Pi provider for Doubleword realtime and async inference, with offline stubs |
+| `fanout-profiler` | Local, read-only run inspection and scheduling scenarios with recorded work held fixed |
 
-The Fanout workspaces are source-only and marked private for package publishing. The provider has its own [installation and configuration guide](packages/doubleword-provider/README.md). The existing profiler is a local engineering tool; this research release presents static figures and does not host an explorer or upload run artifacts.
+Run Fanout from source. The Doubleword provider is also available as a [separate install](packages/doubleword-provider/README.md). The profiler runs locally and reads your execution artifacts.
 
-## Evidence and reproducibility
+## Explore further
 
-The current research materials contain curated per-run metrics, methodology, static figures and synthetic test fixtures. New raw Fanout traces, model sessions, prompts and tool-event streams stay local and are excluded from tracked research assets. Historical measurements cannot be independently replayed from summaries alone. Figure arithmetic is reproducible from the published inputs; rerunning a model workflow is a new experiment. See [data provenance and limitations](docs/study/README.md) and the [publication checklist](docs/PUBLICATION.md).
-
-## Project documentation
-
-Current implementation references:
-
-- [Architecture](docs/ARCHITECTURE.md) and [domain glossary](CONTEXT.md)
-- Accepted decisions: [local trust](docs/adr/0001-inherit-pi-local-trust.md), [execution authority](docs/adr/0002-use-one-strict-execution-authority.md), [attempts and measurements](docs/adr/0005-route-attempts-from-typed-facts-and-fixed-budgets.md), and [normalization](docs/adr/0006-normalize-candidates-before-capture.md)
-- [Workflow and local profiler](docs/FANOUT_GUIDE.md)
-- [Planning contracts](docs/impl/phase-2b-fanout-plan.md) and [execution contracts and checks](docs/impl/phase-3-fanout-execute.md)
-- [Roadmap](docs/ROADMAP.md)
-
-Research and decision history:
-
-- [Research methods and historical protocol](docs/benchmarks/fanout-high-latency-study.md)
-- [Benchmark ledger](docs/BENCHMARKS.md)
-- [Dated design decisions](docs/DESIGN_DECISIONS.md)
+- [Architecture](docs/ARCHITECTURE.md): package boundaries, work contracts and execution.
+- [Design history](docs/DESIGN_DECISIONS.md): problems, decisions and revisions.
+- [Runtime guide](docs/FANOUT_GUIDE.md): commands, validation and the local profiler.
+- [Roadmap](docs/ROADMAP.md): implementation status and open questions.
 
 ## License
 
