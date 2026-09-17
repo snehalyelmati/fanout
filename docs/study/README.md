@@ -2,6 +2,8 @@
 
 `results.csv` is a **curated scalar summary**, not a trace or complete benchmark archive. It records selected p-map, qs, Pi764 and PR787 observations from [BENCHMARKS.md](../BENCHMARKS.md); `source_section` is the heading anchor for the public numerical source. Run identifiers are study-local labels. No prompt, session, tool event stream or local evidence path is exported.
 
+The report also presents historical evidence outside these 27 plotted observations. Its Execa table comes from the [fixed five-run cohort](../benchmarks/execa-web-streams-manual-e2e.md#2026-08-05-five-repetition-cohort), whose live execution durations and costs exclude planning. Provider calibration comes from the [realtime latency microbenchmarks](../BENCHMARKS.md#l1--realtime-doubleword-ttft-microbenchmark), which measure endpoint responses rather than coding-task completion. Both remain separate from the recent workflow chart; the [methodology](METHODOLOGY.md#boundaries-of-the-historical-evidence) records their measurement and acceptance limits. Early retrospective analysis and planning-only comparisons likewise remain explanatory evidence, not additional completed-run rows.
+
 `configuration` distinguishes ordinary Pi, iterative parallel Fanout, experimental batch parallel Fanout and the separate whole-task experiment. `routing_id` resolves to the exact role assignments below; every plotted run uses the OpenAI Codex realtime service at medium reasoning, with no Doubleword/async task run:
 
 | Routing ID | Model roles |
@@ -14,7 +16,13 @@
 
 `e2e_s` is the cohort's reported task-clock duration in seconds; historical p-map supplemental audit was outside that clock. `estimated_usd` is token-price arithmetic, not billed cash or provider operating cost. `responses` and `corrections` are reported counts where comparable; `NA` means this summary does not supply a count. A failed or interrupted run's values are consumed resources, not cost or time to correct completion. This selection must not be used to calculate a cross-family mean. [Accounting protocol](../benchmarks/fanout-high-latency-study.md#acceptance-and-full-e2e-accounting).
 
-`figures/measured-comparison.svg` (and PNG) plots each selected run on task-specific time and cost axes. Shape and explicit text show outcome, while color identifies configuration. Its apparent fast failed points are deliberately retained with their failure labels.
+## Measured workflow figure
+
+`figures/measured-comparison.svg` (and PNG) plots each selected run on task-specific time and cost axes. Shape and explicit text show outcome, while color identifies configuration. Its apparent fast failed points are deliberately retained with their failure labels. Historical acceptance and clock boundaries differ as described above; failed or interrupted points show resources consumed rather than time or cost to correct completion.
+
+![Measured per-run durations and estimated costs, with workflow families and failed or interrupted outcomes distinguished.](figures/measured-comparison.png)
+
+## Modeled feasibility figure
 
 `figures/modeled-feasibility.svg` (and PNG) is **hypothetical sensitivity**, with equal work `D×W` and synchronized homogeneous worker waves. Declared planning `P=307.086s`, final validation `V=296.075s` and work-envelope `E=279.310s` constants supply an illustrative time scale from the study's earlier visualization example. They are model inputs, not a reconstructed measured baseline. They do not measure ordinary Pi's serial-unit speed, future provider latency or model quality. For depth `D=2`, width `W=1..8`, concurrency `C=4`, added request delay `L=60s` and `r=1` or `4` sequential model requests per work unit:
 

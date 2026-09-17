@@ -1,6 +1,6 @@
 # Fanout — Research Preview
 
-Fanout is an experimental parallel coding-agent harness for high-latency, low-cost inference. A fast coordinator prepares bounded work units, workers execute in isolation, and validated changes are integrated with bounded repair.
+Fanout is an experimental parallel coding-agent harness for high-latency, low-cost inference. Models propose work; deterministic contracts govern scheduling, ownership, validation and bounded repair. Isolated workers produce candidates that the controller checks and integrates.
 
 **When can parallel execution make inexpensive, slower inference competitive with an ordinary realtime coding agent?** This repository contains the working Pi integration, a standalone Doubleword provider, a local execution profiler, and a study of the conditions that determine completion time and cost.
 
@@ -11,9 +11,11 @@ Fanout is an experimental parallel coding-agent harness for high-latency, low-co
 
 ## What the study finds
 
+Earlier [Execa parallel-execution trials](docs/STUDY.md#historical-parallel-execution-execa) completed five fixed-packet runs with observed worker overlap and deterministic integration. Those historical execution results demonstrate the mechanism; full task savings depend on planning, validation and recovery. The [engineering lessons](docs/STUDY.md#lessons-from-building-the-harness) explain how repair ownership, validation scope and preserving repair progress shape that tradeoff.
+
 Parallel execution can overlap request latency and amortize coordination when there is enough independent work. Its modeled winning region depends on useful width, sequential requests, worker throughput, prices and repair overhead. Parallelism alone does not reduce total token cost.
 
-Experiments identified concrete bottlenecks: repeated planning, long worker request chains, validation scope and expensive repairs. Combined planning and prepared source context reduced overhead in the p-map pilot, but did not establish a reliable advantage over ordinary Pi. Complete-candidate experiments explore reducing request depth, both inside Fanout and as a whole-task control. The whole-task variant produced positive p-map and qs observations and failed quality/cost comparisons on a larger shared-contract task.
+Experiments identified concrete bottlenecks: repeated planning, long worker request chains, validation scope and expensive repairs. Combined planning and prepared source context reduced overhead in the p-map pilot, but did not establish a reliable advantage over ordinary Pi. Complete-candidate experiments explore reducing request depth, both inside Fanout and in a separate whole-task experiment. The whole-task variant produced positive p-map and qs observations and failed quality/cost comparisons on a larger shared-contract task.
 
 These are useful constraints on the architecture. Which task/model/provider combinations repeatedly deliver correct completion at lower cost and comparable time remains an empirical question. The [report](docs/STUDY.md) separates measured results, fixed-trace counterfactuals and hypothetical provider designs. This preview does not claim a completed successful async-versus-realtime coding benchmark or a production reliability guarantee.
 
@@ -22,19 +24,19 @@ These are useful constraints on the architecture. Which task/model/provider comb
 ```mermaid
 flowchart LR
   A[Repository objective] --> B[Fast planning and source preparation]
-  B --> C[Validated work contracts and DAG]
+  B --> C[Controller compiles contracts and derives the DAG]
   C --> W1[Isolated worker]
   C --> W2[Isolated worker]
   C --> W3[Isolated worker]
   W1 --> V[Ownership and candidate checks]
   W2 --> V
   W3 --> V
-  V --> R[Bounded repair when needed]
+  V -->|Recoverable failure within budget| R[Bounded repair]
   R --> V
-  V --> I[Verified integration and final checks]
+  V -->|Pass| I[Verified integration and final checks]
 ```
 
-Concurrency follows actual dependencies and repair authority. Each worker can use Pi's normal iterative loop; complete-candidate delivery is an independent experimental dimension. Runtime code and its tightly coupled tests usually need one repair owner.
+Concurrency follows actual dependencies and repair authority. Each worker can use Pi's normal iterative loop; complete-candidate delivery is an independent experimental dimension. Runtime code and its tightly coupled tests usually need one repair owner. Separate coordinator and worker model roles support different capability/cost choices, while the packet freezes each run's assignments.
 
 In a configured Pi session:
 
@@ -54,7 +56,7 @@ Start with a clean target Git repository. Planning creates reviewable artifacts;
 | `doubleword-provider` | Standalone Pi provider for Doubleword realtime and async inference, with offline stubs |
 | `fanout-core` | Agent-independent contracts, compilation, scheduling, validation policy and evidence |
 | `fanout-pi` | Pi planning and execution adapter; keeps provider support separate from core |
-| `fanout-profiler` | Local, read-only inspection of your own execution artifacts |
+| `fanout-profiler` | Local, read-only evidence inspection, comparisons and fixed-behavior scheduling scenarios |
 
 The Fanout workspaces are source-only and marked private for package publishing. The provider has its own [installation and configuration guide](packages/doubleword-provider/README.md). The existing profiler is a local engineering tool; this research release presents static figures and does not host an explorer or upload run artifacts.
 
