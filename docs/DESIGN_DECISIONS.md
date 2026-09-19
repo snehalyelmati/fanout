@@ -14,6 +14,16 @@ This is a dated design history, including experiments, reversals and retained tr
 | Missing measurements blocked repository acceptance | [Separate valid partial evidence from contradictory evidence](#apply-the-approved-fanout-audit-cutover) |
 | Provider users inherited orchestration-specific metadata | [Keep Fanout capabilities in the adapter](#keep-fanout-capability-metadata-in-the-fanout-adapter) |
 
+## 2026-09-19
+
+### TTFT probe records client delivery boundaries, not inferred engine phases
+
+Decision: The standalone realtime probe persists private incremental body-read/SSE observations with a UTC request anchor and monotonic offsets. All events completed by one read share its receipt time. Reports distinguish reasoning deltas, text deltas, completed-response text fallback, completion, and stream closure; preserve raw usage; and leave unobserved boundaries and missing reasoning-token counts unavailable. No metric is named queue time, compute time, or avoidable wait without corresponding evidence. This change does not alter the Pi provider adapter.
+
+Reason: Reasoning can arrive long before visible text, while coalescing, prefill, buffering, and scheduling pauses prevent client delivery intervals from isolating engine phases. First observed reasoning can upper-bound initial pre-generation queueing, but generated work is not necessarily required work. Retaining original observations enables later analysis without treating retrieved metadata, absent usage, or per-event parse overhead as timing authority.
+
+The probe also accepts an explicit request file for repeated observation of an existing request. It preserves conversation/tool payloads, model settings, and the required output cap, defaults an omitted service tier to realtime priority, and records the source hash plus effective body privately. Replay never executes tools or claims output correctness. Missing exact-model prices remain unavailable rather than blocking collection; separately supplied rates must carry their own provenance. This is endpoint replay, not an agent workflow or accepted-code benchmark.
+
 ## 2026-09-16
 
 ### Prepare a public research preview with curated evidence

@@ -899,9 +899,13 @@ These are one local wall-clock observation, not a CI guarantee, provider benchma
 
 Status: two 100-call model cohorts completed on 2026-08-30 after two four-call live path validations.
 
-Purpose: isolate Doubleword endpoint latency from Pi startup and extension overhead for explicitly selected Doubleword model IDs and prompt sizes. The script requires one or more unique model IDs with committed realtime pricing, makes 50 sequential calls per model by default, alternates model order by round, and uses the same Responses settings as the provider: realtime `priority`, streaming, medium reasoning, and a 16,384-token output cap. Workload `short-ok` asks for exactly `OK`; `long-context-qa` generates 12,000 numbered records, places access code `COBALT` in record `06000`, and asks for only that code.
+Purpose: isolate Doubleword endpoint latency from Pi startup and extension overhead for explicitly selected Doubleword model IDs and prompt sizes. Built-in workloads require one or more unique model IDs with committed realtime pricing, make 50 sequential calls per model by default, alternate model order by round, and use the same Responses settings as the provider: realtime `priority`, streaming, medium reasoning, and a 16,384-token output cap. Workload `short-ok` asks for exactly `OK`; `long-context-qa` generates 12,000 numbered records, places access code `COBALT` in record `06000`, and asks for only that code.
 
-For each call it records response-header latency, first SSE-event latency, first-event-to-visible-text delay, visible output-text TTFT, total duration, status, response identity, streamed service tier, exact-output correctness, native token usage, and realtime cost from the committed exact-model pricing snapshot. Missing native usage produces `cost: null` rather than an estimate. Summaries report minimum, median, mean, p90, p95, and maximum for all calls and separately after the first call, plus usage/cost coverage and observed aggregate cost. Results are written under ignored `runs/doubleword-ttft/`; failed calls or output mismatches make the command exit nonzero after preserving the complete result.
+For each call it records response-header latency, first body bytes and SSE event, first/last reasoning delta, first/last text delta, response completion, stream closure, visible output-text TTFT, total duration, status, response identity, streamed service tier, exact-output correctness, raw and normalized token usage, and realtime cost from the committed exact-model pricing snapshot. Missing native usage produces `cost: null` rather than an estimate; missing reasoning-token counts and unobserved timing boundaries remain `null`. `ttftSource` distinguishes text deltas, text-done fallback, and text first observed in a completed response; an empty completion does not invent a TTFT. Summaries report count, minimum, median, mean, p90, p95, and maximum for each observed metric over successful calls and separately after the first call, plus usage/reasoning/cost coverage and observed successful-call aggregate cost. The reasoning-token total is unavailable unless every successful call reports it.
+
+Each run writes a private-permission `.events.jsonl` journal alongside its final JSON under ignored `runs/doubleword-ttft/`; the result names it in `observationsFile`. The journal is appended during execution, retaining partial evidence on interruption. Rows correlate `model` and `call`, with UTC `startedAt` on `request_start` and monotonic `receivedMs` offsets on headers, body reads, raw SSE events, stream closure, and the final call record. Body-read rows preserve decoded stream text and byte counts; SSE rows preserve event names and raw data, including terminal usage and failed/incomplete responses. Events completed in one body read share its timestamp, sampled before decoding, parsing, or logging. A fragmented event is timestamped by the read completing its frame. The journal can contain reasoning and output content; it must stay private. Request credentials are not logged. Failed calls or output mismatches make the command exit nonzero after preserving the result.
+
+`firstReasoningMs` covers nonempty `response.reasoning_summary_text.delta` or `response.reasoning_text.delta` events; the journal retains the distinction. `firstReasoningToTextMs` spans first observed reasoning to the first text delta, and `reasoningDeliverySpanMs` spans first to last reasoning delta. These are client delivery intervals, not queue or compute measurements. Time before reasoning includes network/upload, queueing, prefill, generation before delivery, and buffering; later delivery gaps may include scheduling pauses or buffering. First reasoning arrival can bound initial pre-generation queueing from above, but does not measure it. Token counts cannot make processing time necessary or unavoidable, and one request cannot establish an avoidable-delay baseline. Synchronous evidence logging also contributes client overhead. This instrumentation changes only the probe; canary provider-adapter timing remains separate.
 
 ```bash
 rtk npm run benchmark:doubleword-ttft -- \
@@ -909,7 +913,14 @@ rtk npm run benchmark:doubleword-ttft -- \
   <doubleword-model-id> [additional-model-id...]
 ```
 
-The command requires `DOUBLEWORD_API_KEY`, performs 50 paid requests per supplied model by default, and is not part of normal validation. There is no default model cohort. `DOUBLEWORD_TTFT_CALLS` overrides the default 50 calls per model, and `DOUBLEWORD_TTFT_CALL_TIMEOUT_MS` overrides the 300-second per-call timeout. Run the offline parser/statistics check with:
+To replay an exported Responses request, use `--request-file` instead of model/workload arguments. The file must specify `model`, `input`, `stream: true`, and a positive `max_output_tokens`. The original conversation, tools, reasoning settings, and token cap are preserved; omitted/null `service_tier` becomes `priority`, and other tiers are rejected by this realtime probe. The effective body is saved privately in a sibling `.request.json`, and the original file's SHA-256 is recorded. Unknown model pricing does not block this diagnostic mode: cost remains unavailable. No tool calls are executed, no correctness claim is made (`outputCorrect: null`, with `outputCheckCoverage`), and no automatic retries or redirects occur. A completed response is not evidence that the returned code works.
+
+```bash
+DOUBLEWORD_TTFT_CALLS=10 DOUBLEWORD_TTFT_CALL_TIMEOUT_MS=900000 \
+  rtk npm run benchmark:doubleword-ttft -- --request-file /path/to/input.json
+```
+
+The command requires `DOUBLEWORD_API_KEY`, performs 50 paid requests per supplied model by default, and is not part of normal validation. There is no default model cohort. `DOUBLEWORD_TTFT_CALLS` overrides the default 50 calls per model, and `DOUBLEWORD_TTFT_CALL_TIMEOUT_MS` overrides the 300-second per-call timeout. Run the offline parser/statistics and deterministic stream-timing checks with:
 
 ```bash
 rtk node scripts/benchmark-doubleword-ttft.mjs --self-test
@@ -954,6 +965,59 @@ All 20 calls returned exactly `COBALT` with native usage and exact-snapshot cost
 | Kimi K3 | 5 | 96,114 | 3,384.41 ms | 6,380.37 ms | 6,431.48 ms | 9,432.15 ms | 0 | `$1.44633000` |
 
 Combined exact-snapshot cost was `$1.89414678`. Relative to each short-prompt median, long-context median TTFT was about 11.9× for DeepSeek, 6.1× for Qwen, 2.8× for GLM, and 1.2× for Kimi. Qwen also had one 34.332-second outlier; with only five calls per model, these are diagnostic observations rather than stable tail distributions. Raw result: ignored `runs/doubleword-ttft/2026-08-30T11-19-47.435Z.json`.
+
+### 2026-09-19 — One-request long-context stream diagnostic
+
+One user-requested POST reused the exact `long-context-qa` prompt generator and SSE parser with `deepseek-ai/DeepSeek-V4.1-Flash`, requested `priority`, medium reasoning, a 16,384-token output cap, and a 300-second timeout. There were no retries or follow-up retrievals. This was temporary raw-stream instrumentation of the existing workload, not a change to the benchmark CLI or a new performance baseline. Request identity, original SSE bytes, read-chunk timings, parsed events, terminal response, headers, and summary remain local under ignored `runs/doubleword-ttft/2026-09-19T12-27-24.234Z-long-context-raw/`.
+
+The response returned exact `COBALT`: 96,056 input tokens, zero reported cache reads/writes, 33 output tokens, and an explicit 28 reasoning tokens. Headers arrived at 4.112s, the first reasoning-summary delta at 4.114s, the last such delta at 4.156s, visible text at 4.186s, completion at 4.190s, and stream closure at 4.191s. Eight `response.reasoning_summary_text.delta` events preceded text; four arrived in the first body read together with `response.created`. The observed first-reasoning-summary-to-text interval was 72.339ms, not a measurement of reasoning compute duration. Offline checks verified expected output, raw usage, event ordering/timestamps, and captured byte counts. Exact-model pricing was absent from the committed snapshot, so cost is unavailable, not zero.
+
+This demonstrates that this model/endpoint exposes reasoning-summary events and a reasoning-token breakdown which the current adapter does not preserve. It does not separate the first 4.114s into network, queue, prefill, generation, or buffering, and cannot retrospectively attribute another request's long first-text interval. Multiple events per body read prevent token-level timing claims. The streamed terminal response reported identical second-resolution `created_at` and `completed_at` despite the 4.191s client request, `reasoning: null` despite reported reasoning usage, and `service_tier: default` despite requested priority; these fields are not independent engine-phase or effective-tier evidence. One successful long-input, short-answer request does not establish coding latency, tail distributions, or the cause of a canary outlier.
+
+### 2026-09-19 — Twenty replays of the slow canary input
+
+The user-authorized cohort replayed the supplied console request 20 times, sequentially, in two batches of ten. Calls 11–20 used a new process/connection pool after the first batch finished. There were no retries, follow-up retrievals, tool execution, or output-quality checks. The original conversation (13 input items), seven tool definitions, `deepseek-ai/DeepSeek-V4.1-Flash`, medium reasoning, streaming, and 65,536-token output cap were preserved. The only body change was adding `service_tier: "priority"` to match the original canary; the export omitted it. Timeout was 900 seconds per call. Every stream reported `default`, so requested priority is recorded without claiming independent confirmation of effective service tier.
+
+Both manifests bind the same probe source and original input. Offline checks verified unchanged source/input hashes, identical effective bodies, exactly 20 request starts/ends and unique response IDs, complete gapless SSE sequences, monotonic receipt timestamps, and matching journal/result/native usage. All 20 completed with native reasoning counts; 14 returned text plus tool calls and six returned tool calls without text. Missing text TTFT remains unavailable, not zero or completion time. API completion does not establish code correctness.
+
+Times below are client seconds from request start. “Max reasoning gap” is the largest interval between consecutive distinct body-read receipt times carrying nonempty reasoning deltas, excluding the initial wait. It is not measured provider idle time.
+
+| Call | First reasoning | First text | Total | Reasoning tokens | Max reasoning gap |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 1.820 | 144.243 | 152.976 | 18,187 | 0.976 |
+| 2 | 0.737 | 69.814 | 78.488 | 10,596 | 0.720 |
+| 3 | 0.667 | 111.435 | 118.252 | 17,086 | 0.540 |
+| 4 | 1.280 | 83.334 | 86.579 | 17,479 | 0.472 |
+| 5 | 0.690 | 116.497 | 122.593 | 27,211 | 1.274 |
+| 6 | 0.821 | 110.644 | 118.532 | 16,363 | 0.953 |
+| 7 | 0.849 | 95.767 | 101.888 | 17,134 | 0.444 |
+| 8 | 0.644 | 123.682 | 130.292 | 22,379 | 0.812 |
+| 9 | 0.733 | — | 155.555 | 24,945 | 0.689 |
+| 10 | 0.673 | 129.552 | 141.183 | 23,751 | 1.019 |
+| 11 | 2.295 | 114.195 | 120.070 | 24,394 | 0.398 |
+| 12 | 0.690 | 118.189 | 124.210 | 24,787 | 0.881 |
+| 13 | 1.498 | 115.876 | 127.595 | 22,097 | 1.433 |
+| 14 | 0.646 | — | 60.820 | 9,487 | 0.446 |
+| 15 | 0.758 | 110.702 | 125.308 | 19,318 | 0.513 |
+| 16 | 0.677 | — | 95.186 | 15,548 | 0.462 |
+| 17 | 0.745 | — | 79.697 | 13,393 | 0.381 |
+| 18 | 0.750 | — | 72.044 | 12,180 | 0.839 |
+| 19 | 0.873 | — | 98.546 | 16,506 | 0.921 |
+| 20 | 0.659 | 118.098 | 130.319 | 17,815 | 0.917 |
+
+First reasoning arrived in 0.644–2.295s (median 0.737s, mean 0.925s, empirical P95 1.820s). Total duration was 60.820–155.555s (median 118.532s, mean 112.007s, empirical P95 152.976s). First text among the 14 text-bearing responses had a 114.195s median. Quantiles use nearest rank, matching the probe; these are descriptive statistics for one sequential input cohort, not stable population-tail estimates.
+
+Across all calls, 117,549 nonempty reasoning deltas arrived in 57,100 distinct reasoning-bearing body reads. Only three consecutive-read gaps exceeded one second; the largest was 1.433s. First-to-last reasoning delivery spans accounted for 93.16% of summed call duration; time before first reasoning accounted for 0.83%. These spans show ongoing delivery, not continuous GPU occupancy. Reported reasoning tokens divided by their delivery span ranged from 127.7 to 235.0 tokens/s; this is an effective delivery rate, not an engine decode rate.
+
+Every request reported 30,089 input tokens. Call 1 reported zero cache reads; calls 2–20 each reported 30,080. Totals were 30,260 uncached input, 571,520 cached input, zero cache writes, and 411,171 output tokens, including 370,656 reasoning tokens (90.15% of output). At the user's supplied rates of $0.15 uncached input / $0.01 cached input / $0.60 output per million tokens, estimated cohort cost is **$0.25695680**. Reasoning is included in output, not charged again. These rates are user-provided estimates, not confirmed billing or a change to the committed pricing snapshot; the probe's exact-snapshot cost remains unavailable for this model.
+
+The original console showed 227.20s total duration, not TTFT; client instrumentation recorded first visible text at 217.439s and total duration 228.687s. Its terminal usage reported 28,402 reasoning tokens within 30,657 output tokens, 30,089 input tokens, and 23,296 cached input tokens. The original export contains 9,214 reasoning deltas before text but no per-delta receipt times. No replay reproduced its duration. Call 5 generated nearly as many reasoning tokens (27,211) in 122.593s, demonstrating that token count alone cannot explain the original/replay latency difference; cache state, generated content, provider conditions, and effective delivery rates were not controlled.
+
+As a compatibility check, 28,402 reasoning tokens at 131 tokens/s take 216.8s. That rate falls within the observed replay delivery-rate range, so prompt reasoning onset with slower delivery can explain the original first-text interval without requiring a long queue. This is an illustrative assumption, not a measurement of the original rate or a reconstruction of its timeline.
+
+**Inference:** these replays exclude a large initial pre-generation queue as their dominant latency: reasoning was already arriving within 2.295s, and no long silent reasoning-delivery gap was observed. They do not establish the original request's queue/compute split, exclude many short scheduling pauses or buffering, or prove that all generated reasoning was necessary. A shorter successful API response is not a quality-preserving speedup. Measuring reducible latency without provider internals requires controlled changes (for example reasoning effort) with independent output validation; identifying exact queue/prefill/decode phases still requires trustworthy provider-side timing. No further paid experiments or routing changes were made.
+
+Private evidence remains under ignored `runs/doubleword-ttft/`: original `console-83c809f4/console.json` and `console.txt`; cohort stems `2026-09-19T13-14-03.378Z` and `2026-09-19T13-34-46.967Z` (`.json`, `.request.json`, `.events.jsonl`); manifests `2026-09-19T13-14-03.301Z.replay-manifest.json` and `2026-09-19T13-34-46.880Z.replay-manifest.json`; and derived scalar analysis `2026-09-19-replay-20.analysis.json`. Original input SHA-256: `48cdbb4a64087834cd02b692496e7cc410da8e2d1d9d16ca6c2e5d1ae35b1bab`. Request/journal files have mode `0600`; raw prompts, reasoning, and returned code are not published. Probe self-tests and syntax checks passed.
 
 ## Hardened execution baseline
 
