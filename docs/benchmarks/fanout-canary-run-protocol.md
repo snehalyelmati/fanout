@@ -48,7 +48,7 @@ git -C <target-repository> rev-parse HEAD
 git -C <target-repository> rev-parse 'HEAD^{tree}'
 ```
 
-Require the exact clean baseline and installed dependencies. Run the baseline validation unless the same clean fixture was already verified and the user explicitly waives the duplicate run. Stop on baseline, dependency, task, or platform drift.
+Require the exact clean baseline and installed dependencies. For all benchmarks, reuse recorded successful setup validation when preflight confirms the same baseline commit/tree, task, dependency state, and platform. Do not rerun baseline tests or request a per-run waiver for that unchanged fixture; record the reused setup evidence and identity checks instead. Run baseline validation during initial setup or when relevant state has changed or cannot be verified. Stop on baseline, dependency, task, or platform drift and re-establish the fixture before execution. This rule supersedes duplicate preflight-test instructions in historical task runbooks; it does not skip validation of generated implementations or required acceptance gates.
 
 ## 3. Prepare independent active worktrees
 

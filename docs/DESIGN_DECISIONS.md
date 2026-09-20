@@ -14,6 +14,14 @@ This is a dated design history, including experiments, reversals and retained tr
 | Missing measurements blocked repository acceptance | [Separate valid partial evidence from contradictory evidence](#apply-the-approved-fanout-audit-cutover) |
 | Provider users inherited orchestration-specific metadata | [Keep Fanout capabilities in the adapter](#keep-fanout-capability-metadata-in-the-fanout-adapter) |
 
+## 2026-09-20
+
+### Reuse successful setup validation for unchanged benchmark baselines
+
+Decision: Across all benchmarks, reuse recorded passing setup tests when preflight verifies the same clean baseline, task, dependency state, and platform. Skip duplicate baseline tests by default without a per-run waiver. Initial setup and changed or unverified fixtures require validation; required checks on generated implementations remain unchanged.
+
+Reason: Repeating setup tests against an already-verified unchanged fixture adds iteration time without testing the generated implementation. Record reused evidence and identity checks rather than treating a clean Git tree alone as proof of unchanged dependencies or environment.
+
 ## 2026-09-19
 
 ### TTFT probe records client delivery boundaries, not inferred engine phases

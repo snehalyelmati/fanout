@@ -1,5 +1,9 @@
 # Benchmark Metrics
 
+## Unchanged baseline validation reuse — 2026-09-20
+
+For all benchmarks, preflight reuses recorded successful setup validation when the clean baseline commit/tree, task, dependencies, and platform are unchanged and verified. Do not rerun baseline tests or require a per-run user waiver for that fixture. Initial setup and changed or unverified fixtures still require baseline validation; generated implementations still undergo their required validation and acceptance gates. Record the reused setup evidence and identity checks. The [common canary protocol](benchmarks/fanout-canary-run-protocol.md#2-verify-the-target-baseline) supersedes historical duplicate-preflight instructions. This reduces redundant preparation work; no measured timing improvement or change to historical results is claimed.
+
 ## Doubleword pricing refresh — 2026-09-20
 
 Regenerated the reviewed pricing snapshot from the official Doubleword catalogue using `npm run sync:doubleword-pricing`: 36 exact model IDs, up from 32. Added [DeepSeek V4.1 Flash](https://docs.doubleword.ai/inference-api/models/deepseek-ai-deepseek-v4-1-flash.md), [DeepSeek V4 Pro 0813](https://docs.doubleword.ai/inference-api/models/deepseek-ai-deepseek-v4-pro-0813.md), [MiMo V2.5 Pro](https://docs.doubleword.ai/inference-api/models/xiaomimo-mimo-v2-5-pro.md), and [GLM-5.3](https://docs.doubleword.ai/inference-api/models/zai-org-glm-5-3.md), each with realtime, async, and batch input/cache-read/output rates. Exact IDs and rates are in the [pricing snapshot](../packages/doubleword-provider/src/pricing.ts). The 32 existing models have no price or tier changes, and no models were removed.

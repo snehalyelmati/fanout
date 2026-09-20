@@ -48,14 +48,14 @@ Confirm the fixed baseline:
 ```bash
 git status --short --branch
 git rev-parse HEAD
-npm test
+git rev-parse 'HEAD^{tree}'
 ```
 
 Required state:
 
 - worktree is clean;
 - `HEAD` is `c3c261e2189f94d1a09724e8f03d5345af518017`;
-- all 51 baseline tests pass;
+- recorded setup validation passed all 51 baseline tests; reuse that evidence without rerunning tests when the fixture, dependencies, task, and platform are unchanged, following the [common baseline policy](fanout-canary-run-protocol.md#2-verify-the-target-baseline);
 - no stale execution lock is present;
 - the Fanout source revision used by the local extension is recorded with the run.
 

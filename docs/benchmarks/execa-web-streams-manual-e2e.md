@@ -37,11 +37,9 @@ cd <execa-benchmark>/repo
 rtk git status --short --branch
 rtk git rev-parse HEAD
 rtk git rev-parse HEAD^{tree}
-rtk npm ci --ignore-scripts --no-audit --no-fund
-rtk npm test
 ```
 
-Keep install and validation as separate commands. Stop if the tree is dirty, identity differs, or any baseline gate fails.
+Reuse recorded successful setup validation without reinstalling dependencies or rerunning baseline tests when the fixture, dependencies, task, and platform are unchanged, following the [common baseline policy](fanout-canary-run-protocol.md#2-verify-the-target-baseline). No per-run waiver is required. During initial setup or when re-establishing changed or unverified dependency state, use `rtk npm ci --ignore-scripts --no-audit --no-fund` and `rtk npm test` as separate commands. Stop if the tree is dirty, identity differs, or any required baseline gate fails.
 
 ## Plan and profile
 
