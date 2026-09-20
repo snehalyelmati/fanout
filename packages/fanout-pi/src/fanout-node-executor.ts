@@ -1,4 +1,5 @@
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
+import { writeDiagnostic } from "./artifact-store.ts";
 import { performance } from "node:perf_hooks";
 import type { AcceptedPatch, AcceptedStateTransition } from "../../fanout-core/src/artifact-identity.ts";
 import { verifyArtifactBytes, type ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
@@ -421,9 +422,11 @@ export class FanoutNodeExecutor {
 					signal,
 				});
 				const resolved = await this.#withApplyLock(async () => {
-					if (signal?.aborted) return await this.#completeAbortedAttempt(attempt, signal.reason);
 					const acceptedTree = this.#acceptedLedger.at(-1)?.patch.resultTree ?? this.#planningBase.tree;
-					if (acceptedTree !== currentConflict.acceptedTree || this.#acceptedLedger.length !== currentConflict.ledger.length) return undefined;
+					const ledgerAdvanced = acceptedTree !== currentConflict.acceptedTree || this.#acceptedLedger.length !== currentConflict.ledger.length;
+					writeDiagnostic(this.#runDir, `${relative(this.#runDir, reconciliationWorktree).split("\\").join("/")}-decision.json`, { runId: this.#runId, attemptId: attempt.attemptId, trial: ledgerAdvanceRetry, evidence: reconciliation.evidence, decision: signal?.aborted ? "discarded-on-abort" : ledgerAdvanced ? "discarded-on-ledger-advance" : reconciliation.ok ? "used" : "rejected", trialLedgerLength: currentConflict.ledger.length, decisionLedgerLength: this.#acceptedLedger.length, acceptedTree });
+					if (signal?.aborted) return await this.#completeAbortedAttempt(attempt, signal.reason);
+					if (ledgerAdvanced) return undefined;
 					if (!reconciliation.ok) {
 						if (["preparation-failed", "repository-failed"].includes(reconciliation.code)) {
 							return await this.#completeTerminalAttempt({

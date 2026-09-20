@@ -19,6 +19,7 @@ import { preflightValidationCommands } from "./validation-runner.ts";
 import { WORKER_MODEL_TOOLS, WORKER_TRUST_BOUNDARY } from "./worker-capabilities.ts";
 import { loadProjectExecutionProfile, validateProjectExecutionProfile } from "./project-execution-profile.ts";
 import { SHARED_WORKTREE_PATHS_ENV } from "./worktree-preparation.ts";
+import { writeDiagnostic } from "./artifact-store.ts";
 
 export interface ExecuteFanoutOptions {
 	cwd: string;
@@ -50,6 +51,7 @@ export interface ExecuteFanoutResult {
 
 export async function executeFanout(options: ExecuteFanoutOptions): Promise<ExecuteFanoutResult> {
 	const started = Date.now();
+	const admissionStarted = performance.now();
 	// Exact pointer/packet admission intentionally precedes lock creation and every repository mutation (A18).
 	const loaded = loadActiveExecutionPacket(options.activePointerPath, options.projectArtifactRoot);
 	if (process.env[SHARED_WORKTREE_PATHS_ENV] !== undefined || Object.hasOwn(options, "worktreeSharedPaths")) throw new Error(`${SHARED_WORKTREE_PATHS_ENV} and shared worktree paths are unsupported; refresh the Project Execution Profile`);
@@ -63,6 +65,7 @@ export async function executeFanout(options: ExecuteFanoutOptions): Promise<Exec
 	const runId = options.runId === undefined ? executionRunId() : canonicalRunId(options.runId);
 	const { maxConcurrency, failFast, fallbackAllowed } = loaded.packet.runtimePolicy;
 	const runDir = join(loaded.artifactDir, "executions", runId);
+	const admissionWallMs = performance.now() - admissionStarted;
 	const release = acquireExecutionLock(executionLockPath(options.cwd, loaded.projectArtifactRoot), runId);
 	let recorder: RuntimeEventRecorder | undefined;
 	let executor: FanoutNodeExecutor | undefined;
@@ -70,8 +73,11 @@ export async function executeFanout(options: ExecuteFanoutOptions): Promise<Exec
 	let finalValidation: FinalControllerResult | undefined;
 	try {
 		recorder = new RuntimeEventRecorder(runDir, runId);
+		writeDiagnostic(runDir, "admission-diagnostic.json", { runId, status: "passed", wallMs: admissionWallMs });
 		const profileValidation = await validateProjectExecutionProfile(loadedProfile.profile, { repoRoot: options.cwd, runDir, planningBase: loaded.packet.planningBase, profileIdentity: loadedProfile.identity, timeoutMs: options.validationTimeoutMs });
+		const preflightStarted = performance.now();
 		const preflight = runPreflight(options, loaded.packet, loadedProfile.profile);
+		writeDiagnostic(runDir, "preflight-diagnostic.json", { runId, status: preflight.issues.length ? "failed" : "passed", wallMs: performance.now() - preflightStarted, resolutionScope: "profile-commands-only", ...preflight.profileResolutionCounts });
 		if (profileValidation.evidence.status !== "passed") preflight.issues.push({ code: "capability-unavailable", detail: profileValidation.evidence.error ?? "Project Execution Profile validation failed" });
 		await recorder.record("run-started", {
 			mode: options.dryRun ? "dry-run" : "live",
@@ -213,12 +219,14 @@ function inspectWorkerCapabilities(options: ExecuteFanoutOptions, packet: Fanout
 	return { extension: { requested: requestedExtension, resolved: resolvedExtension, status: resolvedExtension ? "available" : "unavailable" }, launcher, modelCallableTools: [...WORKER_MODEL_TOOLS] };
 }
 
-function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPacket, profile: ProjectExecutionProfile): { repoRoot?: string; tree: string; issues: PreflightIssue[]; evidence: PreflightEvidence } {
+function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPacket, profile: ProjectExecutionProfile) {
 	const { issues, repoRoot, actualCommit, actualTree } = inspectPlanningBase(options, packet);
 	const worker = inspectWorkerCapabilities(options, packet, repoRoot ?? options.cwd, issues);
-	const candidateNormalizationCommands = preflightProfileCommands(packet, profile.candidateNormalization.map((entry) => entry.command), repoRoot, issues, "candidate normalization");
-	const validationCommands = [...preflightCommands(packet, "validationCommands", repoRoot, issues, "validation"), ...preflightProfileCommands(packet, profile.requiredFinalGates.map((entry) => entry.command), repoRoot, issues, "required final gate", true)];
+	const profileResolutionCounts = { resolutionsAttempted: 0, positionalRecords: 0 };
+	const candidateNormalizationCommands = preflightProfileCommands(packet, profile.candidateNormalization.map((entry) => entry.command), repoRoot, issues, "candidate normalization", false, profileResolutionCounts);
+	const validationCommands = [...preflightCommands(packet, "validationCommands", repoRoot, issues, "validation"), ...preflightProfileCommands(packet, profile.requiredFinalGates.map((entry) => entry.command), repoRoot, issues, "required final gate", true, profileResolutionCounts)];
 	return {
+		profileResolutionCounts,
 		repoRoot,
 		tree: actualTree ?? packet.planningBase.tree,
 		issues,
@@ -233,7 +241,7 @@ function runPreflight(options: ExecuteFanoutOptions, packet: FanoutExecutionPack
 			},
 			candidateNormalizationCommands,
 			validationCommands,
-		},
+		} satisfies PreflightEvidence,
 	};
 }
 
@@ -280,18 +288,26 @@ function preflightProfileCommands(
 	issues: PreflightIssue[],
 	label: string,
 	finalOnly = false,
+	counts = { resolutionsAttempted: 0, positionalRecords: 0 },
 ): PreflightCommandEvidence[] {
 	const indexes = finalOnly ? [packet.nodes.length - 1] : packet.nodes.map((_, index) => index);
-	return indexes.flatMap((packetNodeIndex) => commands.map((manifest, commandIndex) => {
+	const entries = commands.map((manifest) => {
 		let resolution: PreflightCommandEvidence["resolution"] = { status: "unavailable", resolvedExecutable: null, resolvedCwd: null };
+		let failure: string | undefined;
 		if (repoRoot) {
+			counts.resolutionsAttempted++;
 			try {
 				const prepared = preflightValidationCommands([manifest], { checkoutRoot: repoRoot, expectedPlatform: packet.planningHost.platform })[0];
 				resolution = { status: "available", resolvedExecutable: prepared.resolvedExecutable, resolvedCwd: prepared.resolvedCwd };
 			} catch (error) {
-				issues.push({ code: "executable-unavailable", detail: `${label}[${commandIndex}]: ${message(error)}` });
+				failure = message(error);
 			}
 		}
+		return { manifest, resolution, failure };
+	});
+	return indexes.flatMap((packetNodeIndex) => entries.map(({ manifest, resolution, failure }, commandIndex) => {
+		counts.positionalRecords++;
+		if (failure !== undefined) issues.push({ code: "executable-unavailable", detail: `${label}[${commandIndex}]: ${failure}` });
 		return { packetNodeIndex, nodeId: packet.nodes[packetNodeIndex].id, commandIndex: finalOnly ? packet.nodes[packetNodeIndex].workContract.validationCommands.length + commandIndex : commandIndex, manifest: commandManifest(manifest), resolution };
 	}));
 }

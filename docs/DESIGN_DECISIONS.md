@@ -1,5 +1,13 @@
 # Design Decisions
 
+## Bounded efficiency and supporting diagnostics — 2026-09-20
+
+`runDag` requires both the packet and graph returned by validation; it no longer derives the same graph a second time. Profile preflight resolves each manifest position independently once within that invocation, then expands node-major positional evidence and failures. Text-identical entries remain distinct. No cross-invocation cache, caller graph, validation bypass, or change to packet-node resolution, validation-runner whole-list preflight, or immediate pre-launch resolution is introduced.
+
+Small `fanout.controller-diagnostic` v1 supporting JSON artifacts use monotonic elapsed time. They are best-effort and no-clobber, never acceptance authority and never allowed to replace a causal error or release an ambiguous-apply lock. Run identity plus scope paths identify attempts, final rounds, and reconciliation trials. Early admission rejection still writes no run artifacts. Admission and post-qualification preflight are separate measurements; qualification includes reconstruction and cleanup. Reconstruction includes replay, while replay counts attempted and completed transitions separately. Setup wall time contains preparation/readiness wall times, each containing its command sum; null means a phase never ran, not a zero-duration success. Do not add nested measures to their parents.
+
+Each reconciliation result remains immutable, including a successful trial discarded because another worker advanced the accepted ledger. A separate executor decision references the exact trial and records `used`, `rejected`, `discarded-on-ledger-advance`, or `discarded-on-abort`; `used` means selected for the subsequent apply check, not proof of acceptance. Existing trial duration excludes subsequent decision/apply and cleanup. The accepted transition and fresh final validation remain authoritative. Failed profile normalization retains its measured normalization duration.
+
 ## Execution lifecycle boundaries — 2026-09-20
 
 Attempt allocation is durably published before reconstruction, repair overlays, preparation, or worker launch. Setup runs inside the worker attempt's typed failure boundary: infrastructure failures use the existing bounded routing policy, aborts terminate causally, and absent worker execution contributes no invented usage. Failed allocation publication permits no subsequent attempt setup.

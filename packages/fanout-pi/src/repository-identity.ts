@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { performance } from "node:perf_hooks";
 import {
 	artifactIdentity,
@@ -17,7 +17,7 @@ import {
 } from "../../fanout-core/src/artifact-identity.ts";
 import { decodeGitPathList } from "../../fanout-core/src/repository-resource.ts";
 import type { ApplyFailureEvidence } from "../../fanout-core/src/recovery-evidence.ts";
-import { readVerifiedArtifact, writeArtifactAtomically } from "./artifact-store.ts";
+import { readVerifiedArtifact, writeArtifactAtomically, writeDiagnostic } from "./artifact-store.ts";
 
 export interface PlanningBase {
 	headCommit: GitCommitId;
@@ -198,18 +198,37 @@ export function createReconstructedWorktree(
 	artifactRoot: string,
 	ledger: readonly unknown[],
 ): PlanningBase {
-	const base = { headCommit: parseGitCommitId(baseValue.headCommit), tree: parseGitTreeId(baseValue.tree) };
-	mkdirSync(dirname(worktreePath), { recursive: true });
-	const hooks = mkdtempSync(join(dirname(worktreePath), "empty-hooks-"));
+	const started = performance.now();
+	let attemptedTransitions = 0;
+	let completedTransitions = 0;
+	let replayWallMs: number | null = null;
+	let status = "failed";
 	try {
-		git(repoRoot, ["-c", `core.hooksPath=${hooks}`, "worktree", "add", "--detach", worktreePath, base.headCommit]);
+		const base = { headCommit: parseGitCommitId(baseValue.headCommit), tree: parseGitTreeId(baseValue.tree) };
+		mkdirSync(dirname(worktreePath), { recursive: true });
+		const hooks = mkdtempSync(join(dirname(worktreePath), "empty-hooks-"));
+		try {
+			git(repoRoot, ["-c", `core.hooksPath=${hooks}`, "worktree", "add", "--detach", worktreePath, base.headCommit]);
+		} finally {
+			rmSync(hooks, { recursive: true, force: true });
+		}
+		const actualBase = capturePlanningBase(worktreePath);
+		if (actualBase.headCommit !== base.headCommit || actualBase.tree !== base.tree) throw new Error("reconstructed worktree does not match the planning base");
+		const replayStarted = performance.now();
+		try {
+			for (const entry of ledger) {
+				attemptedTransitions++;
+				applyAcceptedTransition(worktreePath, artifactRoot, entry);
+				completedTransitions++;
+			}
+		} finally { replayWallMs = performance.now() - replayStarted; }
+		const result = { headCommit: base.headCommit, tree: fullGitVisibleTree(worktreePath) };
+		status = "passed";
+		return result;
 	} finally {
-		rmSync(hooks, { recursive: true, force: true });
+		const scopeId = relative(artifactRoot, worktreePath).split("\\").join("/");
+		writeDiagnostic(artifactRoot, `${scopeId}-reconstruction-diagnostic.json`, { runId: basename(artifactRoot), scopeId, status, ledgerLength: ledger.length, attemptedTransitions, completedTransitions, wallMs: performance.now() - started, replayWallMs, replayTiming: "nested-in-wall" });
 	}
-	const actualBase = capturePlanningBase(worktreePath);
-	if (actualBase.headCommit !== base.headCommit || actualBase.tree !== base.tree) throw new Error("reconstructed worktree does not match the planning base");
-	replayAcceptedTransitions(worktreePath, artifactRoot, ledger);
-	return { headCommit: base.headCommit, tree: fullGitVisibleTree(worktreePath) };
 }
 
 export function removeReconstructedWorktree(repoRoot: string, worktreePath: string): void {

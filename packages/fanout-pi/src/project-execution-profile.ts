@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { relative, resolve, sep } from "node:path";
+import { basename, relative, resolve, sep } from "node:path";
 import {
 	ACTIVE_PROJECT_EXECUTION_PROFILE_SCHEMA,
 	ACTIVE_PROJECT_EXECUTION_PROFILE_VERSION,
@@ -10,7 +10,7 @@ import {
 } from "../../fanout-core/src/project-execution-profile.ts";
 import { artifactIdentity, parseArtifactIdentity, type ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
 import { captureRepositoryState, createReconstructedWorktree, removeReconstructedWorktree, type PlanningBase } from "./repository-identity.ts";
-import { readVerifiedArtifact, writeArtifactAtomically } from "./artifact-store.ts";
+import { readVerifiedArtifact, writeArtifactAtomically, writeDiagnostic } from "./artifact-store.ts";
 import { preflightValidationCommands, runValidationCommands, type ValidationRunResult } from "./validation-runner.ts";
 import { normalizeCandidate, type CandidateNormalizationEvidence } from "./candidate-normalization.ts";
 import type { RepositoryStateIdentity } from "./repository-identity.ts";
@@ -114,6 +114,7 @@ export async function validateProjectExecutionProfile(
 	profileValue: unknown,
 	options: { repoRoot: string; runDir: string; planningBase: PlanningBase; profileIdentity: ArtifactIdentity; timeoutMs?: number },
 ): Promise<{ evidence: ProfileValidationEvidence; artifact: ArtifactIdentity }> {
+	const started = performance.now();
 	const profile = parseProjectExecutionProfile(profileValue);
 	const worktreePath = resolve(options.runDir, "profile-validation", "worktree");
 	let evidence: ProfileValidationEvidence;
@@ -186,12 +187,19 @@ export async function validateProjectExecutionProfile(
 			afterNormalizationTree: tree,
 			preparationDurationMs: setup?.preparationDurationMs ?? 0,
 			readinessDurationMs: setup?.readinessDurationMs ?? 0,
-			normalizationDurationMs: 0,
+			normalizationDurationMs: normalization?.durationMs ?? 0,
 			finalGateCount: profile.requiredFinalGates.length,
 			error: message(error),
 		};
 	} finally {
-		removeReconstructedWorktree(options.repoRoot, worktreePath);
+		const cleanupStarted = performance.now();
+		let cleanupStatus = "failed";
+		try {
+			removeReconstructedWorktree(options.repoRoot, worktreePath);
+			cleanupStatus = "passed";
+		} finally {
+			writeDiagnostic(options.runDir, "profile-validation/diagnostic.json", { runId: basename(options.runDir), scopeId: "profile-validation", status: cleanupStatus === "failed" ? "failed" : evidence!?.status ?? "failed", wallMs: performance.now() - started, cleanupWallMs: performance.now() - cleanupStarted, cleanupStatus, setup: setup?.diagnostics ?? null, timing: "cleanup-and-setup-nested-in-wall" });
+		}
 	}
 	const artifact = writeArtifactAtomically(options.runDir, "profile-validation/evidence.json", Buffer.from(`${JSON.stringify(evidence, null, 2)}\n`));
 	return { evidence, artifact };
@@ -203,6 +211,7 @@ export async function prepareProjectWorktree(
 	options: { worktreePath: string; artifactRoot: string; evidencePath: string; scopeId: string; timeoutMs?: number; signal?: AbortSignal },
 ): Promise<{ evidence: ProjectWorktreePreparationEvidence; artifact: ArtifactIdentity }> {
 	const setup = await runPreparationAndReadiness(profile, options.worktreePath, options.scopeId, options.timeoutMs, options.signal);
+	writeDiagnostic(options.artifactRoot, `${options.evidencePath}.diagnostic.json`, { runId: basename(options.artifactRoot), scopeId: options.scopeId, ...setup.diagnostics });
 	const after = setup.error ? captureRepositoryState(options.worktreePath) : setup.afterReadiness;
 	const evidence: ProjectWorktreePreparationEvidence = {
 		schema: "fanout.project-worktree-preparation",
@@ -221,6 +230,7 @@ export async function prepareProjectWorktree(
 }
 
 async function runPreparationAndReadiness(profile: ProjectExecutionProfile, worktreePath: string, scopeId: string, timeoutMs?: number, signal?: AbortSignal) {
+	const started = performance.now();
 	const before = captureRepositoryState(worktreePath);
 	let afterPreparation = before;
 	let afterReadiness = before;
@@ -230,13 +240,18 @@ async function runPreparationAndReadiness(profile: ProjectExecutionProfile, work
 	let phase: "preparation" | "readiness" = "preparation";
 	let preparation: ValidationRunResult | undefined;
 	let readiness: ValidationRunResult | undefined;
+	let preparationWallMs: number | null = null;
+	let readinessWallMs: number | null = null;
+	let phaseStarted = performance.now();
 	try {
 		preparation = await runValidationCommands(profile.preparation.map((entry) => entry.command), { ...validationOptions(worktreePath, scopeId, timeoutMs), signal });
 		preparationDurationMs = preparation.durationMs;
 		afterPreparation = captureRepositoryState(worktreePath);
 		if (preparation.status !== "passed") throw new Error("project preparation failed");
 		assertUnchanged(before, afterPreparation, "preparation");
+		preparationWallMs = performance.now() - phaseStarted;
 		phase = "readiness";
+		phaseStarted = performance.now();
 		readiness = await runValidationCommands(profile.readiness.map((entry) => entry.command), { ...validationOptions(worktreePath, scopeId, timeoutMs), signal });
 		readinessDurationMs = readiness.durationMs;
 		afterReadiness = captureRepositoryState(worktreePath);
@@ -244,8 +259,19 @@ async function runPreparationAndReadiness(profile: ProjectExecutionProfile, work
 		assertUnchanged(afterPreparation, afterReadiness, "readiness");
 	} catch (failure) {
 		error = message(failure);
+	} finally {
+		if (phase === "preparation") preparationWallMs = performance.now() - phaseStarted;
+		else readinessWallMs = performance.now() - phaseStarted;
 	}
-	return { before, afterPreparation, afterReadiness, preparationDurationMs, readinessDurationMs, preparation, readiness, phase, error };
+	const status = signal?.aborted ? "aborted" : error ? "failed" : "passed";
+	const diagnostics = {
+		wallMs: performance.now() - started,
+		status,
+		preparation: { wallMs: preparationWallMs, commandSumMs: preparationDurationMs, status: phase === "preparation" ? status : "passed" },
+		readiness: { wallMs: readinessWallMs, commandSumMs: readinessDurationMs, status: readinessWallMs === null ? "not-run" : status },
+		timing: "phases-nested-in-wall-command-sums-nested-in-phases",
+	};
+	return { before, afterPreparation, afterReadiness, preparationDurationMs, readinessDurationMs, preparation, readiness, phase, error, diagnostics };
 }
 
 function validationOptions(checkoutRoot: string, scopeId: string, timeoutMs = 600_000) {

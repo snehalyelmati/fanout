@@ -24,6 +24,7 @@ import {
   publishPlanningArtifacts,
   readVerifiedArtifact,
   writeArtifactAtomically,
+  writeDiagnostic,
 } from "../packages/fanout-pi/src/artifact-store.ts";
 import {
 	AcceptedTransitionProcessError,
@@ -32,6 +33,8 @@ import {
   applyRepairSeedOverlay,
   capturePatchCandidate,
   capturePlanningBase,
+  createReconstructedWorktree,
+  removeReconstructedWorktree,
   fullGitVisibleTree,
   replayAcceptedTransitions,
   verifyPatchCandidate,
@@ -47,9 +50,35 @@ try {
   runA8();
   runTypedApplyFailures();
   runRepairSeedOverlay();
+  runReconstructionDiagnostics();
   console.log("artifact identity smoke passed (A4, A5, A8)");
 } finally {
   rmSync(root, { recursive: true, force: true });
+}
+
+function runReconstructionDiagnostics() {
+  const source = join(root, "diagnostic-source");
+  const artifacts = join(root, "diagnostic-artifacts");
+  initRepo(source);
+  writeFileSync(join(source, "value.txt"), "zero\n");
+  git(source, ["add", "."]); git(source, ["commit", "-m", "base"]);
+  const base = capturePlanningBase(source);
+  writeFileSync(join(source, "value.txt"), "one\n");
+  const patch = capturePatchCandidate(source, base, artifacts, "one.patch");
+  const worktree = join(artifacts, "prefix-worktree");
+  try {
+    expectThrows(() => createReconstructedWorktree(source, worktree, base, artifacts, [{ patch }, { patch }, { patch }]), "invalid replay suffix was accepted");
+    const diagnostic = JSON.parse(readFileSync(`${worktree}-reconstruction-diagnostic.json`, "utf8"));
+    assert(diagnostic.status === "failed" && diagnostic.ledgerLength === 3 && diagnostic.attemptedTransitions === 2 && diagnostic.completedTransitions === 1 && diagnostic.replayWallMs > 0 && diagnostic.wallMs > diagnostic.replayWallMs, "replay timing counted unattempted suffix or lost successful prefix");
+    assert(fullGitVisibleTree(worktree) === patch.resultTree, "failed replay altered the successful prefix");
+  } finally { removeReconstructedWorktree(source, worktree); }
+  writeDiagnostic(artifacts, "immutable.json", { decision: "first" });
+  const bytes = readFileSync(join(artifacts, "immutable.json"));
+  writeDiagnostic(artifacts, "immutable.json", { decision: "replacement" });
+  assert(readFileSync(join(artifacts, "immutable.json")).equals(bytes), "diagnostics overwrote an earlier result");
+  writeFileSync(join(artifacts, "blocked"), "file");
+  writeDiagnostic(artifacts, "blocked/diagnostic.json", { decision: "unpublishable" });
+  writeDiagnostic(artifacts, "serialization.json", { toJSON() { throw new Error("diagnostic failure"); } });
 }
 
 function runLiteralPaths() {

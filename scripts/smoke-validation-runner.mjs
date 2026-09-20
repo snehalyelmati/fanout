@@ -205,6 +205,17 @@ async function runOutcomeChecks() {
     nodeCommand("")
   ], options("recheck"));
   assert(rechecked.commands[1].outcome === "spawn" && rechecked.commands[2].outcome === "unexecuted", JSON.stringify(rechecked));
+
+  const firstCwd = join(root, "first-cwd");
+  const nextCwd = join(root, "next-cwd");
+  const cwdLink = join(root, "cwd-link");
+  mkdirSync(firstCwd); mkdirSync(nextCwd);
+  symlinkSync(firstCwd, cwdLink);
+  const cwdRechecked = await runValidationCommands([
+    nodeCommand(`const fs=require('node:fs');fs.unlinkSync(${JSON.stringify(cwdLink)});fs.symlinkSync(${JSON.stringify(nextCwd)},${JSON.stringify(cwdLink)})`),
+    { ...nodeCommand("process.stdout.write(process.cwd())"), cwd: "cwd-link" },
+  ], options("cwd-recheck"));
+  assert(cwdRechecked.status === "passed" && cwdRechecked.commands[1].stdout === realpathSync(nextCwd), "immediate pre-launch resolution reused a replaced cwd symlink");
 }
 
 function nodeCommand(source) {

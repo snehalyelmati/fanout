@@ -1,4 +1,4 @@
-import { dirname, join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import type { AcceptedPatch, AcceptedStateTransition, ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
 import type { ProjectExecutionProfile } from "../../fanout-core/src/project-execution-profile.ts";
@@ -98,6 +98,8 @@ export async function reconcilePathDisjointCandidate(options: {
 		if (published) throw new Error("reconciliation trial already published");
 		const timed = typeof value === "object" && value !== null && !Array.isArray(value) ? {
 			...value,
+			runId: basename(options.runDir),
+			scopeId,
 			attemptId: options.attemptId,
 			originalCandidate: options.candidate,
 			originalBaseTree: options.candidate.baseTree,
@@ -111,7 +113,7 @@ export async function reconcilePathDisjointCandidate(options: {
 			ledgerAdvanceRetries: options.ledgerAdvanceRetry,
 			durationMs: Math.max(0, performance.now() - started),
 		} : value;
-		const evidence = writeArtifactAtomically(options.runDir, `${relative(options.runDir, root).split("\\").join("/")}/result.json`, Buffer.from(`${JSON.stringify(timed, null, 2)}\n`));
+		const evidence = writeArtifactAtomically(options.runDir, `${relative(options.runDir, root).split("\\").join("/")}/result.json`, Buffer.from(`${JSON.stringify(timed, null, 2)}\n`), { noClobber: true });
 		published = true;
 		const indexPath = join(options.attemptDir, "reconciliation.json");
 		const trials: ArtifactIdentity[] = existsSync(indexPath) ? JSON.parse(readFileSync(indexPath, "utf8")).trials ?? [] : [];

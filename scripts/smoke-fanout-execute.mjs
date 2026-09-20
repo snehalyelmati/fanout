@@ -15,7 +15,7 @@ import { replayExecutionArtifacts } from "../packages/fanout-pi/src/execution-ev
 import { FanoutNodeExecutor } from "../packages/fanout-pi/src/fanout-node-executor.ts";
 import { reconcilePathDisjointCandidate } from "../packages/fanout-pi/src/candidate-reconciliation.ts";
 import { publishExecutionPacket } from "../packages/fanout-pi/src/planning-publication.ts";
-import { publishProjectExecutionProfile } from "../packages/fanout-pi/src/project-execution-profile.ts";
+import { prepareProjectWorktree, publishProjectExecutionProfile, validateProjectExecutionProfile } from "../packages/fanout-pi/src/project-execution-profile.ts";
 import { capturePlanningBase, capturePatchCandidate, createReconstructedWorktree, removeReconstructedWorktree, fullGitVisibleTree } from "../packages/fanout-pi/src/repository-identity.ts";
 
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
@@ -60,6 +60,10 @@ try {
   assert(result.snapshot.preflightEvidence.planningCommit.actual === base.headCommit && result.snapshot.preflightEvidence.repositoryTree.actual === base.tree && result.snapshot.preflightEvidence.platform.actual === process.platform, "dry run did not preserve exact repository/platform preflight evidence");
   assert(result.snapshot.preflightEvidence.worker.launcher.resolvedExecutable && result.snapshot.preflightEvidence.worker.extension.resolved && result.snapshot.preflightEvidence.worker.modelCallableTools.join(",") === "read,grep,find,ls,edit,write,fanout_validate", "dry run did not preserve worker capability evidence");
   assert(result.snapshot.preflightEvidence.validationCommands.some((entry) => entry.nodeId === "x" && entry.manifest.args.join("\0") === command.args.join("\0") && entry.resolution.status === "available"), "dry run did not preserve resolved validation argv evidence");
+  const emptyProfileDiagnostic = JSON.parse(readFileSync(join(result.paths.runDir, "preflight-diagnostic.json"), "utf8"));
+  assert(emptyProfileDiagnostic.resolutionsAttempted === 0 && emptyProfileDiagnostic.positionalRecords === 0, "empty profile manifests performed resolutions or emitted records");
+  const qualificationDiagnostic = JSON.parse(readFileSync(join(result.paths.runDir, "profile-validation/diagnostic.json"), "utf8"));
+  assert(qualificationDiagnostic.status === "passed" && qualificationDiagnostic.wallMs > qualificationDiagnostic.cleanupWallMs && qualificationDiagnostic.setup.readiness.status === "passed", "successful qualification timing omitted setup or cleanup");
   const events = readFileSync(result.paths.eventsPath, "utf8").trim().split("\n").map(JSON.parse);
   assert(events.map((event) => event.sequence).join(",") === "1,2,3" && events.every((event) => event.version === 6), "events are not gapless v6 authority");
   const profileValidation = JSON.parse(readFileSync(join(result.paths.runDir, events[0].payload.profileValidation.path), "utf8"));
@@ -200,7 +204,7 @@ if (process.env.FANOUT_RUN_ID === "fused-execution") {
   const value = process.env.FANOUT_NODE_ID === "final-validation" ? (repairAttempt.startsWith("002-") ? 2 : 1) : 0;
   writeFileSync("x.ts", \`export const x = \${value};\\n\`);
 } else {
-  writeFileSync(process.env.FANOUT_NODE_ID === "y" ? "y.ts" : "x.ts", process.env.FANOUT_WORKER_DIR.endsWith("validation-repair") ? "export const x = 1;\\n" : "export const x = 0;\\n");
+  writeFileSync(process.env.FANOUT_NODE_ID === "z" ? "z.ts" : process.env.FANOUT_NODE_ID === "y" ? "y.ts" : "x.ts", process.env.FANOUT_WORKER_DIR.endsWith("validation-repair") ? "export const x = 1;\\n" : "export const x = 0;\\n");
 }
 const observedAt = new Date().toISOString();
 appendFileSync(process.env.FANOUT_OBSERVABILITY_FILE, [
@@ -218,6 +222,9 @@ const summary = \`## Worker summary\\n\\n1. \${firstItem}\\n2. Preserved control
 console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", provider, model, usage, content: [{ type: "text", text: summary }] } }));
 `, "utf8");
   chmodSync(fakePi, 0o755);
+
+  await testProfileResolution({ repo, artifacts, packet: compiled.packet, fakePi });
+  await testDiagnosticTiming({ repo, artifacts, base });
 
   for (const mode of ["reconstruction", "preparation", "abort", "preparation-abort", "allocation-publication"]) {
     const setupProfile = structuredClone(defaultProfile);
@@ -719,6 +726,8 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   rmSync(join(repo, "y.ts"), { force: true });
   assert(fullGitVisibleTree(repo) === base.tree, "disjoint reconciliation fixture did not restore the planning tree");
 
+  await testExecutorLedgerAdvance({ repo, runDir: join(runDir, "executions", "ledger-advance-executor"), packet: compiled.packet, profileValue: defaultProfile, profileIdentity: publishedDefaultProfile.identity, fakePi });
+
   rmSync(reconciliationStarted, { force: true });
   rmSync(reconciliationReleased, { force: true });
   const normalizationFallbackProfile = profile("reconciliation-normalization", [{ executable: process.execPath, args: ["-e", "const fs=require('node:fs');if(fs.existsSync('x.ts')&&fs.existsSync('y.ts'))setInterval(()=>{},1000)"] }]);
@@ -999,7 +1008,18 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   rmSync(join(repo, "x.ts"));
   assert(fullGitVisibleTree(repo) === base.tree, "final-validation routing fixture did not restore the pre-execution repository tree");
 
-  const ambiguous = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: () => true, piCommand: fakePi, runId: "ambiguous-lock", workerTimeoutMs: 10_000, validationTimeoutMs: 10_000, afterActiveApply: () => writeFileSync(join(repo, "raced.ts"), "external race\n") });
+  const originalLink = fs.linkSync;
+  let diagnosticFailures = 0;
+  fs.linkSync = (...args) => {
+    if (String(args[1]).includes("diagnostic")) { diagnosticFailures++; throw new Error("injected supporting diagnostic failure"); }
+    return originalLink(...args);
+  };
+  syncBuiltinESMExports();
+  let ambiguous;
+  try {
+    ambiguous = await executeFanout({ cwd: repo, activePointerPath: paths.activePointerPath, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", confirm: () => true, piCommand: fakePi, runId: "ambiguous-lock", workerTimeoutMs: 10_000, validationTimeoutMs: 10_000, afterActiveApply: () => writeFileSync(join(repo, "raced.ts"), "external race\n") });
+  } finally { fs.linkSync = originalLink; syncBuiltinESMExports(); }
+  assert(diagnosticFailures > 0, "diagnostic failure injection did not exercise supporting publication");
   const ambiguousAttempt = ambiguous.snapshot.attempts.find((attempt) => attempt.outcome?.terminalFact?.stage === "bookkeeping" && attempt.outcome.terminalFact.code === "failed-after-mutation");
   assert(ambiguous.status === "failed" && ambiguousAttempt && existsSync(lockPath) && JSON.parse(readFileSync(lockPath, "utf8")).runId === "ambiguous-lock", "ambiguous post-apply mutation did not retain the execution lock for manual reconciliation");
   rmSync(lockPath, { force: true });
@@ -1080,6 +1100,34 @@ async function withReconciliationRemovalFailure(executor, run) {
 }
 
 async function testFailFast(packet) {
+  for (const dependencies of [{ a: [], b: ["a"], c: ["b"], d: ["c"] }, { a: [], b: ["a"], c: ["a"], d: ["b", "c"] }, { a: [], b: [], c: [], d: [] }]) {
+    const nodes = Object.entries(dependencies).map(([id, upstream]) => {
+      const node = structuredClone(packet.nodes[0]);
+      node.id = id;
+      node.workContract.changes[0].target.resource.path = `${id}.ts`;
+      node.workContract.readDependencies = upstream.map((from) => ({ resource: { kind: "file", path: `${from}.ts` }, sourcePlanIds: ["x"], timing: "post-change-required", reason: "Needs upstream output", timingSource: "phase-b" }));
+      return node;
+    });
+    const completed = new Set();
+    let concurrent = 0;
+    let peak = 0;
+    const result = await runDag({ ...packet, nodes: [...nodes, packet.nodes.at(-1)] }, {
+      maxConcurrency: 4,
+      async runNode(node) {
+        assert(node.kind !== "final-validation" && dependencies[node.id].every((id) => completed.has(id)), "scheduler launched final validation or an unsatisfied dependency");
+        peak = Math.max(peak, ++concurrent);
+        await new Promise((resolve) => setTimeout(resolve, node.id === "b" ? 8 : 1));
+        concurrent--;
+        completed.add(node.id);
+        return { ok: true };
+      },
+    });
+    assert(result.ok && completed.size === 4 && peak === (dependencies.d.length === 2 ? 2 : dependencies.b.length ? 1 : 4), "chain/diamond/independent scheduling changed");
+  }
+  let callbacks = 0;
+  let rejected = false;
+  try { await runDag({ ...packet, version: 0 }, { maxConcurrency: 2, runNode() { callbacks++; return { ok: true }; }, onNodeCompleted() { callbacks++; } }); } catch { rejected = true; }
+  assert(rejected && callbacks === 0, "invalid packet reached scheduler callbacks");
   const nodes = ["slow", "trigger", "independent", "dependent"].map((id) => {
     const node = structuredClone(packet.nodes[0]);
     node.id = id;
@@ -1102,4 +1150,126 @@ async function testFailFast(packet) {
   const dependent = result.nodes.find((node) => node.id === "dependent");
   assert(launched.join(",") === "slow,trigger" && independent.failFastCause.nodeId === "trigger" && independent.failFastCause.attemptId === "trigger:000001" && !independent.upstreamNodeId, "fail-fast invented dependency causality or used packet order for its trigger");
   assert(dependent.upstreamNodeId === "trigger" && !dependent.failFastCause, "true dependency lost its causal skip");
+}
+
+async function testProfileResolution({ repo, artifacts, packet, fakePi }) {
+  const bin = join(root, "profile-bin"); mkdirSync(bin);
+  const alias = join(bin, "profile-node"); fs.symlinkSync(process.execPath, alias);
+  const duplicate = { executable: "profile-node", args: ["-e", "if(process.env.PROFILE_VALUE!=='literal')process.exit(8)"], cwd: ".preinstalled", env: { PATH: bin, PROFILE_VALUE: "literal" } };
+  const missing = { executable: "missing-profile-tool", args: [], env: { PATH: bin } };
+  const finalGate = { executable: process.execPath, args: ["--version"] };
+  const profileValue = profile("resolution-counts", [duplicate, missing, duplicate], [finalGate]);
+  const testPacket = structuredClone(packet);
+  const extra = structuredClone(testPacket.nodes[0]); extra.id = "extra"; extra.workContract.changes[0].target.resource.path = "extra.ts";
+  testPacket.nodes.splice(1, 0, extra);
+  testPacket.profile = publishProjectExecutionProfile(profileValue, artifacts, join(artifacts, "resolution-profile.json")).identity;
+  const paths = publishExecutionPacket(testPacket, artifacts, join(artifacts, "resolution-plan"), join(artifacts, "resolution-active.json"));
+  const originalRealpath = fs.realpathSync;
+  let realResolutions = 0;
+  fs.realpathSync = function (...args) {
+    const stack = new Error().stack;
+    if (stack.includes("validationRoot") && stack.includes("preflightProfileCommands")) realResolutions++;
+    return originalRealpath(...args);
+  };
+  syncBuiltinESMExports();
+  try {
+    for (const iteration of [0, 1, 2]) {
+      if (iteration === 1) fs.unlinkSync(alias);
+      if (iteration === 2) fs.symlinkSync(fakePi, alias);
+      realResolutions = 0;
+      const result = await executeFanout({ cwd: repo, ...paths, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", dryRun: true, piCommand: fakePi, runId: `resolution-${iteration}` });
+      const records = result.snapshot.preflightEvidence.candidateNormalizationCommands;
+      const diagnostic = JSON.parse(readFileSync(join(result.paths.runDir, "preflight-diagnostic.json"), "utf8"));
+      assert(realResolutions === 4 && diagnostic.resolutionsAttempted === 4 && diagnostic.positionalRecords === 10 && records.length === 9, `profile resolution counts changed: ${JSON.stringify({ realResolutions, diagnostic })}`);
+      assert(records.map(({ packetNodeIndex, commandIndex }) => `${packetNodeIndex}:${commandIndex}`).join(",") === "0:0,0:1,0:2,1:0,1:1,1:2,2:0,2:1,2:2", "profile records lost node-major manifest position order");
+      const expected = iteration === 1 ? "unavailable,unavailable,unavailable" : "available,unavailable,available";
+      assert(records.map(({ resolution }) => resolution.status).join(",") === [expected, expected, expected].join(","), "mixed availability or duplicate result changed");
+      if (iteration !== 1) assert(records[0].resolution.resolvedCwd === originalRealpath(join(repo, ".preinstalled")) && records[0].resolution.resolvedExecutable === originalRealpath(iteration === 2 ? fakePi : process.execPath), "cwd/env or symlink change was not freshly resolved");
+      const issues = result.snapshot.preflight.issues.filter(({ code }) => code === "executable-unavailable");
+      assert(issues.length === (iteration === 1 ? 9 : 3) && issues[0].detail.includes(iteration === 1 ? "[0]" : "[1]"), "unavailable issue multiplicity/order changed");
+      const final = result.snapshot.preflightEvidence.validationCommands.at(-1);
+      assert(final.packetNodeIndex === 2 && final.commandIndex === packet.nodes.at(-1).workContract.validationCommands.length, "profile final gate offset changed");
+      if (iteration === 0) console.log(`keyless profile preflight: 3 nodes x 3 normalizers + 1 final gate: ${realResolutions} resolutions (previously 10), ${diagnostic.positionalRecords} records, ${diagnostic.wallMs.toFixed(2)}ms wall`);
+    }
+  } finally { fs.realpathSync = originalRealpath; syncBuiltinESMExports(); }
+  fs.symlinkSync(process.execPath, join(bin, "inherited-profile-node"));
+  const finalOnly = profile("resolution-final-only", [], [{ executable: "inherited-profile-node", args: ["--version"], cwd: ".preinstalled" }]);
+  testPacket.profile = publishProjectExecutionProfile(finalOnly, artifacts, join(artifacts, "resolution-final-profile.json")).identity;
+  const finalPaths = publishExecutionPacket(testPacket, artifacts, join(artifacts, "resolution-final-plan"), join(artifacts, "resolution-final-active.json"));
+  const originalPath = process.env.PATH;
+  try {
+    for (const available of [true, false]) {
+      process.env.PATH = available ? `${bin}${delimiter}${originalPath}` : originalPath;
+      const result = await executeFanout({ cwd: repo, ...finalPaths, projectArtifactRoot: artifacts, extensionEntry: "packages/fanout-pi/src/index.ts", dryRun: true, piCommand: fakePi, runId: `final-only-${available}` });
+      const diagnostic = JSON.parse(readFileSync(join(result.paths.runDir, "preflight-diagnostic.json"), "utf8"));
+      assert(diagnostic.resolutionsAttempted === 1 && diagnostic.positionalRecords === 1 && result.snapshot.preflightEvidence.candidateNormalizationCommands.length === 0, "final-only preflight expanded onto ordinary nodes");
+      assert(result.snapshot.preflightEvidence.validationCommands.at(-1).resolution.status === (available ? "available" : "unavailable"), "profile preflight cached inherited PATH across invocations");
+    }
+  } finally { if (originalPath === undefined) delete process.env.PATH; else process.env.PATH = originalPath; }
+}
+
+async function testDiagnosticTiming({ repo, artifacts, base }) {
+  const value = profile("failed-normalization-timing", [{ executable: process.execPath, args: ["-e", "setTimeout(()=>process.kill(process.pid,'SIGTERM'),25)"] }]);
+  const runDir = join(artifacts, "failed-normalization-timing");
+  const identity = artifactIdentity("profiles/timing.json", Buffer.from(JSON.stringify(value)));
+  const result = await validateProjectExecutionProfile(value, { repoRoot: repo, runDir, planningBase: base, profileIdentity: identity });
+  const diagnostic = JSON.parse(readFileSync(join(runDir, "profile-validation/diagnostic.json"), "utf8"));
+  assert(result.evidence.status === "failed" && result.evidence.failure.phase === "normalization" && result.evidence.normalizationDurationMs >= 25 && result.evidence.normalizationDurationMs === result.evidence.normalization.durationMs, "failed qualification dropped measured normalization time");
+  assert(diagnostic.status === "failed" && diagnostic.cleanupStatus === "passed" && diagnostic.wallMs > result.evidence.normalizationDurationMs + diagnostic.cleanupWallMs && diagnostic.setup.preparation.wallMs >= diagnostic.setup.preparation.commandSumMs, "qualification timing omitted reconstruction/cleanup or mislabeled nested sums");
+  console.log(`keyless failed qualification: ${diagnostic.wallMs.toFixed(2)}ms wall, ${diagnostic.cleanupWallMs.toFixed(2)}ms nested cleanup, ${result.evidence.normalizationDurationMs.toFixed(2)}ms normalization commands`);
+  for (const mode of ["failed", "aborted"]) {
+    const setup = profile(`setup-${mode}`);
+    setup.preparation[0].command = { executable: process.execPath, args: ["-e", "process.exit(9)"] };
+    const signal = mode === "aborted" ? AbortSignal.abort("fixture abort") : undefined;
+    await prepareProjectWorktree(setup, identity, { worktreePath: repo, artifactRoot: artifacts, evidencePath: `setup-${mode}.json`, scopeId: `setup-${mode}`, signal });
+    const timing = JSON.parse(readFileSync(join(artifacts, `setup-${mode}.json.diagnostic.json`), "utf8"));
+    assert(timing.status === mode && timing.preparation.wallMs !== null && timing.readiness.wallMs === null && timing.readiness.status === "not-run", "failed/aborted/unexecuted setup timings were conflated");
+  }
+}
+
+async function testExecutorLedgerAdvance({ repo, runDir, packet, profileValue, profileIdentity, fakePi }) {
+  mkdirSync(runDir, { recursive: true });
+  const marker = (name) => join(runDir, name);
+  const wait = (name) => `while(!fs.existsSync(${JSON.stringify(marker(name))})){if(Date.now()>deadline)process.exit(7);Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10)}`;
+  const mark = (name) => `fs.writeFileSync(${JSON.stringify(marker(name))},'1');`;
+  const scripts = {
+    x: `${wait("y-ready")}`,
+    y: `if(process.cwd().includes('/reconciliation/0/')){${mark("trial-ready")}${wait("z-accepted")}}else if(!process.cwd().includes('/reconciliation/')){${mark("y-ready")}${wait("x-accepted")}}`,
+    z: "",
+  };
+  const nodes = Object.entries(scripts).map(([id, source]) => {
+    const node = structuredClone(packet.nodes[0]); node.id = id; node.workContract.changes[0].target.resource.path = `${id}.ts`;
+    node.workContract.validationCommands = [{ executable: process.execPath, args: ["-e", `const fs=require('node:fs');const deadline=Date.now()+30000;${source}`] }];
+    return node;
+  });
+  const nextPacket = { ...packet, nodes: [...nodes, packet.nodes.at(-1)] };
+  const completions = [];
+  const executor = new FanoutNodeExecutor({ packet: nextPacket, packetIdentity: artifactIdentity("packet.json", executionPacketBytes(nextPacket)), profile: profileValue, profileIdentity, repoRoot: repo, runDir, runId: "disjoint-reconciliation", extensionEntry: "packages/fanout-pi/src/index.ts", piCommand: fakePi, recorder: {
+    async recordAttemptAllocated() {},
+    async recordAttemptCompleted(outcome, acceptedTransition) { completions.push({ outcome, acceptedTransition }); if (acceptedTransition) for (const id of ["x", "z"]) if (acceptedTransition.patch.changedPaths.includes(`${id}.ts`)) writeFileSync(marker(`${id}-accepted`), "1"); },
+    async flush() {},
+  } });
+  try {
+    const first = executor.runNode(nodes[0]);
+    const stale = executor.runNode(nodes[1]);
+    await waitForFile(marker("trial-ready"));
+    const advanced = await executor.runNode(nodes[2]);
+    const results = await Promise.all([first, stale]);
+    assert(advanced.ok && results.every(({ ok }) => ok) && completions.length === 3 && completions.every(({ acceptedTransition }) => acceptedTransition), "real ledger advance changed accepted state or spent model repair budget");
+    const completion = completions.find(({ acceptedTransition }) => acceptedTransition.patch.changedPaths.includes("y.ts"));
+    const indexPath = completion.outcome.evidenceRefs.find((path) => path.endsWith("reconciliation.json"));
+    const index = JSON.parse(readFileSync(join(runDir, indexPath), "utf8"));
+    assert(index.trials.length === 2, "real ledger advance did not retain both trials");
+    for (const [trial, identity] of index.trials.entries()) {
+      const bytes = readFileSync(join(runDir, identity.path)); verifyArtifactBytes(identity, bytes);
+      const decision = JSON.parse(readFileSync(join(runDir, identity.path.replace("result.json", "worktree-decision.json")), "utf8"));
+      assert(decision.trial === trial && decision.decision === (trial === 0 ? "discarded-on-ledger-advance" : "used") && decision.trialLedgerLength === trial + 1 && decision.decisionLedgerLength === 2, "trial decision omitted discarded work or used a stale ledger");
+      assert(JSON.parse(bytes).status === "accepted", "later decision overwrote immutable successful trial result");
+      console.log(`keyless reconciliation trial ${trial}: ${JSON.parse(bytes).durationMs.toFixed(2)}ms, ${decision.decision}, ledger ${decision.trialLedgerLength}->${decision.decisionLedgerLength}`);
+    }
+    assert(["x", "y", "z"].every((id) => readFileSync(join(repo, `${id}.ts`), "utf8") === "export const x = 0;\n"), "ledger advance lost accepted bytes");
+  } finally {
+    executor.cleanupWorktrees();
+    for (const id of ["x", "y", "z"]) rmSync(join(repo, `${id}.ts`), { force: true });
+  }
 }

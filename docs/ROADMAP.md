@@ -1,5 +1,9 @@
 # Roadmap
 
+## Bounded controller efficiency — 2026-09-20
+
+Reuse the graph admitted by packet validation and resolve profile commands once per manifest position per preflight invocation, retaining node-major evidence and duplicate execution. Add non-authoritative controller diagnostics for admission/preflight, qualification (including cleanup), reconstruction/replay prefixes, preparation/readiness wall time versus command sums, and reconciliation trial decisions. Validate with keyless fixtures before parent review and separately authorized canaries. No qualification cache, dependency sharing, replay checkpoint, scheduler policy change, profiler UI change, or paid comparison belongs to this slice.
+
 ## Lifecycle hardening — 2026-09-20
 
 Local implementation covers causal setup failures, immutable reconciliation trials with executor-owned cleanup, capability admission before profile work, entry-to-terminal execution timing, and bounded Git source-read batching. Parent review and a separate authorized p-map canary follow; no live inference is part of this implementation. Prepared-state caches/checkpoints, validation parallelism, scheduler priority, and event-store redesign remain out of scope.
