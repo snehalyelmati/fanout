@@ -1,6 +1,7 @@
 import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
-import { spawnSync } from "node:child_process";
+import childProcess, { spawnSync } from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -179,8 +180,41 @@ function testWorkerSourceContext() {
   mkdirSync(join(cwd, "wide"));
   for (let index = 0; index < 300; index++) writeFileSync(join(cwd, "wide", `${index}.txt`), "");
   const wide = buildWorkerSourceContext(cwd, baselineTree, { changes: [], readDependencies: [{ resource: { kind: "directory", path: "wide" }, timing: "post-change-required" }] });
-  assert(wide.files.length <= 128 && wide.omitted.length === 1 && JSON.stringify(wide).length < 192 * 1024, "wide empty-file directory bypassed context ceiling");
+  assert(wide.files.length === 128 && wide.omitted.length === 1 && JSON.stringify(wide).length < 192 * 1024, "wide empty-file directory changed the exact entry ceiling");
 
+  mkdirSync(join(cwd, "batch"));
+  const names = ["space name", "tab\tname", "line\nname", 'quote"name', "[literal]*", ...Array.from({ length: 35 }, (_, index) => `file-${index}`)];
+  for (const name of names) writeFileSync(join(cwd, "batch", name), "shared immutable bytes\n");
+  writeFileSync(join(cwd, "batch", "invalid"), Buffer.from([0xc3, 0x28]));
+  writeFileSync(join(cwd, "batch", "at-limit"), "a".repeat(64 * 1024));
+  writeFileSync(join(cwd, "batch", "over-limit"), "b".repeat(64 * 1024 + 1));
+  git("add", "."); git("commit", "-qm", "batch source");
+  const batchBase = capturePlanningBase(cwd).tree;
+  writeFileSync(join(cwd, "owned.txt"), "different current tree\n");
+  const batchContract = { changes: [], readDependencies: [
+    ...names.map((name) => ({ resource: resource(`batch/${name}`), timing: "post-change-required" })),
+    { resource: resource(`batch/${names[0]}`), timing: "baseline-context" },
+    ...["invalid", "at-limit", "over-limit"].map((name) => ({ resource: resource(`batch/${name}`), timing: "post-change-required" })),
+  ] };
+  const originalExec = childProcess.execFileSync;
+  const calls = [];
+  childProcess.execFileSync = (file, args, options) => { calls.push({ args, input: options.input }); return originalExec(file, args, options); };
+  syncBuiltinESMExports();
+  let batched;
+  try { batched = buildWorkerSourceContext(cwd, batchBase, batchContract); }
+  finally { childProcess.execFileSync = originalExec; syncBuiltinESMExports(); }
+  assert(batched.files.slice(0, names.length).every((file, index) => file.path === `batch/${names[index]}` && file.text === "shared immutable bytes\n" && file.tree === batched.currentTree), "batching changed source output order, unusual paths, or content");
+  assert(batched.files[names.length].tree === batchBase && batched.files[names.length].blob === batched.files[0].blob, "shared blob cache confused baseline/current identity");
+  const fetched = calls.filter(({ args }) => args.includes("--batch")).flatMap(({ input }) => input.trim().split("\n"));
+  assert(fetched.filter((blob) => blob === batched.files[0].blob).length === 1 && calls.length < 10, `source batching retained per-file subprocesses: ${calls.length}`);
+  assert(batched.files.at(-1).text.length === 64 * 1024 && batched.omitted.map((entry) => entry.reason).join("|") === "binary or invalid UTF-8|source context byte limit", "UTF-8 rejection or raw byte boundary changed");
+  assert(!fetched.includes(git("rev-parse", `${batchBase}:batch/over-limit`)), "oversized content fetched before size admission");
+  const serialized = buildWorkerSourceContext(cwd, batchBase, { changes: [], readDependencies: Array.from({ length: 4 }, () => ({ resource: resource("batch/at-limit"), timing: "baseline-context" })) });
+  assert(serialized.files.length === 1, "duplicate requests consumed serialized-byte budget");
+  mkdirSync(join(cwd, "budget"));
+  for (const name of ["a", "b", "c", "d"]) writeFileSync(join(cwd, "budget", name), '"'.repeat(64 * 1024));
+  const budget = buildWorkerSourceContext(cwd, batchBase, { changes: [], readDependencies: [{ resource: { kind: "directory", path: "budget" }, timing: "post-change-required" }] });
+  assert(budget.files.length === 1 && budget.omitted.length === 3, "JSON escaping bypassed serialized-byte admission");
 }
 
 async function testWorkerValidation(root, worktree) {
