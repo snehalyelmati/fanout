@@ -1019,6 +1019,27 @@ As a compatibility check, 28,402 reasoning tokens at 131 tokens/s take 216.8s. T
 
 Private evidence remains under ignored `runs/doubleword-ttft/`: original `console-83c809f4/console.json` and `console.txt`; cohort stems `2026-09-19T13-14-03.378Z` and `2026-09-19T13-34-46.967Z` (`.json`, `.request.json`, `.events.jsonl`); manifests `2026-09-19T13-14-03.301Z.replay-manifest.json` and `2026-09-19T13-34-46.880Z.replay-manifest.json`; and derived scalar analysis `2026-09-19-replay-20.analysis.json`. Original input SHA-256: `48cdbb4a64087834cd02b692496e7cc410da8e2d1d9d16ca6c2e5d1ae35b1bab`. Request/journal files have mode `0600`; raw prompts, reasoning, and returned code are not published. Probe self-tests and syntax checks passed.
 
+### 2026-09-19 — p-map GLM/Kimi planning with DeepSeek V4.1 execution
+
+Seven singleton canaries used concurrency four, disabled async Tier 2, a 65,536-token output limit, and the saved execution profile. Four planning sessions used realtime `zai-org/GLM-5.3` medium and three used realtime `moonshotai/kimi-k3` medium; realtime `deepseek-ai/DeepSeek-V4.1-Flash` medium was the execution fallback. Reported time is active planning plus live execution only; it excludes profile preparation, dry-runs, setup, operator gaps, and post-run inspection.
+
+Costs are estimates from recorded input, cache-read, and output tokens. Realtime per-million-token rates are `$1.40/$0.28/$4.40` for GLM 5.3, `$3.00/$0.30/$15.00` for Kimi K3, and the user-supplied `$0.15/$0.01/$0.60` for DeepSeek V4.1 Flash, in input/cache-read/output order. They are not confirmed billing.
+
+| Planner / execution fallback | Run | Planning | Execution | Combined | Planning cost | Execution cost | Total cost |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| GLM 5.3 / DeepSeek V4.1 Flash | `1c90b47a` | 10m 58.746s | 5m 35.330s | 16m 34.076s | `$0.429306` | `$0.038131` | `$0.467437` |
+| GLM 5.3 / DeepSeek V4.1 Flash | `9b9fdb85` | 7m 47.776s | 4m 09.087s | 11m 56.863s | `$0.289910` | `$0.029175` | `$0.319085` |
+| GLM 5.3 / DeepSeek V4.1 Flash | `928433d3` | 5m 28.321s | 4m 23.881s | 9m 52.202s | `$0.301321` | `$0.026329` | `$0.327651` |
+| GLM 5.3 / DeepSeek V4.1 Flash | `e1d2f899` | 5m 45.383s | 3m 36.910s | 9m 22.293s | `$0.380381` | `$0.028370` | `$0.408751` |
+| Kimi K3 / DeepSeek V4.1 Flash | `287c5977` | 6m 50.815s | 4m 36.425s | 11m 27.240s | `$0.496412` | `$0.041682` | `$0.538094` |
+| Kimi K3 / DeepSeek V4.1 Flash | `a5df7210` | 2m 40.582s | 4m 11.205s | 6m 51.787s | `$0.239579` | `$0.045965` | `$0.285543` |
+| Kimi K3 / DeepSeek V4.1 Flash | `b29698ac` | 4m 20.292s | 9m 25.309s | 13m 45.601s | `$0.377850` | `$0.059194` | `$0.437044` |
+
+| Cohort | Runs | Mean time | Median time | Mean cost |
+| --- | ---: | ---: | ---: | ---: |
+| GLM 5.3 | 4 | 11m 56.359s | 10m 54.533s | `$0.380731` |
+| Kimi K3 | 3 | 10m 41.543s | 11m 27.240s | `$0.420227` |
+
 ## Hardened execution baseline
 
 1. **Measure the admitted packet-v9 scheduler policy**
