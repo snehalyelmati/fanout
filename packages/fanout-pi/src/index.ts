@@ -190,6 +190,7 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.on("turn_end", (event, ctx) => {
+		planning.finishResponse(ctx);
 		const stats = turnStats.get(event.turnIndex);
 		turnStats.delete(event.turnIndex);
 		writeJsonl(

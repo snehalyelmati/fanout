@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { convertToLlm, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { artifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
+import { PlanningRepairSubmissionParametersSchema } from "../../fanout-core/src/planning-artifact-schema.ts";
 import { writeJsonl } from "../../fanout-core/src/observability.ts";
 import { invalidateActiveSelection } from "./artifact-store.ts";
 import {
@@ -9,7 +10,7 @@ import {
 	createFanoutPlanRun,
 	type FanoutPhaseState,
 } from "./fanout-plan-orchestration.ts";
-import { activatePlanningTools, FANOUT_SUBMIT_TOOL, planningSubmissionBatchBlockReason, planningSubmissionParameters, planningToolBlockReason, readAcceptedImplementationPlan, restorePlanningTools, submitPlanningArtifact } from "./planning-capabilities.ts";
+import { activatePlanningTools, FANOUT_SUBMIT_TOOL, planningSubmissionBatchBlockReason, planningSubmissionParameters, planningToolBlockReason, readAcceptedImplementationPlan, repairPlanningDraft, restorePlanningTools, retainPlanningDraft, submitPlanningArtifact, type PlanningDraft } from "./planning-capabilities.ts";
 import {
 	createPlanningMetrics,
 	finishPlanningPhase,
@@ -29,6 +30,8 @@ import { captureCleanPlanningBase } from "./repository-identity.ts";
 import { displayFanoutPlanReport } from "./report-presentation.ts";
 import { fanoutRuntimeContext, isRecord, recordField, relativeArtifact, stringField, tier1Resolved, writeFanoutRuntimeContext } from "./fanout-runtime-context.ts";
 
+const MAX_PLANNING_CORRECTIONS = 2;
+
 export interface FanoutPlanningControllerOptions {
 	reportPresentationAvailable: boolean;
 	activeModel: () => unknown;
@@ -45,6 +48,9 @@ export class FanoutPlanningController {
 	#compactionContext: { messages: unknown[]; phaseStart: number } | undefined;
 	#compactedPrefix: unknown[] | undefined;
 	#toolStarts = new Map<string, { started: number; metrics: FanoutPhaseState["metrics"] }>();
+	#draft: PlanningDraft | undefined;
+	#repairCalls = new Set<string>();
+	#repairAttempts = 0;
 
 	constructor(pi: ExtensionAPI, options: FanoutPlanningControllerOptions) {
 		this.#pi = pi;
@@ -118,6 +124,8 @@ export class FanoutPlanningController {
 		const prompt = this.#pending.systemPrompt;
 		if (this.#started) return prompt;
 		this.#started = this.#pending;
+		this.#repairAttempts = 0;
+		this.#repairCalls.clear();
 		this.#phaseTrigger = undefined;
 		this.#compactionContext = undefined;
 		this.#compactedPrefix = undefined;
@@ -147,12 +155,15 @@ export class FanoutPlanningController {
 		const phaseSubmitted = phaseTurnStarted && finished?.acceptedSubmission?.runId === finished.runId && finished.acceptedSubmission.phase === finished.phase && finished.acceptedSubmission.path === expectedSubmissionPath;
 		this.#started = undefined;
 		if (finished?.phase === "profile") {
-			if (!phaseSubmitted) return this.#fail(ctx, finished, "profile", ["project execution profile was not accepted by fanout_submit_artifact"]);
+			const acceptedSubmission = finished.acceptedSubmission;
+			if (!phaseSubmitted || !acceptedSubmission) return this.#fail(ctx, finished, "profile", ["project execution profile was not accepted by fanout_submit_artifact"]);
 			try {
-				const profile = readAcceptedImplementationPlan(finished.projectExecutionProfilePath, finished.acceptedSubmission.identity);
+				const profile = readAcceptedImplementationPlan(finished.projectExecutionProfilePath, acceptedSubmission.identity);
 				const approved = await ctx.ui.confirm("Approve Project Execution Profile", profileSummary(profile));
+				if (this.#pending !== finished) return;
 				if (!approved) return this.#fail(ctx, finished, "profile", ["project execution profile approval declined"]);
-				const validation = await validateProjectExecutionProfile(profile, { repoRoot: ctx.cwd, runDir: finished.artifactDir, planningBase: recordField(finished.context.planningBase) as any, profileIdentity: finished.acceptedSubmission.identity });
+				const validation = await validateProjectExecutionProfile(profile, { repoRoot: ctx.cwd, runDir: finished.artifactDir, planningBase: recordField(finished.context.planningBase) as any, profileIdentity: acceptedSubmission.identity });
+				if (this.#pending !== finished) return;
 				writeJsonl("fanout_profile_validation", { planRunId: finished.runId, phase: "profile", evidence: validation.artifact, ...validation.evidence }, ctx.cwd);
 				if (validation.evidence.status !== "passed") return this.#fail(ctx, finished, "profile", [validation.evidence.error ?? "profile validation failed"]);
 				const published = publishProjectExecutionProfile(profile, stringField(finished.context.projectArtifactRoot), stringField(finished.context.activeProfilePointerPath));
@@ -164,6 +175,7 @@ export class FanoutPlanningController {
 				this.#startTurn(this.#pending, "Prepare and submit the Fanout implementation plan.");
 				return;
 			} catch (error) {
+				if (this.#pending !== finished) return;
 				return this.#fail(ctx, finished, "profile", [message(error)]);
 			}
 		}
@@ -203,10 +215,29 @@ export class FanoutPlanningController {
 	recordTtft(value: number): void { if (this.#started && this.#started.metrics.ttftMs === undefined) this.#started.metrics.ttftMs = value; }
 	recordAssistant(messageValue: unknown, turnIndex: number | undefined, cwd: string): void {
 		if (!this.#started) return;
+		// message_end precedes SDK tool argument validation, which can bypass execute entirely.
+		if (this.#draft && isRecord(messageValue) && messageValue.role === "assistant" && Array.isArray(messageValue.content)) {
+			for (const part of messageValue.content) {
+				if (isRecord(part) && part.type === "toolCall" && part.name === FANOUT_SUBMIT_TOOL && typeof part.id === "string") {
+					this.#repairCalls.add(part.id);
+					this.#repairAttempts++;
+				}
+			}
+			writeJsonl("fanout_planning_repair_attempts", { planRunId: this.#started.runId, revision: this.#draft.revision, attempts: this.#repairAttempts }, cwd);
+		}
 		const usage = recordPlanningAssistant(this.#started.metrics, messageValue);
 		if (usage) writeJsonl("assistant_usage", { planRunId: this.#started.runId, phase: this.#started.phase, turnIndex, ...usage }, cwd);
 	}
-	recordTurnStart(): void { if (this.#started) this.#started.metrics.turnCount++; }
+	finishResponse(ctx: any): void {
+		if (!this.#started || this.#started.acceptedSubmission || this.#repairAttempts < MAX_PLANNING_CORRECTIONS) return;
+		this.#fail(ctx, this.#started, "implementation", [`Planning correction budget exhausted (${MAX_PLANNING_CORRECTIONS} attempts); restart /fanout-plan`]);
+		this.reset();
+		ctx.abort();
+	}
+	recordTurnStart(): void {
+		this.#repairCalls.clear();
+		if (this.#started) this.#started.metrics.turnCount++;
+	}
 	recordToolStart(toolCallId: string, started: number): void {
 		if (!this.#started) return;
 		this.#started.metrics.toolCallCount++;
@@ -258,19 +289,39 @@ export class FanoutPlanningController {
 		this.#phaseTrigger = undefined;
 		this.#compactionContext = undefined;
 		this.#compactedPrefix = undefined;
+		this.#draft = undefined;
+		this.#repairCalls.clear();
+		this.#repairAttempts = 0;
 	}
 
 	#registerSubmissionTool(phase: FanoutPhaseState["phase"]): void {
+		const registeredState = this.#started;
 		this.#pi.registerTool({
 			name: FANOUT_SUBMIT_TOOL,
 			label: "Submit Fanout planning artifact",
 			description: "Validate and atomically submit the artifact expected by the active Fanout planning phase. The controller selects the run and destination.",
-			parameters: planningSubmissionParameters(phase),
+			parameters: this.#draft ? PlanningRepairSubmissionParametersSchema : planningSubmissionParameters(phase),
 			executionMode: "sequential",
-			execute: async (_toolCallId, params: { artifact: unknown }, _signal, _onUpdate, ctx) => {
+			execute: async (toolCallId, params: { artifact: unknown }, signal, _onUpdate, ctx) => {
 				const state = this.#started;
-				if (!state || this.#pending?.runId !== state.runId || this.#pending.phase !== state.phase || this.#pending.acceptedSubmission) throw new Error("No matching Fanout planning phase is awaiting submission");
-				const submitted = submitPlanningArtifact(state, params.artifact, ctx.cwd);
+				if (signal?.aborted || !state || state !== registeredState || this.#pending !== state || state.acceptedSubmission) throw new Error("No matching Fanout planning phase is awaiting submission");
+				let submitted;
+				try {
+					if (state.phase === "implementation") {
+						if (this.#draft) {
+							if (!this.#repairCalls.delete(toolCallId)) this.#repairAttempts++;
+							if (this.#repairAttempts > MAX_PLANNING_CORRECTIONS) throw new Error("Planning correction budget exhausted");
+							this.#draft = repairPlanningDraft(this.#draft, params.artifact);
+						} else this.#draft = retainPlanningDraft(params.artifact);
+					}
+					submitted = submitPlanningArtifact(state, this.#draft?.body ?? params.artifact, ctx.cwd);
+				} catch (error) {
+					if (!this.#draft) throw error;
+					this.#registerSubmissionTool(state.phase);
+					writeJsonl("fanout_planning_correction", { planRunId: state.runId, revision: this.#draft.revision, attempts: this.#repairAttempts, error: message(error) }, ctx.cwd);
+					throw new Error(`${message(error)}\nRetained draft revision ${this.#draft.revision}. ${Math.max(0, MAX_PLANNING_CORRECTIONS - this.#repairAttempts)} correction attempts remain. Submit only typed whole-record replacements by existing IDs using the updated tool schema. Header and inventory changes require restarting /fanout-plan.`);
+				}
+				this.#draft = undefined;
 				const acceptedSubmission = { runId: state.runId, phase: state.phase, path: submitted.path, identity: submitted.identity };
 				this.#started = { ...state, acceptedSubmission, planIdentity: submitted.planIdentity, acceptedCompilation: submitted.compiled };
 				this.#pending = this.#started;
@@ -286,6 +337,8 @@ export class FanoutPlanningController {
 	#fail(ctx: any, state: FanoutPhaseState, phase: string, errors: string[]): void {
 		finishPlanningPhase(state.metrics, state.phase);
 		this.#pending = undefined;
+		this.#draft = undefined;
+		this.#repairCalls.clear();
 		const concreteErrors = errors.length ? errors : ["unknown planning failure"];
 		writeJsonl("fanout_plan_failed", { planRunId: state.runId, invocation: state.invocation, objective: state.objective, phase, errors: concreteErrors, artifactDir: state.artifactDir, activePacketChanged: true, activePacketInvalidated: true, ...planningMetricsSummary(state.metrics, this.#options.activeThinking()) }, ctx.cwd);
 		ctx.ui.notify(`Fanout plan rejected: ${concreteErrors.join("; ")}\nArtifacts: ${state.artifactDir}\nRerun /fanout-plan after correcting the issue.\nThe prior active packet selection remains invalidated.`, "warning");

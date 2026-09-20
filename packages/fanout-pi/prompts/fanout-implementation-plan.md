@@ -7,51 +7,9 @@ Inspect the repository and submit exactly one combined plan and grounded details
 
 Use only `read`, `grep`, `find`, and `ls`; use `ask_user_question` only when intent cannot be discovered. Do not mutate the repository. Reuse supplied user findings and evidence already read in this context. Investigate once: decide the work, ground its changes, and submit both halves together. Do not implement the feature or write a speculative solution in the plan.
 
-Call `fanout_submit_artifact` alone with the following body. Its schema is the structural authority. The controller creates artifact paths, IDs, timestamps, platform, repository identities, source hashes, routing, and the execution DAG; do not generate these fields or read unpublished output artifacts.
+Call `fanout_submit_artifact` alone with `artifact: {plan, details}` using its typed schema. Give plan and detail records stable IDs, unique within each inventory; their relationship may be many-to-many. The controller supplies artifact envelopes, paths, timestamps, platform, repository identities, source hashes, routing, and the DAG. Do not generate those fields or read unpublished artifacts.
 
-```json
-{
-  "plan": {
-    "objective": "resolved objective",
-    "userContext": [],
-    "discoveredRepoFacts": [],
-    "assumptions": [],
-    "implementationItems": [{
-      "id": "stable-source-id",
-      "goals": ["semantic goal"],
-      "writeResources": [{"kind":"file","path":"src/example.ts"}],
-      "readResources": [{"kind":"file","path":"package.json"}],
-      "forbiddenWrites": [{"resource":{"kind":"directory","path":"generated"},"reason":"not authoritative"}],
-      "semanticReviewCriteria": ["observable acceptance criterion"],
-      "advisoryNotes": []
-    }]
-  },
-  "details": {
-    "items": [{
-      "id": "grounded-id",
-      "kind": "implement",
-      "changes": [{
-        "kind": "modify",
-        "target": {"resource":{"kind":"file","path":"src/example.ts"},"sourcePlanIds":["stable-source-id"]},
-        "intent": "specific change required by the goal",
-        "anchors": [{"kind":"symbol","symbol":"example"}]
-      }],
-      "readDependencies": [{
-        "resource": {"kind":"file","path":"package.json"},
-        "timing": "baseline-context",
-        "timingSource": "phase-b",
-        "sourcePlanIds": ["stable-source-id"],
-        "reason": "needed baseline configuration"
-      }],
-      "validationCommands": [{"executable":"node","args":["--test","test/example.test.js"]}],
-      "advisoryNotes": []
-    }],
-    "finalValidationCommands": []
-  }
-}
-```
-
-The plan and details are logical semantic and grounding halves (historical provenance labels `phase-a` and `phase-b`); they are submitted and validated together. Correct any submission/compiler feedback in this same context. Successful submission ends planning; no follow-up response is needed.
+The plan defines independent semantic authority; details ground that authority (historical provenance labels `phase-a` and `phase-b`). Both compile together. A structurally valid rejected draft is retained in memory. Follow its revision and updated tool schema to replace only affected whole records by existing IDs, with optional replacement final checks. Two correction attempts are allowed, including invalid calls. Headers and inventories stay fixed; changing the objective or adding/removing records requires restarting `/fanout-plan`. Successful submission ends planning without a follow-up response.
 
 Choose substantial independently authorable and repairable work units. Account for repeated context, setup, validation, and sequential model requests. Given the frozen behavior, interfaces and planning baseline, can a worker complete and validate its item without another worker's implementation? Keep useful independent work parallel. Group tiny related changes when setup and repeated context outweigh their useful work. Do not split by file category, file count, or individual coding step.
 

@@ -120,7 +120,7 @@ function resolveTier1(active: ReturnType<typeof modelInfo>, activeThinking: stri
 	return { summary: { provider: active.provider, model: active.model, thinking: activeThinking, source: "current Pi active model", status: "available", reason: "realtime control plane for planning, safety, review, synthesis, and final decisions" } };
 }
 
-export function tier1Resolved(summary: Record<string, unknown>): boolean {
+export function tier1Resolved(summary: Pick<TierModelSummary, "provider" | "model">): boolean {
 	return optionalString(summary.provider) !== undefined && optionalString(summary.model) !== undefined;
 }
 
@@ -140,7 +140,7 @@ function resolveTier2(config: Record<string, unknown>, models: Array<Record<stri
 	};
 }
 
-function resolveTier2Fallback(config: Record<string, unknown>, tier1: Record<string, unknown>, models: Array<Record<string, unknown>>): TierModelSummary {
+function resolveTier2Fallback(config: Record<string, unknown>, tier1: TierModelSummary, models: Array<Record<string, unknown>>): TierModelSummary {
 	const provider = optionalString(config.provider);
 	const model = optionalString(config.model);
 	const modelRecord = provider && model ? findModel(models, provider, model) : undefined;

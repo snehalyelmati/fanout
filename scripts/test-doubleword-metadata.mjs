@@ -7,6 +7,8 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "doubleword-metadata-test-"));
 process.env.DOUBLEWORD_API_KEY = "mock-key";
 process.env.DOUBLEWORD_MODEL_CACHE_FILE = join(dir, "models.json");
+process.env.DOUBLEWORD_OBSERVABILITY_FILE = join(dir, "observability.jsonl");
+const responseHeaders = [];
 
 function assert(ok, message) {
   if (!ok) throw new Error(message);
@@ -26,8 +28,19 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-const server = createServer((req, res) => {
+const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
+  if (req.method === "POST" && url.pathname === "/responses") {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    const request = JSON.parse(body);
+    responseHeaders.push(req.headers);
+    const response = { id: `headers-${responseHeaders.length}`, status: "completed", output_text: "Header check passed.", usage: { input_tokens: 1, output_tokens: 3, total_tokens: 4 } };
+    if (!request.stream) return sendJson(res, 200, response);
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.end(`event: response.completed\ndata: ${JSON.stringify({ response })}\n\n`);
+    return;
+  }
   if (req.method === "GET" && url.pathname === "/models") {
     return sendJson(res, 200, {
       data: [
@@ -63,7 +76,7 @@ try {
 
   const { discoverLiveModels, REALTIME_STUB_MODELS, DOUBLEWORD_THINKING_LEVEL_MAP, tierPricingProvenance, tierPricingSource, withTierCost } = await import("../packages/doubleword-provider/src/models.ts");
   const { DOUBLEWORD_PRICING_PROVENANCE, DOUBLEWORD_TIER_PRICING } = await import("../packages/doubleword-provider/src/pricing.ts");
-  const { responsesRequestBody } = await import("../packages/doubleword-provider/src/live.ts");
+  const { responsesRequestBody, streamLiveRealtime, streamLiveAsync } = await import("../packages/doubleword-provider/src/live.ts");
   const { responseUsageSource } = await import("../packages/doubleword-provider/src/messages.ts");
   const { modelPagePaths, parseModelPricing } = await import("./sync-doubleword-pricing.mjs");
 
@@ -143,6 +156,17 @@ try {
   const metadataPiModel = { ...metadataModel, api: "doubleword-api", provider: "doubleword", baseUrl: process.env.DOUBLEWORD_BASE_URL };
   assert(!("reasoning_effort" in responsesRequestBody(metadataPiModel, context, { reasoning: "off" }, {})), "explicit off:null should omit reasoning_effort");
   assert(responsesRequestBody(metadataPiModel, context, { reasoning: "high" }, {}).reasoning_effort === "catalog-high", "catalog thinking override was not used");
+  assert(!("reasoning_effort" in responsesRequestBody(piModel, context, { reasoning: "max" }, {})), "unmapped thinking level gained an unsupported provider effort");
+  assert(responsesRequestBody({ ...piModel, thinkingLevelMap: { max: "catalog-max" } }, context, { reasoning: "max" }, {}).reasoning_effort === "catalog-max", "new SDK thinking level ignored its catalog mapping");
+
+  for (const stream of [streamLiveRealtime, streamLiveAsync]) {
+    const result = await stream(piModel, context, { headers: { "X-Preserved": "present", "x-preserved": "extra", "x-omitted": null, "x-empty": "", authorization: null, "content-type": "wrong" } }).result();
+    assert(result.stopReason === "stop" && result.content.some((part) => part.type === "text" && part.text === "Header check passed."), `header request failed: ${JSON.stringify(result)}`);
+    const headers = responseHeaders.at(-1);
+    assert(headers["x-preserved"] === "present, extra" && headers["x-empty"] === "" && headers["x-omitted"] === undefined, `nullable SDK headers were not normalized: ${JSON.stringify(headers)}`);
+    assert(headers.authorization === "Bearer mock-key" && headers["content-type"] === "application/json", "custom headers replaced mandatory authentication or content type");
+  }
+  assert(responseHeaders.length === 2, "both provider transports must exercise header normalization");
 
   delete process.env.DOUBLEWORD_API_KEY;
   const cached = await discoverLiveModels();

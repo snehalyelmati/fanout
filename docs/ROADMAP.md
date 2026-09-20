@@ -39,6 +39,10 @@ Fanout should preserve developer velocity by using slower tiers only where laten
 
 ## Current Fanout workflow roadmap
 
+### Bounded planning corrections — 2026-09-20
+
+Implemented locally: a leaner planning prompt and two typed whole-record correction attempts after a complete combined draft fails admission. The controller retains revisions in memory, merges existing-ID replacements atomically and recompiles the entire draft. The initial successful path still uses one combined submission and no finalization request; persisted artifact versions and settlement publication are unchanged. Real SDK stub coverage includes next-response schema replacement, schema-rejected attempt accounting, cancellation and compaction. Malformed/truncated initial generations remain outside this optimization; token/time savings are unmeasured. No paid runs or new orchestration layers are in scope. See the [design decision](DESIGN_DECISIONS.md#retain-rejected-planning-drafts-for-bounded-typed-corrections).
+
 ### Public research preview — 2026-09-16
 
 Current scope: prepare repository source, the [study report](STUDY.md), curated per-run summaries and static figures. Parallel Fanout remains the primary architecture. Complete-candidate workers and whole-task submissions investigate request depth; the whole-task prototype is not the replacement product. No new paid benchmark, interactive explorer, website, slide deck or orchestration layer is required for this release.

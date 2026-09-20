@@ -2,12 +2,13 @@ import { readFileSync } from "node:fs";
 import { BATCHING_DISCIPLINE, BATCHING_DISCIPLINE_MARKER, PLANNING_BATCHING_DISCIPLINE } from "../packages/fanout-core/src/batching-discipline.ts";
 import { CombinedPlanningBodySchema, DirectArgvCommandSchema, planningSchemaErrors } from "../packages/fanout-core/src/planning-artifact-schema.ts";
 import { buildImplementationPlanPrompt, buildProjectExecutionProfilePrompt, createFanoutPlanRun } from "../packages/fanout-pi/src/fanout-plan-orchestration.ts";
+import { validSubmission } from "./planning-boundary-fixtures.mjs";
 
 function assert(condition, message) { if (!condition) throw new Error(message); }
 const planning = readFileSync("packages/fanout-pi/prompts/fanout-implementation-plan.md", "utf8");
 const profile = readFileSync("packages/fanout-pi/prompts/fanout-execution-profile.md", "utf8");
-const example = /```json\n([\s\S]*?)\n```/.exec(planning);
-assert(example && planningSchemaErrors(CombinedPlanningBodySchema, JSON.parse(example[1])).length === 0, "combined planning example is not accepted by its tool schema");
+assert(planningSchemaErrors(CombinedPlanningBodySchema, validSubmission()).length === 0, "combined planning fixture is not accepted by its tool schema");
+assert(!planning.includes("```json"), "planning prompt duplicated the registered tool schema with a JSON example");
 assert(profile.includes("`candidateNormalization`") && profile.includes("`requiredFinalGates`") && profile.includes("`networkAccess`") && profile.includes("grants no write authority"), "profile lost command disclosures");
 assert(BATCHING_DISCIPLINE.includes(BATCHING_DISCIPLINE_MARKER), "worker batching marker missing");
 assert(PLANNING_BATCHING_DISCIPLINE.includes("read-only") && PLANNING_BATCHING_DISCIPLINE.includes("fanout_submit_artifact alone") && !/edit|write|shell command|validation execution/i.test(PLANNING_BATCHING_DISCIPLINE), "planning batching widened tools");

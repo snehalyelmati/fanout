@@ -189,6 +189,15 @@ export const ImplementationPlanSubmissionParametersSchema = Type.Object({ artifa
 export const ImplementationDetailsSubmissionParametersSchema = Type.Object({ artifact: ImplementationDetailsBodySchema }, closed);
 export const CombinedPlanningBodySchema = Type.Object({ plan: ImplementationPlanBodySchema, details: ImplementationDetailsBodySchema }, closed);
 export const CombinedPlanningSubmissionParametersSchema = Type.Object({ artifact: CombinedPlanningBodySchema }, closed);
+export const PlanningRepairBodySchema = Type.Object({
+	revision: Type.Integer({ minimum: 1 }),
+	replacePlanItems: Type.Array(implementationPlanItem),
+	replaceDetailItems: Type.Array(detailsItemBody),
+	finalValidationCommands: Type.Optional(Type.Array(DirectArgvCommandSchema)),
+}, closed);
+export const PlanningRepairSubmissionParametersSchema = Type.Object({ artifact: PlanningRepairBodySchema }, closed);
+export type CombinedPlanningBody = Static<typeof CombinedPlanningBodySchema>;
+export type PlanningRepairBody = Static<typeof PlanningRepairBodySchema>;
 
 export type RepositoryResourceStructure = Static<typeof RepositoryResourceSchema>;
 export type ArtifactIdentityStructure = Static<typeof ArtifactIdentitySchema>;

@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { writeJsonl } from "../../fanout-core/src/observability.ts";
 import { artifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
@@ -12,6 +13,9 @@ import {
 	ImplementationDetailsBodySchema,
 	CombinedPlanningBodySchema,
 	CombinedPlanningSubmissionParametersSchema,
+	PlanningRepairBodySchema,
+	type CombinedPlanningBody,
+	type PlanningRepairBody,
 	ImplementationPlanBodySchema,
 	PROJECT_EXECUTION_PROFILE_SCHEMA,
 	PROJECT_EXECUTION_PROFILE_VERSION,
@@ -39,6 +43,37 @@ export function restorePlanningTools(pi: Pick<ExtensionAPI, "setActiveTools">, p
 
 export function planningSubmissionParameters(phase: FanoutPhaseState["phase"]) {
 	return phase === "profile" ? ProfileSubmissionParametersSchema : CombinedPlanningSubmissionParametersSchema;
+}
+
+export interface PlanningDraft { revision: number; body: CombinedPlanningBody }
+
+export function retainPlanningDraft(body: unknown): PlanningDraft {
+	const errors = planningSchemaErrors(CombinedPlanningBodySchema, body);
+	if (errors.length) throw new TypeError(errors.join("; "));
+	const draft = structuredClone(body) as CombinedPlanningBody;
+	for (const items of [draft.plan.implementationItems, draft.details.items]) {
+		if (new Set(items.map((item) => item.id)).size !== items.length) throw new Error("Draft IDs must be unique within each inventory; replan with unique IDs");
+	}
+	return { revision: 1, body: draft };
+}
+
+export function repairPlanningDraft(draft: PlanningDraft, input: unknown): PlanningDraft {
+	const errors = planningSchemaErrors(PlanningRepairBodySchema, input);
+	if (errors.length) throw new TypeError(errors.join("; "));
+	const repair = input as PlanningRepairBody;
+	if (repair.revision !== draft.revision) throw new Error(`Stale draft revision; expected ${draft.revision}`);
+	function replace<T extends { id: string }>(items: T[], replacements: T[]): T[] {
+		const byId = new Map(replacements.map((item) => [item.id, item]));
+		if (byId.size !== replacements.length) throw new Error("Duplicate replacement ID");
+		for (const id of byId.keys()) if (!items.some((item) => item.id === id)) throw new Error(`Unknown replacement ID: ${id}; inventory changes require replanning`);
+		return items.map((item) => byId.get(item.id) ?? item);
+	}
+	const body = {
+		plan: { ...draft.body.plan, implementationItems: replace(draft.body.plan.implementationItems, repair.replacePlanItems) },
+		details: { ...draft.body.details, items: replace(draft.body.details.items, repair.replaceDetailItems), finalValidationCommands: repair.finalValidationCommands ?? draft.body.details.finalValidationCommands },
+	};
+	if (isDeepStrictEqual(body, draft.body)) throw new Error("Correction must change at least one record or final validation command");
+	return { revision: draft.revision + 1, body: structuredClone(body) };
 }
 
 export function planningToolBlockReason(toolName: string, active: boolean): string | undefined {

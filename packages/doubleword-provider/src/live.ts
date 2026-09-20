@@ -60,6 +60,12 @@ function streamError(data: any): string {
 	return String(data?.error?.message ?? data?.message ?? data?.response?.error?.message ?? JSON.stringify(data));
 }
 
+function requestHeaders(headers: SimpleStreamOptions["headers"]): Headers {
+	const result = new Headers();
+	for (const [name, value] of Object.entries(headers ?? {})) if (value !== null) result.append(name, value);
+	return result;
+}
+
 export function doublewordReasoningEffort(model: Model<Api>, options?: SimpleStreamOptions): string | undefined {
 	if (!model.reasoning) return undefined;
 	const level = options?.reasoning ?? "medium";
@@ -98,7 +104,7 @@ export function streamLiveRealtime(model: Model<Api>, context: Context, options?
 			if (!apiKey) throw new Error("DOUBLEWORD_API_KEY is required for doubleword live provider");
 
 			const baseUrl = envString("DOUBLEWORD_BASE_URL", model.baseUrl ?? DOUBLEWORD_API_BASE_URL).replace(/\/$/, "");
-			const headers = new Headers(options?.headers);
+			const headers = requestHeaders(options?.headers);
 			headers.set("content-type", "application/json");
 			headers.set("authorization", `Bearer ${apiKey}`);
 			const httpResponse = await fetch(`${baseUrl}/responses`, {
@@ -220,7 +226,7 @@ export function streamLiveAsync(model: Model<Api>, context: Context, options?: S
 		let lastStatus = "pending";
 		let pollIndex = 0;
 		let baseUrl = envString("DOUBLEWORD_BASE_URL", model.baseUrl ?? DOUBLEWORD_API_BASE_URL).replace(/\/$/, "");
-		let headers = new Headers(options?.headers);
+		let headers = requestHeaders(options?.headers);
 		const output = emptyMessage(model, responseId);
 		const pollMs = envInt("DOUBLEWORD_LIVE_ASYNC_POLL_MS", 2000);
 		const timeoutMs = envInt("DOUBLEWORD_LIVE_ASYNC_TIMEOUT_MS", DEFAULT_ASYNC_TIMEOUT_MS);

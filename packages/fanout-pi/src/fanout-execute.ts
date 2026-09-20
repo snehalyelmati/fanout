@@ -93,8 +93,8 @@ export async function executeFanout(options: ExecuteFanoutOptions): Promise<Exec
 		dag = await runDag(loaded.packet, {
 			maxConcurrency,
 			failFast,
-			runNode: (node, signal) => executor.runNode(node, signal),
-			onNodeCompleted: async (node) => { await recordNodeCompletion(recorder, node); },
+			runNode: executor.runNode.bind(executor),
+			onNodeCompleted: recordNodeCompletion.bind(undefined, recorder),
 		});
 		if (!dag.ok) {
 			projection = recorder.projection();

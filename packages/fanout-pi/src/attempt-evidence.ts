@@ -191,7 +191,7 @@ export function correlatedWorkerMetrics(options: WorkerMeasurementOptions): Corr
 	}
 	const turnKey = (index: number) => turnEnds[index]?.turnIndex ?? `assistant-${index}`;
 	const providerEnds = observability.filter((event) => event.event === "provider_end");
-	const responses = providerEnds.map((event, index) => {
+	const responses: Record<string, unknown>[] = providerEnds.map((event, index) => {
 		const path = `worker.provider_end[${index}]`;
 		const turnId = `${attemptId}/turn-${event.turnIndex}`;
 		const ttft = observability.find((candidate) => candidate.event === "provider_ttft" && candidate.turnIndex === event.turnIndex && candidate.responseId === event.responseId);

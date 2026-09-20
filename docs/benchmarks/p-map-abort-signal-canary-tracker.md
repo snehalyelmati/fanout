@@ -1,8 +1,38 @@
 # p-map AbortSignal canary tracker
 
-Date: 2026-07-14; optimization-candidate runs: 2026-07-27 through 2026-07-29
+Date: 2026-07-14; optimization-candidate runs: 2026-07-27 through 2026-07-29 and 2026-09-20
 
-Status: Candidate `c75ff9a` and Attempt 14 remain historical successful evidence. The 2026-07-27 profile-bound sequence completed the canary and repetitions 1–2, then stopped when repetition 3 exhausted the fused runtime/test node's fixed validation-repair budget. The reviewed 2026-07-28 Worker-summary candidate first stopped before worker launch on a confirmation-label defect. Commit `3fef090` fixed that defect and passed both review axes. Its restarted canary completed, then repetition 1 stopped on bounded runtime-test validation-repair exhaustion. The subsequent realistic-task canary proved that reviewed planning fix `0f008e1` naturally joins runtime implementation and behavioral tests in one repair boundary, then stopped when that joint node exhausted its two repairs. All three 2026-07-29 live prompt canaries completed; the third made all three independently owned work nodes concurrently ready while preserving the runtime/test repair boundary. The user paused its three repetitions before any repetition worktree or run was started. The release-confidence gate remains open.
+Status: Candidate `c75ff9a` and Attempt 14 remain historical successful evidence. The 2026-07-27 profile-bound sequence completed the canary and repetitions 1–2, then stopped when repetition 3 exhausted the fused runtime/test node's fixed validation-repair budget. The reviewed 2026-07-28 Worker-summary candidate first stopped before worker launch on a confirmation-label defect. Commit `3fef090` fixed that defect and passed both review axes. Its restarted canary completed, then repetition 1 stopped on bounded runtime-test validation-repair exhaustion. The subsequent realistic-task canary proved that reviewed planning fix `0f008e1` naturally joins runtime implementation and behavioral tests in one repair boundary, then stopped when that joint node exhausted its two repairs. All three 2026-07-29 live prompt canaries completed; the third made all three independently owned work nodes concurrently ready while preserving the runtime/test repair boundary. The user paused its three repetitions before any repetition worktree or run was started. The first 2026-09-20 singleton controller run completed but failed independent acceptance on a promised-source-value abort race. Its baseline-restored rerun generated a fresh candidate that passed controller validation and every independent acceptance case. No repetitions were requested or started, so the release-confidence gate remains open.
+
+## 2026-09-20 baseline rerun canary
+
+- The same standalone clone was restored to baseline commit/tree `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f` before planning. No linked active worktree was created. The approved profile remained byte-identical at SHA-256 `1fba48e8caf34ea2d81299ab57052d63ba69f61b198c0456601169669267dcd0`, 2,278 bytes, and was reused rather than rebuilt.
+- Tier 1/control remained GPT-5.6 Sol medium; async Tier 2 remained disabled; GPT-5.6 Terra medium remained the realtime fallback; concurrency remained four. The fresh packet SHA-256 was `aadcaa7d955f7a2b92e3d9053992552fa3780911000fae470cef8c8dfebac497`, 35,010 bytes.
+- The graph had two concurrently ready nodes: runtime plus AVA tests, and types plus documentation. Dry-run `2026-09-20T14-53-43-350Z-7d5c8847` passed in 23.959s with zero attempts, calls, tokens, cost, transitions, or mutations.
+
+| Run | Active checkout | Controller outcome and accepted tree | Independent acceptance/cleanup | Timing, tokens, and cost |
+| --- | --- | --- | --- | --- |
+| Canary rerun `2026-09-20T14-54-46-761Z-fb9f40a3` | Restored standalone clone at fixed baseline | Completed; both Terra originals accepted, with disjoint deterministic reconciliation for runtime/test; 55-test `npm test` and `git diff --check` passed; exact tree `232182b239a28c367525a85bb8bc98ac25c3bcc7`; five allowed files, +268/-29 | **Passed** all six acceptance v2 cases, including promised source values; cleanup 3.765s; no worker, lock, or Fanout-created worktree leak | 450.631s wall; 452,999 tokens; `$0.2781692` worker execution cost; 2 attempts |
+| Repetitions | not requested or created | Successful singleton only | No repetition artifacts | No distribution |
+
+The passing candidate explicitly awaits a promised source value through the abort race and checks terminal state before invoking the mapper, so the prior candidate's post-abort mapper-start failure did not recur. Candidate patch SHA-256 is `e1eb7559d6961f21ac173c34c4a1091d7704cd9044991257e89c46721f077664`; passing acceptance receipt SHA-256 is `5ab7896d2ed264c546ab5246e61258d1b08255f41df0fa067601451585f8530d`. Detailed evidence is under `runs/p-map-lean-planning-20260920-rerun-1/`.
+
+## 2026-09-20 lean-planning canary
+
+- Frozen target baseline commit/tree: `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`. The singleton used one standalone clone, not a linked active worktree. Recorded setup validation passed all 51 baseline tests.
+- Tier 1/control was GPT-5.6 Sol medium. Async Tier 2 was disabled and the realtime Tier 2 fallback was GPT-5.6 Terra medium, with concurrency four. All three original work nodes ran on Terra; none retried or repaired.
+- The exact approved profile was reused at the unchanged baseline: SHA-256 `1fba48e8caf34ea2d81299ab57052d63ba69f61b198c0456601169669267dcd0`, 2,278 bytes. A preceding replacement submission was rejected for omitting XO normalization and `git diff --check`, made no target change, and was not published.
+- Packet SHA-256 `b5dd5f98386d800e703954de378cea2e5a24c78fff93890d0d2310c66ea78574`, 43,871 bytes; plan/details SHA-256 `12a90f6cbc5093e2a9bd15c9e0af2d08e2ed0fd88d6cd03bdb80ab07d5e586a2` / `aa5090b4b62d4d9b28a37ef1b637656633ce3112415abb7f39b897ca309ea0ee`. Runtime plus AVA, types plus tsd, and README were all concurrently ready.
+- Dry-run `2026-09-20T14-33-09-018Z-4be8dab9` passed in 19.907s with zero attempts, calls, tokens, cost, accepted transitions, or mutations.
+
+| Run | Active checkout | Controller outcome and accepted tree | Independent acceptance/cleanup | Timing, tokens, and cost |
+| --- | --- | --- | --- | --- |
+| Canary `2026-09-20T14-34-23-370Z-86119a51` | Standalone clone at fixed baseline | Completed; all three originals accepted; `npm test` passed 55 tests and `git diff --check` passed; exact tree `5188499f4ac39507efc91a34db9deee32241306b`; five allowed files, +292/-48 | **Failed** acceptance v2: `promised-source-value-abort` observed one mapper start instead of zero; other five cases passed. Cleanup 6.258s; no worker, lock, or Fanout-created worktree leak | 439.669s wall; 418,252 tokens; `$0.2983792` worker execution cost; 3 attempts |
+| Repetitions 1–3 | not created | Mandatory stop after independent acceptance failure | No execution artifacts | No measurements |
+
+Root cause at the behavior boundary: the candidate creates `Promise.resolve(value).then(value => mapper(...))` while adopting a promised source value. Abort closes the source and rejects the consumer, but cannot prevent the already-created mapper continuation after that value resolves. The candidate is frozen as failed evidence and must not be repaired in cohort.
+
+Archived candidate patch SHA-256 is `1ced2c5832d6ca03605981f3a952571c01654fba7f2913fb2278c4d8bc8e7b8d`; independent acceptance receipt SHA-256 is `54de230e94a808548df042b4130dfa4d278c1061914c20039713cf51ab9fb6a3`. Detailed immutable evidence is under `runs/p-map-lean-planning-20260920/`.
 
 ## 2026-07-29 parallelism prompt canary
 

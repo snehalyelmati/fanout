@@ -33,7 +33,7 @@ The benchmark lives outside the Fanout repository, and the nested p-map reposito
 - Do not commit benchmark or Fanout changes unless explicitly requested.
 - Keep failed and interrupted run artifacts for diagnosis.
 - Do not build an automated harness or run experimental variations.
-- Hold Fanout commit, packet/profile bytes, routing, concurrency, platform, and clean independent worktrees constant across the canary and repetitions.
+- Hold Fanout commit, packet/profile bytes, routing, concurrency, platform, and clean active-checkout state constant across the canary and repetitions.
 
 ## 1. Preflight
 
@@ -53,7 +53,7 @@ git rev-parse 'HEAD^{tree}'
 
 Required state:
 
-- worktree is clean;
+- active checkout is clean;
 - `HEAD` is `c3c261e2189f94d1a09724e8f03d5345af518017`;
 - recorded setup validation passed all 51 baseline tests; reuse that evidence without rerunning tests when the fixture, dependencies, task, and platform are unchanged, following the [common baseline policy](fanout-canary-run-protocol.md#2-verify-the-target-baseline);
 - no stale execution lock is present;
@@ -70,7 +70,7 @@ tmux has-session -t doubleword
 tmux list-windows -t doubleword
 ```
 
-For every canary or repetition, create a new pane rooted at that run's absolute clean p-map worktree, record the returned pane ID, then select it:
+For a singleton canary or sequential repetition, root the pane in the clean p-map checkout (or one standalone clone), record the returned pane ID, then select it. Do not create linked Git worktrees for one-at-a-time execution. Concurrent runs still require separate active checkouts.
 
 ```bash
 tmux split-window -t doubleword:fanout-canary -c <absolute-run-worktree> -P -F '#{pane_id}' -- env -u DOUBLEWORD_API_KEY pi -e <fanout-source>/packages/fanout-pi/src/index.ts
@@ -99,10 +99,12 @@ Evaluate whether role descriptions, multiline rendering, arrow and `j`/`k` navig
 
 ## 4. Prepare the execution packet
 
-For the canary, publish or refresh the approved Project Execution Profile before planning:
+At the exact clean baseline, reuse the existing approved Project Execution Profile after verifying its identity and applicability. Do not rebuild it for a new canary when the repository, dependency state, platform, required commands, profile schema, and profile bytes are unchanged. Publish or refresh a profile only when one of those inputs changed or no verifiable approved profile exists.
+
+Plan against the selected profile:
 
 ```text
-/fanout-plan --refresh-profile Read ../TASK.md and implement that feature request exactly.
+/fanout-plan Read ../TASK.md and implement that feature request exactly.
 ```
 
 The profile uses isolated direct-argv preparation/readiness with explicit purpose, mutation, network, and lifecycle disclosures, declares direct-argv offline XO candidate normalization, and includes the repository-wide required final gate. It must not share or link `node_modules`. Repetitions reuse the exact validated profile and packet bytes.
@@ -205,7 +207,7 @@ Provider-cost and mutation gate: the user must explicitly choose to run this com
 /fanout-execute
 ```
 
-Run one canary first. If it and all post-run checks pass, run three additional repetitions from fresh independent clean worktrees and fresh tmux panes with identical Fanout commit, packet/profile bytes, routing, concurrency, and platform. Stop on any failure or artifact/configuration change; after any code, packet, profile, or configuration change, restart at the canary.
+Run one canary first. If it and all post-run checks pass, run three additional repetitions sequentially by restoring and reusing the clean checkout, each in a fresh tmux pane with identical Fanout commit, packet/profile bytes, routing, concurrency, and platform. Use separate active worktrees only if the repetitions are intentionally concurrent. Stop on any failure or artifact/configuration change; after any code, packet, profile, or configuration change, restart at the canary.
 
 During execution, capture or note:
 
@@ -266,7 +268,7 @@ Track:
 - worker and validation failures;
 - changed files and patch statistics;
 - discrepancies between events, summary, final validation, and Git.
-- exact profile identity, phase timings, cleanup duration, tmux pane ID, and pane worktree.
+- exact profile identity, phase timings, cleanup duration, tmux pane ID, and active-checkout path.
 
 ## 10. Failure and interruption protocol
 

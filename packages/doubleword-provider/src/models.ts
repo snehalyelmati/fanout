@@ -31,7 +31,7 @@ export type ProviderModel = {
 
 const MODEL_CACHE_FILE = process.env.DOUBLEWORD_MODEL_CACHE_FILE ?? join(homedir(), ".pi", "agent", "doubleword-models.json");
 export const ZERO_COST: ModelCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-export const DOUBLEWORD_THINKING_LEVEL_MAP = { off: "none", minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh" } satisfies NonNullable<Model<Api>["thinkingLevelMap"]>;
+export const DOUBLEWORD_THINKING_LEVEL_MAP: NonNullable<Model<Api>["thinkingLevelMap"]> = { off: "none", minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh" };
 
 function isGenerationModel(id: string, name = id): boolean {
 	return !/(ocr|embed|embedding|embeddings)/i.test(`${id} ${name}`);

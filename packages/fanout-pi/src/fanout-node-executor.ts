@@ -191,6 +191,7 @@ export class FanoutNodeExecutor {
 		let gated = await this.#runOriginalWithRetry(unit, signal);
 		if (!gated.ok && gated.failureKind === "validation" && this.#terminalOutcome(gated).action === "validation-repair") gated = await this.#repairValidation(unit, gated, signal);
 		if (!gated.ok) return await this.#result(gated);
+		if (!("validation" in gated)) throw new Error(`attempt ${gated.attemptId} reached apply without validation`);
 
 		const applied = await this.#apply(unit, gated, signal);
 		if (applied.ok) return await this.#result(applied);
@@ -411,6 +412,7 @@ export class FanoutNodeExecutor {
 		let conflict = await this.#withApplyLock(() => this.#applyLocked(unit, attempt, signal, true));
 		let ledgerAdvanceRetry = 0;
 		while ("reconcile" in conflict) {
+			const currentConflict = conflict;
 			signal?.throwIfAborted();
 			const reconciliation = await reconcilePathDisjointCandidate({
 				repoRoot: this.#repoRoot,
@@ -429,7 +431,7 @@ export class FanoutNodeExecutor {
 			});
 			const resolved = await this.#withApplyLock(async () => {
 				const acceptedTree = this.#acceptedLedger.at(-1)?.patch.resultTree ?? this.#planningBase.tree;
-				if (acceptedTree !== conflict.acceptedTree || this.#acceptedLedger.length !== conflict.ledger.length) return undefined;
+				if (acceptedTree !== currentConflict.acceptedTree || this.#acceptedLedger.length !== currentConflict.ledger.length) return undefined;
 				if (!reconciliation.ok) {
 					if (["preparation-failed", "repository-failed"].includes(reconciliation.code)) {
 						return await this.#completeTerminalAttempt({
@@ -441,7 +443,7 @@ export class FanoutNodeExecutor {
 							terminalFact: { stage: "process", code: "infrastructure-failure", durationMs: 0 },
 						});
 					}
-					const recovery = integrationFailureEvidence(unit.workContract, attempt, conflict.evidence, this.#acceptedLedger, acceptedTree);
+					const recovery = integrationFailureEvidence(unit.workContract, attempt, currentConflict.evidence, this.#acceptedLedger, acceptedTree);
 					return await this.#completeTerminalAttempt({ ...attempt, ok: false, error: reconciliation.detail, failureKind: "apply", retryable: false, terminalFact: { stage: "apply", code: "check-conflict" }, recovery });
 				}
 				const reconciled = { ...attempt, patch: reconciliation.patch, validation: reconciliation.validation, base: reconciliation.base, worktreePath: reconciliation.worktreePath } as GatedAttempt;
@@ -455,6 +457,8 @@ export class FanoutNodeExecutor {
 		return conflict;
 	}
 
+	#applyLocked(unit: FanoutWorkUnit, attempt: GatedAttempt, signal: AbortSignal | undefined, allowReconciliation: false, disposition?: "deterministic-reconciliation"): Promise<WorkerAttempt>;
+	#applyLocked(unit: FanoutWorkUnit, attempt: GatedAttempt, signal: AbortSignal | undefined, allowReconciliation: true, disposition?: "deterministic-reconciliation"): Promise<WorkerAttempt | ApplyConflict>;
 	async #applyLocked(
 		unit: FanoutWorkUnit,
 		attempt: GatedAttempt,

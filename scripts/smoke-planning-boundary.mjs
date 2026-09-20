@@ -14,6 +14,7 @@ import { renderWorkContractMarkdown } from "../packages/fanout-core/src/work-con
 import { FANOUT_ORCHESTRATION_MARKER } from "../packages/fanout-pi/src/fanout-plan-orchestration.ts";
 import { assert, expectThrows, extensionHarness, phaseState, profileGateCommand, validDetails, validPlan, validProfile, validSubmission, sdkPlanningSession } from "./planning-boundary-fixtures.mjs";
 import { testPlanningPresentation } from "./smoke-planning-presentation.mjs";
+import { testPlanningRepair } from "./smoke-planning-repair.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "fanout-planning-boundary-"));
 try {
@@ -24,6 +25,7 @@ try {
   await testRealPlanningRuntime();
   await testRealPlanningRuntime(true);
   await testRealPlanningCancellation();
+  await testPlanningRepair(root, (await import("../packages/fanout-pi/src/index.ts")).default);
   await testPlanningPresentation(root);
   console.log("planning boundary smoke passed (A15)");
 } finally {
@@ -153,7 +155,8 @@ async function testPlanningLifecycle() {
       assert(!existsSync(join(artifactDir, "implementation-plan.json")), "invalid combined draft published plan");
     }
     if (["success", "queued-transition", "mutated-submission", "mutated-details-submission", "duplicate-details-resubmission"].includes(scenario)) {
-      const submitted = await harness.submit.execute("submit", { artifact: validSubmission() }, undefined, undefined, harness.ctx);
+      const artifact = scenario === "duplicate-details-resubmission" ? { revision: 1, replacePlanItems: [], replaceDetailItems: [], finalValidationCommands: validDetails().finalValidationCommands } : validSubmission();
+      const submitted = await harness.submit.execute("submit", { artifact }, undefined, undefined, harness.ctx);
       assert(submitted.terminate === true, "combined submission did not terminate");
     }
     if (scenario === "mutated-submission") writeFileSync(join(artifactDir, "implementation-plan.json"), "{");
@@ -262,7 +265,7 @@ async function testRealPlanningRuntime(implicitObjective = false) {
     const result = { role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id, usage: usage(), timestamp: Date.now(), stopReason: "stop" };
     if (calls === 1 || calls === 2) { result.stopReason = "error"; result.errorMessage = calls === 1 ? "503 service overloaded" : "maximum context length exceeded"; }
     else if (calls === 3) result.content = [{ type: "text", text: "continue planning EXCLUDED_PHASE_A" }];
-    else result.content = [{ type: "toolCall", id: `submit-${calls}`, name: "fanout_submit_artifact", arguments: { artifact: calls === 4 ? { plan: validPlan(), details: { ...validDetails(), items: [{ ...validDetails().items[0], changes: [{ ...validDetails().items[0].changes[0], target: { resource: { kind: "file", path: "unowned.md" }, sourcePlanIds: ["code"] } }] }] } } : validSubmission() } }];
+    else result.content = [{ type: "toolCall", id: `submit-${calls}`, name: "fanout_submit_artifact", arguments: { artifact: calls === 4 ? { plan: validPlan(), details: { ...validDetails(), items: [{ ...validDetails().items[0], changes: [{ ...validDetails().items[0].changes[0], target: { resource: { kind: "file", path: "unowned.md" }, sourcePlanIds: ["code"] } }] }] } } : { revision: 1, replacePlanItems: [], replaceDetailItems: validDetails().items } } }];
     if (calls >= 4) result.stopReason = "toolUse";
     const stream = createAssistantMessageEventStream();
     stream.push(result.stopReason === "error" ? { type: "error", reason: "error", error: result } : { type: "done", reason: result.stopReason, message: result });
@@ -275,6 +278,8 @@ async function testRealPlanningRuntime(implicitObjective = false) {
     assert(!JSON.stringify(observed[2].messages).includes("EXCLUDED_"), "explicit objective regained excluded history after SDK compaction");
     if (implicitObjective) assert(JSON.stringify(observed[2].messages).includes("BARE_OBJECTIVE_DECISION"), "bare objective lost its admitted conversation after compaction");
     assert(observed[4].messages.some((message) => message.role === "toolResult" && message.isError && JSON.stringify(message).includes("write-not-authorized")), "compiler draft failure did not return through the real tool retry loop");
+    const repairSchema = observed[4].tools.find((tool) => tool.name === "fanout_submit_artifact").parameters.properties.artifact.properties;
+    assert(repairSchema.revision && repairSchema.replaceDetailItems && !repairSchema.plan, "SDK automatic response did not receive only the repair schema");
     assert(existsSync(runtime.activePointerPath), "SDK corrected details did not publish a packet");
     assert(session.getActiveToolNames().includes("bash"), "SDK settled success did not restore prior tools");
   } finally { session.dispose(); }

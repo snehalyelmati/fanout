@@ -16,6 +16,26 @@ This is a dated design history, including experiments, reversals and retained tr
 
 ## 2026-09-20
 
+### Reserve linked worktrees for concurrent benchmark runs
+
+Use one verified clean checkout for a singleton canary or sequential repetition cohort, restoring it between runs; a standalone clone is also acceptable. Do not create linked Git worktrees for one-at-a-time execution. Separate active worktrees remain required for intentionally concurrent runs because each execution needs its own lock and repository state. This simplifies sequential operation without weakening baseline or cleanup checks.
+
+### Reuse approved execution profiles at an unchanged baseline
+
+Do not rebuild a Project Execution Profile for each benchmark canary when the target repository remains at the exact clean baseline. Reuse the approved profile only after verifying that dependency state, platform, required commands, profile schema and bytes, and active-pointer identity are still applicable. Refresh after any profile-defining change, when no approved profile exists, or when verification is incomplete. This removes an unnecessary model call without weakening profile authority or changing historical benchmark accounting.
+
+### Retain rejected planning drafts for bounded typed corrections
+
+Keep one ordinary Pi implementation context and the initial combined `{plan, details}` tool submission. Remove the redundant JSON example from the prompt, retaining ownership, read-timing, repair-coupled tests and focused-validation guidance. After a structurally valid, uniquely addressed draft fails admission, retain it only in controller memory and switch the same tool to a closed repair schema on the next automatic response. Repairs replace whole plan/detail records by existing ID and may replace final validation commands. Headers and inventories remain fixed; changes to those require replanning.
+
+Merge each batch atomically, preserve untouched records and ordering, reject stale revisions, duplicate/unknown IDs and no-op corrections, then run the entire existing admission/compiler path. Structurally valid compiler-rejected revisions become the next repair base, never executable artifacts. Plan authority remains independent from detail grounding, including many-to-many source attribution. Plan-body-bound sequential read fallback is unchanged and cannot reset the overall two-correction budget.
+
+Count repair tool calls at assistant completion before SDK argument validation; schema-rejected calls consume the budget even without execution. Abort exhausted runs after their tool results, discard draft authority and restore tools. Cancellation/session reset also discards drafts; successful submission still terminates directly and publication remains identity-checked, pointer-last at settlement. Persisted profile v1, plan v4 and details v7 contracts are unchanged.
+
+This is a local repair optimization, not a checkpoint protocol: malformed or length-truncated initial generations are not salvaged. No additional successful-path request, planner scheduler, JSON patch language, flag, paid benchmark or measured token/time saving is introduced. Real Pi SDK stub tests verify dynamic schema replacement and the pre-execution budget boundary.
+
+## 2026-09-20
+
 ### Reuse successful setup validation for unchanged benchmark baselines
 
 Decision: Across all benchmarks, reuse recorded passing setup tests when preflight verifies the same clean baseline, task, dependency state, and platform. Skip duplicate baseline tests by default without a per-run waiver. Initial setup and changed or unverified fixtures require validation; required checks on generated implementations remain unchanged.

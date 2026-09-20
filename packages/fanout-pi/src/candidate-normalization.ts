@@ -73,12 +73,17 @@ export async function normalizeCandidate(options: CandidateNormalizationOptions)
 			stderr: [command.stderr, command.spawnError].filter(Boolean).join("\n"),
 			durationMs: command.durationMs,
 		}));
-		const interrupted = commands.find((command) => ["spawn", "timeout", "signal", "aborted"].includes(command.outcome));
-		if (interrupted) failure = {
-			code: interrupted.outcome === "spawn" ? "spawn-failure" : interrupted.outcome === "aborted" ? "user-abort" : interrupted.outcome,
-			commandIndex: interrupted.index,
-			...(interrupted.stderr ? { detail: interrupted.stderr } : {}),
-		};
+		for (const command of commands) {
+			const outcome = command.outcome;
+			if (outcome === "spawn" || outcome === "timeout" || outcome === "signal" || outcome === "aborted") {
+				failure = {
+					code: outcome === "spawn" ? "spawn-failure" : outcome === "aborted" ? "user-abort" : outcome,
+					commandIndex: command.index,
+					...(command.stderr ? { detail: command.stderr } : {}),
+				};
+				break;
+			}
+		}
 	} catch (error) {
 		commands = options.commands.map((command, index) => unexecuted(command, index));
 		failure = { code: "preflight-failure", detail: errorMessage(error) };
