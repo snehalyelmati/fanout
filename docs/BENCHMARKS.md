@@ -1,5 +1,11 @@
 # Benchmark Metrics
 
+## Doubleword pricing refresh — 2026-09-20
+
+Regenerated the reviewed pricing snapshot from the official Doubleword catalogue using `npm run sync:doubleword-pricing`: 36 exact model IDs, up from 32. Added [DeepSeek V4.1 Flash](https://docs.doubleword.ai/inference-api/models/deepseek-ai-deepseek-v4-1-flash.md), [DeepSeek V4 Pro 0813](https://docs.doubleword.ai/inference-api/models/deepseek-ai-deepseek-v4-pro-0813.md), [MiMo V2.5 Pro](https://docs.doubleword.ai/inference-api/models/xiaomimo-mimo-v2-5-pro.md), and [GLM-5.3](https://docs.doubleword.ai/inference-api/models/zai-org-glm-5-3.md), each with realtime, async, and batch input/cache-read/output rates. Exact IDs and rates are in the [pricing snapshot](../packages/doubleword-provider/src/pricing.ts). The 32 existing models have no price or tier changes, and no models were removed.
+
+The snapshot retrieval date is 2026-09-20 and its canonical SHA-256 is `9407511c866d622e81d063a2e3c476cc76c31c151e2b38bfa239a0de5ffff03b`. This updates pricing coverage only: availability still comes from model discovery, with no routing/default-model changes or paid inference calls. Historical benchmark prices, evidence, and results remain unchanged.
+
 ## Research preview — 2026-09-16
 
 Read the [public study](STUDY.md) for the curated narrative and [summary data/static figures](study/README.md) for reproducible calculations. Parallel Fanout remains the primary architecture; whole-task submission is a request-depth experiment. Conditional winning mechanisms and modeled feasibility are distinct from repeated empirical task/model/provider coverage.

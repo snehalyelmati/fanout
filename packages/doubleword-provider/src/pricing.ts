@@ -6,8 +6,8 @@ export type DoublewordTierPrices = Partial<Record<DoublewordPricingTier, Doublew
 
 export const DOUBLEWORD_PRICING_PROVENANCE = {
 	"sourceUrl": "https://docs.doubleword.ai/inference-api/models",
-	"retrievedAt": "2026-08-29",
-	"snapshotSha256": "90536b05497cdaac1d9b9a1888dbf3f02cad098dee588186ac804f35abfec33f"
+	"retrievedAt": "2026-09-20",
+	"snapshotSha256": "9407511c866d622e81d063a2e3c476cc76c31c151e2b38bfa239a0de5ffff03b"
 } as const;
 
 export const DOUBLEWORD_TIER_PRICING: Readonly<Record<string, Readonly<DoublewordTierPrices>>> = {
@@ -84,6 +84,40 @@ export const DOUBLEWORD_TIER_PRICING: Readonly<Record<string, Readonly<Doublewor
 			"input": 0.65,
 			"cacheRead": 0.07,
 			"output": 1.3
+		}
+	},
+	"deepseek-ai/DeepSeek-V4-Pro-0813": {
+		"realtime": {
+			"input": 1.32,
+			"cacheRead": 0.13,
+			"output": 3.96
+		},
+		"async": {
+			"input": 0.99,
+			"cacheRead": 0.1,
+			"output": 2.97
+		},
+		"batch": {
+			"input": 0.66,
+			"cacheRead": 0.07,
+			"output": 1.98
+		}
+	},
+	"deepseek-ai/DeepSeek-V4.1-Flash": {
+		"realtime": {
+			"input": 0.15,
+			"cacheRead": 0.01,
+			"output": 0.6
+		},
+		"async": {
+			"input": 0.12,
+			"cacheRead": 0.01,
+			"output": 0.48
+		},
+		"batch": {
+			"input": 0.08,
+			"cacheRead": 0.01,
+			"output": 0.3
 		}
 	},
 	"google/gemma-4-26B-A4B-it": {
@@ -479,6 +513,23 @@ export const DOUBLEWORD_TIER_PRICING: Readonly<Record<string, Readonly<Doublewor
 			"output": 2
 		}
 	},
+	"XiaomiMiMo/MiMo-V2.5-Pro": {
+		"realtime": {
+			"input": 0.44,
+			"cacheRead": 0.01,
+			"output": 0.87
+		},
+		"async": {
+			"input": 0.33,
+			"cacheRead": 0.01,
+			"output": 0.65
+		},
+		"batch": {
+			"input": 0.22,
+			"cacheRead": 0.01,
+			"output": 0.44
+		}
+	},
 	"zai-org/GLM-5.1-FP8": {
 		"realtime": {
 			"input": 1.05,
@@ -511,6 +562,23 @@ export const DOUBLEWORD_TIER_PRICING: Readonly<Record<string, Readonly<Doublewor
 			"input": 0.47,
 			"cacheRead": 0.09,
 			"output": 1.5
+		}
+	},
+	"zai-org/GLM-5.3": {
+		"realtime": {
+			"input": 1.4,
+			"cacheRead": 0.28,
+			"output": 4.4
+		},
+		"async": {
+			"input": 1.05,
+			"cacheRead": 0.21,
+			"output": 3.3
+		},
+		"batch": {
+			"input": 0.7,
+			"cacheRead": 0.14,
+			"output": 2.2
 		}
 	},
 	"zai-org/GLM-5.3-Flash": {

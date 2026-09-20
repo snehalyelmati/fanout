@@ -12,6 +12,15 @@ function assert(ok, message) {
   if (!ok) throw new Error(message);
 }
 
+// Official model-page prices reviewed on 2026-09-20; USD per 1M tokens,
+// in input/cache-read/output order. Sources: docs/BENCHMARKS.md (2026-09-20 refresh).
+const addedModelPrices = [
+  { id: "deepseek-ai/DeepSeek-V4.1-Flash", realtime: [0.15, 0.01, 0.6], async: [0.12, 0.01, 0.48], batch: [0.08, 0.01, 0.3] },
+  { id: "deepseek-ai/DeepSeek-V4-Pro-0813", realtime: [1.32, 0.13, 3.96], async: [0.99, 0.1, 2.97], batch: [0.66, 0.07, 1.98] },
+  { id: "XiaomiMiMo/MiMo-V2.5-Pro", realtime: [0.44, 0.01, 0.87], async: [0.33, 0.01, 0.65], batch: [0.22, 0.01, 0.44] },
+  { id: "zai-org/GLM-5.3", realtime: [1.4, 0.28, 4.4], async: [1.05, 0.21, 3.3], batch: [0.7, 0.14, 2.2] },
+];
+
 function sendJson(res, status, body) {
   res.writeHead(status, { "content-type": "application/json" });
   res.end(JSON.stringify(body));
@@ -22,6 +31,7 @@ const server = createServer((req, res) => {
   if (req.method === "GET" && url.pathname === "/models") {
     return sendJson(res, 200, {
       data: [
+        ...addedModelPrices.map(({ id }) => ({ id })),
         { id: "deepseek-ai/DeepSeek-V4-Flash-0731", name: "DeepSeek V4 Flash 0731" },
         { id: "mock-provider/Capabilities-Reasoning", name: "Capabilities Reasoning", capabilities: ["reasoning"] },
         { id: "mock-provider/Capabilities-Plain", name: "Capabilities Plain", capabilities: ["text"] },
@@ -64,6 +74,21 @@ try {
   const metadataModel = models.find((model) => model.id === "mock-provider/Metadata-Model");
   const ocr = models.find((model) => model.id === "doubleword/OCR-Pro");
   const embedding = models.find((model) => model.id === "doubleword/text-embedding");
+
+  for (const expected of addedModelPrices) {
+    const model = models.find((candidate) => candidate.id === expected.id);
+    assert(model, `new model was not discovered: ${expected.id}`);
+    for (const tier of ["realtime", "async", "batch"]) {
+      const [input, cacheRead, output] = expected[tier];
+      const prices = DOUBLEWORD_TIER_PRICING[expected.id]?.[tier];
+      assert(prices?.input === input && prices.cacheRead === cacheRead && prices.output === output, `wrong ${expected.id} ${tier} snapshot prices: ${JSON.stringify(prices)}`);
+      if (tier === "batch") continue;
+      const { cost } = withTierCost(model, tier);
+      assert(cost.input === input && cost.cacheRead === cacheRead && cost.output === output && cost.cacheWrite === 0, `wrong ${expected.id} ${tier} model cost: ${JSON.stringify(cost)}`);
+      const evidence = tierPricingProvenance(model, tier);
+      assert(evidence?.pricingSource === "doubleword-model-metadata" && evidence.pricingSourceUrl === DOUBLEWORD_PRICING_PROVENANCE.sourceUrl && evidence.pricingRetrievedAt === DOUBLEWORD_PRICING_PROVENANCE.retrievedAt && evidence.pricingSnapshotSha256 === DOUBLEWORD_PRICING_PROVENANCE.snapshotSha256, `missing ${expected.id} ${tier} provenance: ${JSON.stringify(evidence)}`);
+    }
+  }
 
   assert(gen?.reasoning === true, `generation model not reasoning-capable: ${JSON.stringify(gen)}`);
   assert(gen.thinkingLevelMap?.off === "none" && gen.thinkingLevelMap?.xhigh === "xhigh", `bad thinking map: ${JSON.stringify(gen.thinkingLevelMap)}`);
