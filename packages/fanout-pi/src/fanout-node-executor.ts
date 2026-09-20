@@ -1,4 +1,4 @@
-import { join, relative, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import type { AcceptedPatch, AcceptedStateTransition } from "../../fanout-core/src/artifact-identity.ts";
 import { verifyArtifactBytes, type ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
@@ -29,8 +29,6 @@ import {
 	AcceptedTransitionProcessError,
 	AmbiguousApplyError,
 	applyAcceptedTransition,
-	applyRepairSeedOverlay,
-	createReconstructedWorktree,
 	fullGitVisibleTree,
 	removeReconstructedWorktree,
 	verifyPatchCandidate,
@@ -44,8 +42,7 @@ import {
 	integrationFailureEvidence,
 	validationFailureEvidence,
 } from "./attempt-evidence.ts";
-import { cleanupReconciliationWorktree, reconcilePathDisjointCandidate } from "./candidate-reconciliation.ts";
-import { prepareProjectWorktree } from "./project-execution-profile.ts";
+import { reconcilePathDisjointCandidate } from "./candidate-reconciliation.ts";
 import { finalValidationCommands, runExecutorFinalValidation } from "./final-validation-adapter.ts";
 import { executeWorkerAttempt, type AttemptKind, type WorkerAttempt, type WorkerTier } from "./worker-attempt-execution.ts";
 
@@ -150,9 +147,11 @@ export class FanoutNodeExecutor {
 	cleanupWorktrees(): void {
 		let failure: unknown;
 		for (const worktreePath of [...this.#worktrees].reverse()) {
-			try { removeReconstructedWorktree(this.#repoRoot, worktreePath); }
+			try {
+				removeReconstructedWorktree(this.#repoRoot, worktreePath);
+				this.#worktrees.delete(worktreePath);
+			}
 			catch (error) { failure ??= error; }
-			finally { this.#worktrees.delete(worktreePath); }
 		}
 		if (failure) throw failure;
 	}
@@ -260,20 +259,9 @@ export class FanoutNodeExecutor {
 		const worktreePath = join(attemptDir, "worktree");
 		const startedAt = new Date().toISOString();
 		const ledger = await this.#withApplyLock(() => this.#acceptedLedger.map(({ patch }) => ({ patch })));
-		this.#worktrees.add(worktreePath);
-		const attemptBase = createReconstructedWorktree(this.#repoRoot, worktreePath, this.#planningBase, this.#runDir, ledger);
-		if (seedPatch) applyRepairSeedOverlay(worktreePath, this.#runDir, seedPatch, { exact: recovery?.kind === "final-validation" });
-		const prepared = await prepareProjectWorktree(this.#profile, this.#profileIdentity, {
-			worktreePath,
-			artifactRoot: this.#runDir,
-			evidencePath: `${relative(this.#runDir, attemptDir).split("\\").join("/")}/preparation.json`,
-			scopeId: allocated.allocation.attemptId,
-			timeoutMs: this.#validationTimeoutMs,
-			signal,
-		});
-		if (prepared.evidence.status !== "passed") throw new Error(`project worktree preparation failed before attempt allocation: ${prepared.evidence.error ?? "unknown failure"}`);
-		this.#attemptStates.set(unit.id, allocated.state);
 		await this.#recorder.recordAttemptAllocated(allocated.allocation);
+		this.#attemptStates.set(unit.id, allocated.state);
+		this.#worktrees.add(worktreePath);
 		const attempt = await executeWorkerAttempt({
 			packet: this.#packet,
 			unit,
@@ -288,7 +276,7 @@ export class FanoutNodeExecutor {
 			planningBase: this.#planningBase,
 			ledger,
 			profile: this.#profile,
-			preparedBase: attemptBase,
+			profileIdentity: this.#profileIdentity,
 			allocation: allocated.allocation,
 			attemptDir,
 			worktreePath,
@@ -414,43 +402,54 @@ export class FanoutNodeExecutor {
 		while ("reconcile" in conflict) {
 			const currentConflict = conflict;
 			signal?.throwIfAborted();
-			const reconciliation = await reconcilePathDisjointCandidate({
-				repoRoot: this.#repoRoot,
-				runDir: this.#runDir,
-				attemptDir: attempt.attemptDir,
-				attemptId: attempt.attemptId,
-				planningBase: this.#planningBase,
-				ledger: conflict.ledger.map(({ patch }) => ({ patch })),
-				candidate: attempt.patch,
-				contract: unit.workContract,
-				profile: this.#profile,
-				profileIdentity: this.#profileIdentity,
-				ledgerAdvanceRetry,
-				timeoutMs: this.#validationTimeoutMs,
-				signal,
-			});
-			const resolved = await this.#withApplyLock(async () => {
-				const acceptedTree = this.#acceptedLedger.at(-1)?.patch.resultTree ?? this.#planningBase.tree;
-				if (acceptedTree !== currentConflict.acceptedTree || this.#acceptedLedger.length !== currentConflict.ledger.length) return undefined;
-				if (!reconciliation.ok) {
-					if (["preparation-failed", "repository-failed"].includes(reconciliation.code)) {
-						return await this.#completeTerminalAttempt({
-							...attempt,
-							ok: false,
-							error: reconciliation.detail,
-							failureKind: "process",
-							retryable: false,
-							terminalFact: { stage: "process", code: "infrastructure-failure", durationMs: 0 },
-						});
+			const reconciliationWorktree = join(attempt.attemptDir, "reconciliation", String(ledgerAdvanceRetry), "worktree");
+			this.#worktrees.add(reconciliationWorktree);
+			try {
+				const reconciliation = await reconcilePathDisjointCandidate({
+					repoRoot: this.#repoRoot,
+					runDir: this.#runDir,
+					attemptDir: attempt.attemptDir,
+					attemptId: attempt.attemptId,
+					planningBase: this.#planningBase,
+					ledger: conflict.ledger.map(({ patch }) => ({ patch })),
+					candidate: attempt.patch,
+					contract: unit.workContract,
+					profile: this.#profile,
+					profileIdentity: this.#profileIdentity,
+					ledgerAdvanceRetry,
+					timeoutMs: this.#validationTimeoutMs,
+					signal,
+				});
+				const resolved = await this.#withApplyLock(async () => {
+					if (signal?.aborted) return await this.#completeAbortedAttempt(attempt, signal.reason);
+					const acceptedTree = this.#acceptedLedger.at(-1)?.patch.resultTree ?? this.#planningBase.tree;
+					if (acceptedTree !== currentConflict.acceptedTree || this.#acceptedLedger.length !== currentConflict.ledger.length) return undefined;
+					if (!reconciliation.ok) {
+						if (["preparation-failed", "repository-failed"].includes(reconciliation.code)) {
+							return await this.#completeTerminalAttempt({
+								...attempt,
+								ok: false,
+								error: reconciliation.detail,
+								failureKind: "process",
+								retryable: false,
+								terminalFact: { stage: "process", code: "infrastructure-failure", durationMs: 0 },
+							});
+						}
+						const recovery = integrationFailureEvidence(unit.workContract, attempt, currentConflict.evidence, this.#acceptedLedger, acceptedTree);
+						return await this.#completeTerminalAttempt({ ...attempt, ok: false, error: reconciliation.detail, failureKind: "apply", retryable: false, terminalFact: { stage: "apply", code: "check-conflict" }, recovery });
 					}
-					const recovery = integrationFailureEvidence(unit.workContract, attempt, currentConflict.evidence, this.#acceptedLedger, acceptedTree);
-					return await this.#completeTerminalAttempt({ ...attempt, ok: false, error: reconciliation.detail, failureKind: "apply", retryable: false, terminalFact: { stage: "apply", code: "check-conflict" }, recovery });
+					const reconciled = { ...attempt, patch: reconciliation.patch, validation: reconciliation.validation, base: reconciliation.base, worktreePath: reconciliation.worktreePath } as GatedAttempt;
+					return await this.#applyLocked(unit, reconciled, signal, false, "deterministic-reconciliation");
+				});
+				if (resolved) return resolved;
+			} finally {
+				try {
+					removeReconstructedWorktree(this.#repoRoot, reconciliationWorktree);
+					this.#worktrees.delete(reconciliationWorktree);
+				} catch {
+					// Retain ownership for terminal cleanup; never replace a completed causal result.
 				}
-				const reconciled = { ...attempt, patch: reconciliation.patch, validation: reconciliation.validation, base: reconciliation.base, worktreePath: reconciliation.worktreePath } as GatedAttempt;
-				return await this.#applyLocked(unit, reconciled, signal, false, "deterministic-reconciliation");
-			});
-			if (reconciliation.ok) cleanupReconciliationWorktree(this.#repoRoot, reconciliation.worktreePath);
-			if (resolved) return resolved;
+			}
 			ledgerAdvanceRetry += 1;
 			conflict = await this.#withApplyLock(() => this.#applyLocked(unit, attempt, signal, true));
 		}

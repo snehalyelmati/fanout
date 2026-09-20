@@ -1,5 +1,9 @@
 # Roadmap
 
+## Lifecycle hardening — 2026-09-20
+
+Local implementation covers causal setup failures, immutable reconciliation trials with executor-owned cleanup, capability admission before profile work, entry-to-terminal execution timing, and bounded Git source-read batching. Parent review and a separate authorized p-map canary follow; no live inference is part of this implementation. Prepared-state caches/checkpoints, validation parallelism, scheduler priority, and event-store redesign remain out of scope.
+
 ## Objective
 
 Build Fanout as a planning-to-execution bridge, plus a standalone Doubleword provider and a Pi adapter:

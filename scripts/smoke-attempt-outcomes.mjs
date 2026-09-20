@@ -2,9 +2,10 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { artifactIdentity } from "../packages/fanout-core/src/artifact-identity.ts";
 import { correlatedWorkerMetrics } from "../packages/fanout-pi/src/attempt-evidence.ts";
 import { executeWorkerAttempt } from "../packages/fanout-pi/src/worker-attempt-execution.ts";
-import { capturePlanningBase } from "../packages/fanout-pi/src/repository-identity.ts";
+import { capturePlanningBase, removeReconstructedWorktree } from "../packages/fanout-pi/src/repository-identity.ts";
 import { correlateAttemptMetrics, deriveAttemptMetricTotals, deriveSummedResponseTtftMs } from "../packages/fanout-core/src/attempt-metrics.ts";
 import { parseAttemptRecoveryContext } from "../packages/fanout-core/src/recovery-evidence.ts";
 import { FIXED_WORKER_CAPABILITIES, WORK_CONTRACT_VERSION } from "../packages/fanout-core/src/work-contract.ts";
@@ -511,6 +512,29 @@ async function workerMetricsFailureRegression() {
     git(["add", "."]);
     git(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "fixture"]);
     const planningBase = capturePlanningBase(repo);
+    const overlayLaunch = originalLaunch("overlay-failure", assignment);
+    const overlayDir = join(root, "overlay-attempt");
+    const overlayWorktree = join(overlayDir, "worktree");
+    const overlayStartedAt = new Date().toISOString();
+    const overlayContract = workContract();
+    let overlayAttempt;
+    try {
+      overlayAttempt = await executeWorkerAttempt({
+        packet: { objective: "fixture", planningHost: { platform: process.platform } },
+        unit: { id: "overlay-failure", workContract: overlayContract }, contract: overlayContract,
+        repoRoot: repo, runDir: root, runId: "run", extensionEntry: "never-launched", piCommand: "never-launched",
+        workerTimeoutMs: 1000, validationTimeoutMs: 1000, planningBase, ledger: [],
+        profile: { preparation: [], readiness: [], candidateNormalization: [] },
+        profileIdentity: artifactIdentity("profiles/fixture.json", Buffer.from("fixture")),
+        seedPatch: { patch: { artifact: artifactIdentity("missing-seed.bin", Buffer.from("missing")), headCommit: planningBase.headCommit, baseTree: planningBase.tree, resultTree: planningBase.tree, changedPaths: [], stats: { filesChanged: 0, insertions: 0, deletions: 0 } } },
+        allocation: overlayLaunch.allocation, attemptDir: overlayDir, worktreePath: overlayWorktree,
+        tier: { ...assignment, thinking: "off" }, kind: "original", startedAt: overlayStartedAt, fallbackAllowed: true,
+      });
+    } finally { removeReconstructedWorktree(repo, overlayWorktree); }
+    assert(overlayAttempt.error.includes("missing-seed.bin"), "overlay fixture failed before seed artifact admission");
+    assert(overlayAttempt.terminalFact.code === "infrastructure-failure" && overlayAttempt.correlatedMetrics.turns.length === 0 && !existsSync(join(overlayDir, "preparation.json")) && !existsSync(join(overlayDir, "observability.jsonl")), "repair overlay failure escaped typed setup boundary or launched worker");
+    const overlayCompleted = completeAttempt(overlayLaunch.allocation, { startedAt: overlayStartedAt, finishedAt: new Date().toISOString(), terminalFact: overlayAttempt.terminalFact, state: overlayLaunch.state, fallbackAllowed: true, metrics: overlayAttempt.correlatedMetrics });
+    assert(overlayCompleted.action === "retry", "overlay infrastructure failure changed bounded typed routing");
     const stdoutPath = join(root, "unmatched-stdout.jsonl");
     const observabilityPath = join(root, "unmatched-observability.jsonl");
     const measurementLaunch = originalLaunch("unmatched-record", assignment);
@@ -543,7 +567,8 @@ console.log(JSON.stringify({type:'message_end',message:{role:'assistant',provide
         packet: { objective: "fixture", userContext: [], discoveredRepoFacts: [], assumptions: [], planningHost: { platform: process.platform } },
         unit, contract, repoRoot: repo, runDir: root, runId: "run", extensionEntry: cli, piCommand: cli,
         workerTimeoutMs: 10000, validationTimeoutMs: 10000, planningBase, preparedBase: planningBase, ledger: [],
-        profile: { candidateNormalization: [{ command: { executable: process.execPath, args: ["-e", `require('node:fs').writeFileSync(${JSON.stringify(marker)},'ran')`] } }] },
+        profile: { preparation: [], readiness: [], candidateNormalization: [{ command: { executable: process.execPath, args: ["-e", `require('node:fs').writeFileSync(${JSON.stringify(marker)},'ran')`] } }] },
+        profileIdentity: artifactIdentity("profiles/fixture.json", Buffer.from("fixture")),
         allocation: launch.allocation, attemptDir: join(root, `attempt-${mode}`), worktreePath: repo, tier: { ...assignment, thinking: "off" }, kind: "original", startedAt, fallbackAllowed: true,
       });
       assert(attempt.failureKind === "metrics" && attempt.correlatedMetrics.status === "invalid" && !existsSync(marker), `${mode} telemetry reached repository normalization instead of a typed metrics failure`);

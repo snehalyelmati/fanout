@@ -1,5 +1,15 @@
 # Design Decisions
 
+## Execution lifecycle boundaries — 2026-09-20
+
+Attempt allocation is durably published before reconstruction, repair overlays, preparation, or worker launch. Setup runs inside the worker attempt's typed failure boundary: infrastructure failures use the existing bounded routing policy, aborts terminate causally, and absent worker execution contributes no invented usage. Failed allocation publication permits no subsequent attempt setup.
+
+Deterministic reconciliation uses single-use numbered trial directories and scope IDs. Each trial retains its preparation, patch, and result identities; `reconciliation.json` remains the profiler-discoverable latest summary plus an ordered trial identity index. The executor registers worktrees before creation and retains failed removals for terminal cleanup, without replacing already-completed attempt results.
+
+After exact packet/profile/base admission, missing worker extensions or launchers throw admission errors before locks, execution artifacts, worktrees, or profile commands. Valid dry runs still execute real profile validation, followed by an independent active-tree check. Run duration starts at `executeFanout` entry rather than after admission; historical measurements retain their original timing semantics.
+
+Worker source reads batch Git tree metadata and size-admitted blob content with an invocation-local immutable blob cache. Output order, tree selection, duplicate handling, binary/UTF-8 exclusions, and context ceilings remain unchanged. No prepared-state cache, checkpoint, validation parallelism, scheduler change, or planning optimization is introduced.
+
 ## Reading this record
 
 This is a dated design history, including experiments, reversals and retained tradeoffs. Statements such as “current,” “next” or “deferred” refer to their checkpoint unless a status note says otherwise. Later refinements are linked where an older instruction would conflict with today's behavior. The [architecture](ARCHITECTURE.md) and [accepted execution authority](adr/0002-use-one-strict-execution-authority.md) describe the current implementation; historical schema numbers and measured outcomes remain unchanged here.

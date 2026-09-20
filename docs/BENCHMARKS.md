@@ -1,5 +1,9 @@
 # Benchmark Metrics
 
+## Lifecycle timing semantics — 2026-09-20
+
+After lifecycle hardening, controller `durationMs` measures `executeFanout` entry through terminal cleanup/publication preparation, including exact artifact/base admission and capability checks. Earlier run durations started after admission/lock acquisition; keep those archived numbers unchanged and identify the implementation revision when comparing cohorts. Provider/worker timings and usage remain separate: a failed allocated setup has causal duration but no fabricated worker usage. Missing launcher/extension admission throws without a run artifact, so benchmark harnesses must record the external invocation failure and wall time rather than invent a profile-validation result. Valid dry runs still perform actual profile preparation/readiness/normalization checks. No new live benchmark has been run for this change.
+
 ## p-map AbortSignal baseline rerun canary — 2026-09-20
 
 **Outcome: passed controller and independent acceptance.** The standalone target was restored to the exact baseline before planning, the approved Project Execution Profile was reused unchanged, and no linked active worktree was created. The fresh candidate passed the controller's authoritative 55-test `npm test`, `git diff --check`, and all six independent acceptance v2 cases, including the `promised-source-value-abort` case that failed the preceding canary. No repetition was requested or started.
