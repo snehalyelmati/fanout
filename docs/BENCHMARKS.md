@@ -1,5 +1,17 @@
 # Benchmark Metrics
 
+## p-map post-efficiency success sequence paused — 2026-09-20
+
+**Outcome: 0/2 attempted observations successful; paused after the resumed observation immediately reproduced the same semantic miss.** The user requested three successful canaries rather than three attempts. The original failed cohort remains frozen and unchanged; a separately recorded resumed sequence reused its prepared clean standalone run-2 baseline, exact task/profile/config, and fixed packet. Fanout runtime source stayed frozen at local, unpushed commit/tree `32f1e0bb52785764ceffff7c030ffd36dff1dfe6` / `9542b9b10f93f0c7bc10739fd398892e009f0432`.
+
+Resumed dry-run `2026-09-20T19-02-07-092Z-f1cea6a6` passed in 13.641s with zero attempts, calls, tokens, cost, transitions, or mutations. Live run `2026-09-20T19-02-45-864Z-3f6eee9d` reused packet `e2df14f8a19cff75b461e540fba97b6cbbf166f9643f1053d9b38239308e5724` and profile `1fba48e8caf34ea2d81299ab57052d63ba69f61b198c0456601169669267dcd0`. Sol medium remained control, async Tier 2 disabled, Terra medium realtime fallback, and concurrency four.
+
+The controller completed in 425.848s including 3.624s cleanup. Both Terra originals were accepted, with one deterministic reconciliation and no retry, fallback, or repair. Final `npm test` passed 54 tests, `git diff --check` passed, and ownership/apply checks passed. Tree `a6eb3609f2588083ca16e5ddf6ac97d4321fd78e` changed exactly five allowed files by +268/-63. Execution recorded 334,971 tokens (44,092 input, 8,767 output, 282,112 cache read), `$0.2498104`, 367.101s worker time, 15.296s tool time, zero poll time, 14 worker turns, and 26.557s aggregate TTFT.
+
+Independent acceptance v2 again failed only `promised-source-value-abort`, observing one mapper start instead of zero. Inspection found the same defect class at candidate `index.js:276`: `mapper(await value, currentIndex)` lacks a terminal-state check after the promised value resolves. This independently generated candidate differed from observation 1 but deterministically violated the same frozen requirement. Under the immediate-repeat stop rule, run 3 remained clean and unexecuted; no repair, replacement, prompt/task change, or acceptance weakening occurred.
+
+Patch SHA-256 is `4a521b90fba6f9d660ac9517e4a5642a7030eb3cc615e55c4abecc04083e1f73`; acceptance receipt SHA-256 is `aa8a5d894b0ecd3dc5efac84d7f9b148a43b517e73fc51cf1d2c508270adbbb0`. Evidence is under `runs/p-map-efficiency-success-sequence-20260920/`. No process, execution lock, credential copy, disposable worker worktree, or linked cohort worktree remained. The requested three successful observations remain outstanding; this 0/2 denominator supports no speedup, reliability-rate, or model comparison.
+
 ## p-map post-efficiency cohort — 2026-09-20
 
 **Outcome: stopped after observation 1; 1/3 attempted and 0/3 successful.** The frozen source was clean local, unpushed commit/tree `32f1e0bb52785764ceffff7c030ffd36dff1dfe6` / `9542b9b10f93f0c7bc10739fd398892e009f0432`. Each observation had a fresh standalone clone at p-map commit/tree `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`; no linked active worktree was used. The approved profile was reused unchanged at SHA-256 `1fba48e8caf34ea2d81299ab57052d63ba69f61b198c0456601169669267dcd0`, 2,278 bytes. Sol medium remained planning/control, async Tier 2 remained disabled, Terra medium remained the realtime fallback, and concurrency remained four.
