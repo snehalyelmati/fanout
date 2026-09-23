@@ -1,5 +1,19 @@
 # Benchmark Metrics
 
+## p-map post-efficiency cohort — 2026-09-20
+
+**Outcome: stopped after observation 1; 1/3 attempted and 0/3 successful.** The frozen source was clean local, unpushed commit/tree `32f1e0bb52785764ceffff7c030ffd36dff1dfe6` / `9542b9b10f93f0c7bc10739fd398892e009f0432`. Each observation had a fresh standalone clone at p-map commit/tree `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`; no linked active worktree was used. The approved profile was reused unchanged at SHA-256 `1fba48e8caf34ea2d81299ab57052d63ba69f61b198c0456601169669267dcd0`, 2,278 bytes. Sol medium remained planning/control, async Tier 2 remained disabled, Terra medium remained the realtime fallback, and concurrency remained four.
+
+Planning produced two concurrently ready nodes: runtime/tests/types and documentation. Packet SHA-256 was `e2df14f8a19cff75b461e540fba97b6cbbf166f9643f1053d9b38239308e5724`, 29,603 bytes. Planning took 67.994s with 3.665s TTFT, 28,923 tokens, and `$0.195864`. Dry-run `2026-09-20T18-40-13-579Z-9716c0ec` passed in 10.278s with zero attempts, workers/provider calls, tokens, cost, transitions, or target mutations.
+
+Live run `2026-09-20T18-41-01-370Z-217229df` completed both Terra originals, with one disjoint deterministic reconciliation and no retry, fallback, or repair. Runtime contexts confirm Terra came from `fanout.execution.tier2Fallback`; the effective `tier1` event label was expected while async Tier 2 was disabled. Controller final validation passed `npm test` with 55 tests and `git diff --check`; ownership/apply checks passed. Accepted tree `628f954bf4505c050789ea445d2ecd04d5e0ee7c` changed exactly five allowed files by +284/-30.
+
+Independent acceptance v2 then failed only `promised-source-value-abort`: one mapper started after abort where zero were required. The other five cases passed. The candidate invokes `mapper(await value, currentIndex)` without checking terminal state after the promised source value resolves, preserving the race that controller tests missed. The candidate was frozen, not repaired or replaced, and observations 2–3 remained unrun under the cohort stop rule.
+
+Admission-inclusive duration was 389.602s including 3.912s cleanup. Execution recorded two attempts, 281,818 tokens (43,983 input, 7,947 output, 229,888 cache read), `$0.2293076`, 332.401s worker time, 14.757s tool time, zero poll time, 13 worker turns, and 21.607s aggregate worker TTFT. Diagnostics recorded 326.210ms admission, 283.267ms batched profile-command preflight with three resolutions and five positional records, 9.063s profile validation, 499.446ms reconciliation reconstruction, and 653.324ms final reconstruction. These nested timings and this failed singleton do not establish a speedup.
+
+Candidate patch SHA-256 is `2d9cc21eae101a948ed3b0db95d2ad881e0eda3cdd6c44109dd42704cc1071cf`; failed acceptance receipt SHA-256 is `d7807dd90711f7f1f792f6323b5a0304b9ad6e30d42f204b31462ba494f6e72c`. Evidence is under `runs/p-map-efficiency-cohort-20260920/`. Pi exited cleanly; no current-run process, lock, or disposable worker worktree remained. With no successful observation, this cohort provides no repetition distribution, reliability rate, speedup, or general model comparison.
+
 ## Keyless bounded-efficiency fixtures — 2026-09-20
 
 Reproduce with `node --disable-warning=ExperimentalWarning scripts/smoke-fanout-execute.mjs`, `scripts/smoke-artifact-identity.mjs`, and `scripts/smoke-validation-runner.mjs` (also included in `npm run check`). No provider calls or paid canaries are involved. The scheduler now derives the admitted graph once instead of twice per `runDag` invocation; chain, diamond, independent-node, invalid-packet-before-callback, fail-fast, and final-node-exclusion fixtures preserve scheduling authority.
