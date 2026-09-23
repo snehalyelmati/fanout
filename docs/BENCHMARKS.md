@@ -14,6 +14,8 @@ These wall times are illustrative local diagnostics, **not a before/after speedu
 
 Details v8 / Work Contract v6 / packet v11 / worker manifest v3 support explicit `collect-independent` consent for one sequential advisory `fanout_validate` call. Keyless fixtures run the same three direct-argv commands: fail-fast executes only exit 7; opted-in collection records exit 7, exit 9 and a final passing check, reports both failures, and remains failed. Combined diagnostics share an 8,000-character budget while every positional status and full persisted output/timing evidence remain available. Merges/fusions and final repairs conservatively use fail-fast; controller node, reconciliation and fresh final gates are unchanged.
 
+Planning guidance now prefers collection whenever independence is established; dependent or uncertain lists retain fail-fast. This prompt preference has no paid behavioral evaluation or measured performance gain, and does not reinterpret existing manifests or change artifact generations.
+
 This mechanism targets tests→repair→lint→repair worker request depth. It does not measure a causal reduction in worker turns, latency, tokens or cost; no savings or reliability claim follows from offline fixtures. There are no paid canaries in this change. Existing frozen runs and prior baseline measurements retain their original semantics. The profiler benchmark generator now emits current-generation fail-fast fixtures without changing its dataset size, pricing or recorded baseline metrics.
 
 ## Lifecycle timing semantics — 2026-09-20

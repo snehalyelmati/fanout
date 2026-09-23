@@ -161,7 +161,7 @@ const detailItemProperties = {
 	validationCommands: Type.Array(DirectArgvCommandSchema, { minItems: 1 }),
 };
 const advisoryValidationMode = Type.Enum(["fail-fast", "collect-independent"] as const, {
-	description: "Default fail-fast. Opt into collect-independent only when every ordered command checks the same candidate independently of previous success, consumes no other check's generated outputs, and is not a mutating prerequisite chain. Advisory worker execution only; commands remain sequential and controller gates fail-fast.",
+	description: "Prefer collect-independent when you establish that every ordered command checks the same candidate independently of previous success, consumes no other check's generated outputs, and is not a mutating prerequisite chain. Use fail-fast when checks depend on previous success or their independence is uncertain. Choose explicitly; omission conservatively persists fail-fast. Advisory worker execution only; commands remain sequential and controller gates fail-fast.",
 });
 const detailsItemBody = Type.Object({
 	...detailItemProperties,

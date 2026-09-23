@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { BATCHING_DISCIPLINE, BATCHING_DISCIPLINE_MARKER, PLANNING_BATCHING_DISCIPLINE } from "../packages/fanout-core/src/batching-discipline.ts";
-import { CombinedPlanningBodySchema, DirectArgvCommandSchema, planningSchemaErrors } from "../packages/fanout-core/src/planning-artifact-schema.ts";
+import { CombinedPlanningBodySchema, DirectArgvCommandSchema, ImplementationDetailsBodySchema, planningSchemaErrors } from "../packages/fanout-core/src/planning-artifact-schema.ts";
 import { buildImplementationPlanPrompt, buildProjectExecutionProfilePrompt, createFanoutPlanRun } from "../packages/fanout-pi/src/fanout-plan-orchestration.ts";
 import { validSubmission } from "./planning-boundary-fixtures.mjs";
 
@@ -19,5 +19,9 @@ const profileInput = { identity: { path: "profiles/test.json", sha256: "c".repea
 const planPrompt = buildImplementationPlanPrompt("Typed plan", {}, { ...run, approvedProfile: profileInput });
 assert(profilePrompt.includes('"phase":"profile"') && planPrompt.includes('"phase":"implementation"'), "planning phase attribution missing");
 assert(planPrompt.includes(profileInput.identity.sha256) && planPrompt.includes('"requiredFinalGates"'), "planner did not receive the exact approved profile");
+for (const guidance of [planPrompt, ImplementationDetailsBodySchema.properties.items.items.properties.advisoryValidationMode.description]) {
+  const text = guidance.replaceAll("`", "");
+  assert(text.includes("Prefer collect-independent when") && text.includes("Use fail-fast when checks depend on previous success or their independence is uncertain"), "planning guidance did not prefer established independence while retaining the uncertain/dependent fallback");
+}
 assert(!profilePrompt.includes("artifactDir") && !planPrompt.includes("resolvedTierPlan"), "planning retained generated runtime noise");
 console.log("combined planning prompt smoke passed");
