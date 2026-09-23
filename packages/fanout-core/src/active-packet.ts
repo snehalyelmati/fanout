@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import { parseArtifactIdentity, type ArtifactIdentity } from "./artifact-identity.ts";
+import { isDeepStrictEqual } from "node:util";
+import { parseArtifactIdentity, verifyArtifactBytes, type ArtifactIdentity } from "./artifact-identity.ts";
 import { ACTIVE_PACKET_SCHEMA, EXECUTION_PACKET_VERSION, formatPacketValidationResult, validateExecutionPacket, type FanoutExecutionPacket, type PacketValidationResult } from "./execution-packet.ts";
+import { compileExecutionPacket } from "./fanout-compiler.ts";
+import { parseProjectExecutionProfile } from "./project-execution-profile.ts";
 
 export { ACTIVE_PACKET_SCHEMA };
 export const ACTIVE_PACKET_VERSION = 2;
@@ -51,7 +54,36 @@ export function loadActiveExecutionPacket(activePointerPath: string, projectArti
 	catch (error) { throw new Error(`active packet is not valid JSON; rerun /fanout-plan: ${message(error)}`); }
 	const validation = validateExecutionPacket(value);
 	if (!validation.packet || value && record(value) && value.version !== EXECUTION_PACKET_VERSION) throw new Error(`active execution packet is unsupported; rerun /fanout-plan\n${formatPacketValidationResult(validation).trim()}`);
+	validateValidationProvenance(validation.packet, dirname(packetPath), root);
 	return { activePointerPath: pointerPath, projectArtifactRoot: root, pointer: admittedPointer.pointer, packetPath, artifactDir: dirname(packetPath), packet: validation.packet, validation };
+}
+
+function validateValidationProvenance(packet: FanoutExecutionPacket, artifactDir: string, root: string): void {
+	const compiled = compileExecutionPacket({
+		implementationPlan: readSource(artifactDir, packet.sourceArtifacts.plan),
+		implementationDetails: readSource(artifactDir, packet.sourceArtifacts.details),
+		planIdentity: packet.sourceArtifacts.plan,
+		detailsIdentity: packet.sourceArtifacts.details,
+		profile: parseProjectExecutionProfile(readSource(root, packet.profile)),
+		tierPlan: packet.tierPlan,
+		runtimePolicy: packet.runtimePolicy,
+		sequentialReadFallback: packet.compilationPolicy.sequentialReadFallback,
+		createdAt: packet.createdAt,
+	});
+	if (!compiled.packet) throw new Error(`validation provenance compilation failed; rerun /fanout-plan: ${compiled.errors.join("; ")}`);
+	if (!isDeepStrictEqual(compiled.packet.profile, packet.profile)) throw new Error("validation provenance profile identity mismatch; rerun /fanout-plan");
+	const authority = (value: FanoutExecutionPacket) => value.nodes.map(({ id, kind, workContract }) => ({
+		id, kind, validationCommands: workContract.validationCommands, advisoryValidationMode: workContract.advisoryValidationMode,
+	}));
+	if (!isDeepStrictEqual(authority(compiled.packet), authority(packet))) throw new Error("validation provenance node/command/policy mismatch; rerun /fanout-plan");
+}
+
+function readSource(root: string, identity: ArtifactIdentity): unknown {
+	const path = realpathSync(resolve(root, identity.path));
+	if (!contained(path, root)) throw new Error(`validation provenance artifact escapes its root: ${identity.path}`);
+	const bytes = readFileSync(path);
+	verifyArtifactBytes(identity, bytes);
+	return JSON.parse(bytes.toString("utf8"));
 }
 
 function contained(path: string, root: string): boolean { const value = relative(root, path); return value === "" || value !== ".." && !value.startsWith(`..${sep}`) && !isAbsolute(value); }

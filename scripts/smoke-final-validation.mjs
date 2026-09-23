@@ -386,6 +386,7 @@ function contract(changes, forbiddenWrites, validationCommands) {
     readDependencies: [],
     forbiddenWrites,
     validationCommands,
+    advisoryValidationMode: "fail-fast",
     capabilities: FIXED_WORKER_CAPABILITIES,
     semanticReviewCriteria: [{ sourcePlanId: "plan", statement: "The final checks pass" }],
     advisoryNotes: [],

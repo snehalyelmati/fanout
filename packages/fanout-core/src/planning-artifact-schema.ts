@@ -10,7 +10,7 @@ export const ACTIVE_PROJECT_EXECUTION_PROFILE_VERSION = 1;
 export const IMPLEMENTATION_PLAN_SCHEMA = "fanout.implementation-plan";
 export const IMPLEMENTATION_PLAN_VERSION = 4;
 export const IMPLEMENTATION_DETAILS_SCHEMA = "fanout.implementation-details";
-export const IMPLEMENTATION_DETAILS_VERSION = 7;
+export const IMPLEMENTATION_DETAILS_VERSION = 8;
 
 export const ORDINARY_WORK_KINDS = ["implement", "test", "docs", "inspect", "validate-shard", "review-shard"] as const;
 
@@ -160,12 +160,17 @@ const detailItemProperties = {
 	readDependencies: Type.Array(ReadDependencySchema),
 	validationCommands: Type.Array(DirectArgvCommandSchema, { minItems: 1 }),
 };
+const advisoryValidationMode = Type.Enum(["fail-fast", "collect-independent"] as const, {
+	description: "Default fail-fast. Opt into collect-independent only when every ordered command checks the same candidate independently of previous success, consumes no other check's generated outputs, and is not a mutating prerequisite chain. Advisory worker execution only; commands remain sequential and controller gates fail-fast.",
+});
 const detailsItemBody = Type.Object({
 	...detailItemProperties,
+	advisoryValidationMode: Type.Optional(advisoryValidationMode),
 	advisoryNotes: Type.Optional(Type.Array(AdvisoryNoteBodySchema)),
 }, closed);
 const detailsItemArtifact = Type.Object({
 	...detailItemProperties,
+	advisoryValidationMode,
 	advisoryNotes: Type.Array(AdvisoryNoteBodySchema),
 }, closed);
 

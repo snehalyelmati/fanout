@@ -142,6 +142,7 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 			worktreeRoot: worktreePath,
 			platform: packet.planningHost.platform,
 			commands: contract.validationCommands,
+			advisoryValidationMode: contract.advisoryValidationMode,
 			writeResources: contractWriteResources(contract),
 			forbiddenWrites: contract.forbiddenWrites.map((entry) => entry.resource),
 			timeoutMs: options.validationTimeoutMs,

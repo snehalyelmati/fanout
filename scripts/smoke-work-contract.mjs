@@ -30,6 +30,7 @@ const grounded = (id, changes, extra = {}) => ({
   readDependencies: [],
   forbiddenWrites: [],
   validationCommands: [command("node", ["--check", `${id}.js`])],
+  advisoryValidationMode: "fail-fast",
   advisoryNotes: [note("context", "phase-b", id, `Context ${id}`)],
   ...extra,
 });

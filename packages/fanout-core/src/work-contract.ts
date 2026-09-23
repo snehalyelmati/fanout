@@ -2,7 +2,14 @@ import { parseResource, resourcesOverlap, type Resource } from "./repository-res
 import { parseValidationCommands, type ValidationCommand } from "./validation-command.ts";
 
 export const WORK_CONTRACT_SCHEMA = "fanout.work-contract";
-export const WORK_CONTRACT_VERSION = 5;
+export const WORK_CONTRACT_VERSION = 6;
+
+export type AdvisoryValidationMode = "fail-fast" | "collect-independent";
+
+export function parseAdvisoryValidationMode(value: unknown): AdvisoryValidationMode {
+	if (value !== "fail-fast" && value !== "collect-independent") throw new TypeError("advisoryValidationMode must be fail-fast or collect-independent");
+	return value;
+}
 
 export type WorkAnchor =
 	| { kind: "symbol"; symbol: string }
@@ -63,6 +70,7 @@ export interface WorkContract {
 	readDependencies: WorkReadDependency[];
 	forbiddenWrites: ForbiddenWrite[];
 	validationCommands: ValidationCommand[];
+	advisoryValidationMode: AdvisoryValidationMode;
 	capabilities: typeof FIXED_WORKER_CAPABILITIES;
 	semanticReviewCriteria: SourceLinkedStatement[];
 	advisoryNotes: AdvisoryNote[];
@@ -80,7 +88,7 @@ export interface WorkContractIssue {
 	path?: string;
 }
 
-const CONTRACT_FIELDS = new Set(["schema", "version", "goals", "changes", "readDependencies", "forbiddenWrites", "validationCommands", "capabilities", "semanticReviewCriteria", "advisoryNotes"]);
+const CONTRACT_FIELDS = new Set(["schema", "version", "goals", "changes", "readDependencies", "forbiddenWrites", "validationCommands", "advisoryValidationMode", "capabilities", "semanticReviewCriteria", "advisoryNotes"]);
 const CAPABILITY_FIELDS = new Set(["modelCallableTools", "validationExecution", "shell", "extensionTools"]);
 const CAPABILITY_TOOLS = [...FIXED_WORKER_CAPABILITIES.modelCallableTools];
 const NOTE_KINDS = new Set(["rationale", "risk", "validation-intent", "constraint", "context"]);
@@ -105,6 +113,9 @@ export function validateWorkContract(value: unknown, options: { finalValidation?
 	let validationCommands: ValidationCommand[] = [];
 	try { validationCommands = parseValidationCommands(value.validationCommands); }
 	catch (error) { add(errors, "invalid-validation-command", errorMessage(error), "validationCommands"); }
+	let advisoryValidationMode: AdvisoryValidationMode = "fail-fast";
+	try { advisoryValidationMode = parseAdvisoryValidationMode(value.advisoryValidationMode); }
+	catch (error) { add(errors, "invalid-advisory-validation-mode", errorMessage(error), "advisoryValidationMode"); }
 	validateCapabilities(value.capabilities, errors);
 	const semanticReviewCriteria = sourceStatements(value.semanticReviewCriteria, "semanticReviewCriteria", errors);
 	const advisoryNotes = notes(value.advisoryNotes, "advisoryNotes", errors);
@@ -112,6 +123,7 @@ export function validateWorkContract(value: unknown, options: { finalValidation?
 	if (goals.length === 0) add(errors, "missing-goal", "work contract needs at least one source-linked goal", "goals");
 	if (semanticReviewCriteria.length === 0) add(errors, "missing-criterion", "work contract needs at least one source-linked semantic review criterion", "semanticReviewCriteria");
 	if (options.finalValidation) {
+		if (advisoryValidationMode !== "fail-fast") add(errors, "final-validation-mode", "final-validation contract must use fail-fast", "advisoryValidationMode");
 		if (changes.length) add(errors, "final-validation-writes", "final-validation contract must not contain changes", "changes");
 		if (validationCommands.length === 0 && !options.allowEmptyValidation) add(errors, "missing-final-validation", "final-validation contract needs commands", "validationCommands");
 	} else if (changes.length > 0 && validationCommands.length === 0 && !options.allowEmptyValidation) {
@@ -123,7 +135,7 @@ export function validateWorkContract(value: unknown, options: { finalValidation?
 		add(errors, "write-forbidden-overlap", `${show(forbidden.resource)} overlaps a typed change endpoint`, `forbiddenWrites[${index}]`);
 	}
 	if (errors.length) return { ok: false, errors };
-	return { ok: true, errors, contract: { schema: WORK_CONTRACT_SCHEMA, version: WORK_CONTRACT_VERSION, goals, changes, readDependencies, forbiddenWrites, validationCommands, capabilities: FIXED_WORKER_CAPABILITIES, semanticReviewCriteria, advisoryNotes } };
+	return { ok: true, errors, contract: { schema: WORK_CONTRACT_SCHEMA, version: WORK_CONTRACT_VERSION, goals, changes, readDependencies, forbiddenWrites, validationCommands, advisoryValidationMode, capabilities: FIXED_WORKER_CAPABILITIES, semanticReviewCriteria, advisoryNotes } };
 }
 
 export function changeWriteResources(changes: readonly ChangeIntent[]): Resource[] {

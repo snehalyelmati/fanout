@@ -4,7 +4,7 @@ import { validateWorkContractNodes, type WorkContractGraph } from "./work-contra
 import { type WorkContract, type WorkContractIssue } from "./work-contract.ts";
 
 export const EXECUTION_PACKET_SCHEMA = "fanout.execution-packet";
-export const EXECUTION_PACKET_VERSION = 10;
+export const EXECUTION_PACKET_VERSION = 11;
 export const ACTIVE_PACKET_SCHEMA = "fanout.active-packet";
 
 export type TierName = "tier1" | "tier2";
@@ -67,6 +67,7 @@ export interface FanoutExecutionPacket {
 	assumptions: string[];
 	tierPlan: FanoutTierPlan;
 	runtimePolicy: FanoutRuntimePolicy;
+	compilationPolicy: { sequentialReadFallback: boolean };
 	nodes: FanoutPacketNode[];
 }
 
@@ -93,7 +94,7 @@ export function derivePreferredTier(kind: WorkUnitKind): TierName {
 	return kind === "final-validation" ? "tier1" : "tier2";
 }
 
-const PACKET_FIELDS = new Set(["schema", "version", "createdAt", "sourceArtifacts", "profile", "planningHost", "planningBase", "objective", "userContext", "discoveredRepoFacts", "assumptions", "tierPlan", "runtimePolicy", "nodes"]);
+const PACKET_FIELDS = new Set(["schema", "version", "createdAt", "sourceArtifacts", "profile", "planningHost", "planningBase", "objective", "userContext", "discoveredRepoFacts", "assumptions", "tierPlan", "runtimePolicy", "compilationPolicy", "nodes"]);
 const NODE_FIELDS = new Set(["id", "kind", "tier", "active", "workContract"]);
 const SUMMARY_FIELDS = new Set(["provider", "model", "thinking", "source", "status", "reason", "fallback"]);
 const ASSIGNMENT_FIELDS = new Set(["preferred", "assigned", "fallback", "provider", "model", "thinking", "reason"]);
@@ -128,13 +129,16 @@ export function validateExecutionPacket(value: unknown): PacketValidationResult 
 	const assumptions = strings(value.assumptions, "assumptions", errors);
 	const tierPlan = parseTierPlan(value.tierPlan, errors);
 	const runtimePolicy = parseRuntimePolicy(value.runtimePolicy, errors);
+	let compilationPolicy: FanoutExecutionPacket["compilationPolicy"] | undefined;
+	if (!exact(value.compilationPolicy, ["sequentialReadFallback"]) || typeof value.compilationPolicy.sequentialReadFallback !== "boolean") add(errors, "invalid-compilation-policy", "compilationPolicy must contain only boolean sequentialReadFallback", "compilationPolicy");
+	else compilationPolicy = { sequentialReadFallback: value.compilationPolicy.sequentialReadFallback };
 	const nodes = parseNodes(value.nodes, errors);
 	if (tierPlan) validateTierAssignments(nodes, tierPlan, errors);
 	const validated = validateWorkContractNodes(nodes.map(({ id, kind, workContract }) => ({ id, kind, workContract })));
 	errors.push(...validated.errors);
 	if (nodes.filter((node) => node.kind === "final-validation").length !== 1) add(errors, "final-validation-count", "exactly one final-validation node is required", "nodes");
-	if (errors.length || !sourceArtifacts || !profile || !planningHost || !planningBase || !tierPlan || !runtimePolicy || !validated.graph) return { ok: false, executable: false, errors, warnings: [] };
-	const packet: FanoutExecutionPacket = { schema: EXECUTION_PACKET_SCHEMA, version: EXECUTION_PACKET_VERSION, createdAt: value.createdAt as string, sourceArtifacts, profile, planningHost, planningBase, objective, userContext, discoveredRepoFacts, assumptions, tierPlan, runtimePolicy, nodes };
+	if (errors.length || !sourceArtifacts || !profile || !planningHost || !planningBase || !tierPlan || !runtimePolicy || !compilationPolicy || !validated.graph) return { ok: false, executable: false, errors, warnings: [] };
+	const packet: FanoutExecutionPacket = { schema: EXECUTION_PACKET_SCHEMA, version: EXECUTION_PACKET_VERSION, createdAt: value.createdAt as string, sourceArtifacts, profile, planningHost, planningBase, objective, userContext, discoveredRepoFacts, assumptions, tierPlan, runtimePolicy, compilationPolicy, nodes };
 	return { ok: true, executable: true, errors: [], warnings: [], packet, graph: validated.graph };
 }
 

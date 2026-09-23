@@ -18,6 +18,7 @@ import {
 	changeWriteResources,
 	validateWorkContract,
 	type AdvisoryNote,
+	type AdvisoryValidationMode,
 	type ChangeIntent,
 	type WorkContract,
 	type WorkContractIssue,
@@ -42,6 +43,7 @@ export interface GroundedWorkInput {
 	changes: ChangeIntent[];
 	readDependencies: WorkReadDependency[];
 	validationCommands: ValidationCommand[];
+	advisoryValidationMode: AdvisoryValidationMode;
 	advisoryNotes: AdvisoryNote[];
 }
 
@@ -151,9 +153,9 @@ function admitGroundedInputs(value: readonly GroundedWorkInput[], plans: Planned
 		const path = `grounded[${index}]`;
 		if (!isRecord(input) || !canonical(input.id) || !canonical(input.kind)) { add(errors, "invalid-grounded-input", "grounded work needs canonical id and kind", path); return []; }
 		if (!(ORDINARY_WORK_KINDS as readonly string[]).includes(input.kind)) { add(errors, "invalid-kind", "grounded work kind must be a supported ordinary kind", `${path}.kind`); return []; }
-		const validation = validateWorkContract({ schema: WORK_CONTRACT_SCHEMA, version: WORK_CONTRACT_VERSION, goals: statements, changes: input.changes, readDependencies: input.readDependencies, forbiddenWrites: [], validationCommands: input.validationCommands, capabilities: FIXED_WORKER_CAPABILITIES, semanticReviewCriteria: criteria, advisoryNotes: input.advisoryNotes });
+		const validation = validateWorkContract({ schema: WORK_CONTRACT_SCHEMA, version: WORK_CONTRACT_VERSION, goals: statements, changes: input.changes, readDependencies: input.readDependencies, forbiddenWrites: [], validationCommands: input.validationCommands, advisoryValidationMode: input.advisoryValidationMode, capabilities: FIXED_WORKER_CAPABILITIES, semanticReviewCriteria: criteria, advisoryNotes: input.advisoryNotes });
 		if (!validation.ok || !validation.contract) { for (const issue of validation.errors) errors.push({ ...issue, path: issue.path ? `${path}.${issue.path}` : path }); return []; }
-		return [{ id: input.id, kind: input.kind, changes: validation.contract.changes, readDependencies: validation.contract.readDependencies, validationCommands: validation.contract.validationCommands, advisoryNotes: validation.contract.advisoryNotes }];
+		return [{ id: input.id, kind: input.kind, changes: validation.contract.changes, readDependencies: validation.contract.readDependencies, validationCommands: validation.contract.validationCommands, advisoryValidationMode: validation.contract.advisoryValidationMode, advisoryNotes: validation.contract.advisoryNotes }];
 	});
 }
 
@@ -169,6 +171,8 @@ function makeContract(allPlans: PlannedWorkSource[], plans: PlannedWorkSource[],
 		readDependencies: inputs.flatMap((input) => input.readDependencies),
 		forbiddenWrites: allPlans.flatMap((plan) => plan.forbiddenWrites.map((entry) => ({ resource: entry.resource, sourcePlanIds: [plan.id], reason: entry.reason }))),
 		validationCommands: inputs.flatMap((input) => input.validationCommands), capabilities: FIXED_WORKER_CAPABILITIES,
+		// Independence within each list does not authorize their concatenation.
+		advisoryValidationMode: inputs.length === 1 ? inputs[0].advisoryValidationMode : "fail-fast",
 		semanticReviewCriteria: plans.flatMap((plan) => plan.semanticReviewCriteria.map((statement) => ({ sourcePlanId: plan.id, statement }))),
 		advisoryNotes: [...plans.flatMap((plan) => plan.advisoryNotes), ...inputs.flatMap((input) => input.advisoryNotes)],
 	};
@@ -180,6 +184,7 @@ function makeFinalContract(plans: PlannedWorkSource[], validationCommands: reado
 		goals: plans.flatMap((plan) => plan.goals.map((statement) => ({ sourcePlanId: plan.id, statement }))), changes: [], readDependencies: [],
 		forbiddenWrites: plans.flatMap((plan) => plan.forbiddenWrites.map((entry) => ({ resource: entry.resource, sourcePlanIds: [plan.id], reason: entry.reason }))),
 		validationCommands: [...validationCommands], capabilities: FIXED_WORKER_CAPABILITIES,
+		advisoryValidationMode: "fail-fast",
 		semanticReviewCriteria: plans.flatMap((plan) => plan.semanticReviewCriteria.map((statement) => ({ sourcePlanId: plan.id, statement }))),
 		advisoryNotes: [{ kind: "context", source: { phase: "compiler", reference: "final-validation" }, text: "Run authoritative integrated validation after every ordinary node." }],
 	};

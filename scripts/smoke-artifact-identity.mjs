@@ -94,7 +94,7 @@ function runLiteralPaths() {
   const base = capturePlanningBase(source);
   const resource = { kind: "file", path: "app/[slug]/page.tsx" };
   const command = { executable: "node", args: ["--version"] };
-  const compiled = compileWorkContracts([{ id: "route", goals: ["Update route."], writeResources: [resource], readResources: [], forbiddenWrites: [], semanticReviewCriteria: ["Route works."], advisoryNotes: [] }], [{ id: "route", kind: "implement", changes: [{ kind: "modify", target: { resource, sourcePlanIds: ["route"] }, intent: "Update literal route.", anchors: [{ kind: "symbol", symbol: "page" }] }], readDependencies: [], validationCommands: [command], advisoryNotes: [] }], [command]);
+  const compiled = compileWorkContracts([{ id: "route", goals: ["Update route."], writeResources: [resource], readResources: [], forbiddenWrites: [], semanticReviewCriteria: ["Route works."], advisoryNotes: [] }], [{ id: "route", kind: "implement", changes: [{ kind: "modify", target: { resource, sourcePlanIds: ["route"] }, intent: "Update literal route.", anchors: [{ kind: "symbol", symbol: "page" }] }], readDependencies: [], validationCommands: [command], advisoryValidationMode: "fail-fast", advisoryNotes: [] }], [command]);
   assert(compiled.ok, `literal route planning failed: ${JSON.stringify(compiled.errors)}`);
   writeFileSync(join(source, resource.path), "export const page = 1;\n");
   const patch = capturePatchCandidate(source, base, artifacts, "route.patch");

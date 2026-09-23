@@ -177,7 +177,7 @@ function controllerEnvelope(state: FanoutPhaseState, body: unknown, planIdentity
 		detailsId: state.runId,
 		createdAt: new Date().toISOString(),
 		plan: planIdentity,
-		items: (body.items as Array<Record<string, unknown>>).map((item) => ({ ...item, advisoryNotes: item.advisoryNotes ?? [] })),
+		items: (body.items as Array<Record<string, unknown>>).map((item) => ({ ...item, advisoryValidationMode: item.advisoryValidationMode ?? "fail-fast", advisoryNotes: item.advisoryNotes ?? [] })),
 		finalValidationCommands: body.finalValidationCommands,
 	};
 }

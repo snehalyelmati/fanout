@@ -175,9 +175,10 @@ async function runOutcomeChecks() {
     ["signal", nodeCommand('process.kill(process.pid, "SIGTERM")'), "signal"],
     ["timeout", nodeCommand("setInterval(() => {}, 1000)"), "timeout", 40],
   ];
-  for (const [scopeId, first, outcome, timeoutMs = 2_000] of failureCases) {
+  for (const [scopeId, first, outcome, timeoutMs = 2_000] of failureCases) for (const continueAfterNonzero of [false, true]) {
+    if (continueAfterNonzero && outcome === "nonzero") continue;
     rmSync(laterMarker, { force: true });
-    const result = await runValidationCommands([first, nodeCommand(`require("node:fs").writeFileSync(${JSON.stringify(laterMarker)}, "ran")`)], { ...options(scopeId), timeoutMs });
+    const result = await runValidationCommands([first, nodeCommand(`require("node:fs").writeFileSync(${JSON.stringify(laterMarker)}, "ran")`)], { ...options(scopeId), timeoutMs, continueAfterNonzero });
     assert(result.status === "failed" && result.commands[0].outcome === outcome, JSON.stringify(result));
     assert(result.commands[1].outcome === "unexecuted" && !existsSync(laterMarker), `${scopeId} ran a later command`);
   }
@@ -194,16 +195,16 @@ async function runOutcomeChecks() {
 
   const abortController = new AbortController();
   setTimeout(() => abortController.abort(), 40);
-  const aborted = await runValidationCommands([nodeCommand("setInterval(() => {}, 1000)"), nodeCommand("")], { ...options("abort"), timeoutMs: 2_000, signal: abortController.signal });
+  const aborted = await runValidationCommands([nodeCommand("setInterval(() => {}, 1000)"), nodeCommand("")], { ...options("abort"), timeoutMs: 2_000, signal: abortController.signal, continueAfterNonzero: true });
   assert(aborted.commands[0].outcome === "aborted" && aborted.commands[1].outcome === "unexecuted", JSON.stringify(aborted));
 
   const disappearing = join(root, "disappearing-node");
   symlinkSync(process.execPath, disappearing);
   const rechecked = await runValidationCommands([
-    nodeCommand(`require("node:fs").unlinkSync(${JSON.stringify(disappearing)})`),
+    nodeCommand(`require("node:fs").unlinkSync(${JSON.stringify(disappearing)}); process.exit(7)`),
     { executable: disappearing, args: ["-e", "process.exit(0)"] },
     nodeCommand("")
-  ], options("recheck"));
+  ], { ...options("recheck"), continueAfterNonzero: true });
   assert(rechecked.commands[1].outcome === "spawn" && rechecked.commands[2].outcome === "unexecuted", JSON.stringify(rechecked));
 
   const firstCwd = join(root, "first-cwd");

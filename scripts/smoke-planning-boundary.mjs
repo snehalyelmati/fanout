@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { BATCHING_DISCIPLINE_MARKER } from "../packages/fanout-core/src/batching-discipline.ts";
+import { loadActiveExecutionPacket } from "../packages/fanout-core/src/active-packet.ts";
+import { publishExecutionPacket } from "../packages/fanout-pi/src/planning-publication.ts";
 import {
   activatePlanningTools,
   FANOUT_PLANNING_TOOLS,
@@ -80,10 +82,13 @@ function testArtifactSubmission() {
   delete omittedNotes.details.items[0].advisoryNotes;
   const accepted = submitPlanningArtifact(state, omittedNotes, repository);
   assert(JSON.parse(readFileSync(accepted.path)).items[0].advisoryNotes.length === 0, "omitted notes did not persist as []");
+  assert(JSON.parse(readFileSync(accepted.path)).items[0].advisoryValidationMode === "fail-fast", "omitted advisory mode did not persist conservatively");
+  assert(accepted.compiled.packet.compilationPolicy.sequentialReadFallback === false, "ordinary compilation unexpectedly enabled fallback");
+  for (const mode of [null, "parallel", true]) expectThrows(() => submitPlanningArtifact(state, { ...draft, details: { ...draft.details, items: [{ ...draft.details.items[0], advisoryValidationMode: mode }] } }, repository), /advisoryValidationMode/, "invalid advisory mode");
   expectThrows(() => submitPlanningArtifact(state, { ...draft, details: { ...draft.details, items: [{ ...draft.details.items[0], advisoryNotes: null }] } }, repository), /advisoryNotes/, "null notes");
   expectThrows(() => submitPlanningArtifact(state, validPlan(), repository), /additional properties|required properties/, "old single-half submission");
 
-  const fallbackState = { ...state, ...phaseState(repository, artifactRoot, join(artifactRoot, "fallback"), "implementation") };
+  const fallbackState = { ...state, ...phaseState(repository, artifactRoot, join(artifactRoot, "fallback"), "implementation"), approvedProfile: state.approvedProfile };
   const fallback = validSubmission();
   fallback.plan.implementationItems.push({ ...structuredClone(fallback.plan.implementationItems[0]), id: "reader", writeResources: [{ kind: "file", path: "reader.ts" }], readResources: [{ kind: "file", path: "README.md" }] });
   fallback.details.items.push({ ...structuredClone(fallback.details.items[0]), id: "reader", kind: "implement", changes: [{ kind: "modify", target: { resource: { kind: "file", path: "reader.ts" }, sourcePlanIds: ["reader"] }, intent: "Update reader", anchors: [{ kind: "symbol", symbol: "reader" }] }] });
@@ -102,6 +107,18 @@ function testArtifactSubmission() {
   const review = renderWorkContractMarkdown(acceptedFallback.compiled.packet, acceptedFallback.compiled.packet.nodes);
   assert(review.includes("conservatively waits") && review.includes("reduce parallelism"), "fallback warning absent");
   assert(JSON.stringify(acceptedFallback.compiled.packet) === beforeView, "warning changed authority");
+  assert(acceptedFallback.compiled.packet.compilationPolicy.sequentialReadFallback === true, "successful fallback decision was not recorded");
+  writeFileSync(join(artifactRoot, submittedProfile.identity.path), readFileSync(submittedProfile.path));
+  for (const [submission, directory] of [[accepted, artifactDir], [acceptedFallback, fallbackState.artifactDir]]) {
+    const pointer = join(artifactRoot, "provenance-active.json");
+    publishExecutionPacket(submission.compiled.packet, artifactRoot, directory, pointer);
+    const loaded = loadActiveExecutionPacket(pointer, artifactRoot);
+    assert(JSON.stringify(loaded.packet) === JSON.stringify(submission.compiled.packet), "provenance reconstruction changed ordinary/fallback packet authority");
+    if (submission === acceptedFallback) {
+      publishExecutionPacket({ ...submission.compiled.packet, compilationPolicy: { sequentialReadFallback: false } }, artifactRoot, directory, pointer);
+      expectThrows(() => loadActiveExecutionPacket(pointer, artifactRoot), /planned-read-not-grounded/, "admission guessed fallback instead of honoring the recorded false policy");
+    }
+  }
 
   const repositoryArtifact = join(repository, ".fanout", "run");
   expectThrows(() => submitPlanningArtifact(phaseState(repository, join(repository, ".fanout"), repositoryArtifact, "implementation"), draft, repository), /cannot be submitted into the repository/, "repository destination");

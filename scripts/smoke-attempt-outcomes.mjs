@@ -720,6 +720,7 @@ function workContract() {
     readDependencies: [],
     forbiddenWrites: [],
     validationCommands: [{ executable: "node", args: ["check.mjs"] }],
+    advisoryValidationMode: "fail-fast",
     capabilities: FIXED_WORKER_CAPABILITIES,
     semanticReviewCriteria: [{ sourcePlanId: "plan", statement: "The module validates." }],
     advisoryNotes: [],

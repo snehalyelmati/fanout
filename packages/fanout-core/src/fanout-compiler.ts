@@ -132,6 +132,7 @@ export function compileExecutionPacket(input: CompileExecutionPacketInput): Comp
 		assumptions: planResult.plan.assumptions,
 		tierPlan: input.tierPlan,
 		runtimePolicy: input.runtimePolicy,
+		compilationPolicy: { sequentialReadFallback: input.sequentialReadFallback ?? false },
 		nodes,
 	};
 	const admitted = validateExecutionPacket(packetValue);
@@ -208,14 +209,15 @@ function detailItem(value: unknown, index: number, planIds: Set<string>, errors:
 		readDependencies: value.readDependencies,
 		forbiddenWrites: [],
 		validationCommands: value.validationCommands,
+		advisoryValidationMode: value.advisoryValidationMode,
 		capabilities: FIXED_WORKER_CAPABILITIES,
 		semanticReviewCriteria: [{ sourcePlanId: "details-admission", statement: "Grounded detail fields are strict." }],
 		advisoryNotes: detailNotes,
 	});
 	if (!admitted.contract) { for (const issue of admitted.errors) errors.push(`${path}.${issue.path ?? "workContract"}: ${issue.code}: ${issue.message}`); return []; }
-	const { changes, readDependencies, validationCommands, advisoryNotes } = admitted.contract;
+	const { changes, readDependencies, validationCommands, advisoryValidationMode, advisoryNotes } = admitted.contract;
 	for (const source of sourceIds(changes, readDependencies)) if (planIds.size && !planIds.has(source)) errors.push(`${path} references unknown source plan id ${source}`);
-	return [{ id, kind, changes, readDependencies, validationCommands, advisoryNotes }];
+	return [{ id, kind, changes, readDependencies, validationCommands, advisoryValidationMode, advisoryNotes }];
 }
 
 function host(value: unknown): ImplementationPlan["planningHost"] { return { platform: (value as { platform: NodeJS.Platform }).platform }; }
