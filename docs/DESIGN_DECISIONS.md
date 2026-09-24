@@ -1,5 +1,13 @@
 # Design Decisions
 
+## Require Pi 0.87 and resolve transcript context at the Doubleword boundary — 2026-09-24
+
+Pi 0.86 changed custom provider inputs from `Context` to `TranscriptContext`: system instructions and tool declarations now live in system messages, not top-level fields. Fanout and Doubleword now require Pi 0.87.0; source development pins its SDK and CLI packages to that version. Doubleword uses direct imports of Pi's `getCurrentSystemPrompt` and `getCurrentTools` in realtime/async serialization and usage paths. The development stub uses the same contract. Replay honors section replacement/deletion and tool removal/redefinition without mutating the transcript or double-counting system text. Remove the interim namespace lookup, legacy-context adapter and feature detection rather than maintaining two contracts. Do not duplicate Pi's replay algorithm or move provider logic into Fanout core. The standalone provider release is 0.2.0 because the minimum Pi version is a breaking compatibility change.
+
+Pi 0.87's `context` hook excludes system messages. Planning phase offsets and compaction overlap comparisons must therefore use the non-system projection too; raw session indices can admit an old whole-branch summary into an explicit-objective phase. Keep the existing context hook and align its index domain rather than handling system messages in Fanout. The existing compaction-isolation regression caught this migration defect and passes with aligned indices.
+
+The offline regression runs the actual CLI through `/fanout-plan`, captures loopback HTTP metadata (prompt presence, byte length, SHA-256, user-message lengths/hashes, tool names, model), and requires a real task read plus accepted synthetic submission. Unit coverage also checks transcript deltas. It logs no prompt or credential contents and deletes its disposable fixture. Run `npm run smoke:planning-request` for the pinned local Pi, or set `FANOUT_TEST_PI=/absolute/path/to/pi` to select another supported runtime explicitly. The initial compatibility fix was verified on Pi 0.83.0 and 0.87.0 before the owner chose the 0.87.0 minimum; older Pi versions are no longer supported. No gateway call or model-quality assertion follows from mock success.
+
 ## Collect only explicitly independent advisory validation failures — 2026-09-23
 
 Planning prefers `collect-independent` whenever independence is established, rather than merely permitting it as an exceptional opt-in. The planner makes this explicit choice without a user toggle. Dependent or uncertain lists remain fail-fast, including omitted policy fields. This changes prompt/schema guidance only: persisted artifact meaning, compiler merge/fusion rules and controller gates are unchanged; no generation bump is needed.

@@ -27,9 +27,15 @@ This provider exposes realtime and async in Pi; batch is better suited for offli
 
 ## Install
 
+Requires **Pi 0.87.0 or newer**. Version 0.2.0 raises the minimum Pi version; upgrade Pi before installing it.
+
 ```bash
 pi install npm:@snehalyelmati/pi-doubleword-provider
 ```
+
+### 0.2.0 migration
+
+Pi 0.86 moved system instructions and tools into transcript system messages. This release uses Pi's transcript helpers directly, fixing requests that silently omitted instructions and tools on newer Pi versions. Older Pi context formats are no longer supported. Realtime and async execution share the corrected serialization. No Fanout installation is required.
 
 ## Quick start
 
@@ -83,6 +89,8 @@ From the repo root:
 ```bash
 pi -e . --model doubleword-stub/deepseek-v4-flash
 ```
+
+Run `npm run test:doubleword-provider` for offline request, usage, realtime, async, and planning regressions. The transport mocks load the standalone provider without Fanout. To check a release tarball, extract it and set `DOUBLEWORD_TEST_EXTENSION` to its absolute `package` directory when running `npm run smoke:live:realtime:mock`, `npm run smoke:live:async:mock`, and `node scripts/smoke-live-async-multiturn-mock.mjs` (with the local Pi binary on PATH). These tests use loopback servers, not paid endpoints.
 
 ## Limitations
 

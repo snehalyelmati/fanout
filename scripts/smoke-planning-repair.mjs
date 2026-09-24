@@ -1,4 +1,5 @@
 import { deepStrictEqual, rejects, throws } from "node:assert/strict";
+import { getCurrentTools } from "@earendil-works/pi-ai";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { repairPlanningDraft, retainPlanningDraft, submitPlanningArtifact } from "../packages/fanout-pi/src/planning-capabilities.ts";
@@ -129,7 +130,7 @@ async function testSdkRepair(root, extension, scenario) {
     }
     calls++;
     assert(calls < 6, `${scenario}: unexpected extra model request`);
-    const schema = context.tools.find((tool) => tool.name === "fanout_submit_artifact").parameters.properties.artifact.properties;
+    const schema = getCurrentTools(context.messages).find((tool) => tool.name === "fanout_submit_artifact").parameters.properties.artifact.properties;
     const initialSchema = calls === 1 || scenario === "malformed-initial" || scenario === "length-initial";
     assert(initialSchema ? schema.plan && !schema.revision : schema.revision && !schema.plan, `${scenario}: incorrect dynamic schema on request ${calls}`);
     const stream = createAssistantMessageEventStream();

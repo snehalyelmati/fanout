@@ -1,4 +1,4 @@
-import type { Api, AssistantMessage, AssistantMessageEventStream, Context, Model, StopReason, Tool, Usage } from "@earendil-works/pi-ai";
+import { getCurrentSystemPrompt, type Api, type AssistantMessage, type AssistantMessageEventStream, type TranscriptContext, type Model, type StopReason, type Tool, type Usage } from "@earendil-works/pi-ai";
 import { writeJsonl } from "./observability.ts";
 
 export function textFrom(value: unknown): string {
@@ -32,8 +32,12 @@ function costFor(model: Model<Api>, input: number, output: number, cacheRead = 0
 	return cost;
 }
 
-export function usageFor(model: Model<Api>, context: Context, outputText: string): Usage {
-	const input = countTokens([context.systemPrompt ?? "", ...context.messages.map((message) => textFrom(message.content))].join("\n"));
+function estimatedInputTokens(context: TranscriptContext): number {
+	return countTokens([getCurrentSystemPrompt(context.messages), ...context.messages.filter((message) => message.role !== "system").map((message) => textFrom(message.content))].join("\n"));
+}
+
+export function usageFor(model: Model<Api>, context: TranscriptContext, outputText: string): Usage {
+	const input = estimatedInputTokens(context);
 	const output = countTokens(outputText);
 	return {
 		input,
@@ -49,9 +53,9 @@ export function numberFrom(value: unknown, fallback = 0): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-export function usageFromResponse(model: Model<Api>, context: Context, outputText: string, response: Record<string, any>): Usage {
+export function usageFromResponse(model: Model<Api>, context: TranscriptContext, outputText: string, response: Record<string, any>): Usage {
 	const raw = response.usage ?? {};
-	const reportedInput = numberFrom(raw.input_tokens ?? raw.prompt_tokens, countTokens([context.systemPrompt ?? "", ...context.messages.map((message) => textFrom(message.content))].join("\n")));
+	const reportedInput = numberFrom(raw.input_tokens ?? raw.prompt_tokens, estimatedInputTokens(context));
 	const output = numberFrom(raw.output_tokens ?? raw.completion_tokens, countTokens(outputText));
 	const cacheRead = numberFrom(raw.input_tokens_details?.cached_tokens ?? raw.prompt_tokens_details?.cached_tokens, 0);
 	const cacheWrite = numberFrom(raw.input_tokens_details?.cache_write_tokens ?? raw.prompt_tokens_details?.cache_write_tokens, 0);
@@ -99,9 +103,10 @@ function splitToolCallId(id: string | undefined): [string, string | undefined] {
 	return [callId || id, itemId];
 }
 
-export function responsesInput(context: Context): any[] {
+export function responsesInput(context: TranscriptContext): any[] {
 	const input: any[] = [];
-	if (context.systemPrompt) input.push({ role: "system", content: [{ type: "input_text", text: context.systemPrompt }] });
+	const systemPrompt = getCurrentSystemPrompt(context.messages);
+	if (systemPrompt) input.push({ role: "system", content: [{ type: "input_text", text: systemPrompt }] });
 
 	context.messages.forEach((message, messageIndex) => {
 		if (message.role === "user") {

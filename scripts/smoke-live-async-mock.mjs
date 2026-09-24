@@ -99,7 +99,7 @@ function listen() {
 function runPi(baseUrl, { logFile, runId, pollMs = "0", asyncTimeoutMs = "30000", processTimeoutMs } = {}) {
   const timeout = Number(processTimeoutMs ?? process.env.DOUBLEWORD_LIVE_ASYNC_MOCK_TIMEOUT_MS ?? 60_000);
   return new Promise((resolve) => {
-    const child = spawn("pi", ["-e", ".", "--model", `doubleword/${modelId}`, "-p", "Respond 'hello', do not say anything else."], {
+    const child = spawn("pi", ["--no-extensions", "-e", process.env.DOUBLEWORD_TEST_EXTENSION ?? "./packages/doubleword-provider", "--model", `doubleword/${modelId}`, "-p", "Respond 'hello', do not say anything else."], {
       cwd: process.cwd(),
       env: {
         ...process.env,
@@ -167,7 +167,8 @@ try {
 
   const events = readEvents(successLogFile);
   const has = (name, predicate = () => true) => events.some((event) => event.event === name && predicate(event));
-  const liveEvent = (event) => event.provider === "doubleword" && event.turnIndex === 0 && event.serviceTierRequested === "flex";
+  // Standalone provider receipts have no Fanout-assigned turn index.
+  const liveEvent = (event) => event.provider === "doubleword" && event.model === modelId && event.responseId === successResponseId && event.serviceTierRequested === "flex";
   assert(has("async_submit", liveEvent), `missing live async_submit event\n${readFileSync(successLogFile, "utf8")}`);
   assert(has("async_poll_retry", liveEvent), `missing live async_poll_retry event\n${readFileSync(successLogFile, "utf8")}`);
   assert(has("async_poll", liveEvent), `missing live async_poll event\n${readFileSync(successLogFile, "utf8")}`);

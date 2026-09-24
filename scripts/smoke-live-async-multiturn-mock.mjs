@@ -85,7 +85,7 @@ function listen() {
 
 function runPi(baseUrl) {
   return new Promise((resolve) => {
-    const child = spawn("pi", ["-e", ".", "--model", "doubleword/deepseek-ai/DeepSeek-V4-Flash", "-p", "Use a tool to inspect README, then answer."], {
+    const child = spawn("pi", ["--no-extensions", "-e", process.env.DOUBLEWORD_TEST_EXTENSION ?? "./packages/doubleword-provider", "--model", "doubleword/deepseek-ai/DeepSeek-V4-Flash", "-p", "Use a tool to inspect README, then answer."], {
       cwd: process.cwd(),
       env: {
         ...process.env,

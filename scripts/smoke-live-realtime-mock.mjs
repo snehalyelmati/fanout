@@ -127,7 +127,7 @@ function listen() {
 
 function runPi(baseUrl, prompt = "Respond 'hello', do not say anything else.") {
   return new Promise((resolve) => {
-    const child = spawn("pi", ["-e", ".", "--model", `doubleword/${modelId}`, "-p", prompt], {
+    const child = spawn("pi", ["--no-extensions", "-e", process.env.DOUBLEWORD_TEST_EXTENSION ?? "./packages/doubleword-provider", "--model", `doubleword/${modelId}`, "-p", prompt], {
       cwd: process.cwd(),
       env: {
         ...process.env,

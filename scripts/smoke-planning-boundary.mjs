@@ -1,4 +1,5 @@
 import { rejects } from "node:assert/strict";
+import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -270,15 +271,15 @@ async function testRealPlanningRuntime(implicitObjective = false) {
   const { session, sessionManager } = runtime;
   sessionManager.appendMessage({ role: "user", content: (implicitObjective ? "BARE_OBJECTIVE_DECISION " : "EXCLUDED_OLD_HISTORY ").repeat(100), timestamp: Date.now() - 2000 });
   sessionManager.appendMessage({ role: "assistant", content: [{ type: "text", text: "Option B preserves constraints." }], api: "openai-completions", provider: "fanout-sdk-test", model: "scripted", usage: usage(), stopReason: "stop", timestamp: Date.now() - 1000 });
-  session.agent.state.messages = sessionManager.buildSessionContext().messages;
+  session.refreshContext();
   const observed = [];
   let calls = 0;
   session.agent.streamFunction = (model, context) => {
     calls++;
     observed.push(JSON.parse(JSON.stringify(context)));
-    assert(context.systemPrompt.includes(FANOUT_ORCHESTRATION_MARKER), `SDK request ${calls} lost planning system prompt`);
-    assert(!context.tools.some((tool) => tool.name === "bash"), `SDK request ${calls} restored write tools before settled`);
-    if (calls <= 4) assert(context.systemPrompt.includes('"phase":"implementation"'), `SDK request ${calls} advanced before settlement`);
+    assert(getCurrentSystemPrompt(context.messages).includes(FANOUT_ORCHESTRATION_MARKER), `SDK request ${calls} lost planning system prompt`);
+    assert(!getCurrentTools(context.messages).some((tool) => tool.name === "bash"), `SDK request ${calls} restored write tools before settled`);
+    if (calls <= 4) assert(getCurrentSystemPrompt(context.messages).includes('"phase":"implementation"'), `SDK request ${calls} advanced before settlement`);
     const result = { role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id, usage: usage(), timestamp: Date.now(), stopReason: "stop" };
     if (calls === 1 || calls === 2) { result.stopReason = "error"; result.errorMessage = calls === 1 ? "503 service overloaded" : "maximum context length exceeded"; }
     else if (calls === 3) result.content = [{ type: "text", text: "continue planning EXCLUDED_PHASE_A" }];
@@ -295,7 +296,7 @@ async function testRealPlanningRuntime(implicitObjective = false) {
     assert(!JSON.stringify(observed[2].messages).includes("EXCLUDED_"), "explicit objective regained excluded history after SDK compaction");
     if (implicitObjective) assert(JSON.stringify(observed[2].messages).includes("BARE_OBJECTIVE_DECISION"), "bare objective lost its admitted conversation after compaction");
     assert(observed[4].messages.some((message) => message.role === "toolResult" && message.isError && JSON.stringify(message).includes("write-not-authorized")), "compiler draft failure did not return through the real tool retry loop");
-    const repairSchema = observed[4].tools.find((tool) => tool.name === "fanout_submit_artifact").parameters.properties.artifact.properties;
+    const repairSchema = getCurrentTools(observed[4].messages).find((tool) => tool.name === "fanout_submit_artifact").parameters.properties.artifact.properties;
     assert(repairSchema.revision && repairSchema.replaceDetailItems && !repairSchema.plan, "SDK automatic response did not receive only the repair schema");
     assert(existsSync(runtime.activePointerPath), "SDK corrected details did not publish a packet");
     assert(session.getActiveToolNames().includes("bash"), "SDK settled success did not restore prior tools");
@@ -316,7 +317,7 @@ async function testRealPlanningCancellation() {
   const { session, sessionManager } = runtime;
   sessionManager.appendMessage({ role: "user", content: "Choose option B from the earlier discussion.", timestamp: Date.now() });
   sessionManager.appendCompaction("Option B means keep compatibility and change only the renderer.", sessionManager.getLeafId(), 100);
-  session.agent.state.messages = sessionManager.buildSessionContext().messages;
+  session.refreshContext();
   let providerContext;
   session.agent.streamFunction = (model, context, options) => {
     providerContext = context;

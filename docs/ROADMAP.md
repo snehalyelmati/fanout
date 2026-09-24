@@ -1,5 +1,9 @@
 # Roadmap
 
+## Pi 0.87 baseline and Doubleword 0.2.0 release preparation — 2026-09-24
+
+Require Pi 0.87.0 for Fanout and the standalone provider and pin local SDK/CLI development to that version. Use Pi's transcript helpers directly; drop legacy-context compatibility. Correct planning phase/compaction offsets for Pi's system-free context hook. Prepare Doubleword 0.2.0 with offline serialization, tool-loop, standalone transport and packed-package checks. Publication and live p-map canaries are separate from this release preparation. Preserve the failed planning archives and all prior candidates; the offline reproduction establishes a local request defect, not a model-quality result.
+
 ## Independent advisory validation collection — 2026-09-23
 
 Implemented locally: explicit per-node consent allows one sequential worker `fanout_validate` call to report independent ordinary-nonzero failures together, sharing one bounded diagnostic budget and retaining complete evidence. Planning prefers collection for established independent checks; dependent or uncertain lists and omitted policy fields remain fail-fast. All multi-input merges/fusions and final repairs are fail-fast. Packet v11 records the existing compiler read-fallback decision for exact plan/details/profile provenance admission. Details v8, Work Contract v6 and worker manifest v3 reject legacy/mixed authority; profile, plan, pointer and runtime/final evidence generations are unchanged. Controller acceptance and fresh final gates remain fail-fast. Independent review follows offline checks; performance gains remain unmeasured and paid canaries require separate authorization. No command parallelism, work-decomposition change, turn cap, cache or scheduler change is included.

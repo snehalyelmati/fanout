@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { deepStrictEqual } from "node:assert/strict";
+import { normalizeContext } from "@earendil-works/pi-ai";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -77,7 +79,7 @@ try {
   const { discoverLiveModels, REALTIME_STUB_MODELS, DOUBLEWORD_THINKING_LEVEL_MAP, tierPricingProvenance, tierPricingSource, withTierCost } = await import("../packages/doubleword-provider/src/models.ts");
   const { DOUBLEWORD_PRICING_PROVENANCE, DOUBLEWORD_TIER_PRICING } = await import("../packages/doubleword-provider/src/pricing.ts");
   const { responsesRequestBody, streamLiveRealtime, streamLiveAsync } = await import("../packages/doubleword-provider/src/live.ts");
-  const { responseUsageSource } = await import("../packages/doubleword-provider/src/messages.ts");
+  const { responseUsageSource, usageFor, usageFromResponse } = await import("../packages/doubleword-provider/src/messages.ts");
   const { modelPagePaths, parseModelPricing } = await import("./sync-doubleword-pricing.mjs");
 
   const models = await discoverLiveModels();
@@ -148,7 +150,24 @@ try {
   assert(responseUsageSource({ usage: { prompt_tokens: 1, completion_tokens: 2 } }) === "estimated", "compatibility usage aliases were falsely classified as native provider usage");
 
   const piModel = { ...gen, api: "doubleword-api", provider: "doubleword", baseUrl: process.env.DOUBLEWORD_BASE_URL };
-  const context = { messages: [{ role: "user", content: "hello", timestamp: Date.now() }] };
+  const context = normalizeContext({ messages: [{ role: "user", content: "hello", timestamp: Date.now() }] });
+  // Exercise current transcript deltas, not just the initial prompt/tool declarations.
+  const tool = (name, description) => ({ name, description, parameters: { type: "object", properties: {} } });
+  const transcript = normalizeContext({ messages: [
+    { role: "system", content: "base", sections: { task: "old", removed: "obsolete" }, toolsAdded: [tool("read", "old"), tool("bash", "remove")], timestamp: 0 },
+    { role: "user", content: "synthetic", timestamp: 1 },
+    { role: "system", content: "later", sections: { task: "new", removed: null }, toolsRemoved: [{ name: "bash" }], toolsAdded: [tool("read", "new")], timestamp: 2 },
+  ] });
+  const before = JSON.stringify(transcript);
+  const request = responsesRequestBody(piModel, transcript, undefined, {});
+  deepStrictEqual(request.input, [
+    { role: "system", content: [{ type: "input_text", text: "base\n\nlater\n\nnew" }] },
+    { role: "user", content: [{ type: "input_text", text: "synthetic" }] },
+  ]);
+  deepStrictEqual(request.tools, [{ type: "function", ...tool("read", "new"), strict: false }]);
+  assert(JSON.stringify(transcript) === before, "request serialization mutated the transcript");
+  assert(usageFor(piModel, transcript, "answer").input === 4, "synthetic usage counted stale or duplicate system text");
+  assert(usageFromResponse(piModel, transcript, "answer", {}).input === 4, "fallback usage omitted resolved system text");
   assert(responsesRequestBody(piModel, context, { reasoning: "high" }, {}).reasoning_effort === "high", "reasoning_effort high was not sent");
   assert(responsesRequestBody(piModel, context, undefined, {}).reasoning_effort === DOUBLEWORD_THINKING_LEVEL_MAP.medium, "default should map to medium");
   assert(responsesRequestBody(piModel, context, { reasoning: "off" }, {}).reasoning_effort === DOUBLEWORD_THINKING_LEVEL_MAP.off, "off should map to none");

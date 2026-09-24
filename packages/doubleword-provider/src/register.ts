@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
+import type { Api, TranscriptContext, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { DOUBLEWORD_API_BASE_URL, type ExecutionMode, UNIFIED_LIVE_PROVIDER, UNIFIED_STUB_PROVIDER } from "./config.ts";
 import { streamLiveAsync, streamLiveRealtime } from "./live.ts";
 import { discoverLiveModels, type ProviderModel, withTierCost } from "./models.ts";
@@ -36,7 +36,7 @@ function toggleExecutionMode(ctx: ExtensionContext): void {
 	ctx.ui.notify(`Doubleword execution: ${executionMode}`, "info");
 }
 
-function streamUnifiedLive(model: Model<Api>, context: Context, options?: SimpleStreamOptions) {
+function streamUnifiedLive(model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions) {
 	const modelWithCost = withTierCost(model, executionMode);
 	return executionMode === "async" ? streamLiveAsync(modelWithCost, context, options) : streamLiveRealtime(modelWithCost, context, options);
 }

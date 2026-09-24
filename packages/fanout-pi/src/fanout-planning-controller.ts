@@ -249,9 +249,10 @@ export class FanoutPlanningController {
 		if (started) recordPlanningToolInterval(started.metrics, started.started, ended);
 	}
 	captureCompactionContext(messages: unknown[]): void {
-		if (this.#started) this.#compactionContext = { messages: structuredClone(messages), phaseStart: this.#started.phaseContextStart };
+		if (this.#started) this.#compactionContext = { messages: structuredClone(conversationMessages(messages)), phaseStart: this.#started.phaseContextStart };
 	}
 	compactContext(messages: unknown[]): void {
+		messages = conversationMessages(messages);
 		if (this.#started) {
 			// Pi keeps a suffix of the whole branch; only its overlap with this phase is attributable.
 			const before = this.#compactionContext;
@@ -359,7 +360,13 @@ function planningInvocation(args: string): { objective: string; refreshProfile: 
 
 function contextMessages(ctx: any): unknown[] {
 	const messages = ctx.sessionManager?.buildSessionContext?.().messages;
-	return Array.isArray(messages) ? messages : [];
+	return Array.isArray(messages) ? conversationMessages(messages) : [];
+}
+
+function conversationMessages(messages: unknown[]): unknown[] {
+	// Pi 0.87's context hook excludes system messages; phase offsets and compaction
+	// comparisons must use that same projection of the canonical session context.
+	return messages.filter((message) => !isRecord(message) || message.role !== "system");
 }
 
 function implicitObjectiveMessages(messages: unknown[]): unknown[] {

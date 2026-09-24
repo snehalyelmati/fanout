@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { createAssistantMessageEventStream, type Api, type AssistantMessageEventStream, type Context, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, getCurrentTools, type Api, type AssistantMessageEventStream, type TranscriptContext, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { ASYNC_SERVICE_TIER, DEFAULT_ASYNC_TIMEOUT_MS, DEFAULT_CANCEL_TIMEOUT_MS, DOUBLEWORD_API_BASE_URL, elapsedMs, envInt, envString, formatSeconds, maxOutputTokensFor, sleep, withTimeout } from "./config.ts";
 import { fetchJson, fetchJsonWithPollRetry, HttpError } from "./http.ts";
 import { assertCompletedResponse, emitResponseContent, emitResponseToolCalls, emptyMessage, endText, guardRepeatedOutput, pushTextDelta, responsesInput, responsesTools, responseUsageFields, responseUsageSource, startText, usageFromResponse } from "./messages.ts";
@@ -73,8 +73,8 @@ export function doublewordReasoningEffort(model: Model<Api>, options?: SimpleStr
 	return effort === null ? undefined : effort;
 }
 
-export function responsesRequestBody(model: Model<Api>, context: Context, options: SimpleStreamOptions | undefined, body: Record<string, any>): Record<string, any> {
-	const tools = responsesTools(context.tools);
+export function responsesRequestBody(model: Model<Api>, context: TranscriptContext, options: SimpleStreamOptions | undefined, body: Record<string, any>): Record<string, any> {
+	const tools = responsesTools(getCurrentTools(context.messages));
 	const reasoningEffort = doublewordReasoningEffort(model, options);
 	return {
 		model: model.id,
@@ -86,7 +86,7 @@ export function responsesRequestBody(model: Model<Api>, context: Context, option
 	};
 }
 
-export function streamLiveRealtime(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
+export function streamLiveRealtime(model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
 	const stream = createAssistantMessageEventStream();
 
 	(async () => {
@@ -214,7 +214,7 @@ export function streamLiveRealtime(model: Model<Api>, context: Context, options?
 	return stream;
 }
 
-export function streamLiveAsync(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
+export function streamLiveAsync(model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
 	const stream = createAssistantMessageEventStream();
 
 	(async () => {
