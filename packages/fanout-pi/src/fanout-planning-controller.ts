@@ -302,6 +302,14 @@ export class FanoutPlanningController {
 			label: "Submit Fanout planning artifact",
 			description: "Validate and atomically submit the artifact expected by the active Fanout planning phase. The controller selects the run and destination.",
 			parameters: this.#draft ? PlanningRepairSubmissionParametersSchema : planningSubmissionParameters(phase),
+			prepareArguments: (args) => {
+				if (!isRecord(args) || typeof args.artifact !== "string") return args as { artifact: unknown };
+				try {
+					return { ...args, artifact: JSON.parse(args.artifact) };
+				} catch (error) {
+					throw new Error(`artifact contains malformed JSON: ${message(error)}. Resubmit artifact as a complete nested object; do not quote or stringify it.`);
+				}
+			},
 			executionMode: "sequential",
 			execute: async (toolCallId, params: { artifact: unknown }, signal, _onUpdate, ctx) => {
 				const state = this.#started;

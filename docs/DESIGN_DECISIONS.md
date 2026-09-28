@@ -1,5 +1,11 @@
 # Design Decisions
 
+## Decode encoded planning objects before Pi validation — 2026-09-28
+
+The Fanout submission tool uses Pi's `prepareArguments` hook to strictly JSON-decode a string-valued `artifact` once before argument validation. Keep the advertised object schema, core artifact contracts, compiler admission, and correction budget unchanged. Apply the same hook to profile, initial combined plan, and correction submissions. Preserve the original tool call and reject malformed JSON with explicit resubmission feedback; do not infer missing structure or recursively decode nested values. Doubleword provider serialization remains independent of Fanout.
+
+The stopped Kimi canary contained malformed encoded artifacts, so decoding alone cannot admit those captured calls. Offline CLI and SDK regressions cover valid encoded submissions, malformed-input recovery, strict schema rejection, and correction-budget enforcement; no live model-quality or performance claim follows from those checks.
+
 ## Require Pi 0.87 and resolve transcript context at the Doubleword boundary — 2026-09-24
 
 Pi 0.86 changed custom provider inputs from `Context` to `TranscriptContext`: system instructions and tool declarations now live in system messages, not top-level fields. Fanout and Doubleword now require Pi 0.87.0; source development pins its SDK and CLI packages to that version. Doubleword uses direct imports of Pi's `getCurrentSystemPrompt` and `getCurrentTools` in realtime/async serialization and usage paths. The development stub uses the same contract. Replay honors section replacement/deletion and tool removal/redefinition without mutating the transcript or double-counting system text. Remove the interim namespace lookup, legacy-context adapter and feature detection rather than maintaining two contracts. Do not duplicate Pi's replay algorithm or move provider logic into Fanout core. The standalone provider release is 0.2.0 because the minimum Pi version is a breaking compatibility change.

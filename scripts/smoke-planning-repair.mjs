@@ -1,5 +1,5 @@
 import { deepStrictEqual, rejects, throws } from "node:assert/strict";
-import { getCurrentTools } from "@earendil-works/pi-ai";
+import { getCurrentTools, validateToolArguments } from "@earendil-works/pi-ai";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { repairPlanningDraft, retainPlanningDraft, submitPlanningArtifact } from "../packages/fanout-pi/src/planning-capabilities.ts";
@@ -96,6 +96,14 @@ export async function testPlanningRepair(root, extension) {
 
   const refreshing = await extensionHarness(root, extension, "repair-profile-cancel", false, true, "--refresh-profile Test");
   refreshing.handler("before_agent_start")({ systemPrompt: "base" }, refreshing.ctx);
+  const profileBody = { preparation: [], readiness: [], candidateNormalization: [], requiredFinalGates: [] };
+  const validate = (args) => validateToolArguments(refreshing.submit, { name: "fanout_submit_artifact", arguments: refreshing.submit.prepareArguments(args) });
+  const encodedProfile = { artifact: JSON.stringify(profileBody) };
+  deepStrictEqual(validate(encodedProfile), { artifact: profileBody });
+  assert(typeof encodedProfile.artifact === "string", "argument preparation mutated the original tool call");
+  for (const artifact of ["null", "[]", "true", "42", JSON.stringify(JSON.stringify(profileBody)), JSON.stringify({ ...profileBody, extra: true })]) throws(() => validate({ artifact }), /Validation failed/);
+  throws(() => validate({ artifact: "{" }), /artifact contains malformed JSON/);
+  throws(() => validate({ artifact: JSON.stringify(profileBody), extra: true }), /Validation failed/);
   await refreshing.submit.execute("profile", { artifact: { preparation: [], readiness: [], candidateNormalization: [], requiredFinalGates: [] } }, undefined, undefined, refreshing.ctx);
   let approve;
   refreshing.ctx.ui.confirm = () => new Promise((resolve) => { approve = resolve; });
@@ -104,7 +112,7 @@ export async function testPlanningRepair(root, extension) {
   approve(true);
   await settling;
   assert(refreshing.messages.length === 1 && !existsSync(refreshing.activePointerPath), "stale profile approval restarted planning");
-  for (const scenario of ["success", "schema-budget", "plan-budget", "second-repair", "malformed-initial", "length-initial", "cancel-repair", "compact-repair"]) await testSdkRepair(root, extension, scenario);
+  for (const scenario of ["success", "schema-budget", "plan-budget", "second-repair", "malformed-initial", "length-initial", "cancel-repair", "compact-repair", "encoded-repair", "malformed-json-initial", "malformed-json-budget"]) await testSdkRepair(root, extension, scenario);
 }
 
 async function testSdkRepair(root, extension, scenario) {
@@ -131,7 +139,8 @@ async function testSdkRepair(root, extension, scenario) {
     calls++;
     assert(calls < 6, `${scenario}: unexpected extra model request`);
     const schema = getCurrentTools(context.messages).find((tool) => tool.name === "fanout_submit_artifact").parameters.properties.artifact.properties;
-    const initialSchema = calls === 1 || scenario === "malformed-initial" || scenario === "length-initial";
+    const initialSchema = calls === 1 || ["malformed-initial", "malformed-json-initial", "length-initial"].includes(scenario);
+    assert(!existsSync(runtime.activePointerPath), `${scenario}: published before acceptance`);
     assert(initialSchema ? schema.plan && !schema.revision : schema.revision && !schema.plan, `${scenario}: incorrect dynamic schema on request ${calls}`);
     const stream = createAssistantMessageEventStream();
     if (scenario === "cancel-repair" && calls === 2) {
@@ -141,6 +150,7 @@ async function testSdkRepair(root, extension, scenario) {
     }
     let artifact = validSubmission();
     if (scenario === "malformed-initial" && calls === 1) artifact = { plan: {} };
+    else if (scenario === "malformed-json-initial" && calls === 1) artifact = JSON.stringify(artifact).slice(0, -1);
     else if (calls === 1 && !["success", "length-initial"].includes(scenario)) artifact.details.items[0].changes[0].target.resource.path = "unowned.md";
     else if (!initialSchema) {
       artifact = { revision: 1, replacePlanItems: [], replaceDetailItems: validSubmission().details.items };
@@ -153,6 +163,8 @@ async function testSdkRepair(root, extension, scenario) {
         else artifact.revision = 2;
       }
     }
+    if (scenario === "encoded-repair") artifact = JSON.stringify(artifact);
+    if (scenario === "malformed-json-budget" && calls > 1) artifact = JSON.stringify(artifact).slice(0, -1);
     if (scenario === "compact-repair" && calls === 2) {
       const error = { role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id, usage: usage(), timestamp: Date.now(), stopReason: "error", errorMessage: "maximum context length exceeded" };
       stream.push({ type: "error", reason: "error", error });
@@ -167,15 +179,20 @@ async function testSdkRepair(root, extension, scenario) {
     await session.prompt("/fanout-plan Test typed correction");
     if (scenario === "cancel-repair") { await waitFor(() => cancelling); await session.abort(); }
     await waitFor(() => settled === 1);
-    const success = !["schema-budget", "plan-budget", "length-initial", "cancel-repair"].includes(scenario);
+    const success = !["schema-budget", "plan-budget", "length-initial", "cancel-repair", "malformed-json-budget"].includes(scenario);
     assert(existsSync(runtime.activePointerPath) === success, `${scenario}: incorrect publication`);
     assert(session.getActiveToolNames().includes("bash"), `${scenario}: tools not restored`);
-    const expectedCalls = { success: 1, "schema-budget": 3, "plan-budget": 3, "second-repair": 3, "malformed-initial": 2, "length-initial": 2, "cancel-repair": 2, "compact-repair": 3 }[scenario];
+    const expectedCalls = { success: 1, "schema-budget": 3, "plan-budget": 3, "second-repair": 3, "malformed-initial": 2, "length-initial": 2, "cancel-repair": 2, "compact-repair": 3, "encoded-repair": 2, "malformed-json-initial": 2, "malformed-json-budget": 3 }[scenario];
     assert(calls === expectedCalls, `${scenario}: expected ${expectedCalls} requests, got ${calls}: ${JSON.stringify(events)}`);
     if (scenario === "schema-budget") {
       assert(executeCalls === 1, "SDK schema-rejected repairs reached the tool-call execution hook");
       const failures = session.agent.state.messages.filter((message) => message.role === "toolResult" && message.isError);
       assert(failures.length === 3 && JSON.stringify(failures).includes("Validation failed"), "schema budget did not exercise SDK validation");
+    }
+    if (scenario.startsWith("malformed-json")) {
+      assert(executeCalls === 1, "malformed JSON reached the execution hook");
+      const failures = session.agent.state.messages.filter((message) => message.role === "toolResult" && message.isError);
+      assert(failures.filter((message) => JSON.stringify(message).includes("artifact contains malformed JSON")).length === (scenario === "malformed-json-budget" ? 2 : 1), "malformed JSON did not get precise recovery feedback");
     }
   } finally { session.dispose(); }
 }

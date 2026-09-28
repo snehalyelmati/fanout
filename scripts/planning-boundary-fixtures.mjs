@@ -69,6 +69,7 @@ export async function extensionHarness(root, extension, scenario, queued, modelA
   if (modelAvailable && !scenario.startsWith("dirty-")) assert(messages[0]?.content === (invocation.startsWith("--refresh-profile") ? "Build and submit the Fanout Project Execution Profile." : "Prepare and submit the Fanout implementation plan."), `${scenario}: initial planning trigger was not phase-scoped`);
   const submit = {
     get parameters() { return tools.get("fanout_submit_artifact").parameters; },
+    get prepareArguments() { return tools.get("fanout_submit_artifact").prepareArguments; },
     async execute(...args) {
       const tool = tools.get("fanout_submit_artifact");
       sessionMessages.push({ role: "assistant", content: [{ type: "toolCall", id: args[0], name: "fanout_submit_artifact", arguments: args[1] }] });

@@ -20,6 +20,7 @@ const model = "moonshotai/kimi-k3";
 const objective = "Read ../TASK.md and implement that feature request exactly.";
 const metadata = (text = "") => ({ bytes: Buffer.byteLength(text), sha256: createHash("sha256").update(text).digest("hex") });
 const requests = [];
+let artifactEncoding = "object";
 let failure;
 const server = createServer(async (req, res) => {
   try {
@@ -33,7 +34,12 @@ const server = createServer(async (req, res) => {
     for await (const chunk of req) raw += chunk;
     const body = JSON.parse(raw);
     const system = body.input.filter((item) => item.role === "system").flatMap((item) => item.content).map((part) => part.text ?? "").join("\n\n");
+    const submitTool = body.tools?.find((tool) => tool.name === "fanout_submit_artifact");
+    assert.equal(submitTool?.parameters?.properties?.artifact?.type, "object", "outgoing artifact schema must remain object-typed");
+    assert(submitTool.parameters.required.includes("artifact"), "outgoing artifact schema must require artifact");
+    const scenarioRequests = requests.filter((request) => request.artifactEncoding === artifactEncoding);
     const summary = {
+      artifactEncoding,
       boundary: "http", model: body.model, system: { present: Boolean(system), ...metadata(system) },
       users: body.input.filter((item) => item.role === "user").map((item) => metadata(JSON.stringify(item.content))),
       tools: (body.tools ?? []).map((tool) => tool.name), reasoning: body.reasoning_effort,
@@ -46,13 +52,13 @@ const server = createServer(async (req, res) => {
     assert(system.includes('"phase":"implementation"'), "fixture did not reuse its approved profile");
     assert.deepEqual(summary.tools.toSorted(), ["read", "grep", "find", "ls", "fanout_submit_artifact"].toSorted());
     assert.equal(body.reasoning_effort, "medium");
-    if (requests.length === 2) {
+    if (scenarioRequests.length === 1) {
       assert(body.input.some((item) => item.type === "function_call_output" && item.output.includes("Synthetic task")), "task read result missing from replay");
     }
-    assert(requests.length <= 2, "unexpected additional provider request");
-    const output = requests.length === 1
+    assert(scenarioRequests.length < 2, "unexpected additional provider request");
+    const output = scenarioRequests.length === 0
       ? [{ type: "function_call", call_id: "read-task", name: "read", arguments: JSON.stringify({ path: "../TASK.md" }) }]
-      : [{ type: "function_call", call_id: "submit-plan", name: "fanout_submit_artifact", arguments: JSON.stringify({ artifact: validSubmission() }) }];
+      : [{ type: "function_call", call_id: "submit-plan", name: "fanout_submit_artifact", arguments: JSON.stringify({ artifact: artifactEncoding === "object" ? validSubmission() : JSON.stringify(validSubmission()) }) }];
     res.writeHead(200, { "content-type": "text/event-stream" });
     res.end(`event: response.completed\ndata: ${JSON.stringify({ response: { id: `mock-${requests.length}`, status: "completed", output, usage: { input_tokens: 100, output_tokens: 10, total_tokens: 110 } } })}\n\ndata: [DONE]\n\n`);
   } catch (error) {
@@ -101,31 +107,34 @@ export default async function(pi) {
   };
   const command = process.env.FANOUT_TEST_PI ?? "pi";
   const args = ["--no-extensions", "--no-skills", "--no-context-files", "--no-prompt-templates", "-e", extension, "--model", `doubleword/${model}`, "--thinking", "medium", "--mode", "rpc"];
-  const child = spawn(command, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
-  let stderr = "";
-  child.stdout.resume();
-  child.stderr.on("data", (chunk) => { stderr += chunk; });
-  createInterface({ input: child.stderr }).on("line", (line) => {
-    if (line === '{"boundary":"settled"}') child.stdin.end();
-  });
-  child.stdin.write(`${JSON.stringify({ type: "prompt", message: `/fanout-plan ${objective}` })}\n`);
-  const timer = setTimeout(() => child.kill("SIGTERM"), 20_000);
-  const status = await new Promise((resolve, reject) => { child.on("error", reject); child.on("close", resolve); }).finally(() => clearTimeout(timer));
-  // Only print explicitly tagged metadata, not arbitrary runtime errors or request bodies.
-  for (const line of stderr.split("\n")) if (line.startsWith('{"boundary":')) console.log(line);
-  if (failure) throw failure;
-  assert.equal(status, 0, "Pi CLI failed (raw output intentionally not logged)");
-  assert.equal(requests.length, 2, "planning did not read task and submit plan");
-  const injected = stderr.split("\n").filter((line) => line.startsWith('{"boundary":"before-agent-start"')).map(JSON.parse);
-  assert.equal(injected.length, 1, "missing prompt injection receipt");
-  for (const request of requests) {
-    assert.equal(request.system.sha256, injected[0].sha256, "serialized prompt differs from injected prompt");
-    assert.equal(request.system.bytes, injected[0].bytes);
+  for (artifactEncoding of ["object", "json-string"]) {
+    const child = spawn(command, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    let stderr = "";
+    child.stdout.resume();
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    createInterface({ input: child.stderr }).on("line", (line) => {
+      if (line === '{"boundary":"settled"}') child.stdin.end();
+    });
+    child.stdin.write(`${JSON.stringify({ type: "prompt", message: `/fanout-plan ${objective}` })}\n`);
+    const timer = setTimeout(() => child.kill("SIGTERM"), 20_000);
+    const status = await new Promise((resolve, reject) => { child.on("error", reject); child.on("close", resolve); }).finally(() => clearTimeout(timer));
+    // Only print explicitly tagged metadata, not arbitrary runtime errors or request bodies.
+    for (const line of stderr.split("\n")) if (line.startsWith('{"boundary":')) console.log(line);
+    if (failure) throw failure;
+    assert.equal(status, 0, `${artifactEncoding}: Pi CLI failed (raw output intentionally not logged)`);
+    const scenarioRequests = requests.filter((request) => request.artifactEncoding === artifactEncoding);
+    assert.equal(scenarioRequests.length, 2, `${artifactEncoding}: planning did not read task and submit plan`);
+    const injected = stderr.split("\n").filter((line) => line.startsWith('{"boundary":"before-agent-start"')).map(JSON.parse);
+    assert.equal(injected.length, 1, `${artifactEncoding}: missing prompt injection receipt`);
+    for (const request of scenarioRequests) {
+      assert.equal(request.system.sha256, injected[0].sha256, "serialized prompt differs from injected prompt");
+      assert.equal(request.system.bytes, injected[0].bytes);
+    }
   }
   const events = readFileSync(join(root, "observability.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
-  assert(events.some((event) => event.event === "fanout_plan_end"), "mock planning artifact was not accepted");
+  assert.equal(events.filter((event) => event.event === "fanout_plan_end").length, 2, "both mock planning artifacts were not accepted and published");
   assert(!events.some((event) => event.event === "fanout_plan_failed"), "mock planning failed");
-  console.log("planning request mock passed (task read, submission accepted; loopback only)");
+  console.log("planning request mock passed (object and JSON-string artifacts accepted; loopback only)");
 } finally {
   server.close();
   rmSync(root, { recursive: true, force: true });
