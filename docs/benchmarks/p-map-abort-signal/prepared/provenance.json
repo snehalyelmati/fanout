@@ -1,0 +1,61 @@
+{
+  "benchmark": "p-map-abort-signal",
+  "revision": "2026-09-27",
+  "status": "offline-prepared-not-activated-or-executed",
+  "sourceArtifacts": {
+    "implementation-plan.json": {
+      "sourceDirectory": "/Users/snehalyelmati/.pi/agent/fanout/canary-20260918-glm53med-64k-deepseekv41-11fbf98d34cb/20260925-065423264-read-task-md-and-implement-that-feature-",
+      "path": "implementation-plan.json",
+      "sha256": "f9a5b5a15d6dbd25be7c6001224f6dcbf5c48dfe78d8d8ad06234bf1ecc4f1b9",
+      "byteLength": 14098
+    },
+    "implementation-details.json": {
+      "sourceDirectory": "/Users/snehalyelmati/.pi/agent/fanout/canary-20260918-glm53med-64k-deepseekv41-11fbf98d34cb/20260925-065423264-read-task-md-and-implement-that-feature-",
+      "path": "implementation-details.json",
+      "sha256": "95dbbf934e442ff8137b78e2596e28a414ca1bed82aa4dd01c31e8600ecacadd",
+      "byteLength": 9861
+    },
+    "execution-packet.json": {
+      "sourceDirectory": "/Users/snehalyelmati/.pi/agent/fanout/canary-20260918-glm53med-64k-deepseekv41-11fbf98d34cb/20260925-065423264-read-task-md-and-implement-that-feature-",
+      "path": "execution-packet.json",
+      "sha256": "bdeaacab51c7d86be9cd25d2bd25788cf0fad80c06f341bb80efe8dabe878a34",
+      "byteLength": 48560
+    }
+  },
+  "task": {
+    "path": "TASK.md",
+    "sha256": "52af3841a1c8959cdd8e5d5223ded510768c7d0465d0ff7f08276f3d6dc23b52",
+    "byteLength": 5708
+  },
+  "previousTask": {
+    "path": "history/TASK-before-2026-09-27.md",
+    "sha256": "fbce63dd802d73b83d7861c3981d7a4fd4f1b4bd79aff92c5e0e3175c737e585",
+    "byteLength": 3636
+  },
+  "plan": {
+    "path": "implementation-plan.json",
+    "sha256": "e7ee9d508431233a13503056a8afa93acfa460f45aaa322d22be361b479a5d75",
+    "byteLength": 15002
+  },
+  "details": {
+    "path": "implementation-details.json",
+    "sha256": "f1349e8992cbfce4c27df55b500fbbc22cd27e228220611fc0234259a76b0905",
+    "byteLength": 12138
+  },
+  "packet": {
+    "path": "execution-packet.json",
+    "sha256": "70261f1206c62065cf7e78bd21f1e5b3347994aa020fa03f12bad64846232946",
+    "byteLength": 53970
+  },
+  "profile": {
+    "path": "profiles/20260918-122548949-read-task-md-and-implement-that-feature-.json",
+    "sha256": "2b0248d9a4f65fa271ad05eeb15ca67ed0ec158bfe36450e9a96ab39a072bb8a",
+    "byteLength": 1374
+  },
+  "changes": [
+    "Existing p-map abort-signal benchmark task revised to expose the promised-source-value requirement in the plan and runtime test intent.",
+    "Runtime node renamed runtime-and-behavioral-tests; frozen inline command prepended.",
+    "Profile bytes, baseline, authority, remaining checks, routing and concurrency reused."
+  ],
+  "warnings": []
+}

@@ -1,5 +1,9 @@
 # Roadmap
 
+## Planning recovery and benchmark validation — 2026-09-27
+
+Clarify current-base repair revisions, packet-global bans, and controller-owned changed-path enforcement without widening repair budgets or write authority. Update the existing p-map benchmark task to freeze promised-source-value abort coverage into runtime worker validation while reusing the approved profile. Offline checks only in this slice; generated p-map fixes, paid planning, live canaries, repetitions, and baseline suites remain separate work. Historical benchmark inputs and evidence stay unchanged.
+
 ## Pi 0.87 baseline and Doubleword 0.2.0 release preparation — 2026-09-24
 
 Require Pi 0.87.0 for Fanout and the standalone provider and pin local SDK/CLI development to that version. Use Pi's transcript helpers directly; drop legacy-context compatibility. Correct planning phase/compaction offsets for Pi's system-free context hook. Prepare Doubleword 0.2.0 with offline serialization, tool-loop, standalone transport and packed-package checks. Publication and live p-map canaries are separate from this release preparation. Preserve the failed planning archives and all prior candidates; the offline reproduction establishes a local request defect, not a model-quality result.

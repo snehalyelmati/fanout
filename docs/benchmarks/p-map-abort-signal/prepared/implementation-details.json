@@ -1,0 +1,240 @@
+{
+  "schema": "fanout.implementation-details",
+  "version": 8,
+  "detailsId": "p-map-abort-signal-2026-09-27",
+  "createdAt": "2026-09-27T00:00:00.000Z",
+  "plan": {
+    "path": "implementation-plan.json",
+    "sha256": "e7ee9d508431233a13503056a8afa93acfa460f45aaa322d22be361b479a5d75",
+    "byteLength": 15002
+  },
+  "items": [
+    {
+      "id": "runtime-and-behavioral-tests",
+      "kind": "implement",
+      "changes": [
+        {
+          "kind": "modify",
+          "target": {
+            "resource": {
+              "kind": "file",
+              "path": "index.js"
+            },
+            "sourcePlanIds": [
+              "impl-pmapiterable-abort"
+            ]
+          },
+          "intent": "Add `signal` to the pMapIterable options destructure and implement the abort contract inside the async generator: when a signal is supplied register an abort listener; if already aborted, throw signal.reason before any source next() or mapper start; on abort during iteration reject the pending consumer next() promptly with the exact signal.reason, permanently stop spawning source pulls and mapper calls, suppress every yield after the abort is observed (running mappers may still settle in the background), call the source iterator's return() best-effort when present, and remove the abort listener on normal completion, source failure, mapper failure, abort, and early consumer exit. Keep pMap and the no-signal pMapIterable path (ordering, concurrency, backpressure, pMapSkip, error propagation) behaviorally identical.",
+          "anchors": [
+            {
+              "kind": "stable-text",
+              "text": "export function pMapIterable("
+            },
+            {
+              "kind": "stable-text",
+              "text": "async * [Symbol.asyncIterator]() {"
+            }
+          ]
+        },
+        {
+          "kind": "modify",
+          "target": {
+            "resource": {
+              "kind": "file",
+              "path": "test.js"
+            },
+            "sourcePlanIds": [
+              "impl-pmapiterable-abort"
+            ]
+          },
+          "intent": "Add new AVA tests for the pMapIterable abort contract using deferred promises and counters only (no new wall-clock sleeps): already-aborted signal rejects the first next() with the exact reason object before any source pull or mapper call; mid-iteration abort rejects the pending next() with the identical reason object; after abort there are no additional source next() calls and no mapper starts (verified with counters); no values are yielded after abort even when running mappers later settle; the source iterator's return() is invoked; and a supplied-but-never-aborted signal leaves normal concurrency/backpressure completion output unchanged. The 2026-09-27 benchmark revision requires cancellation while awaiting a promised source value to reject the pending consumer with the exact reason before the value resolves; resolving it afterward starts zero mappers, pulls no new source items, yields no value, and closes the source once. Include deterministic AVA coverage and the supplied frozen check as the first runtime validation command.",
+          "anchors": [
+            {
+              "kind": "stable-text",
+              "text": "async function collectAsyncIterable(asyncIterable) {"
+            },
+            {
+              "kind": "stable-text",
+              "text": "test('pMapIterable - pMapSkip', async t => {"
+            }
+          ]
+        }
+      ],
+      "readDependencies": [
+        {
+          "resource": {
+            "kind": "file",
+            "path": "package.json"
+          },
+          "timing": "baseline-context",
+          "timingSource": "phase-b",
+          "sourcePlanIds": [
+            "impl-pmapiterable-abort"
+          ],
+          "reason": "Baseline script/config context: confirms npm test is `xo && ava && tsd`, ESM package type, and the supported npx ava / npx xo invocation form; package.json is packet-globally write-banned so baseline content suffices."
+        },
+        {
+          "resource": {
+            "kind": "file",
+            "path": "index.d.ts"
+          },
+          "timing": "baseline-context",
+          "timingSource": "phase-b",
+          "sourcePlanIds": [
+            "types-docs-pmapiterable-abort"
+          ],
+          "reason": "Baseline IterableOptions shape (owned by the types item) to keep the runtime option name `signal` aligned with the declared type surface; the option contract is frozen by the task so the baseline read suffices."
+        }
+      ],
+      "validationCommands": [
+        {
+          "executable": "node",
+          "args": [
+            "--input-type=module",
+            "--eval",
+            "import assert from 'node:assert/strict'; import {resolve} from 'node:path'; import {pathToFileURL} from 'node:url';  const watchdog = setTimeout(() => { console.error('promised-source-value-abort: timed out waiting for source or prompt rejection'); process.exit(1); }, 2000); try { const {pMapIterable} = await import(pathToFileURL(resolve(process.cwd(), 'index.js'))); const controller = new AbortController(); const reason = {case: 'promised-source-value-abort'}; const value = Promise.withResolvers(); const waiting = Promise.withResolvers(); let pulls = 0; let mapperStarts = 0; let closes = 0; const input = {[Symbol.iterator]: () => ({ next() { pulls++; return {done: false, value: {then(resolve) { waiting.resolve(); value.promise.then(resolve); }}}; }, return() { closes++; return {done: true}; }, })}; const iterator = pMapIterable(input, () => ++mapperStarts, { signal: controller.signal, concurrency: 1, backpressure: 1, })[Symbol.asyncIterator](); const pending = iterator.next(); await waiting.promise; controller.abort(reason); await assert.rejects(pending, error => error === reason, 'pending consumer must reject with the exact abort reason before the input value resolves'); value.resolve(1); await new Promise(resolve => setImmediate(resolve)); await iterator.next().then(result => assert.equal(result.done, true, 'must not yield after abort'), error => assert.equal(error, reason)); assert.deepEqual({pulls, mapperStarts, closes}, {pulls: 1, mapperStarts: 0, closes: 1}, 'no mapper may start after abort while awaiting a promised source value'); console.log('promised-source-value-abort: passed'); } catch (error) { console.error('promised-source-value-abort:', error); process.exitCode = 1; } finally { clearTimeout(watchdog); }"
+          ]
+        },
+        {
+          "executable": "npx",
+          "args": [
+            "ava",
+            "test.js"
+          ]
+        },
+        {
+          "executable": "npx",
+          "args": [
+            "xo",
+            "index.js",
+            "test.js"
+          ]
+        }
+      ],
+      "advisoryValidationMode": "collect-independent",
+      "advisoryNotes": [
+        {
+          "kind": "validation-intent",
+          "reference": "focused checks",
+          "text": "`npx ava test.js` and `npx xo index.js test.js` check the same candidate independently and read no other check's outputs, so their failures are collected together; the profile-owned final `npm test` gate remains the authoritative full run."
+        },
+        {
+          "kind": "risk",
+          "reference": "consumer-side prompt rejection",
+          "text": "Ensure the abort rejects an already-pending consumer next() even when the head spawned promise is stuck awaiting the source or a mapper; yielding must also be suppressed if abort lands between mapper resolution and the yield."
+        }
+      ]
+    },
+    {
+      "id": "types-docs-pmapiterable-abort",
+      "kind": "implement",
+      "changes": [
+        {
+          "kind": "modify",
+          "target": {
+            "resource": {
+              "kind": "file",
+              "path": "index.d.ts"
+            },
+            "sourcePlanIds": [
+              "types-docs-pmapiterable-abort"
+            ]
+          },
+          "intent": "Add `readonly signal?: AbortSignal | undefined;` to IterableOptions with a doc comment stating it applies to pMapIterable and summarizing the abort behavior (reject with the exact signal reason, stop pulling/mapping, suppress post-abort yields, best-effort source iterator cleanup), mirroring the documentation style of Options.signal; leave the pMap Options type and docs semantically unchanged.",
+          "anchors": [
+            {
+              "kind": "stable-text",
+              "text": "export type IterableOptions = BaseOptions & {"
+            }
+          ]
+        },
+        {
+          "kind": "modify",
+          "target": {
+            "resource": {
+              "kind": "file",
+              "path": "index.test-d.ts"
+            },
+            "sourcePlanIds": [
+              "types-docs-pmapiterable-abort"
+            ]
+          },
+          "intent": "Add a tsd expectType assertion that pMapIterable accepts an options object containing an AbortSignal (e.g. {signal: new AbortController().signal}) and that the inferred output type is still exactly AsyncIterable<string>; place it alongside the existing pMapIterable inference assertions.",
+          "anchors": [
+            {
+              "kind": "stable-text",
+              "text": "expectType<AsyncIterable<string>>(pMapIterable(sitesWithPromises, asyncMapper));"
+            }
+          ]
+        },
+        {
+          "kind": "modify",
+          "target": {
+            "resource": {
+              "kind": "file",
+              "path": "readme.md"
+            },
+            "sourcePlanIds": [
+              "types-docs-pmapiterable-abort"
+            ]
+          },
+          "intent": "Update the `##### signal` section: replace the pMap-only applicability note so the option is documented for both pMap and pMapIterable, and describe the pMapIterable abort behavior (consumer rejection with the exact signal.reason, no further source pulls or mapper starts, no mapper results yielded after abort, best-effort closing of the source iterator via return()); keep the existing pMap example accurate and optionally add a short pMapIterable example consistent with the readme's ESM style.",
+          "anchors": [
+            {
+              "kind": "stable-text",
+              "text": "##### signal"
+            },
+            {
+              "kind": "stable-text",
+              "text": "await pMap([delay(1000), delay(1000)], mapper, {signal: abortController.signal});"
+            }
+          ]
+        }
+      ],
+      "readDependencies": [
+        {
+          "resource": {
+            "kind": "file",
+            "path": "index.js"
+          },
+          "timing": "baseline-context",
+          "timingSource": "phase-b",
+          "sourcePlanIds": [
+            "impl-pmapiterable-abort"
+          ],
+          "reason": "Baseline pMap signal listener implementation and IterableOptions doc-comment style in the runtime file, used to keep the d.ts and readme prose consistent; the abort semantics are frozen by the task so the baseline text suffices for wording."
+        }
+      ],
+      "validationCommands": [
+        {
+          "executable": "npx",
+          "args": [
+            "tsd"
+          ]
+        },
+        {
+          "executable": "npx",
+          "args": [
+            "xo",
+            "index.d.ts",
+            "index.test-d.ts"
+          ]
+        }
+      ],
+      "advisoryValidationMode": "collect-independent",
+      "advisoryNotes": [
+        {
+          "kind": "validation-intent",
+          "reference": "readme lacks repo-side checker",
+          "text": "npm test (xo && ava && tsd) includes no markdown tooling, so no scoped lint can repairably cover readme.md; its correctness is enforced by this plan's semantic review criteria and the controller-owned final gate, while tsd and focused xo cover the d.ts and test-d.ts changes."
+        },
+        {
+          "kind": "constraint",
+          "reference": "type surface only",
+          "text": "Add the signal property; do not restructure BaseOptions/Options or alter pMap's typing, and do not touch package.json or any configuration."
+        }
+      ]
+    }
+  ],
+  "finalValidationCommands": []
+}

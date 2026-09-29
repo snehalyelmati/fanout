@@ -2,6 +2,14 @@
 
 The chronological canary inventories are the [p-map run ledger](benchmarks/p-map-abort-signal-canary-tracker.md#run-ledger) and [Execa run ledger](benchmarks/execa-web-streams-manual-e2e.md#run-ledger). This index retains experiment summaries, methodology, recovery analysis and aggregate comparisons; individual execution records are maintained in those ledgers.
 
+## p-map AbortSignal benchmark validation update — 2026-09-27
+
+Updated the existing [p-map benchmark task](benchmarks/p-map-abort-signal/TASK.md) and frozen direct-argv command for the runtime/behavioral-test worker. The check waits until a source value is being awaited, aborts, requires prompt rejection with the exact reason, then resolves the value and requires zero mapper starts. It runs through the existing `fanout_validate` and authoritative node validation paths. The approved 1,374-byte profile (`2b0248d9a4f65fa271ad05eeb15ca67ed0ec158bfe36450e9a96ab39a072bb8a`) is reused unchanged; task-specific coverage belongs in the packet.
+
+The updated [prepared packet](benchmarks/p-map-abort-signal/prepared/execution-packet.json) freezes this command first in `runtime-and-behavioral-tests`. Offline recompilation and identity checks pass; the packet is not activated or executed. Its [provenance](benchmarks/p-map-abort-signal/prepared/provenance.json) records the preserved source artifacts and new task identity.
+
+This updates the existing benchmark; it does not create a separate benchmark. Future results must record the updated task and packet identities because workers now see the previously external regression. Archived task versions, packets, candidates and frozen `p-map-acceptance-v2.mjs` remain unchanged; that external checker still determines benchmark acceptance. Offline synthetic failure/pass controls verify the new command and validation wiring. No planning/model call, candidate fix, live run, repetition, baseline suite, or new cost/time/quality measurement accompanies this setup.
+
 ## p-map Kimi/DeepSeek validated canaries — 2026-09-28
 
 Two separately authorized singleton canaries exercised the updated promised-source-value worker gate from clean p-map baseline commit/tree `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`. Both used Kimi K3 medium planning/control, disabled async Tier 2, DeepSeek V4.1 Flash medium realtime fallback, concurrency four, and the unchanged 1,374-byte profile `2b0248d9a4f65fa271ad05eeb15ca67ed0ec158bfe36450e9a96ab39a072bb8a`. Each was freshly planned because routing and task authority are packet-frozen; no baseline suite or profile rebuild was repeated.

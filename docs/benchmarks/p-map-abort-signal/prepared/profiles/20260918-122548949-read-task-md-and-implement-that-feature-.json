@@ -1,0 +1,51 @@
+{
+  "schema": "fanout.project-execution-profile",
+  "version": 1,
+  "profileId": "20260918-122548949-read-task-md-and-implement-that-feature-",
+  "createdAt": "2026-09-18T12:26:22.905Z",
+  "preparation": [
+    {
+      "command": {
+        "executable": "npm",
+        "args": [
+          "ci",
+          "--ignore-scripts"
+        ]
+      },
+      "purpose": "Install the exact locked development dependency graph in the isolated worktree without running dependency lifecycle scripts.",
+      "expectedMutations": "ignored-only",
+      "networkAccess": true,
+      "lifecycleScripts": false
+    }
+  ],
+  "readiness": [
+    {
+      "command": {
+        "executable": "npm",
+        "args": [
+          "ls",
+          "--depth=0"
+        ]
+      },
+      "purpose": "Confirm the worktree has a complete, valid top-level dependency installation before work or validation.",
+      "expectedMutations": "none",
+      "networkAccess": false,
+      "lifecycleScripts": false
+    }
+  ],
+  "candidateNormalization": [],
+  "requiredFinalGates": [
+    {
+      "command": {
+        "executable": "npm",
+        "args": [
+          "test"
+        ]
+      },
+      "purpose": "Run the repository-wide XO lint, AVA runtime tests, and tsd type assertions defined by the project.",
+      "expectedMutations": "none",
+      "networkAccess": false,
+      "lifecycleScripts": true
+    }
+  ]
+}

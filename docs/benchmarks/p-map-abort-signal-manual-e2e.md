@@ -1,6 +1,8 @@
 # p-map AbortSignal manual Fanout E2E
 
-This is the historical task definition and operator procedure. The detailed 2026-07-14 through 2026-07-29 canary outcomes, qualifications, source identities and metrics are in the [canary tracker](p-map-abort-signal-canary-tracker.md). Its latest prompt canary completed, but the user paused repetitions before they began; the stable-runtime release gate remains open.
+This is the current task definition and operator procedure for the existing p-map AbortSignal benchmark. Historical canary outcomes, qualifications, source identities and metrics remain in the [canary tracker](p-map-abort-signal-canary-tracker.md).
+
+The 2026-09-27 [validation update](p-map-abort-signal/README.md) makes the promised-source-value abort regression visible in the runtime worker's frozen validation contract. Use the updated task and packet for future runs; retain historical inputs and result identities. No new run was performed for this update.
 
 ## Objective
 
@@ -13,7 +15,7 @@ Do not automate the benchmark, create routing variations, or modify benchmark fi
 | Item | Value |
 | --- | --- |
 | Task | Add `AbortSignal` support to `pMapIterable` |
-| Task brief | `<p-map-benchmark>/TASK.md` |
+| Task brief | `<p-map-benchmark>/TASK.md`, matching the [current task](p-map-abort-signal/TASK.md), with adjacent [validation-command.json](p-map-abort-signal/validation-command.json) |
 | Nested repository | `<p-map-benchmark>/repo` |
 | Upstream SHA | `3ada5f36632aca8df860c376856270b6d2ba2de8` |
 | Reproducible local baseline | `c3c261e2189f94d1a09724e8f03d5345af518017` |
@@ -104,23 +106,18 @@ At the exact clean baseline, reuse the existing approved Project Execution Profi
 Plan against the selected profile:
 
 ```text
-/fanout-plan Read ../TASK.md and implement that feature request exactly.
+/fanout-plan Read ../TASK.md and its adjacent validation-command.json; implement the task exactly, preserving its frozen runtime-worker validation requirement.
 ```
 
-The profile uses isolated direct-argv preparation/readiness with explicit purpose, mutation, network, and lifecycle disclosures, declares direct-argv offline XO candidate normalization, and includes the repository-wide required final gate. It must not share or link `node_modules`. Repetitions reuse the exact validated profile and packet bytes.
+The approved profile uses isolated direct-argv preparation/readiness with explicit purpose, mutation, network, and lifecycle disclosures, has no candidate normalization, and includes the repository-wide required `npm test` gate. Reuse its exact 1,374 bytes (SHA-256 `2b0248d9a4f65fa271ad05eeb15ca67ed0ec158bfe36450e9a96ab39a072bb8a`); the new task check belongs in the packet. It must not share or link `node_modules`. Repetitions reuse the exact validated profile and packet bytes.
 
 Expected flow:
 
-1. Phase A reads `../TASK.md`, explores p-map, and writes an implementation plan with the resolved objective.
-2. Phase B binds the exact accepted plan identity and grounds task-specific files, anchors, edit intent, and validation commands; it does not own profile commands.
-3. The deterministic compiler emits plan v3, details v5, and profile-bound packet v7 with embedded work-contract v3 nodes and any eligible vertical fusion.
-4. Planning writes immutable artifacts under Pi-owned storage, derives human views from packet v7, and publishes pointer v2 last without modifying p-map.
+1. The combined planning context reads `../TASK.md` and `../validation-command.json`, explores p-map, and submits the plan and grounded details together.
+2. The deterministic compiler emits the profile-bound packet with immutable worker contracts.
+3. Planning writes immutable artifacts under Pi-owned storage and publishes the active pointer last without modifying p-map.
 
-The task brief is a realistic issue-style feature request. It states that the
-runtime implementation and behavioral regression tests must pass together,
-without prescribing nodes, ownership, fusion, or repair boundaries. A
-clarification question is acceptable only if repository evidence exposes a real
-unresolved choice.
+The task requires the runtime implementation and behavioral tests to share repair authority. The supplied regression command must be first in that worker's validation contract, followed by its scoped runtime checks. A clarification question is appropriate only when repository evidence exposes a real unresolved choice.
 
 ## 5. Review gate
 
@@ -137,7 +134,7 @@ Expected ownership and validation:
 
 | Node | Owns | Depends on | Validation |
 | --- | --- | --- | --- |
-| `runtime-and-behavioral-tests` | `index.js`, `test.js` | none | `npx xo index.js test.js && npx ava test.js` |
+| `runtime-and-behavioral-tests` | `index.js`, `test.js` | none | Exact `validation-command.json` first, then scoped XO and AVA checks |
 | `types-abort` | `index.d.ts`, `index.test-d.ts` | none | `npx tsd` |
 | `docs-abort` | `readme.md` | none | `git diff --check` |
 | final validation | none | all workers | `npm test` |
@@ -147,6 +144,14 @@ share one independently acceptable and repairable boundary. Prefer one Phase A
 item; compiler fusion is acceptable only when the immutable packet proves the
 same union. Split items may declare shared reads only when they genuinely need
 that context; reads must never be padded merely to force fusion.
+
+Verify the frozen regression gate before accepting the packet:
+
+```sh
+node <fanout-source>/scripts/benchmarks/verify-p-map-abort-signal-packet.mjs <execution-packet.json>
+```
+
+Fanout already enforces changed-path ownership; do not add redundant Git status/path parsers. Keep the independent external acceptance checker unchanged.
 
 The active profile, not details or the packet, declares candidate
 normalization. Packet final commands execute before profile-required final

@@ -1,0 +1,236 @@
+{
+  "schema": "fanout.implementation-plan",
+  "version": 4,
+  "planId": "p-map-abort-signal-2026-09-27",
+  "createdAt": "2026-09-27T00:00:00.000Z",
+  "planningHost": {
+    "platform": "darwin"
+  },
+  "planningBase": {
+    "headCommit": "c3c261e2189f94d1a09724e8f03d5345af518017",
+    "tree": "8a2aeffb7e9e378c05dcb0cec8503b1fb530143f"
+  },
+  "profile": {
+    "path": "profiles/20260918-122548949-read-task-md-and-implement-that-feature-.json",
+    "sha256": "2b0248d9a4f65fa271ad05eeb15ca67ed0ec158bfe36450e9a96ab39a072bb8a",
+    "byteLength": 1374
+  },
+  "objective": "Implement the 2026-09-27 revision of p-map-abort-signal/TASK.md: add AbortSignal support to pMapIterable including the promised-source-value-abort regression, within the original five-file authority.",
+  "userContext": [
+    "Only index.js, index.d.ts, index.test-d.ts, test.js, and readme.md may change; no file outside that set may be modified.",
+    "Do not add or update dependencies or configuration; do not run npm audit fix despite pre-existing advisory findings.",
+    "Do not change the existing pMap abort contract.",
+    "First next() on an already-aborted signal must reject with the exact signal.reason before pulling from the source or starting a mapper.",
+    "Mid-iteration abort must promptly reject the pending consumer operation with the exact signal.reason, stop pulling new source items, stop starting mappers, and suppress all mapper results yielded after the abort.",
+    "Already-running mapper calls may settle in the background after abort.",
+    "Best-effort close the source iterator through return() when it exists; remove the abort listener on normal completion, source failure, mapper failure, abort, or early consumer exit.",
+    "New tests must be deterministic (deferred promises and counters); timing-sensitive sleeps are prohibited in new tests.",
+    "Add a tsd assertion that pMapIterable accepts signal and retains its inferred output type.",
+    "The runtime implementation and its behavioral regression tests must pass together; neither is an acceptable partial result without the other.",
+    "Update existing signal documentation so its applicability and pMapIterable abort behavior are clear.",
+    "Acceptance: npm test (xo && ava && tsd) passes from the integrated worktree.",
+    "2026-09-27 benchmark revision: cancellation while awaiting a promised source value rejects the pending consumer with the exact reason before the value resolves; resolving it afterward starts zero mappers, pulls no new source items, yields no value, and closes the source once. Include deterministic AVA coverage and the supplied frozen check as the first runtime validation command.",
+    "This is an offline-derived revision of the existing p-map abort-signal benchmark; historical evidence remains unchanged. Fanout enforces changed-path ownership."
+  ],
+  "discoveredRepoFacts": [
+    "package.json: type module, engines node >=18, scripts.test is exactly `xo && ava && tsd`, no runtime dependencies; AVA, XO, tsd are devDependencies.",
+    "index.js: pMap already implements the abort option via a signalListener that rejects with signal.reason plus a cleanup() that removes the listener (lines near the Options.signal destructuring).",
+    "index.js: pMapIterable currently destructures only {concurrency, backpressure}; its async generator creates the source iterator and drives spawn/collect via trySpawn(), promises[0] await, and a while loop.",
+    "index.d.ts: BaseOptions has concurrency only; Options adds stopOnError and a documented `readonly signal?: AbortSignal | undefined`; IterableOptions adds only backpressure and has no signal.",
+    "index.test-d.ts: existing pMapIterable assertions cover inference (AsyncIterable<string>) but pass no options argument.",
+    "readme.md: the `##### signal` section is marked `**Only for `pMap`**` with a pMap/AbortController example; stopOnError section is also marked pMap-only, so `**Only for `pMap`**` is not a unique anchor.",
+    "test.js: pMapIterable suite covers ordering, out-of-order settling, empty, source/mapper errors, stop-on-error, concurrency 1 and 2, backpressure, and pMapSkip; tests use delay/timeSpan timing and a collectAsyncIterable helper; pMap abort tests are wrapped in `if (globalThis.AbortController !== undefined)`.",
+    "test-multiple-pmapskips-performance.js matches AVA's default test file selection but is outside the permitted edit set.",
+    "xo lints index.js, index.d.ts, index.test-d.ts, and test.js as part of the baseline `npm test`; the repo has no markdown checker.",
+    "Baseline validation: `npm ci --ignore-scripts` then `npm test` passed with 51 tests on Node v26.4.0."
+  ],
+  "assumptions": [
+    "Node >=18 guarantees global AbortController/AbortSignal; the existing `globalThis.AbortController !== undefined` guard pattern may be reused for new abort tests but is not required.",
+    "The task text from ../TASK.md (outside the repo root) is fully captured in this plan's userContext and does not need to be read by workers.",
+    "The exact doc wording for the readme signal section is the worker's editorial choice as long as applicability and the documented abort semantics are accurate."
+  ],
+  "implementationItems": [
+    {
+      "id": "impl-pmapiterable-abort",
+      "goals": [
+        "Implement the optional `signal` option in pMapIterable satisfying all eight required behaviors in TASK.md (pre-aborted rejection, prompt mid-iteration rejection with exact reason, stopped pulls/mappers, suppressed post-abort yields, best-effort iterator return(), listener cleanup on all exits, unchanged no-signal behavior), without touching pMap.",
+        "Add deterministic AVA regression tests (deferred promises and counters, no timing sleeps) covering: already-aborted signal, mid-iteration abort with the original reason object, no additional source pulls or mapper starts after abort, no values yielded after abort, source iterator cleanup, and unchanged normal concurrency/backpressure behavior with a supplied non-aborted signal.",
+        "2026-09-27 benchmark revision: cancellation while awaiting a promised source value rejects the pending consumer with the exact reason before the value resolves; resolving it afterward starts zero mappers, pulls no new source items, yields no value, and closes the source once. Include deterministic AVA coverage and the supplied frozen check as the first runtime validation command."
+      ],
+      "writeResources": [
+        {
+          "kind": "file",
+          "path": "index.js"
+        },
+        {
+          "kind": "file",
+          "path": "test.js"
+        }
+      ],
+      "readResources": [
+        {
+          "kind": "file",
+          "path": "index.js"
+        },
+        {
+          "kind": "file",
+          "path": "test.js"
+        },
+        {
+          "kind": "file",
+          "path": "package.json"
+        }
+      ],
+      "forbiddenWrites": [
+        {
+          "resource": {
+            "kind": "file",
+            "path": "package.json"
+          },
+          "reason": "Task constraint: no dependency or configuration changes."
+        },
+        {
+          "resource": {
+            "kind": "file",
+            "path": "package-lock.json"
+          },
+          "reason": "Task constraint: locked dependency graph must remain byte-identical; no npm audit fix."
+        },
+        {
+          "resource": {
+            "kind": "file",
+            "path": ".npmrc"
+          },
+          "reason": "Task constraint: configuration files must not change."
+        },
+        {
+          "resource": {
+            "kind": "directory",
+            "path": "node_modules"
+          },
+          "reason": "Dependencies are installed once by the profile; no dependency mutations allowed."
+        },
+        {
+          "resource": {
+            "kind": "file",
+            "path": "assert-in-range.js"
+          },
+          "reason": "Outside the five files permitted to change."
+        },
+        {
+          "resource": {
+            "kind": "file",
+            "path": "test-multiple-pmapskips-performance.js"
+          },
+          "reason": "Outside the five files permitted to change."
+        },
+        {
+          "resource": {
+            "kind": "file",
+            "path": "license"
+          },
+          "reason": "Outside the five files permitted to change."
+        },
+        {
+          "resource": {
+            "kind": "directory",
+            "path": ".github"
+          },
+          "reason": "Outside the five files permitted to change."
+        }
+      ],
+      "semanticReviewCriteria": [
+        "pMapIterable accepts an optional `signal` alongside concurrency/backpressure; when already aborted, the first consumer next() rejects with the exact signal.reason before any source iterator.next() or mapper invocation.",
+        "On mid-iteration abort the pending consumer next() rejects promptly with the identical reason object, no further source next() calls are issued, no new mapper calls start, and no mapper result is yielded after the abort is observed even if running mappers settle later.",
+        "The source iterator's return() is called best-effort on abort when the method exists (errors swallowed), and the abort listener is removed on normal completion, source failure, mapper failure, abort, and early consumer exit (generator return/throw).",
+        "The no-signal code path is behaviorally identical to baseline: ordering, concurrency capping, backpressure capping, pMapSkip handling, and error propagation are unchanged.",
+        "The exported pMap function and its existing abort contract are untouched, and no new module-level dependencies or imports are added.",
+        "Every new AVA test is deterministic: deferred promises and counters only, no wall-clock sleeps or timing ranges; the six required scenarios are all covered including abort-with-never-fired completion.",
+        "2026-09-27 benchmark revision: cancellation while awaiting a promised source value rejects the pending consumer with the exact reason before the value resolves; resolving it afterward starts zero mappers, pulls no new source items, yields no value, and closes the source once. Include deterministic AVA coverage and the supplied frozen check as the first runtime validation command."
+      ],
+      "advisoryNotes": [
+        {
+          "kind": "rationale",
+          "reference": "index.js+test.js coupling",
+          "text": "TASK.md states the runtime implementation and its behavioral regression tests must pass together and neither is an acceptable partial result, so they share one repair authority: a failing behavioral test may require repairing index.js."
+        },
+        {
+          "kind": "constraint",
+          "reference": "pMap contract",
+          "text": "Do not modify pMap or any code path it shares; implement abort state inside pMapIterable's generator only. The existing pMap signal listener pattern is precedent to mirror, not to refactor."
+        },
+        {
+          "kind": "risk",
+          "reference": "abort during in-flight source next()",
+          "text": "An abort may fire while a spawned promise awaits iterator.next() or while the consumer loop awaits promises[0]; the consumer-facing rejection must not depend on long-running mappers or a hung source, e.g. race the consumer await against an abort-aware rejection. Implementation shape is the worker's choice within the stated semantics."
+        },
+        {
+          "kind": "validation-intent",
+          "reference": "deterministic tests",
+          "text": "Use hand-rolled deferred promises and invocation counters for the new tests; the `delay`/`timeSpan` usages already present in test.js are legacy baseline and must remain, but no new sleep may be introduced."
+        }
+      ]
+    },
+    {
+      "id": "types-docs-pmapiterable-abort",
+      "goals": [
+        "Expose `signal?: AbortSignal | undefined` on IterableOptions in index.d.ts with documentation of the pMapIterable abort behavior, without altering the pMap Options contract.",
+        "Add a tsd assertion in index.test-d.ts that pMapIterable accepts a `signal` option and retains its inferred AsyncIterable element type.",
+        "Update the readme.md signal section so its applicability covers both pMap and pMapIterable and clearly documents the pMapIterable abort behavior."
+      ],
+      "writeResources": [
+        {
+          "kind": "file",
+          "path": "index.d.ts"
+        },
+        {
+          "kind": "file",
+          "path": "index.test-d.ts"
+        },
+        {
+          "kind": "file",
+          "path": "readme.md"
+        }
+      ],
+      "readResources": [
+        {
+          "kind": "file",
+          "path": "index.d.ts"
+        },
+        {
+          "kind": "file",
+          "path": "index.test-d.ts"
+        },
+        {
+          "kind": "file",
+          "path": "readme.md"
+        }
+      ],
+      "forbiddenWrites": [],
+      "semanticReviewCriteria": [
+        "IterableOptions declares `readonly signal?: AbortSignal | undefined;` with a doc comment consistent in style with the existing Options.signal doc, stating applicability to pMapIterable.",
+        "The new tsd assertion uses expectType (not expectAssignable) to prove the inferred output remains `AsyncIterable<...>` (e.g. AsyncIterable<string>) when an options object containing signal is passed.",
+        "The readme signal section no longer claims applicability only to pMap; it documents for pMapIterable: rejection with the exact signal reason, stopped source pulls and mapper starts, suppressed post-abort yields, and best-effort source iterator cleanup via return().",
+        "pMap-facing type surface and documentation remain accurate and unchanged in meaning; no dependency or configuration file is touched.",
+        "Any added code example is valid ESM consistent with existing readme examples and requires no new dependency."
+      ],
+      "advisoryNotes": [
+        {
+          "kind": "rationale",
+          "reference": "d.ts+tsd+readme grouping",
+          "text": "The d.ts property and its tsd assertion are repair-coupled; readme is grouped here because npm test (xo && ava && tsd) provides no markdown checker, so a docs-only node would have no repairable scoped check while this node validates via tsd and focused xo."
+        },
+        {
+          "kind": "constraint",
+          "reference": "doc wording scope",
+          "text": "Document exactly the frozen semantics from the task (reason identity, stopped iteration, suppressed yields, best-effort return(), listener cleanup) without inventing additional guarantees; exact prose is the worker's editorial choice."
+        },
+        {
+          "kind": "context",
+          "reference": "readme anchors",
+          "text": "The string `**Only for `pMap`**` appears in both the stopOnError and signal sections of readme.md; anchor the signal-section edit on `##### signal` and its example lines instead."
+        }
+      ]
+    }
+  ]
+}
