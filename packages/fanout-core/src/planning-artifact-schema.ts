@@ -195,12 +195,21 @@ export const ImplementationDetailsSubmissionParametersSchema = Type.Object({ art
 export const CombinedPlanningBodySchema = Type.Object({ plan: ImplementationPlanBodySchema, details: ImplementationDetailsBodySchema }, closed);
 export const CombinedPlanningSubmissionParametersSchema = Type.Object({ artifact: CombinedPlanningBodySchema }, closed);
 export const PlanningRepairBodySchema = Type.Object({
-	revision: Type.Integer({ minimum: 1 }),
-	replacePlanItems: Type.Array(implementationPlanItem),
-	replaceDetailItems: Type.Array(detailsItemBody),
-	finalValidationCommands: Type.Optional(Type.Array(DirectArgvCommandSchema)),
-}, closed);
+	revision: Type.Integer({ minimum: 1, description: "Current retained base revision; submit it unchanged rather than incrementing it." }),
+	replacePlanItems: Type.Array(implementationPlanItem, { description: "Complete replacement plan records keyed by existing IDs; use [] when none change." }),
+	replaceDetailItems: Type.Array(detailsItemBody, { description: "Complete replacement detail records keyed by existing IDs; use [] when none change." }),
+	finalValidationCommands: Type.Optional(Type.Array(DirectArgvCommandSchema, { description: "Optional whole-array replacement for final validation commands." })),
+}, { ...closed, description: "A correction object containing only whole-record replacements for the retained draft." });
 export const PlanningRepairSubmissionParametersSchema = Type.Object({ artifact: PlanningRepairBodySchema }, closed);
+export function planningRepairSubmissionParameters(revision: number) {
+	return Type.Object({
+		artifact: Type.Object({
+			...PlanningRepairBodySchema.properties,
+			// Equal bounds include the expected value in SDK errors; a literal only reports "equal to constant".
+			revision: Type.Integer({ minimum: revision, maximum: revision, description: `Submit the current retained base revision ${revision}; do not increment it.` }),
+		}, { ...closed, description: `Correct retained draft revision ${revision} with whole-record replacements only.` }),
+	}, closed);
+}
 export type CombinedPlanningBody = Static<typeof CombinedPlanningBodySchema>;
 export type PlanningRepairBody = Static<typeof PlanningRepairBodySchema>;
 

@@ -112,7 +112,7 @@ export async function testPlanningRepair(root, extension) {
   approve(true);
   await settling;
   assert(refreshing.messages.length === 1 && !existsSync(refreshing.activePointerPath), "stale profile approval restarted planning");
-  for (const scenario of ["success", "schema-budget", "plan-budget", "second-repair", "malformed-initial", "length-initial", "cancel-repair", "compact-repair", "encoded-repair", "malformed-json-initial", "malformed-json-budget"]) await testSdkRepair(root, extension, scenario);
+  for (const scenario of ["success", "schema-budget", "plan-budget", "second-repair", "stale-revision-recovery", "malformed-initial", "length-initial", "cancel-repair", "compact-repair", "encoded-repair", "malformed-json-initial", "malformed-json-budget"]) await testSdkRepair(root, extension, scenario);
 }
 
 async function testSdkRepair(root, extension, scenario) {
@@ -142,6 +142,12 @@ async function testSdkRepair(root, extension, scenario) {
     const initialSchema = calls === 1 || ["malformed-initial", "malformed-json-initial", "length-initial"].includes(scenario);
     assert(!existsSync(runtime.activePointerPath), `${scenario}: published before acceptance`);
     assert(initialSchema ? schema.plan && !schema.revision : schema.revision && !schema.plan, `${scenario}: incorrect dynamic schema on request ${calls}`);
+    if (!initialSchema) {
+      const expectedRevision = calls === 3 && ["plan-budget", "second-repair"].includes(scenario) ? 2 : 1;
+      assert(schema.revision.minimum === expectedRevision && schema.revision.maximum === expectedRevision, `${scenario}: repair schema did not require retained revision ${expectedRevision}`);
+      assert(schema.revision.description.includes("current retained base revision") && schema.revision.description.includes("do not increment"), `${scenario}: repair revision guidance is ambiguous`);
+      assert(schema.replacePlanItems.description.includes("Complete replacement") && schema.replaceDetailItems.description.includes("Complete replacement"), `${scenario}: repair replacement shape is ambiguous`);
+    }
     const stream = createAssistantMessageEventStream();
     if (scenario === "cancel-repair" && calls === 2) {
       options.signal.addEventListener("abort", () => stream.push({ type: "error", reason: "aborted", error: { role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id, usage: usage(), stopReason: "aborted", timestamp: Date.now() } }), { once: true });
@@ -162,6 +168,7 @@ async function testSdkRepair(root, extension, scenario) {
         if (calls === 2) artifact.replaceDetailItems[0].changes[0].target.resource.path = "still-unowned.md";
         else artifact.revision = 2;
       }
+      if (scenario === "stale-revision-recovery" && calls === 2) artifact.revision = 2;
     }
     if (scenario === "encoded-repair") artifact = JSON.stringify(artifact);
     if (scenario === "malformed-json-budget" && calls > 1) artifact = JSON.stringify(artifact).slice(0, -1);
@@ -182,12 +189,17 @@ async function testSdkRepair(root, extension, scenario) {
     const success = !["schema-budget", "plan-budget", "length-initial", "cancel-repair", "malformed-json-budget"].includes(scenario);
     assert(existsSync(runtime.activePointerPath) === success, `${scenario}: incorrect publication`);
     assert(session.getActiveToolNames().includes("bash"), `${scenario}: tools not restored`);
-    const expectedCalls = { success: 1, "schema-budget": 3, "plan-budget": 3, "second-repair": 3, "malformed-initial": 2, "length-initial": 2, "cancel-repair": 2, "compact-repair": 3, "encoded-repair": 2, "malformed-json-initial": 2, "malformed-json-budget": 3 }[scenario];
+    const expectedCalls = { success: 1, "schema-budget": 3, "plan-budget": 3, "second-repair": 3, "stale-revision-recovery": 3, "malformed-initial": 2, "length-initial": 2, "cancel-repair": 2, "compact-repair": 3, "encoded-repair": 2, "malformed-json-initial": 2, "malformed-json-budget": 3 }[scenario];
     assert(calls === expectedCalls, `${scenario}: expected ${expectedCalls} requests, got ${calls}: ${JSON.stringify(events)}`);
     if (scenario === "schema-budget") {
       assert(executeCalls === 1, "SDK schema-rejected repairs reached the tool-call execution hook");
       const failures = session.agent.state.messages.filter((message) => message.role === "toolResult" && message.isError);
       assert(failures.length === 3 && JSON.stringify(failures).includes("Validation failed"), "schema budget did not exercise SDK validation");
+    }
+    if (scenario === "stale-revision-recovery") {
+      assert(executeCalls === 2, "stale repair revision reached the tool-call execution hook");
+      const failures = session.agent.state.messages.filter((message) => message.role === "toolResult" && message.isError);
+      assert(failures.some((message) => JSON.stringify(message).includes("artifact.revision: must be <= 1")), "stale revision feedback omitted the exact retained revision");
     }
     if (scenario.startsWith("malformed-json")) {
       assert(executeCalls === 1, "malformed JSON reached the execution hook");

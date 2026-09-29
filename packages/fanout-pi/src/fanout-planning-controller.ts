@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { convertToLlm, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { artifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
-import { PlanningRepairSubmissionParametersSchema } from "../../fanout-core/src/planning-artifact-schema.ts";
+import { planningRepairSubmissionParameters } from "../../fanout-core/src/planning-artifact-schema.ts";
 import { writeJsonl } from "../../fanout-core/src/observability.ts";
 import { invalidateActiveSelection } from "./artifact-store.ts";
 import {
@@ -301,7 +301,7 @@ export class FanoutPlanningController {
 			name: FANOUT_SUBMIT_TOOL,
 			label: "Submit Fanout planning artifact",
 			description: "Validate and atomically submit the artifact expected by the active Fanout planning phase. The controller selects the run and destination.",
-			parameters: this.#draft ? PlanningRepairSubmissionParametersSchema : planningSubmissionParameters(phase),
+			parameters: this.#draft ? planningRepairSubmissionParameters(this.#draft.revision) : planningSubmissionParameters(phase),
 			prepareArguments: (args) => {
 				if (!isRecord(args) || typeof args.artifact !== "string") return args as { artifact: unknown };
 				try {
@@ -328,7 +328,7 @@ export class FanoutPlanningController {
 					if (!this.#draft) throw error;
 					this.#registerSubmissionTool(state.phase);
 					writeJsonl("fanout_planning_correction", { planRunId: state.runId, revision: this.#draft.revision, attempts: this.#repairAttempts, error: message(error) }, ctx.cwd);
-					throw new Error(`${message(error)}\nRetained draft revision ${this.#draft.revision}. ${Math.max(0, MAX_PLANNING_CORRECTIONS - this.#repairAttempts)} correction attempts remain. Submit only typed whole-record replacements by existing IDs using the updated tool schema. Header and inventory changes require restarting /fanout-plan.`);
+					throw new Error(`${message(error)}\nRetained draft revision ${this.#draft.revision}. Set artifact.revision to this current base revision; do not increment it. ${Math.max(0, MAX_PLANNING_CORRECTIONS - this.#repairAttempts)} correction attempts remain. Submit artifact as an object containing replacePlanItems and replaceDetailItems whole-record arrays by existing ID, plus optional finalValidationCommands. Header and inventory changes require restarting /fanout-plan.`);
 				}
 				this.#draft = undefined;
 				const acceptedSubmission = { runId: state.runId, phase: state.phase, path: submitted.path, identity: submitted.identity };
