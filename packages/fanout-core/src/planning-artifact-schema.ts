@@ -73,7 +73,7 @@ const implementationPlanItem = Type.Object({
 	goals: Type.Array(semanticText, { minItems: 1 }),
 	writeResources: Type.Array(RepositoryResourceSchema),
 	readResources: Type.Array(RepositoryResourceSchema),
-	forbiddenWrites: Type.Array(forbiddenPlan),
+	forbiddenWrites: Type.Array(forbiddenPlan, { description: "Packet-global write bans applying to every worker, never files owned by another worker. Write authority already establishes worker ownership. Use [] when no packet-global bans are needed; bans must not overlap any planned write." }),
 	semanticReviewCriteria: Type.Array(semanticText, { minItems: 1 }),
 	advisoryNotes: Type.Array(AdvisoryNoteBodySchema),
 }, closed);
