@@ -112,7 +112,7 @@ Decision: Keep parallel Fanout as the primary architecture. Publish repository s
 
 New raw Fanout traces, model sessions, prompts and tool-event streams remain local and ignored. Synthetic test inputs must be clearly fictional. The original evidence is preserved locally. Use MIT for original project code/documentation and retain third-party licenses/notices.
 
-This release needs no additional paid canary, interactive explorer, website, slide deck, routing system or executor redesign. It does not itself merge branches, change visibility, publish packages or rewrite history. Earlier next-experiment directions remain historical context, not the current preparation task. See [publication checks](PUBLICATION.md).
+This release needs no additional paid canary, interactive explorer, website, slide deck, routing system or executor redesign. It does not itself merge branches, change visibility, publish packages or rewrite history. Earlier next-experiment directions remain historical context, not the current preparation task. Publication checks cover credentials, personal paths, evidence labels and offline source setup.
 
 ## 2026-09-08
 

@@ -234,7 +234,7 @@ The snapshot retrieval date is 2026-09-20 and its canonical SHA-256 is `9407511c
 
 Read the [public study](STUDY.md) for the curated narrative and [summary data/static figures](study/README.md) for reproducible calculations. Parallel Fanout remains the primary architecture; whole-task submission is a request-depth experiment. Conditional winning mechanisms and modeled feasibility are distinct from repeated empirical task/model/provider coverage.
 
-This ledger preserves historical outcomes and accounting. Operational “next” instructions below describe their dated checkpoints and do not authorize new runs. Current work is public research-preview preparation: source setup, report and static figures, with no interactive explorer or paid canaries. New raw sessions, prompts, tool logs and event streams remain local. `runs/...` identifiers name private local archives, not files included in the release; public summaries cannot replay them. Historical recorded fixtures were removed from the current tree; see [publication checks](PUBLICATION.md).
+This ledger preserves historical outcomes and accounting. Operational “next” instructions below describe their dated checkpoints and do not authorize new runs. Current work is public research-preview preparation: source setup, report and static figures, with no interactive explorer or paid canaries. New raw sessions, prompts, tool logs and event streams remain local. `runs/...` identifiers name private local archives, not files included in the release; public summaries cannot replay them. Historical recorded fixtures were removed from the current tree; publication checks cover credentials, personal paths, evidence labels and offline source setup.
 
 ## Historical experiment ordering — Codex first
 
