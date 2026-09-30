@@ -1,12 +1,22 @@
 # When can parallel coding agents make slow inference useful?
 
-**Fanout research preview · updated 17 September 2026**
+**Fanout research preview · updated 30 September 2026**
 
 Fanout investigates whether parallel execution can make high-latency, low-cost inference competitive with ordinary realtime coding agents. The result is an experimental Pi harness that compiles plans into bounded work, integrates isolated candidates, and records the time and cost of validation and recovery. Its development also exposed reusable design lessons about task decomposition, model context, feedback and repository state.
 
 The study identifies a meaningful **modeled feasibility region**: enough independent work can amortize coordination and overlap latency, while inexpensive capable workers can reduce total cost. Experiments quantify the bottlenecks that constrain that region. Repeated success across concrete tasks, models and provider services remains incomplete. The parallel thesis is neither a universal speed guarantee nor disproven by a narrow task where coordination loses.
 
 This report presents the architecture, measured experiments and a declared sensitivity model. It publishes curated summaries rather than raw sessions or execution traces. [Summary data and figure reproduction](study/README.md) describe what can be independently reproduced.
+
+## Update — late September 2026
+
+Realtime Doubleword coding runs now include Fanout with Kimi K3 planning/control and DeepSeek V4.1 Flash workers. Two canaries on 28 September passed the updated worker gate and all six independent acceptance-v2 cases. One checked run cost **$0.318282** in **523.805s** active planning plus execution, versus raw Pi GPT-5.6 Sol at **$0.54771 / 274.137s**: **42% lower estimated cost**, but slower, with one run per setup anchoring this comparison. [Canary evidence](BENCHMARKS.md#p-map-kimideepseek-validated-canaries--2026-09-28).
+
+A provider serialization defect on Pi 0.86+ silently dropped the system prompt and tools, making two planning stops look like Kimi failures. It is fixed; provider 0.2.0 requires Pi 0.87 or newer. [Offline diagnosis of the Kimi planning stop](BENCHMARKS.md#offline-diagnosis-of-the-kimi-planning-stop--2026-09-24).
+
+Raw Pi Kimi K3 realtime controls passed **2/3** attempts: **691.5s / $0.85** and **684.6s / $0.99**, with one 20-minute timeout before final gates. This small set is not a reliability rate. [Control ledger](benchmarks/p-map-abort-signal-canary-tracker.md#2026-09-29-raw-pi-kimi-k3-control).
+
+The new offline trace-based model holds recorded work fixed and adds 60 seconds before each async worker request; planning stays realtime. Hypothetical continuation groups of 10 reduce modeled Fanout time from **27.7 to 10.7 minutes** at about **$0.31**. Combining continuations, depth 19→10 and half the output gives a modeled **4×-sized task in four parallel parts at 0.49× time and 0.13× cost** versus sequential raw Sol. These are conditional models, not measured async runs or correctness results; all dollar figures are token-price estimates. See the [case study model and caveats](case-studies/coding-agents-at-async-prices/MODEL.md).
 
 ## How the investigation became Fanout
 
@@ -47,7 +57,7 @@ The study's backbone is a four-workflow comparison, with task, acceptance and mo
 | Parallel Fanout | Realtime workers | Does parallelism repay planning, context and integration overhead? |
 | Parallel Fanout | Async workers, declared fast planning/repair | Can parallelism retain the cheap service's advantage at acceptable completion time? |
 
-Ordinary realtime Pi versus async Fanout changes both orchestration and service; model changes also change capability and pricing. A product comparison can still inform a user, but it does not isolate any one mechanism. The full matched four-workflow matrix has not been completed.
+Ordinary realtime Pi versus async Fanout changes both orchestration and service; model changes also change capability and pricing. A product comparison can still inform a user, but it does not isolate any one mechanism. Realtime Doubleword coding runs now exist, but async comparisons remain modeled; the full matched four-workflow matrix has not been completed.
 
 Model role and service tier are separate choices. Fanout can keep a strong realtime coordinator while assigning a different model to async execution or realtime worker fallback. A packet freezes those assignments, so a run's policy does not drift when settings change. This supports experiments with ordinary workers and fast repairs without requiring every realtime call to use the coordinator's model. [Role separation](DESIGN_DECISIONS.md#separate-the-tier-2-fallback-model-role-from-tier-1).
 
@@ -202,7 +212,7 @@ The accompanying cost illustration assumes $0.30 per serial work unit, candidate
 
 The model also gives a recovery budget to test: additional non-overlapping repair time must stay below `T_serial - T_fanout(R=0)` to preserve a time advantage. A non-positive difference leaves no such margin. Additional repair spend must fit the modeled cost difference, counting only spend beyond the already included $0.35 allowance. Larger tasks can amortize fixed coordination, but per-worker sequential latency and finite concurrency remain. These are conditional break-even limits, not predictions of a model's repair demand.
 
-Provider continuation grouping, cache reuse and priority scheduling are separate hypotheses. This release does not simulate arbitrary adjacent requests as guaranteed cache hits or continuation groups. Historical prices remain historical; a new provider comparison must declare its actual service, measured completion availability and price snapshot.
+Provider continuation grouping, cache reuse and priority scheduling remain hypotheses. The late-September [trace-based model](case-studies/coding-agents-at-async-prices/MODEL.md) explicitly varies continuation groups and cache assumptions; it does not establish guaranteed cache hits or an existing continuation service. Historical prices remain historical; a new provider comparison must declare its actual service, measured completion availability and price snapshot.
 
 ## Methodology and reproducibility
 
@@ -241,4 +251,4 @@ The remaining research questions concern **where the conditions hold**, rather t
 - How does actual async completion availability behave under concurrency and load?
 - Can continuation or caching policies improve responsiveness while preserving provider utilization and fairness?
 
-Public tasks may be present in model training data, the Pi fixtures share a repository, acceptance is bounded, and useful task width remains unquantified. Historical Doubleword realtime microbenchmarks and attempted workflows do not complete the matched async coding-workflow matrix. The next empirical work should target these uncertainties with fixed comparisons. This release adds no router, orchestration layer, provider guarantee or product adoption of the whole-task prototype.
+Public tasks may be present in model training data, the Pi fixtures share a repository, acceptance is bounded, and useful task width remains unquantified. Doubleword realtime microbenchmarks and completed coding runs now provide measured evidence; async remains modeled, and the matched async coding-workflow matrix is still incomplete. The next empirical work should target these uncertainties with fixed comparisons. This release adds no router, orchestration layer, provider guarantee or product adoption of the whole-task prototype.

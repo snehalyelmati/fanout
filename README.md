@@ -4,7 +4,15 @@
 
 Fanout pairs a capable coordinator with parallel coding workers. Built on Pi, a coding agent, it turns repository tasks into reviewable work plans, runs workers in isolated Git worktrees, and validates their changes before integration. Planning, execution and repair are recorded so you can investigate where time and money go.
 
-[Read the study](docs/STUDY.md) · [Run from source](docs/GETTING_STARTED.md) · [Explore the architecture](docs/ARCHITECTURE.md) · [Results and figures](docs/study/README.md)
+[Read the study](docs/STUDY.md) · [Async-price case study](docs/case-studies/coding-agents-at-async-prices/README.md) · [Run from source](docs/GETTING_STARTED.md) · [Explore the architecture](docs/ARCHITECTURE.md) · [Results and figures](docs/study/README.md)
+
+## Findings at a glance
+
+- **Measured −42% cost:** Fanout on Doubleword open-weight models (Kimi K3 plans, DeepSeek V4.1 Flash works) cost $0.32 versus raw Pi GPT-5.6 Sol at $0.55 on p-map, one independently checked run each.
+- **Modeled async wall time and fast continuations:** async workers take 27.7 min → 10.7 min with continuation groups of 10; the planner stays realtime.
+- **Modeled 4×-sized task in four parallel parts:** 0.49× time and 0.13× cost versus raw Sol, combining async continuations, shallower chains and half the output.
+
+Dollar figures are token-price estimates, not invoices. Continuations are hypothetical; modeled gains do not measure correctness or speedups. See the [case study](docs/case-studies/coding-agents-at-async-prices/README.md) and [study](docs/STUDY.md).
 
 ## Why Fanout?
 
@@ -78,6 +86,7 @@ Run Fanout from source. The Doubleword provider is also available as a [separate
 
 ## Explore further
 
+- [Async-price case study](docs/case-studies/coding-agents-at-async-prices/README.md): later Doubleword runs and the trace-based async model.
 - [Architecture](docs/ARCHITECTURE.md): package boundaries, work contracts and execution.
 - [Design history](docs/DESIGN_DECISIONS.md): problems, decisions and revisions.
 - [Runtime guide](docs/FANOUT_GUIDE.md): commands, validation and the local profiler.

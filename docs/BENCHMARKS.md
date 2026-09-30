@@ -1,5 +1,13 @@
 # Benchmark Metrics
 
+## Findings at a glance — 2026-09-30
+
+- **Measured:** one independently checked p-map run with Fanout Kimi K3 planning and DeepSeek V4.1 Flash realtime workers cost **$0.32**, versus **$0.55** for raw Pi GPT-5.6 Sol (**−42%**); active time was **523.8s versus 274.1s**, not a speedup.
+- **Modeled:** with realtime planning, async workers take **27.7 min**, falling to **10.7 min** with hypothetical continuation groups of 10 at about **$0.31**.
+- **Modeled:** combining continuations, shallower chains and half the output on a **4×-sized task in four parallel parts** gives **0.49× time / 0.13× cost** versus sequential raw Sol.
+
+Dollar figures are token-price estimates, not invoices. These selected anchors do not establish reliability or measured async gains. See the [case study](case-studies/coding-agents-at-async-prices/README.md), [model and caveats](case-studies/coding-agents-at-async-prices/MODEL.md), and [updated study](STUDY.md).
+
 The chronological canary inventories are the [p-map run ledger](benchmarks/p-map-abort-signal-canary-tracker.md#run-ledger) and [Execa run ledger](benchmarks/execa-web-streams-manual-e2e.md#run-ledger). This index retains experiment summaries, methodology, recovery analysis and aggregate comparisons; individual execution records are maintained in those ledgers.
 
 ## Raw Pi p-map Kimi K3 controls — 2026-09-29
