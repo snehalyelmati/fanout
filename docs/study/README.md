@@ -1,10 +1,12 @@
 # Study figure data and regeneration
 
+The workflow data below covers the **2026-09-16 curated set**. See the [async-price case study](../case-studies/coding-agents-at-async-prices/README.md) for later Doubleword coding runs and the [trace-based async model](../case-studies/coding-agents-at-async-prices/MODEL.md); async results are modeled, not measured.
+
 `results.csv` is a **curated scalar summary**, not a trace or complete benchmark archive. It records selected p-map, qs, Pi764 and PR787 observations from [BENCHMARKS.md](../BENCHMARKS.md); `source_section` is the heading anchor for the public numerical source. Run identifiers are study-local labels. No prompt, session, tool event stream or local evidence path is exported.
 
 The report also presents historical evidence outside these 27 plotted observations. Its Execa table comes from the [fixed five-run cohort](../benchmarks/execa-web-streams-manual-e2e.md#2026-08-05-five-repetition-cohort), whose live execution durations and costs exclude planning. Provider calibration comes from the [realtime latency microbenchmarks](../BENCHMARKS.md#l1--realtime-doubleword-ttft-microbenchmark), which measure endpoint responses rather than coding-task completion. Both remain separate from the recent workflow chart; the [methodology](METHODOLOGY.md#boundaries-of-the-historical-evidence) records their measurement and acceptance limits. Early retrospective analysis and planning-only comparisons likewise remain explanatory evidence, not additional completed-run rows.
 
-`configuration` distinguishes ordinary Pi, iterative parallel Fanout, experimental batch parallel Fanout and the separate whole-task experiment. `routing_id` resolves to the exact role assignments below; every plotted run uses the OpenAI Codex realtime service at medium reasoning, with no Doubleword/async task run:
+`configuration` distinguishes ordinary Pi, iterative parallel Fanout, experimental batch parallel Fanout and the separate whole-task experiment. `routing_id` resolves to the exact role assignments below; every run in `results.csv` uses the OpenAI Codex realtime service at medium reasoning, with no Doubleword/async task run in that curated set:
 
 | Routing ID | Model roles |
 | --- | --- |
@@ -21,6 +23,24 @@ The report also presents historical evidence outside these 27 plotted observatio
 `figures/measured-comparison.svg` (and PNG) plots each selected run on task-specific time and cost axes. Shape and explicit text show outcome, while color identifies configuration. Its apparent fast failed points are deliberately retained with their failure labels. Historical acceptance and clock boundaries differ as described above; failed or interrupted points show resources consumed rather than time or cost to correct completion.
 
 ![Measured per-run durations and estimated costs, with workflow families and failed or interrupted outcomes distinguished.](figures/measured-comparison.png)
+
+## Late-September case-study figures
+
+These static exports use the [case study's sources and assumptions](../case-studies/coding-agents-at-async-prices/MODEL.md). Dollar values are token-price estimates, not invoices.
+
+### Async and continuation walk
+
+Solid bars are measured p-map runs; hatched bars are modeled. The dashed line is raw Pi Sol. Fanout keeps its planner realtime; continuations, shallower chains and half the output are hypothetical changes, with correctness held fixed rather than remeasured.
+
+![Measured and modeled p-map active time and estimated token cost, with modeled bars hatched and raw Pi Sol marked by a dashed line.](figures/async-walk.png)
+
+### Width sensitivity (modeled)
+
+All curves are modeled from `data.json`'s `width` rows: equal independent units, concurrency four, a fixed realtime planner and sequential raw Sol as the reference. Ratios below one beat that reference. The combined scenario adds continuations, depth 19→10 and half the output; task width and future correctness are not measured. Width curves omit the walk's fixed ~11s wrap-up.
+
+![Modeled time and cost ratios versus raw Pi Sol across independent work widths, on logarithmic axes with a reference line at one.](figures/width-sensitivity.png)
+
+After installing `requirements.txt` in a plotting environment, run `python3 docs/study/case_study_figures.py` from the repository root. It checks positive inputs and continuation arithmetic, then writes both figures as SVG and PNG under `figures/`.
 
 ## Modeled feasibility figure
 
