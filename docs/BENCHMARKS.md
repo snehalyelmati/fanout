@@ -2,6 +2,10 @@
 
 The chronological canary inventories are the [p-map run ledger](benchmarks/p-map-abort-signal-canary-tracker.md#run-ledger) and [Execa run ledger](benchmarks/execa-web-streams-manual-e2e.md#run-ledger). This index retains experiment summaries, methodology, recovery analysis and aggregate comparisons; individual execution records are maintained in those ledgers.
 
+## Raw Pi p-map Kimi K3 controls — 2026-09-29
+
+Three sequential ordinary Pi p-map runs used Doubleword Kimi K3 medium throughout, without Fanout. The first two passed the full suite, diff check and all six frozen acceptance-v2 cases in **691.486s / $0.8515143** and **684.565s / $0.9930861** active E2E / estimated cost. The third timed out at the 20-minute watchdog before final gates; its recorded **128,692 tokens / $0.521448** are lower bounds because the aborted request has unknown usage. All three reused the historical raw-v2 task/checker and skipped previously validated baseline tests. [Run identities, configuration and preserved evidence](benchmarks/p-map-abort-signal-canary-tracker.md#2026-09-29-raw-pi-kimi-k3-control).
+
 ## p-map AbortSignal benchmark validation update — 2026-09-27
 
 Updated the existing [p-map benchmark task](benchmarks/p-map-abort-signal/TASK.md) and frozen direct-argv command for the runtime/behavioral-test worker. The check waits until a source value is being awaited, aborts, requires prompt rejection with the exact reason, then resolves the value and requires zero mapper starts. It runs through the existing `fanout_validate` and authoritative node validation paths. The approved 1,374-byte profile (`2b0248d9a4f65fa271ad05eeb15ca67ed0ec158bfe36450e9a96ab39a072bb8a`) is reused unchanged; task-specific coverage belongs in the packet.
