@@ -1,0 +1,990 @@
+{
+ "about": "Curated inputs for the case-study deck. Times in seconds, costs in estimated USD (token-price estimates, not invoices). width and reliability are modeled; scatter points are measured active time (planning + execution).",
+ "width": [
+  {
+   "label": "Terra realtime",
+   "rows": [
+    {
+     "W": 1,
+     "time_ratio": 1.4422,
+     "cost_ratio": 0.7131
+    },
+    {
+     "W": 2,
+     "time_ratio": 0.7309,
+     "cost_ratio": 0.5327
+    },
+    {
+     "W": 4,
+     "time_ratio": 0.368,
+     "cost_ratio": 0.4424
+    },
+    {
+     "W": 8,
+     "time_ratio": 0.3354,
+     "cost_ratio": 0.3973
+    },
+    {
+     "W": 16,
+     "time_ratio": 0.319,
+     "cost_ratio": 0.3748
+    }
+   ]
+  },
+  {
+   "label": "DeepSeek realtime",
+   "rows": [
+    {
+     "W": 1,
+     "time_ratio": 1.8691,
+     "cost_ratio": 0.5749
+    },
+    {
+     "W": 2,
+     "time_ratio": 0.9473,
+     "cost_ratio": 0.3272
+    },
+    {
+     "W": 4,
+     "time_ratio": 0.4769,
+     "cost_ratio": 0.2034
+    },
+    {
+     "W": 8,
+     "time_ratio": 0.3693,
+     "cost_ratio": 0.1415
+    },
+    {
+     "W": 16,
+     "time_ratio": 0.3152,
+     "cost_ratio": 0.1105
+    }
+   ]
+  },
+  {
+   "label": "DS async every request",
+   "rows": [
+    {
+     "W": 1,
+     "time_ratio": 6.0276,
+     "cost_ratio": 0.5617
+    },
+    {
+     "W": 2,
+     "time_ratio": 3.055,
+     "cost_ratio": 0.314
+    },
+    {
+     "W": 4,
+     "time_ratio": 1.538,
+     "cost_ratio": 0.1902
+    },
+    {
+     "W": 8,
+     "time_ratio": 1.434,
+     "cost_ratio": 0.1282
+    },
+    {
+     "W": 16,
+     "time_ratio": 1.3818,
+     "cost_ratio": 0.0973
+    }
+   ]
+  },
+  {
+   "label": "DS async + N=10",
+   "rows": [
+    {
+     "W": 1,
+     "time_ratio": 2.3069,
+     "cost_ratio": 0.5617
+    },
+    {
+     "W": 2,
+     "time_ratio": 1.1692,
+     "cost_ratio": 0.314
+    },
+    {
+     "W": 4,
+     "time_ratio": 0.5886,
+     "cost_ratio": 0.1902
+    },
+    {
+     "W": 8,
+     "time_ratio": 0.4814,
+     "cost_ratio": 0.1282
+    },
+    {
+     "W": 16,
+     "time_ratio": 0.4275,
+     "cost_ratio": 0.0973
+    }
+   ]
+  },
+  {
+   "label": "DS async + N=10 + concise 2x",
+   "rows": [
+    {
+     "W": 1,
+     "time_ratio": 2.2776,
+     "cost_ratio": 0.5434
+    },
+    {
+     "W": 2,
+     "time_ratio": 1.1543,
+     "cost_ratio": 0.2958
+    },
+    {
+     "W": 4,
+     "time_ratio": 0.5811,
+     "cost_ratio": 0.1719
+    },
+    {
+     "W": 8,
+     "time_ratio": 0.4739,
+     "cost_ratio": 0.11
+    },
+    {
+     "W": 16,
+     "time_ratio": 0.4199,
+     "cost_ratio": 0.079
+    }
+   ]
+  },
+  {
+   "label": "Combined 6-month",
+   "rows": [
+    {
+     "W": 1,
+     "time_ratio": 1.8941,
+     "cost_ratio": 0.361
+    },
+    {
+     "W": 2,
+     "time_ratio": 0.96,
+     "cost_ratio": 0.2045
+    },
+    {
+     "W": 4,
+     "time_ratio": 0.4833,
+     "cost_ratio": 0.1263
+    },
+    {
+     "W": 8,
+     "time_ratio": 0.3967,
+     "cost_ratio": 0.0872
+    },
+    {
+     "W": 16,
+     "time_ratio": 0.3532,
+     "cost_ratio": 0.0676
+    }
+   ]
+  }
+ ],
+ "reliability_W4": [
+  {
+   "p": 0.0,
+   "time_ratio": 0.5886,
+   "cost_ratio": 0.1902
+  },
+  {
+   "p": 0.01,
+   "time_ratio": 0.6032,
+   "cost_ratio": 0.1908
+  },
+  {
+   "p": 0.02,
+   "time_ratio": 0.6174,
+   "cost_ratio": 0.1915
+  },
+  {
+   "p": 0.03,
+   "time_ratio": 0.6312,
+   "cost_ratio": 0.1922
+  },
+  {
+   "p": 0.04,
+   "time_ratio": 0.6445,
+   "cost_ratio": 0.1928
+  },
+  {
+   "p": 0.05,
+   "time_ratio": 0.6574,
+   "cost_ratio": 0.1935
+  },
+  {
+   "p": 0.06,
+   "time_ratio": 0.6699,
+   "cost_ratio": 0.1941
+  },
+  {
+   "p": 0.07,
+   "time_ratio": 0.682,
+   "cost_ratio": 0.1948
+  },
+  {
+   "p": 0.08,
+   "time_ratio": 0.6938,
+   "cost_ratio": 0.1955
+  },
+  {
+   "p": 0.09,
+   "time_ratio": 0.7051,
+   "cost_ratio": 0.1961
+  },
+  {
+   "p": 0.1,
+   "time_ratio": 0.7161,
+   "cost_ratio": 0.1968
+  },
+  {
+   "p": 0.11,
+   "time_ratio": 0.7268,
+   "cost_ratio": 0.1975
+  },
+  {
+   "p": 0.12,
+   "time_ratio": 0.7371,
+   "cost_ratio": 0.1981
+  },
+  {
+   "p": 0.13,
+   "time_ratio": 0.747,
+   "cost_ratio": 0.1988
+  },
+  {
+   "p": 0.14,
+   "time_ratio": 0.7566,
+   "cost_ratio": 0.1995
+  },
+  {
+   "p": 0.15,
+   "time_ratio": 0.7659,
+   "cost_ratio": 0.2001
+  },
+  {
+   "p": 0.16,
+   "time_ratio": 0.7748,
+   "cost_ratio": 0.2008
+  },
+  {
+   "p": 0.17,
+   "time_ratio": 0.7834,
+   "cost_ratio": 0.2014
+  },
+  {
+   "p": 0.18,
+   "time_ratio": 0.7918,
+   "cost_ratio": 0.2021
+  },
+  {
+   "p": 0.19,
+   "time_ratio": 0.7998,
+   "cost_ratio": 0.2028
+  },
+  {
+   "p": 0.2,
+   "time_ratio": 0.8075,
+   "cost_ratio": 0.2034
+  },
+  {
+   "p": 0.21,
+   "time_ratio": 0.815,
+   "cost_ratio": 0.2041
+  },
+  {
+   "p": 0.22,
+   "time_ratio": 0.8222,
+   "cost_ratio": 0.2048
+  },
+  {
+   "p": 0.23,
+   "time_ratio": 0.8291,
+   "cost_ratio": 0.2054
+  },
+  {
+   "p": 0.24,
+   "time_ratio": 0.8357,
+   "cost_ratio": 0.2061
+  },
+  {
+   "p": 0.25,
+   "time_ratio": 0.8421,
+   "cost_ratio": 0.2067
+  },
+  {
+   "p": 0.26,
+   "time_ratio": 0.8482,
+   "cost_ratio": 0.2074
+  },
+  {
+   "p": 0.27,
+   "time_ratio": 0.8541,
+   "cost_ratio": 0.2081
+  },
+  {
+   "p": 0.28,
+   "time_ratio": 0.8598,
+   "cost_ratio": 0.2087
+  },
+  {
+   "p": 0.29,
+   "time_ratio": 0.8652,
+   "cost_ratio": 0.2094
+  },
+  {
+   "p": 0.3,
+   "time_ratio": 0.8704,
+   "cost_ratio": 0.2101
+  },
+  {
+   "p": 0.31,
+   "time_ratio": 0.8754,
+   "cost_ratio": 0.2107
+  },
+  {
+   "p": 0.32,
+   "time_ratio": 0.8801,
+   "cost_ratio": 0.2114
+  },
+  {
+   "p": 0.33,
+   "time_ratio": 0.8847,
+   "cost_ratio": 0.2121
+  },
+  {
+   "p": 0.34,
+   "time_ratio": 0.8891,
+   "cost_ratio": 0.2127
+  },
+  {
+   "p": 0.35,
+   "time_ratio": 0.8932,
+   "cost_ratio": 0.2134
+  },
+  {
+   "p": 0.36,
+   "time_ratio": 0.8972,
+   "cost_ratio": 0.214
+  },
+  {
+   "p": 0.37,
+   "time_ratio": 0.901,
+   "cost_ratio": 0.2147
+  },
+  {
+   "p": 0.38,
+   "time_ratio": 0.9046,
+   "cost_ratio": 0.2154
+  },
+  {
+   "p": 0.39,
+   "time_ratio": 0.9081,
+   "cost_ratio": 0.216
+  },
+  {
+   "p": 0.4,
+   "time_ratio": 0.9114,
+   "cost_ratio": 0.2167
+  },
+  {
+   "p": 0.41,
+   "time_ratio": 0.9145,
+   "cost_ratio": 0.2174
+  },
+  {
+   "p": 0.42,
+   "time_ratio": 0.9175,
+   "cost_ratio": 0.218
+  },
+  {
+   "p": 0.43,
+   "time_ratio": 0.9203,
+   "cost_ratio": 0.2187
+  },
+  {
+   "p": 0.44,
+   "time_ratio": 0.9229,
+   "cost_ratio": 0.2193
+  },
+  {
+   "p": 0.45,
+   "time_ratio": 0.9255,
+   "cost_ratio": 0.22
+  },
+  {
+   "p": 0.46,
+   "time_ratio": 0.9279,
+   "cost_ratio": 0.2207
+  },
+  {
+   "p": 0.47,
+   "time_ratio": 0.9302,
+   "cost_ratio": 0.2213
+  },
+  {
+   "p": 0.48,
+   "time_ratio": 0.9323,
+   "cost_ratio": 0.222
+  },
+  {
+   "p": 0.49,
+   "time_ratio": 0.9343,
+   "cost_ratio": 0.2227
+  },
+  {
+   "p": 0.5,
+   "time_ratio": 0.9362,
+   "cost_ratio": 0.2233
+  }
+ ],
+ "scatter": [
+  {
+   "date": "2026-07-14",
+   "setup": "sol-terra",
+   "active_s": 395.7,
+   "cost_usd": 1.5626,
+   "completed": false
+  },
+  {
+   "date": "2026-07-14",
+   "setup": "sol-terra",
+   "active_s": 837.7,
+   "cost_usd": 2.9481,
+   "completed": false
+  },
+  {
+   "date": "2026-07-14",
+   "setup": "sol-terra",
+   "active_s": 934.8,
+   "cost_usd": 3.094,
+   "completed": false
+  },
+  {
+   "date": "2026-07-14",
+   "setup": "sol-terra",
+   "active_s": 443.8,
+   "cost_usd": 1.5476,
+   "completed": false
+  },
+  {
+   "date": "2026-07-14",
+   "setup": "sol-terra",
+   "active_s": 644.8,
+   "cost_usd": 1.8772,
+   "completed": true
+  },
+  {
+   "date": "2026-07-20",
+   "setup": "sol-terra",
+   "active_s": 466.7,
+   "cost_usd": 1.7428,
+   "completed": false
+  },
+  {
+   "date": "2026-07-27",
+   "setup": "sol-terra",
+   "active_s": 574.0,
+   "cost_usd": 1.5036,
+   "completed": true
+  },
+  {
+   "date": "2026-07-27",
+   "setup": "sol-terra",
+   "active_s": 596.0,
+   "cost_usd": 1.7073,
+   "completed": true
+  },
+  {
+   "date": "2026-07-27",
+   "setup": "sol-terra",
+   "active_s": 498.2,
+   "cost_usd": 1.411,
+   "completed": true
+  },
+  {
+   "date": "2026-07-27",
+   "setup": "sol-terra",
+   "active_s": 470.9,
+   "cost_usd": 1.4882,
+   "completed": true
+  },
+  {
+   "date": "2026-07-27",
+   "setup": "sol-terra",
+   "active_s": 477.1,
+   "cost_usd": 1.5446,
+   "completed": false
+  },
+  {
+   "date": "2026-07-28",
+   "setup": "sol-terra",
+   "active_s": 133.1,
+   "cost_usd": 0.7081,
+   "completed": false
+  },
+  {
+   "date": "2026-07-28",
+   "setup": "sol-terra",
+   "active_s": 523.6,
+   "cost_usd": 1.5474,
+   "completed": true
+  },
+  {
+   "date": "2026-07-28",
+   "setup": "sol-terra",
+   "active_s": 500.4,
+   "cost_usd": 1.7248,
+   "completed": false
+  },
+  {
+   "date": "2026-07-28",
+   "setup": "sol-terra",
+   "active_s": 553.3,
+   "cost_usd": 1.8016,
+   "completed": false
+  },
+  {
+   "date": "2026-07-29",
+   "setup": "sol-terra",
+   "active_s": 575.2,
+   "cost_usd": 1.3165,
+   "completed": true
+  },
+  {
+   "date": "2026-07-29",
+   "setup": "sol-terra",
+   "active_s": 701.6,
+   "cost_usd": 1.7905,
+   "completed": true
+  },
+  {
+   "date": "2026-07-29",
+   "setup": "sol-terra",
+   "active_s": 399.4,
+   "cost_usd": 1.7494,
+   "completed": true
+  },
+  {
+   "date": "2026-09-06",
+   "setup": "sol-terra",
+   "active_s": 459.8,
+   "cost_usd": 0.8119,
+   "completed": true
+  },
+  {
+   "date": "2026-09-06",
+   "setup": "sol-terra",
+   "active_s": 379.4,
+   "cost_usd": 0.5129,
+   "completed": true
+  },
+  {
+   "date": "2026-09-06",
+   "setup": "sol-terra",
+   "active_s": 356.8,
+   "cost_usd": 0.5307,
+   "completed": true
+  },
+  {
+   "date": "2026-09-07",
+   "setup": "sol-terra",
+   "active_s": 339.6,
+   "cost_usd": 0.5961,
+   "completed": true
+  },
+  {
+   "date": "2026-09-07",
+   "setup": "sol-terra",
+   "active_s": 409.6,
+   "cost_usd": 0.6721,
+   "completed": true
+  },
+  {
+   "date": "2026-09-07",
+   "setup": "sol-terra",
+   "active_s": 469.1,
+   "cost_usd": 0.7993,
+   "completed": true
+  },
+  {
+   "date": "2026-09-18",
+   "setup": "sol-terra",
+   "active_s": 318.8,
+   "cost_usd": 0.5818,
+   "completed": true
+  },
+  {
+   "date": "2026-09-18",
+   "setup": "glm-deepseek",
+   "active_s": 811.4,
+   "cost_usd": 0.2846,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "sol-terra",
+   "active_s": 347.1,
+   "cost_usd": 0.6557,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "sol-terra",
+   "active_s": 308.2,
+   "cost_usd": 0.5919,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "sol-terra",
+   "active_s": 311.1,
+   "cost_usd": 0.5267,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "sol-terra",
+   "active_s": 418.9,
+   "cost_usd": 0.5983,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "sol-terra",
+   "active_s": 403.1,
+   "cost_usd": 0.596,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "glm-deepseek",
+   "active_s": 1808.2,
+   "cost_usd": 1.4819,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "glm-deepseek",
+   "active_s": 938.1,
+   "cost_usd": 0.4674,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "glm-deepseek",
+   "active_s": 670.8,
+   "cost_usd": 0.3191,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "glm-deepseek",
+   "active_s": 560.0,
+   "cost_usd": 0.3277,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "glm-deepseek",
+   "active_s": 543.0,
+   "cost_usd": 0.4088,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "kimi-deepseek",
+   "active_s": 422.9,
+   "cost_usd": 0.1825,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "kimi-deepseek",
+   "active_s": 548.6,
+   "cost_usd": 0.9416,
+   "completed": false
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "kimi-deepseek",
+   "active_s": 294.0,
+   "cost_usd": 0.1862,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "kimi-deepseek",
+   "active_s": 449.5,
+   "cost_usd": 0.3063,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "kimi-deepseek",
+   "active_s": 587.4,
+   "cost_usd": 0.4531,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "kimi-deepseek",
+   "active_s": 644.7,
+   "cost_usd": 0.5381,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "kimi-deepseek",
+   "active_s": 292.7,
+   "cost_usd": 0.2147,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "kimi-deepseek",
+   "active_s": 221.0,
+   "cost_usd": 0.1525,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "kimi-deepseek",
+   "active_s": 317.2,
+   "cost_usd": 0.2474,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "kimi-deepseek",
+   "active_s": 274.6,
+   "cost_usd": 0.1837,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "kimi-deepseek",
+   "active_s": 390.5,
+   "cost_usd": 0.2855,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "kimi-deepseek",
+   "active_s": 335.2,
+   "cost_usd": 0.3043,
+   "completed": true
+  },
+  {
+   "date": "2026-09-19",
+   "setup": "kimi-deepseek",
+   "active_s": 800.9,
+   "cost_usd": 0.437,
+   "completed": true
+  },
+  {
+   "date": "2026-09-20",
+   "setup": "sol-terra",
+   "active_s": 468.8,
+   "cost_usd": 0.4974,
+   "completed": true
+  },
+  {
+   "date": "2026-09-20",
+   "setup": "sol-terra",
+   "active_s": 413.0,
+   "cost_usd": 0.3906,
+   "completed": true
+  },
+  {
+   "date": "2026-09-20",
+   "setup": "sol-terra",
+   "active_s": 424.3,
+   "cost_usd": 0.4252,
+   "completed": true
+  },
+  {
+   "date": "2026-09-20",
+   "setup": "sol-terra",
+   "active_s": 461.6,
+   "cost_usd": 0.4457,
+   "completed": true
+  },
+  {
+   "date": "2026-09-23",
+   "setup": "sol-terra",
+   "active_s": 404.7,
+   "cost_usd": 0.5404,
+   "completed": true
+  },
+  {
+   "date": "2026-09-23",
+   "setup": "sol-terra",
+   "active_s": 372.1,
+   "cost_usd": 0.4708,
+   "completed": true
+  },
+  {
+   "date": "2026-09-23",
+   "setup": "sol-terra",
+   "active_s": 329.3,
+   "cost_usd": 0.4292,
+   "completed": true
+  },
+  {
+   "date": "2026-09-23",
+   "setup": "sol-terra",
+   "active_s": 361.6,
+   "cost_usd": 0.4657,
+   "completed": true
+  },
+  {
+   "date": "2026-09-23",
+   "setup": "sol-terra",
+   "active_s": 475.4,
+   "cost_usd": 0.5896,
+   "completed": true
+  },
+  {
+   "date": "2026-09-24",
+   "setup": "kimi-deepseek",
+   "active_s": 345.6,
+   "cost_usd": 0.2346,
+   "completed": true
+  },
+  {
+   "date": "2026-09-24",
+   "setup": "kimi-deepseek",
+   "active_s": 698.7,
+   "cost_usd": 0.5162,
+   "completed": true
+  },
+  {
+   "date": "2026-09-24",
+   "setup": "kimi-deepseek",
+   "active_s": 663.6,
+   "cost_usd": 0.5447,
+   "completed": true
+  },
+  {
+   "date": "2026-09-24",
+   "setup": "kimi-deepseek",
+   "active_s": 517.0,
+   "cost_usd": 0.4372,
+   "completed": true
+  },
+  {
+   "date": "2026-09-24",
+   "setup": "kimi-deepseek",
+   "active_s": 399.2,
+   "cost_usd": 0.6574,
+   "completed": true
+  },
+  {
+   "date": "2026-09-24",
+   "setup": "kimi-deepseek",
+   "active_s": 599.6,
+   "cost_usd": 0.5106,
+   "completed": true
+  },
+  {
+   "date": "2026-09-24",
+   "setup": "kimi-deepseek",
+   "active_s": 390.4,
+   "cost_usd": 0.327,
+   "completed": true
+  },
+  {
+   "date": "2026-09-25",
+   "setup": "kimi-deepseek",
+   "active_s": 341.6,
+   "cost_usd": 0.3651,
+   "completed": true
+  },
+  {
+   "date": "2026-09-25",
+   "setup": "kimi-deepseek",
+   "active_s": 363.9,
+   "cost_usd": 0.5591,
+   "completed": true
+  },
+  {
+   "date": "2026-09-25",
+   "setup": "kimi-deepseek",
+   "active_s": 402.6,
+   "cost_usd": 0.6202,
+   "completed": true
+  },
+  {
+   "date": "2026-09-27",
+   "setup": "sol-terra",
+   "active_s": 387.3,
+   "cost_usd": 0.6795,
+   "completed": true
+  },
+  {
+   "date": "2026-09-28",
+   "setup": "kimi-deepseek",
+   "active_s": 601.1,
+   "cost_usd": 0.6355,
+   "completed": true
+  },
+  {
+   "date": "2026-09-28",
+   "setup": "kimi-deepseek",
+   "active_s": 907.6,
+   "cost_usd": 0.7673,
+   "completed": true
+  },
+  {
+   "date": "2026-09-28",
+   "setup": "kimi-deepseek",
+   "active_s": 520.7,
+   "cost_usd": 0.3183,
+   "completed": true
+  },
+  {
+   "date": "2026-09-07",
+   "setup": "raw-pi",
+   "active_s": 274.137,
+   "cost_usd": 0.5477,
+   "completed": true
+  },
+  {
+   "date": "2026-09-07",
+   "setup": "raw-pi",
+   "active_s": 324.892,
+   "cost_usd": 0.6976,
+   "completed": true
+  },
+  {
+   "date": "2026-09-06",
+   "setup": "raw-pi",
+   "active_s": 307.421,
+   "cost_usd": 0.6277,
+   "completed": true
+  },
+  {
+   "date": "2026-09-06",
+   "setup": "raw-pi",
+   "active_s": 255.175,
+   "cost_usd": 0.5144,
+   "completed": false
+  },
+  {
+   "date": "2026-09-29",
+   "setup": "raw-pi",
+   "active_s": 691.486,
+   "cost_usd": 0.8515,
+   "completed": true
+  },
+  {
+   "date": "2026-09-29",
+   "setup": "raw-pi",
+   "active_s": 684.565,
+   "cost_usd": 0.9931,
+   "completed": true
+  }
+ ]
+}

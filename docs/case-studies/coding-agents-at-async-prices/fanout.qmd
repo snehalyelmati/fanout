@@ -1,0 +1,364 @@
+---
+pagetitle: "Coding agents at async prices"
+format:
+  revealjs:
+    theme: [moon, custom.scss]
+    slide-number: c/t
+    transition: fade
+    transition-speed: fast
+    width: 1600
+    height: 900
+    margin: 0.05
+    center: true
+    hash: true
+---
+
+## {#cover}
+
+```{=html}
+<div class="cover">
+ <div class="cover-text">
+  <span class="eyebrow">Fanout × Doubleword · October 2026</span>
+  <h1>Coding agents at async prices</h1>
+  <p class="cover-sub">How far a parallel harness gets toward realtime speed, and what's still missing.</p>
+  <div class="contact">Snehal Yelmati · github.com/snehalyelmati/fanout</div>
+ </div>
+ <div class="cover-side">
+```
+
+{{< include charts/cover.md >}}
+
+```{=html}
+ </div>
+</div>
+```
+
+::: {.notes}
+Congrats on the September 10 launch; I've been following along on X.
+:::
+
+## TL;DR
+
+::: {.cards}
+::: {.card .fragment}
+[Cost]{.muted}
+
+[−42%]{.big}
+
+Fanout on open-weight DW models vs raw GPT-5.6 Sol
+
+[measured]{.tag}
+:::
+::: {.card .fragment}
+[Time on async today]{.muted}
+
+[6×]{.big}
+
+slower. Every request waits ~60s, and agents make 15–25 in a row
+
+[modeled]{.tag}
+:::
+::: {.card .fragment}
+[With fast continuations]{.muted}
+
+[10.7 min]{.big}
+
+down from 27.7 on async: one DW feature removes most of the wait
+
+[modeled]{.tag}
+:::
+:::
+
+::: {.fragment}
+The rest comes from the next wave of models, and from tasks with parallel parts.
+:::
+
+::: {.notes}
+Answer first: cost is already a win. Time needs one provider feature, plus better models and wider tasks.
+:::
+
+## The opportunity
+
+[Coding agents are one of the largest token workloads. DW's async tier is **20–28% cheaper**, but nobody uses it interactively.]{.lead}
+
+| per M tokens | Realtime | Async |
+|---|---:|---:|
+| Kimi K3 · input / output | $3.00 / $15.00 | **$2.15 / $11.25** |
+| DeepSeek V4.1 Flash · input / output | $0.15 / $0.60 | **$0.12 / $0.48** |
+
+: {tbl-colwidths="[50,25,25]"}
+
+::: {.fragment}
+**The question:** can a harness make the slow, cheap tier feel realtime?
+:::
+
+## A way in: the Doubleword Pi provider
+
+:::: {.columns}
+::: {.column width="42%"}
+- Live model discovery
+- **`Alt+T` toggles realtime ↔ async**
+- Reasoning-effort control
+- Usage and pricing provenance on every response
+- Cancels async work on abort
+- Standalone; Fanout is optional
+
+[pi install npm:@snehalyelmati/pi-doubleword-provider]{.install}
+:::
+::: {.column width="58%" .shot}
+![](img/model-picker.png)
+:::
+::::
+
+::: {.notes}
+Batch isn't exposed: a 24h SLA doesn't fit interactive coding.
+:::
+
+## Evidence base: 78 runs on one real task
+
+[**p-map** is a popular JavaScript library for running async work in parallel. The task: add a cancellation feature to it, with tests, types and docs.]{.lead .small-lead}
+
+{{< include charts/scatter.md >}}
+
+::: {.caption}
+Active time = planning + execution; excludes dry runs, confirmation waits and setup. The walk uses one clean run per setup that passed a stricter independent acceptance check; some faster runs predate that check. Chart clipped at 20 min / $2.
+:::
+
+{{< include charts/journey1.md >}}
+
+## What Fanout is
+
+```{=html}
+<div class="tiers top">
+ <span><i class="sw t1"></i><b>Tier 1</b> realtime LLM · the interactive part</span>
+ <span><i class="sw t2"></i><b>Tier 2</b> cheap LLM · async-eligible</span>
+ <span><i class="sw td"></i><b>Deterministic</b> code · no LLM calls</span>
+</div>
+<div class="arch">
+ <div class="stage fragment" data-fragment-index="0">
+  <span class="eyebrow">1 · Plan</span>
+  <div class="box rt"><span class="tier t1">Tier 1 · realtime LLM</span><b>Planner</b></div>
+  <div class="box det"><span class="tier td">Deterministic</span><b>Compiler</b><small>contracts + dependency graph</small></div>
+  <p>A fast model scopes the task. Code turns the plan into bounded work units, each with owned files and checks.</p>
+ </div>
+ <div class="stage fragment" data-fragment-index="1">
+  <span class="eyebrow">2 · Execute in parallel</span>
+  <div class="lanes">
+   <div class="lane"><div class="box t2"><span class="tier t2">Tier 2 · cheap LLM</span><b>Worker A</b><small>own worktree</small></div></div>
+   <div class="lane"><div class="box t2"><span class="tier t2">Tier 2 · cheap LLM</span><b>Worker B</b><small>own worktree</small></div></div>
+   <div class="lane dep"><span class="wait">after A</span><div class="box t2"><span class="tier t2">Tier 2 · cheap LLM</span><b>Worker C</b><small>own worktree</small></div></div>
+  </div>
+  <p>Each worker edits only its own files in its own worktree, so parallel work never conflicts. Tier 2 can run on async.</p>
+ </div>
+ <div class="stage fragment" data-fragment-index="2">
+  <span class="eyebrow">3 · Integrate</span>
+  <div class="box det"><span class="tier td">Deterministic</span><b>Validate</b><small>checks per unit</small></div>
+  <div class="box det"><span class="tier td">Deterministic</span><b>Integrate</b><small>bounded repair</small></div>
+  <div class="box det"><span class="tier td">Deterministic</span><b>Final gates</b><small>full test suite</small></div>
+  <p>Every result is checked before it's accepted. Failed work gets a bounded repair, never an open loop.</p>
+ </div>
+</div>
+
+```
+
+{{< include charts/journey2.md >}}
+
+# A product idea for Doubleword {.center-title}
+
+## An agent-session tier
+
+```{=html}
+<div class="tiercards">
+ <div class="tcard">
+  <span class="eyebrow">Realtime</span>
+  <dl><dt>First request</dt><dd>starts now</dd><dt>Follow-ups</dt><dd>start now</dd><dt>Price</dt><dd>full</dd><dt>Fits</dt><dd>chat, IDEs</dd></dl>
+ </div>
+ <div class="tcard new">
+  <span class="eyebrow">Agent session · new</span>
+  <dl><dt>First request</dt><dd>queues like async (~60s)</dd><dt>Follow-ups</dt><dd><strong>fast</strong>, within a bounded session group</dd><dt>Price</dt><dd>async entry + continuation premium</dd><dt>Cache</dt><dd>kept warm for the session</dd><dt>Fits</dt><dd>coding agents, parallel harnesses</dd></dl>
+ </div>
+ <div class="tcard">
+  <span class="eyebrow">Async</span>
+  <dl><dt>First request</dt><dd>queues (&lt;1 min)</dd><dt>Follow-ups</dt><dd>queue again, every time</dd><dt>Price</dt><dd>~25% cheaper</dd><dt>Fits</dt><dd>background jobs</dd></dl>
+ </div>
+</div>
+<div class="apisketch"><span class="eyebrow">API sketch</span><code>service_tier: "agent" · session: { id, max_group: 10, idle_timeout: "90s" }</code></div>
+```
+
+::: {.notes}
+The gap in the tier lineup: agents are interactive but tolerate one upfront wait. Bounded groups and idle timeouts let DW schedule capacity; under load, a session can fall back to plain async.
+:::
+
+## Does the agent tier pay off?
+
+:::: {.columns}
+::: {.column width="55%"}
+| Continuation price | Raw Pi · DW models | Fanout · DW models |
+|---|---:|---:|
+| Async rate | $0.63 | $0.31 |
+| Midpoint "agent" rate | $0.74 | $0.31 |
+| Full realtime rate | $0.84 | **$0.32** |
+
+: {tbl-colwidths="[44,28,28]"}
+
+::: {.caption}
+Cost per task on p-map, modeled from the R2 and F2 traces. First request of each group of 10 at async rates; cache preserved. Time with groups of 10: Fanout 10.7 min vs 27.7 min on plain async.
+:::
+:::
+::: {.column width="45%" .payoff}
+- **For users of a parallel harness, the premium barely matters:** workers are cheap and the planner is realtime anyway. Fanout stays **42% cheaper than raw Sol** even at full realtime rates.
+- **For a single-agent loop, a full premium erases the saving**, so the tier pairs best with parallel harnesses.
+- **For DW, the premium pays for held capacity and a warm cache**, while group size, idle timeouts and a fallback to plain async keep scheduling bounded.
+:::
+::::
+
+# Deep dives {.center-title}
+
+## What we measured (all realtime)
+
+{{< include charts/measured.md >}}
+
+::: {.key}
+[<i class="k-measured"></i>measured]{} · dashed line = raw Sol · one clean run per setup · all four passed independent acceptance
+:::
+
+::: {.fragment}
+Same DW models, one run each: Fanout took **8.7 vs 11.5 min** at **63% lower cost** than raw Pi. Against raw Sol, Fanout cut cost but not time; p-map has little parallel work.
+:::
+
+## Where the money goes
+
+{{< include charts/split.md >}}
+
+::: {.fragment}
+- The Kimi **planner is 85%** of the F2 cost.
+- All DeepSeek implementation work: **$0.047**
+- Each extra unit of work costs **~$0.04**, vs ~$0.19 on Terra. Parallel work costs pennies.
+- What if the planner ran on a DeepSeek-priced model? **$0.31 → $0.05** (no quality evidence yet).
+:::
+
+## Where Fanout wins: tasks with parallel parts
+
+{{< include charts/width.md >}}
+
+::: {.caption}
+Modeled: equal units, concurrency 4, fixed realtime planner, unit taken from the F2 critical worker (19 requests). p-map itself is narrow (~1–2 parts).
+:::
+
+::: {.notes}
+Async on every request never wins on time, even at infinite width: 19 serial waits per worker. With groups of 10 it wins from 4 parts: 0.59× time, 0.19× cost.
+:::
+
+## Reliable small models
+
+:::: {.columns}
+::: {.column width="64%"}
+{{< include charts/reliability.md >}}
+:::
+::: {.column width="36%"}
+Repairs **eat the time margin, not the cost margin.**
+
+::: {.fragment}
+Measured:
+
+- Raw Kimi: 2 of 3 passed, one hit the 20-min timeout
+- One DeepSeek worker timed out at 10 min
+:::
+:::
+::::
+
+::: {.caption}
+DeepSeek async + groups of 10, 4 parallel parts, relative to raw Sol. One repair re-runs a unit on the critical path.
+:::
+
+## What's holding it back {.autolist}
+
+::: {}
+1. **Verbose open-weight output.** 4–6× the output tokens of Sol/Terra; one Kimi response ran 25k tokens over 7.5 min.
+2. **Mistakes are expensive.** Timeouts and repairs sit on the critical path.
+3. **The planner dominates cost.** It must stay realtime, so it has to get cheaper or less verbose.
+4. **Long request chains.** Every request in a row pays the async wait.
+:::
+
+## Ideas for Doubleword {.autolist}
+
+| Idea | Why · evidence |
+|---|---|
+| **Agent-session tier:** async entry, bounded fast continuations (group size, idle timeout), priced as a premium | async Fanout 27.7 → 10.7 min; Fanout stays at $0.32 even at realtime continuation prices |
+| **Session cache affinity:** route queued and continuation requests to warm replicas; report cache hits on async | raw Kimi async: $0.63 warm vs $1.50 cold |
+| **Critical-path hints:** let a harness mark which request others are waiting on, and schedule parallel siblings with shared prefixes together | Fanout's critical worker is 19 requests deep; its sibling is 3 |
+| **Async progress and deadlines:** queued → running → first-token events, queue ETA, server-side deadlines | poll-only today; *measured:* 10- and 20-min timeouts in our runs |
+| **Agent-tool integrations with conformance tests** in CI against new tool versions | *measured:* a Pi update dropped the system prompt and tools, which looked like a Kimi failure |
+
+: {tbl-colwidths="[55,45]"}
+
+::: {.caption}
+Evidence is modeled unless marked measured.
+:::
+
+## {#findings}
+
+```{=html}
+<div class="closing">
+ <div>
+  <span class="eyebrow">Findings so far</span>
+  <h3>Can async coding feel close to realtime, at a fraction of the cost?</h3>
+  <p>Early answer: on tasks with parallel parts, the model says yes. On narrow tasks, cost drops a lot but time doesn't reach realtime yet.</p>
+ </div>
+ <div class="recap">
+  <span class="eyebrow">Where each setup lands, vs raw Sol (1×)</span>
+```
+
+{{< include charts/recap.md >}}
+
+```{=html}
+ </div>
+</div>
+```
+
+## {#thanks}
+
+```{=html}
+<div class="finale">
+ <h1>Thank you</h1>
+ <p>Congratulations on the launch!</p>
+ <div class="finale-links">
+  <span>Snehal Yelmati</span>
+  <a href="https://github.com/snehalyelmati/fanout">github.com/snehalyelmati/fanout</a>
+  <span>Doubleword Pi provider · npm @snehalyelmati/pi-doubleword-provider</span>
+ </div>
+</div>
+```
+
+## Appendix · method and caveats
+
+- **Active time** = planning + execution; excludes dry runs, confirmation or operator waits, setup.
+- **Cost** = token-price estimates. Sol/Terra from Pi's model catalog; DW from the snapshot retrieved 2026-09-20.
+- **Async:** +60s per affected request, generation unchanged. Planner always realtime.
+- **Continuations:** hypothetical. First request of each group pays +60s, at async prices.
+- **Concise output:** output tokens and post-first-token time scaled.
+- **Width model:** synchronized waves, equal units, from one narrow task.
+- **Runs:** about 120 live runs across 5 tasks, 78 of them on p-map (evidence slide). The walk uses one representative clean run per setup; the evidence slide shows the spread.
+
+## Appendix · continuation group size
+
+{{< include charts/groups.md >}}
+
+::: {.caption}
+F2 with async workers, planner realtime. The first request of each group waits ~60s; the rest of the group runs straight through. Dashed line = raw Sol (4.6 min).
+:::
+
+## Appendix · run identities
+
+| Run | ID | Time | Cost |
+|---|---|---:|---:|
+| R1 raw Sol | `p-map-raw-v2-baseline-20260907/raw-01` | 4.6 min (274s) | $0.55 |
+| R2 raw Kimi K3 | `p-map-raw-kimi-k3-med-20260929/raw-01` | 11.5 min (691s) | $0.85 |
+| F1 Sol / Terra | `2026-09-20T16-55-25-785Z-f61c2e11` | 6.9 min (415s) | $0.39 |
+| F2 Kimi / DeepSeek | `2026-09-28T14-38-24-221Z-9f4f3c01` | 8.7 min (524s) | $0.32 |
+
+: {tbl-colwidths="[20,50,18,12]"}
+
+::: {.caption}
+All four passed the stricter six-case independent acceptance check. Faster Fanout runs exist (Kimi/DeepSeek as low as 3.7 min), but they predate that check.
+:::
