@@ -1,4 +1,5 @@
-import { join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import type { AcceptedPatch, AcceptedStateTransition, ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
 import type { ProjectExecutionProfile } from "../../fanout-core/src/project-execution-profile.ts";
 import type { WorkContract } from "../../fanout-core/src/work-contract.ts";
@@ -10,7 +11,6 @@ import {
 	applyRepairSeedOverlay,
 	capturePatchCandidate,
 	createReconstructedWorktree,
-	removeReconstructedWorktree,
 	verifyPatchCandidate,
 	type PlanningBase,
 } from "./repository-identity.ts";
@@ -36,8 +36,12 @@ export async function reconcilePathDisjointCandidate(options: {
 	signal?: AbortSignal;
 }): Promise<ReconciliationResult> {
 	const started = performance.now();
-	const root = join(options.attemptDir, "reconciliation");
+	const root = join(options.attemptDir, "reconciliation", String(options.ledgerAdvanceRetry));
+	const scopeId = `${options.attemptId}/reconciliation/${options.ledgerAdvanceRetry}`;
 	const worktreePath = join(root, "worktree");
+	mkdirSync(dirname(root), { recursive: true });
+	mkdirSync(root); // A trial is single-use, including rejected trials.
+	let published = false;
 	const acceptedStates = [options.planningBase.tree, ...options.ledger.map((entry) => entry.patch.resultTree)];
 	const latestBaseTree = acceptedStates.at(-1)!;
 	const baseIndex = acceptedStates.indexOf(options.candidate.baseTree);
@@ -51,14 +55,13 @@ export async function reconcilePathDisjointCandidate(options: {
 	let validation: ValidationRunResult | undefined;
 	if (baseIndex < 0) return failure("base-not-accepted", "candidate base is not an exact accepted ledger state");
 	if (overlappingPaths.length) return failure("path-overlap", `candidate overlaps intervening accepted paths: ${overlappingPaths.join(", ")}`);
-	let keepWorktree = false;
 	try {
 		const base = createReconstructedWorktree(options.repoRoot, worktreePath, options.planningBase, options.runDir, options.ledger);
 		const prepared = await prepareProjectWorktree(options.profile, options.profileIdentity, {
 			worktreePath,
 			artifactRoot: options.runDir,
 			evidencePath: `${relative(options.runDir, root).split("\\").join("/")}/preparation.json`,
-			scopeId: `${options.attemptId}/reconciliation`,
+			scopeId,
 			timeoutMs: options.timeoutMs,
 			signal: options.signal,
 		});
@@ -71,27 +74,20 @@ export async function reconcilePathDisjointCandidate(options: {
 			overlay = { status: "failed" };
 			return failure("overlay-failed", message(error));
 		}
-		const normalized = await normalizeCandidate({ attemptId: `${options.attemptId}/reconciliation`, worktreePath, commands: options.profile.candidateNormalization.map((entry) => entry.command), expectedPlatform: process.platform, timeoutMs: options.timeoutMs, inheritedEnv: process.env, signal: options.signal });
+		const normalized = await normalizeCandidate({ attemptId: scopeId, worktreePath, commands: options.profile.candidateNormalization.map((entry) => entry.command), expectedPlatform: process.platform, timeoutMs: options.timeoutMs, inheritedEnv: process.env, signal: options.signal });
 		normalization = normalized;
 		if (normalized.failure) return failure("normalization-failed", normalized.failure.detail ?? normalized.failure.code);
 		const patch = capturePatchCandidate(worktreePath, base, options.runDir, `${relative(options.runDir, root).split("\\").join("/")}/patch.bin`);
 		const ownership = checkContractOwnership(options.contract, patch, root, options.repoRoot);
 		if (!ownership.ok) return failure("ownership-failed", ownership.violations.map((entry) => `${entry.file}: ${entry.reason}`).join("; "));
-		validation = await runValidationCommands(options.contract.validationCommands, { checkoutRoot: worktreePath, expectedPlatform: process.platform, scopeId: `${options.attemptId}/reconciliation`, timeoutMs: options.timeoutMs, inheritedEnv: process.env, signal: options.signal });
+		validation = await runValidationCommands(options.contract.validationCommands, { checkoutRoot: worktreePath, expectedPlatform: process.platform, scopeId, timeoutMs: options.timeoutMs, inheritedEnv: process.env, signal: options.signal });
 		if (validation.status !== "passed") return failure("validation-failed", "reconciled candidate validation failed");
 		verifyPatchCandidate(worktreePath, options.runDir, patch);
 		const evidence = publish({ status: "accepted", reconciledCandidate: patch });
-		keepWorktree = true;
 		return { ok: true, patch, validation, base, worktreePath, evidence };
 	} catch (error) {
+		if (published) throw error;
 		return failure("repository-failed", message(error));
-	} finally {
-		if (!keepWorktree) {
-			try { removeReconstructedWorktree(options.repoRoot, worktreePath); }
-			catch {
-				// The run-level cleanup audit remains authoritative for residual worktrees.
-			}
-		}
 	}
 
 	function failure(code: Extract<ReconciliationResult, { ok: false }>["code"], detail: string): Extract<ReconciliationResult, { ok: false }> {
@@ -99,8 +95,11 @@ export async function reconcilePathDisjointCandidate(options: {
 	}
 
 	function publish(value: unknown): ArtifactIdentity {
+		if (published) throw new Error("reconciliation trial already published");
 		const timed = typeof value === "object" && value !== null && !Array.isArray(value) ? {
 			...value,
+			runId: basename(options.runDir),
+			scopeId,
 			attemptId: options.attemptId,
 			originalCandidate: options.candidate,
 			originalBaseTree: options.candidate.baseTree,
@@ -114,12 +113,13 @@ export async function reconcilePathDisjointCandidate(options: {
 			ledgerAdvanceRetries: options.ledgerAdvanceRetry,
 			durationMs: Math.max(0, performance.now() - started),
 		} : value;
-		return writeArtifactAtomically(options.runDir, `${relative(options.runDir, root).split("\\").join("/")}.json`, Buffer.from(`${JSON.stringify(timed, null, 2)}\n`));
+		const evidence = writeArtifactAtomically(options.runDir, `${relative(options.runDir, root).split("\\").join("/")}/result.json`, Buffer.from(`${JSON.stringify(timed, null, 2)}\n`), { noClobber: true });
+		published = true;
+		const indexPath = join(options.attemptDir, "reconciliation.json");
+		const trials: ArtifactIdentity[] = existsSync(indexPath) ? JSON.parse(readFileSync(indexPath, "utf8")).trials ?? [] : [];
+		writeArtifactAtomically(options.runDir, relative(options.runDir, indexPath).split("\\").join("/"), Buffer.from(`${JSON.stringify({ ...timed as object, trials: [...trials, evidence] }, null, 2)}\n`));
+		return evidence;
 	}
-}
-
-export function cleanupReconciliationWorktree(repoRoot: string, worktreePath: string): void {
-	removeReconstructedWorktree(repoRoot, worktreePath);
 }
 
 function message(error: unknown): string {

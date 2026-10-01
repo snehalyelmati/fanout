@@ -1,4 +1,4 @@
-import { deriveExecutionGraph, validateExecutionPacket, type FanoutExecutionPacket, type FanoutPacketNode } from "./execution-packet.ts";
+import { validateExecutionPacket, type FanoutExecutionPacket, type FanoutPacketNode } from "./execution-packet.ts";
 
 export interface DagNodeResult { ok: boolean; error?: string; attemptId?: string; }
 export interface DagNodeState { id: string; status: "pending" | "running" | "succeeded" | "failed" | "skipped"; result?: DagNodeResult; error?: string; upstreamNodeId?: string; failFastCause?: { nodeId: string; attemptId: string }; }
@@ -13,8 +13,8 @@ export interface RunDagOptions {
 export async function runDag(packet: FanoutExecutionPacket, options: RunDagOptions): Promise<DagRunResult> {
 	if (!Number.isInteger(options.maxConcurrency) || options.maxConcurrency < 1) throw new Error("maxConcurrency must be a positive integer");
 	const admitted = validateExecutionPacket(packet);
-	if (!admitted.packet) throw new Error(admitted.errors.map((issue) => issue.message).join("; "));
-	const graph = deriveExecutionGraph(admitted.packet);
+	if (!admitted.packet || !admitted.graph) throw new Error(admitted.errors.map((issue) => issue.message).join("; "));
+	const graph = admitted.graph;
 	const nodes = admitted.packet.nodes.filter((node) => node.kind !== "final-validation");
 	const dependencies = new Map(nodes.map((node) => [node.id, graph.edges.filter(([, to]) => to === node.id).map(([from]) => from).filter((id) => nodes.some((node) => node.id === id))]));
 	const states = new Map(nodes.map((node) => [node.id, { id: node.id, status: "pending" as const } as DagNodeState]));

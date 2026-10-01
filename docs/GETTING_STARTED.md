@@ -4,10 +4,10 @@ Fanout is a research preview. The monorepo contains the Pi adapter, the independ
 
 ## Install and check
 
-Use Git, Node.js, npm, and Bun. The source setup below was checked on macOS with Node.js 26.5, npm 11.17, Bun 1.3.14, and Pi 0.85.1. Network access is needed for the first dependency install. From a clean clone:
+Use Git, Node.js, npm, and Bun. Fanout and the standalone Doubleword provider require **Pi 0.87.0 or newer**; source development pins the Pi SDK and CLI packages to 0.87.0. The source setup was checked on macOS with Node.js 26.5, npm 11.17, and Bun 1.3.14. Network access is needed for the first dependency install. From a clean clone:
 
 ```sh
-npm install --ignore-scripts --no-audit --no-fund
+bun install --ignore-scripts --no-save
 npm run typecheck
 ./node_modules/.bin/pi --offline --no-session --no-extensions \
   -e ./packages/fanout-pi/src/index.ts \

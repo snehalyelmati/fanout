@@ -1,5 +1,57 @@
 # Design Decisions
 
+## Decode encoded planning objects before Pi validation — 2026-09-28
+
+The Fanout submission tool uses Pi's `prepareArguments` hook to strictly JSON-decode a string-valued `artifact` once before argument validation. Keep the advertised object schema, core artifact contracts, compiler admission, and correction budget unchanged. Apply the same hook to profile, initial combined plan, and correction submissions. Preserve the original tool call and reject malformed JSON with explicit resubmission feedback; do not infer missing structure or recursively decode nested values. Doubleword provider serialization remains independent of Fanout.
+
+The stopped Kimi canary contained malformed encoded artifacts, so decoding alone cannot admit those captured calls. Offline CLI and SDK regressions cover valid encoded submissions, malformed-input recovery, strict schema rejection, and correction-budget enforcement; no live model-quality or performance claim follows from those checks.
+
+## Make planning recovery and validation ownership explicit — 2026-09-27
+
+The dynamic correction schema names the exact retained draft revision. Corrections submit that current base revision, not the next revision; only a successful atomic whole-record merge advances it. Feedback states the correction object shape and current revision. Stale submissions still fail, invalid calls still consume the existing two-correction budget, and inventories remain fixed.
+
+Describe `forbiddenWrites` at its schema field and in planning guidance as packet-global bans, never another worker's ownership list. Existing write authority and controller changed-path checks already enforce ownership; planners must not duplicate those gates with generated Git status/path parsers. Task-specific validation remains required.
+
+Update the existing p-map benchmark task and frozen worker validation command to expose the promised-source-value abort case. This is a revision of the existing benchmark, not a separate benchmark. Archive the previous task bytes and retain historical result identities; future results record the updated task and packet identities. Reuse the approved repository profile and existing advisory/authoritative validation mechanisms. Keep generic prompts/core free of p-map behavior, preserve the external acceptance checker and historical evidence, and make no quality or timing claim before separately authorized evaluation.
+
+## Require Pi 0.87 and resolve transcript context at the Doubleword boundary — 2026-09-24
+
+Pi 0.86 changed custom provider inputs from `Context` to `TranscriptContext`: system instructions and tool declarations now live in system messages, not top-level fields. Fanout and Doubleword now require Pi 0.87.0; source development pins its SDK and CLI packages to that version. Doubleword uses direct imports of Pi's `getCurrentSystemPrompt` and `getCurrentTools` in realtime/async serialization and usage paths. The development stub uses the same contract. Replay honors section replacement/deletion and tool removal/redefinition without mutating the transcript or double-counting system text. Remove the interim namespace lookup, legacy-context adapter and feature detection rather than maintaining two contracts. Do not duplicate Pi's replay algorithm or move provider logic into Fanout core. The standalone provider release is 0.2.0 because the minimum Pi version is a breaking compatibility change.
+
+Pi 0.87's `context` hook excludes system messages. Planning phase offsets and compaction overlap comparisons must therefore use the non-system projection too; raw session indices can admit an old whole-branch summary into an explicit-objective phase. Keep the existing context hook and align its index domain rather than handling system messages in Fanout. The existing compaction-isolation regression caught this migration defect and passes with aligned indices.
+
+The offline regression runs the actual CLI through `/fanout-plan`, captures loopback HTTP metadata (prompt presence, byte length, SHA-256, user-message lengths/hashes, tool names, model), and requires a real task read plus accepted synthetic submission. Unit coverage also checks transcript deltas. It logs no prompt or credential contents and deletes its disposable fixture. Run `npm run smoke:planning-request` for the pinned local Pi, or set `FANOUT_TEST_PI=/absolute/path/to/pi` to select another supported runtime explicitly. The initial compatibility fix was verified on Pi 0.83.0 and 0.87.0 before the owner chose the 0.87.0 minimum; older Pi versions are no longer supported. No gateway call or model-quality assertion follows from mock success.
+
+## Collect only explicitly independent advisory validation failures — 2026-09-23
+
+Planning prefers `collect-independent` whenever independence is established, rather than merely permitting it as an exceptional opt-in. The planner makes this explicit choice without a user toggle. Dependent or uncertain lists remain fail-fast, including omitted policy fields. This changes prompt/schema guidance only: persisted artifact meaning, compiler merge/fusion rules and controller gates are unchanged; no generation bump is needed.
+
+Details v8 and Work Contract v6 carry `advisoryValidationMode: fail-fast | collect-independent`. Planning bodies default omission to fail-fast before persistence; persisted authority requires an explicit valid value. Opt-in means every ordered check examines the same candidate independently of prior success, consumes no other check's generated outputs, and is not a mutating prerequisite chain. No executable, script-name or path heuristic grants this authority. Multi-input ownership merges and every vertical fusion reset to fail-fast without changing grouping, fusion eligibility, command selection, order or multiplicity. Ordinary retries and validation repairs retain their original contract; final-validation and derived final-repair contracts are fail-fast.
+
+Packet v11 records the controller's existing `compilationPolicy.sequentialReadFallback` boolean so exact provenance can be reconstructed without guessing. The model gains no new planning knob. Active admission verifies contained plan/details/profile bytes and identities, recompiles with the recorded decision, and compares the ordered node IDs/kinds, validation commands and advisory modes. This comparison does not extend to unrelated contract fields. Missing, legacy and mixed execution authority requires replanning; no migration is added. The digest-bound worker manifest becomes v3. Profile, plan, pointer, Attempt Outcome, Event, Projection, worker-validation evidence and final-validation evidence versions remain unchanged: their interpretation and authoritative routing do not change.
+
+Only the worker's lone zero-argument `fanout_validate` enables the runner's existing sequential continuation after ordinary nonzero exits. Abort, timeout, signal, spawn, preflight and evidence-publication faults remain failures; no command reruns, parallelism, normalization, extra retries or routing changes are introduced. All positional statuses remain visible and failures share one 8,000-character diagnostic budget with head/tail truncation; stored command/results/timing evidence remains complete. Workers may fix independent known causes together before revalidating, but green checks never replace completing required code/tests. Diagnostics remain untrusted. Controller node, reconciliation and fresh final gates retain fail-fast execution and the strict final-evidence parser.
+
+This is an interface and advisory-feedback mechanism, not a demonstrated performance improvement or a planning optimization. Keyless tests exercise real processes and the normal Pi tool boundary. No paid canary or causal savings claim accompanies this change.
+
+## Bounded efficiency and supporting diagnostics — 2026-09-20
+
+`runDag` requires both the packet and graph returned by validation; it no longer derives the same graph a second time. Profile preflight resolves each manifest position independently once within that invocation, then expands node-major positional evidence and failures. Text-identical entries remain distinct. No cross-invocation cache, caller graph, validation bypass, or change to packet-node resolution, validation-runner whole-list preflight, or immediate pre-launch resolution is introduced.
+
+Small `fanout.controller-diagnostic` v1 supporting JSON artifacts use monotonic elapsed time. They are best-effort and no-clobber, never acceptance authority and never allowed to replace a causal error or release an ambiguous-apply lock. Run identity plus scope paths identify attempts, final rounds, and reconciliation trials. Early admission rejection still writes no run artifacts. Admission and post-qualification preflight are separate measurements; qualification includes reconstruction and cleanup. Reconstruction includes replay, while replay counts attempted and completed transitions separately. Setup wall time contains preparation/readiness wall times, each containing its command sum; null means a phase never ran, not a zero-duration success. Do not add nested measures to their parents.
+
+Each reconciliation result remains immutable, including a successful trial discarded because another worker advanced the accepted ledger. A separate executor decision references the exact trial and records `used`, `rejected`, `discarded-on-ledger-advance`, or `discarded-on-abort`; `used` means selected for the subsequent apply check, not proof of acceptance. Existing trial duration excludes subsequent decision/apply and cleanup. The accepted transition and fresh final validation remain authoritative. Failed profile normalization retains its measured normalization duration.
+
+## Execution lifecycle boundaries — 2026-09-20
+
+Attempt allocation is durably published before reconstruction, repair overlays, preparation, or worker launch. Setup runs inside the worker attempt's typed failure boundary: infrastructure failures use the existing bounded routing policy, aborts terminate causally, and absent worker execution contributes no invented usage. Failed allocation publication permits no subsequent attempt setup.
+
+Deterministic reconciliation uses single-use numbered trial directories and scope IDs. Each trial retains its preparation, patch, and result identities; `reconciliation.json` remains the profiler-discoverable latest summary plus an ordered trial identity index. The executor registers worktrees before creation and retains failed removals for terminal cleanup, without replacing already-completed attempt results.
+
+After exact packet/profile/base admission, missing worker extensions or launchers throw admission errors before locks, execution artifacts, worktrees, or profile commands. Valid dry runs still execute real profile validation, followed by an independent active-tree check. Run duration starts at `executeFanout` entry rather than after admission; historical measurements retain their original timing semantics.
+
+Worker source reads batch Git tree metadata and size-admitted blob content with an invocation-local immutable blob cache. Output order, tree selection, duplicate handling, binary/UTF-8 exclusions, and context ceilings remain unchanged. No prepared-state cache, checkpoint, validation parallelism, scheduler change, or planning optimization is introduced.
+
 ## Reading this record
 
 This is a dated design history, including experiments, reversals and retained tradeoffs. Statements such as “current,” “next” or “deferred” refer to their checkpoint unless a status note says otherwise. Later refinements are linked where an older instruction would conflict with today's behavior. The [architecture](ARCHITECTURE.md) and [accepted execution authority](adr/0002-use-one-strict-execution-authority.md) describe the current implementation; historical schema numbers and measured outcomes remain unchanged here.
@@ -13,6 +65,34 @@ This is a dated design history, including experiments, reversals and retained tr
 | Repairs lost progress and parallel candidates became stale | [Cumulative repair seeds](#preserve-rejected-repair-candidates-cumulatively) and [disjoint reconciliation](#reconcile-only-exact-path-disjoint-stale-candidates) |
 | Missing measurements blocked repository acceptance | [Separate valid partial evidence from contradictory evidence](#apply-the-approved-fanout-audit-cutover) |
 | Provider users inherited orchestration-specific metadata | [Keep Fanout capabilities in the adapter](#keep-fanout-capability-metadata-in-the-fanout-adapter) |
+
+## 2026-09-20
+
+### Reserve linked worktrees for concurrent benchmark runs
+
+Use one verified clean checkout for a singleton canary or sequential repetition cohort, restoring it between runs; a standalone clone is also acceptable. Do not create linked Git worktrees for one-at-a-time execution. Separate active worktrees remain required for intentionally concurrent runs because each execution needs its own lock and repository state. This simplifies sequential operation without weakening baseline or cleanup checks.
+
+### Reuse approved execution profiles at an unchanged baseline
+
+Do not rebuild a Project Execution Profile for each benchmark canary when the target repository remains at the exact clean baseline. Reuse the approved profile only after verifying that dependency state, platform, required commands, profile schema and bytes, and active-pointer identity are still applicable. Refresh after any profile-defining change, when no approved profile exists, or when verification is incomplete. This removes an unnecessary model call without weakening profile authority or changing historical benchmark accounting.
+
+### Retain rejected planning drafts for bounded typed corrections
+
+Keep one ordinary Pi implementation context and the initial combined `{plan, details}` tool submission. Remove the redundant JSON example from the prompt, retaining ownership, read-timing, repair-coupled tests and focused-validation guidance. After a structurally valid, uniquely addressed draft fails admission, retain it only in controller memory and switch the same tool to a closed repair schema on the next automatic response. Repairs replace whole plan/detail records by existing ID and may replace final validation commands. Headers and inventories remain fixed; changes to those require replanning.
+
+Merge each batch atomically, preserve untouched records and ordering, reject stale revisions, duplicate/unknown IDs and no-op corrections, then run the entire existing admission/compiler path. Structurally valid compiler-rejected revisions become the next repair base, never executable artifacts. Plan authority remains independent from detail grounding, including many-to-many source attribution. Plan-body-bound sequential read fallback is unchanged and cannot reset the overall two-correction budget.
+
+Count repair tool calls at assistant completion before SDK argument validation; schema-rejected calls consume the budget even without execution. Abort exhausted runs after their tool results, discard draft authority and restore tools. Cancellation/session reset also discards drafts; successful submission still terminates directly and publication remains identity-checked, pointer-last at settlement. Persisted profile v1, plan v4 and details v7 contracts are unchanged.
+
+This is a local repair optimization, not a checkpoint protocol: malformed or length-truncated initial generations are not salvaged. No additional successful-path request, planner scheduler, JSON patch language, flag, paid benchmark or measured token/time saving is introduced. Real Pi SDK stub tests verify dynamic schema replacement and the pre-execution budget boundary.
+
+## 2026-09-20
+
+### Reuse successful setup validation for unchanged benchmark baselines
+
+Decision: Across all benchmarks, reuse recorded passing setup tests when preflight verifies the same clean baseline, task, dependency state, and platform. Skip duplicate baseline tests by default without a per-run waiver. Initial setup and changed or unverified fixtures require validation; required checks on generated implementations remain unchanged.
+
+Reason: Repeating setup tests against an already-verified unchanged fixture adds iteration time without testing the generated implementation. Record reused evidence and identity checks rather than treating a clean Git tree alone as proof of unchanged dependencies or environment.
 
 ## 2026-09-19
 
@@ -32,7 +112,7 @@ Decision: Keep parallel Fanout as the primary architecture. Publish repository s
 
 New raw Fanout traces, model sessions, prompts and tool-event streams remain local and ignored. Synthetic test inputs must be clearly fictional. The original evidence is preserved locally. Use MIT for original project code/documentation and retain third-party licenses/notices.
 
-This release needs no additional paid canary, interactive explorer, website, slide deck, routing system or executor redesign. It does not itself merge branches, change visibility, publish packages or rewrite history. Earlier next-experiment directions remain historical context, not the current preparation task. See [publication checks](PUBLICATION.md).
+This release needs no additional paid canary, interactive explorer, website, slide deck, routing system or executor redesign. It does not itself merge branches, change visibility, publish packages or rewrite history. Earlier next-experiment directions remain historical context, not the current preparation task. Publication checks cover credentials, personal paths, evidence labels and offline source setup.
 
 ## 2026-09-08
 

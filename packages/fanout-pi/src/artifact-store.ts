@@ -30,6 +30,13 @@ export function reserveArtifactDirectory(root: string, relativePath: string): vo
 	mkdirSync(artifactPath(root, relativePath, true));
 }
 
+/** Supporting diagnostics never participate in acceptance or replace a causal failure. */
+export function writeDiagnostic(root: string, path: string, value: Record<string, unknown>): void {
+	try {
+		writeArtifactAtomically(root, path, Buffer.from(`${JSON.stringify({ schema: "fanout.controller-diagnostic", version: 1, ...value }, null, 2)}\n`), { noClobber: true });
+	} catch { /* Best effort, including after an ambiguous active apply. */ }
+}
+
 export class ArtifactPublicationError extends Error {}
 
 export function writeArtifactAtomically(root: string, relativePath: string, input: Uint8Array, options: { noClobber?: boolean } = {}): ArtifactIdentity {

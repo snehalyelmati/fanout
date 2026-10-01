@@ -1,8 +1,11 @@
 import { rejects } from "node:assert/strict";
+import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { BATCHING_DISCIPLINE_MARKER } from "../packages/fanout-core/src/batching-discipline.ts";
+import { loadActiveExecutionPacket } from "../packages/fanout-core/src/active-packet.ts";
+import { publishExecutionPacket } from "../packages/fanout-pi/src/planning-publication.ts";
 import {
   activatePlanningTools,
   FANOUT_PLANNING_TOOLS,
@@ -14,6 +17,7 @@ import { renderWorkContractMarkdown } from "../packages/fanout-core/src/work-con
 import { FANOUT_ORCHESTRATION_MARKER } from "../packages/fanout-pi/src/fanout-plan-orchestration.ts";
 import { assert, expectThrows, extensionHarness, phaseState, profileGateCommand, validDetails, validPlan, validProfile, validSubmission, sdkPlanningSession } from "./planning-boundary-fixtures.mjs";
 import { testPlanningPresentation } from "./smoke-planning-presentation.mjs";
+import { testPlanningRepair } from "./smoke-planning-repair.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "fanout-planning-boundary-"));
 try {
@@ -24,6 +28,7 @@ try {
   await testRealPlanningRuntime();
   await testRealPlanningRuntime(true);
   await testRealPlanningCancellation();
+  await testPlanningRepair(root, (await import("../packages/fanout-pi/src/index.ts")).default);
   await testPlanningPresentation(root);
   console.log("planning boundary smoke passed (A15)");
 } finally {
@@ -78,10 +83,13 @@ function testArtifactSubmission() {
   delete omittedNotes.details.items[0].advisoryNotes;
   const accepted = submitPlanningArtifact(state, omittedNotes, repository);
   assert(JSON.parse(readFileSync(accepted.path)).items[0].advisoryNotes.length === 0, "omitted notes did not persist as []");
+  assert(JSON.parse(readFileSync(accepted.path)).items[0].advisoryValidationMode === "fail-fast", "omitted advisory mode did not persist conservatively");
+  assert(accepted.compiled.packet.compilationPolicy.sequentialReadFallback === false, "ordinary compilation unexpectedly enabled fallback");
+  for (const mode of [null, "parallel", true]) expectThrows(() => submitPlanningArtifact(state, { ...draft, details: { ...draft.details, items: [{ ...draft.details.items[0], advisoryValidationMode: mode }] } }, repository), /advisoryValidationMode/, "invalid advisory mode");
   expectThrows(() => submitPlanningArtifact(state, { ...draft, details: { ...draft.details, items: [{ ...draft.details.items[0], advisoryNotes: null }] } }, repository), /advisoryNotes/, "null notes");
   expectThrows(() => submitPlanningArtifact(state, validPlan(), repository), /additional properties|required properties/, "old single-half submission");
 
-  const fallbackState = { ...state, ...phaseState(repository, artifactRoot, join(artifactRoot, "fallback"), "implementation") };
+  const fallbackState = { ...state, ...phaseState(repository, artifactRoot, join(artifactRoot, "fallback"), "implementation"), approvedProfile: state.approvedProfile };
   const fallback = validSubmission();
   fallback.plan.implementationItems.push({ ...structuredClone(fallback.plan.implementationItems[0]), id: "reader", writeResources: [{ kind: "file", path: "reader.ts" }], readResources: [{ kind: "file", path: "README.md" }] });
   fallback.details.items.push({ ...structuredClone(fallback.details.items[0]), id: "reader", kind: "implement", changes: [{ kind: "modify", target: { resource: { kind: "file", path: "reader.ts" }, sourcePlanIds: ["reader"] }, intent: "Update reader", anchors: [{ kind: "symbol", symbol: "reader" }] }] });
@@ -100,6 +108,18 @@ function testArtifactSubmission() {
   const review = renderWorkContractMarkdown(acceptedFallback.compiled.packet, acceptedFallback.compiled.packet.nodes);
   assert(review.includes("conservatively waits") && review.includes("reduce parallelism"), "fallback warning absent");
   assert(JSON.stringify(acceptedFallback.compiled.packet) === beforeView, "warning changed authority");
+  assert(acceptedFallback.compiled.packet.compilationPolicy.sequentialReadFallback === true, "successful fallback decision was not recorded");
+  writeFileSync(join(artifactRoot, submittedProfile.identity.path), readFileSync(submittedProfile.path));
+  for (const [submission, directory] of [[accepted, artifactDir], [acceptedFallback, fallbackState.artifactDir]]) {
+    const pointer = join(artifactRoot, "provenance-active.json");
+    publishExecutionPacket(submission.compiled.packet, artifactRoot, directory, pointer);
+    const loaded = loadActiveExecutionPacket(pointer, artifactRoot);
+    assert(JSON.stringify(loaded.packet) === JSON.stringify(submission.compiled.packet), "provenance reconstruction changed ordinary/fallback packet authority");
+    if (submission === acceptedFallback) {
+      publishExecutionPacket({ ...submission.compiled.packet, compilationPolicy: { sequentialReadFallback: false } }, artifactRoot, directory, pointer);
+      expectThrows(() => loadActiveExecutionPacket(pointer, artifactRoot), /planned-read-not-grounded/, "admission guessed fallback instead of honoring the recorded false policy");
+    }
+  }
 
   const repositoryArtifact = join(repository, ".fanout", "run");
   expectThrows(() => submitPlanningArtifact(phaseState(repository, join(repository, ".fanout"), repositoryArtifact, "implementation"), draft, repository), /cannot be submitted into the repository/, "repository destination");
@@ -153,7 +173,8 @@ async function testPlanningLifecycle() {
       assert(!existsSync(join(artifactDir, "implementation-plan.json")), "invalid combined draft published plan");
     }
     if (["success", "queued-transition", "mutated-submission", "mutated-details-submission", "duplicate-details-resubmission"].includes(scenario)) {
-      const submitted = await harness.submit.execute("submit", { artifact: validSubmission() }, undefined, undefined, harness.ctx);
+      const artifact = scenario === "duplicate-details-resubmission" ? { revision: 1, replacePlanItems: [], replaceDetailItems: [], finalValidationCommands: validDetails().finalValidationCommands } : validSubmission();
+      const submitted = await harness.submit.execute("submit", { artifact }, undefined, undefined, harness.ctx);
       assert(submitted.terminate === true, "combined submission did not terminate");
     }
     if (scenario === "mutated-submission") writeFileSync(join(artifactDir, "implementation-plan.json"), "{");
@@ -250,19 +271,19 @@ async function testRealPlanningRuntime(implicitObjective = false) {
   const { session, sessionManager } = runtime;
   sessionManager.appendMessage({ role: "user", content: (implicitObjective ? "BARE_OBJECTIVE_DECISION " : "EXCLUDED_OLD_HISTORY ").repeat(100), timestamp: Date.now() - 2000 });
   sessionManager.appendMessage({ role: "assistant", content: [{ type: "text", text: "Option B preserves constraints." }], api: "openai-completions", provider: "fanout-sdk-test", model: "scripted", usage: usage(), stopReason: "stop", timestamp: Date.now() - 1000 });
-  session.agent.state.messages = sessionManager.buildSessionContext().messages;
+  session.refreshContext();
   const observed = [];
   let calls = 0;
   session.agent.streamFunction = (model, context) => {
     calls++;
     observed.push(JSON.parse(JSON.stringify(context)));
-    assert(context.systemPrompt.includes(FANOUT_ORCHESTRATION_MARKER), `SDK request ${calls} lost planning system prompt`);
-    assert(!context.tools.some((tool) => tool.name === "bash"), `SDK request ${calls} restored write tools before settled`);
-    if (calls <= 4) assert(context.systemPrompt.includes('"phase":"implementation"'), `SDK request ${calls} advanced before settlement`);
+    assert(getCurrentSystemPrompt(context.messages).includes(FANOUT_ORCHESTRATION_MARKER), `SDK request ${calls} lost planning system prompt`);
+    assert(!getCurrentTools(context.messages).some((tool) => tool.name === "bash"), `SDK request ${calls} restored write tools before settled`);
+    if (calls <= 4) assert(getCurrentSystemPrompt(context.messages).includes('"phase":"implementation"'), `SDK request ${calls} advanced before settlement`);
     const result = { role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id, usage: usage(), timestamp: Date.now(), stopReason: "stop" };
     if (calls === 1 || calls === 2) { result.stopReason = "error"; result.errorMessage = calls === 1 ? "503 service overloaded" : "maximum context length exceeded"; }
     else if (calls === 3) result.content = [{ type: "text", text: "continue planning EXCLUDED_PHASE_A" }];
-    else result.content = [{ type: "toolCall", id: `submit-${calls}`, name: "fanout_submit_artifact", arguments: { artifact: calls === 4 ? { plan: validPlan(), details: { ...validDetails(), items: [{ ...validDetails().items[0], changes: [{ ...validDetails().items[0].changes[0], target: { resource: { kind: "file", path: "unowned.md" }, sourcePlanIds: ["code"] } }] }] } } : validSubmission() } }];
+    else result.content = [{ type: "toolCall", id: `submit-${calls}`, name: "fanout_submit_artifact", arguments: { artifact: calls === 4 ? { plan: validPlan(), details: { ...validDetails(), items: [{ ...validDetails().items[0], changes: [{ ...validDetails().items[0].changes[0], target: { resource: { kind: "file", path: "unowned.md" }, sourcePlanIds: ["code"] } }] }] } } : { revision: 1, replacePlanItems: [], replaceDetailItems: validDetails().items } } }];
     if (calls >= 4) result.stopReason = "toolUse";
     const stream = createAssistantMessageEventStream();
     stream.push(result.stopReason === "error" ? { type: "error", reason: "error", error: result } : { type: "done", reason: result.stopReason, message: result });
@@ -275,6 +296,8 @@ async function testRealPlanningRuntime(implicitObjective = false) {
     assert(!JSON.stringify(observed[2].messages).includes("EXCLUDED_"), "explicit objective regained excluded history after SDK compaction");
     if (implicitObjective) assert(JSON.stringify(observed[2].messages).includes("BARE_OBJECTIVE_DECISION"), "bare objective lost its admitted conversation after compaction");
     assert(observed[4].messages.some((message) => message.role === "toolResult" && message.isError && JSON.stringify(message).includes("write-not-authorized")), "compiler draft failure did not return through the real tool retry loop");
+    const repairSchema = getCurrentTools(observed[4].messages).find((tool) => tool.name === "fanout_submit_artifact").parameters.properties.artifact.properties;
+    assert(repairSchema.revision && repairSchema.replaceDetailItems && !repairSchema.plan, "SDK automatic response did not receive only the repair schema");
     assert(existsSync(runtime.activePointerPath), "SDK corrected details did not publish a packet");
     assert(session.getActiveToolNames().includes("bash"), "SDK settled success did not restore prior tools");
   } finally { session.dispose(); }
@@ -294,7 +317,7 @@ async function testRealPlanningCancellation() {
   const { session, sessionManager } = runtime;
   sessionManager.appendMessage({ role: "user", content: "Choose option B from the earlier discussion.", timestamp: Date.now() });
   sessionManager.appendCompaction("Option B means keep compatibility and change only the renderer.", sessionManager.getLeafId(), 100);
-  session.agent.state.messages = sessionManager.buildSessionContext().messages;
+  session.refreshContext();
   let providerContext;
   session.agent.streamFunction = (model, context, options) => {
     providerContext = context;

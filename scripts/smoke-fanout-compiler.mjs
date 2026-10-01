@@ -59,7 +59,7 @@ const details = {
     id: "feature", kind: "implement",
     changes: [{ kind: "create", target: { resource: { kind: "file", path: "src/feature.ts" }, sourcePlanIds: ["feature"] }, contentIntent: "feature implementation" }],
     readDependencies: [{ resource: { kind: "file", path: "package.json" }, timing: "baseline-context", timingSource: "phase-b", sourcePlanIds: ["feature"], reason: "package metadata" }],
-    validationCommands: [command], advisoryNotes: [{ kind: "context", reference: "feature", text: "grounded source" }],
+    validationCommands: [command], advisoryValidationMode: "collect-independent", advisoryNotes: [{ kind: "context", reference: "feature", text: "grounded source" }],
   }],
   finalValidationCommands: [command, command],
 };
@@ -68,10 +68,12 @@ const tier = (provider, model, status = "available") => ({ provider, model, thin
 const tierPlan = { tier1: tier("local", "one"), tier2: { ...tier("local", "two", "unavailable"), fallback: "tier1" }, tier2Fallback: tier("local", "fallback") };
 
 assert(validateImplementationPlan(plan).ok, "plan v4 rejected");
-assert(validateImplementationDetailsArtifact(details, { planIdentity, planIds: ["feature"], profile }).ok, "details v7 rejected");
+assert(validateImplementationDetailsArtifact(details, { planIdentity, planIds: ["feature"], profile }).ok, "details v8 rejected");
 const modifyDetails = structuredClone(details);
 modifyDetails.items[0].changes = [{ kind: "modify", target: { resource: { kind: "file", path: "src/feature.ts" }, sourcePlanIds: ["feature"] }, intent: "modify feature", anchors: [{ kind: "symbol", symbol: "feature" }] }];
 const malformedDetails = [
+  ["missing advisory mode", (value) => { delete value.items[0].advisoryValidationMode; }],
+  ["invalid advisory mode", (value) => { value.items[0].advisoryValidationMode = "parallel"; }],
   ["singular anchor", (value) => { value.items[0].changes[0].anchor = value.items[0].changes[0].anchors[0]; delete value.items[0].changes[0].anchors; }],
   ["flattened endpoint", (value) => { value.items[0].changes[0].target = { kind: "file", path: "src/feature.ts", sourcePlanIds: ["feature"] }; }],
   ["wrong anchor field", (value) => { value.items[0].changes[0].anchors = [{ kind: "symbol", text: "feature" }]; }],
@@ -104,7 +106,7 @@ phaseBForbidden.items[0].forbiddenWrites = [];
 const phaseBForbiddenResult = validateImplementationDetailsArtifact(phaseBForbidden, { planIdentity, plan });
 assert(!phaseBForbiddenResult.ok && phaseBForbiddenResult.errors.some((error) => error.includes("items[0]") && error.includes("forbiddenWrites")), "Phase B forbiddenWrites failed to reject structurally");
 assert(!validateImplementationPlan({ ...plan, version: 1 }).ok, "legacy plan v1 admitted");
-assert(!validateImplementationDetailsArtifact({ ...details, version: 5 }, { planIdentity }).ok, "legacy details v5 admitted");
+assert(!validateImplementationDetailsArtifact({ ...details, version: 7 }, { planIdentity }).ok, "legacy details v7 admitted");
 assert(!validateImplementationDetailsArtifact({ ...details, plan: { ...planIdentity, sha256: "2".repeat(64) } }, { planIdentity }).ok, "mixed plan/details identity admitted");
 const duplicateFinalValidation = validateImplementationDetailsArtifact({
   ...details,
@@ -138,18 +140,20 @@ const splitDetails = structuredClone(details);
 splitDetails.items.push({ ...structuredClone(details.items[0]), id: "feature-tests", changes: [{ kind: "create", target: { resource: { kind: "file", path: "test/feature.ts" }, sourcePlanIds: ["feature"] }, contentIntent: "Feature regression." }] });
 const splitPacket = compileWith(splitPlan, splitDetails);
 assert(splitPacket.ok && splitPacket.packet.nodes.length === 2 && splitPacket.packet.nodes[0].workContract.changes.length === 2, "packet compilation split one Phase A repair boundary");
+assert(splitPacket.packet.nodes[0].workContract.advisoryValidationMode === "fail-fast", "merge inferred independence across command groups");
 const selfRead = structuredClone(details); selfRead.items[0].readDependencies = [{ ...selfRead.items[0].readDependencies[0], resource: { kind: "file", path: "src/feature.ts" }, timing: "post-change-required" }];
 assert(compileWith(plan, selfRead).issues.some(({ code }) => code === "self-post-change-read"), "packet compiler admitted a model self dependency");
 
-assert(packet.version === EXECUTION_PACKET_VERSION && packet.version === 10, "packet is not v10");
+assert(packet.version === EXECUTION_PACKET_VERSION && packet.version === 11, "packet is not v11");
+assert(packet.nodes[0].workContract.advisoryValidationMode === "collect-independent" && packet.nodes.at(-1).workContract.advisoryValidationMode === "fail-fast", "compiler lost explicit policy or widened final validation");
 assert(packet.nodes.length === 2 && packet.nodes.at(-1).kind === "final-validation", "canonical nodes/final validation missing");
 assert(packet.nodes.every((node) => !Object.hasOwn(node.workContract, "candidateNormalizationCommands")), "packet retained profile-owned normalization");
 assert(packet.nodes.at(-1).workContract.validationCommands.length === 2, "command order/duplicates were not preserved");
 assert(packet.nodes.every((node) => node.workContract.forbiddenWrites.some((entry) => entry.resource.path === "generated" && entry.sourcePlanIds[0] === "feature")), "Phase A forbidden writes did not reach every ordinary/final Work Contract with provenance");
-assert(JSON.stringify(packet.runtimePolicy) === JSON.stringify(runtimePolicy), "immutable runtime policy was not stored in packet v10");
+assert(JSON.stringify(packet.runtimePolicy) === JSON.stringify(runtimePolicy), "immutable runtime policy was not stored in packet v11");
 const forbidden = ["artifactDir", "blockers", "workUnits", "estimates", "stopRules", "risks", "finalValidationPlan", "goal", "dependencies", "ownedFiles", "readOnlyFiles", "steps", "validationCommands", "acceptanceCriteria", "rollbackNotes", "workerPacket"];
 assert(!forbidden.some((key) => Object.hasOwn(packet, key) || packet.nodes.some((node) => Object.hasOwn(node, key))), "packet retains flattened legacy authority");
-assert(validateExecutionPacket(packet).executable, "packet v10 rejected");
+assert(validateExecutionPacket(packet).executable, "packet v11 rejected");
 assert(!validateExecutionPacket({ ...packet, version: 7 }).executable, "legacy packet v7 admitted");
 assert(!validateExecutionPacket({ ...packet, status: "ready" }).executable, "legacy status field admitted");
 assert(!validateExecutionPacket({ ...packet, runtimePolicy: { ...packet.runtimePolicy, maxConcurrency: 0 } }).executable, "invalid packet runtime policy admitted");
@@ -160,6 +164,7 @@ assert(JSON.stringify(graph.edges) === JSON.stringify([["feature", "final-valida
 const fused = compileSerialFixture("chain");
 assert(fused.ok && fused.packet.nodes.length === 2, `eligible vertical chain did not fuse: ${fused.errors.join("; ")}`);
 const fusedNode = fused.packet.nodes[0];
+assert(fusedNode.workContract.advisoryValidationMode === "fail-fast", "fusion retained independence from its input groups");
 assert(/^fused-[0-9a-f]{16}$/.test(fusedNode.id) && fusedNode.workContract.changes.length === 3, "longer chain did not receive one deterministic identity and unioned authority");
 assert(fusedNode.workContract.goals.map(({ sourcePlanId }) => sourcePlanId).join(",") === "a,b,c" && fusedNode.workContract.validationCommands.map(({ args }) => args[0]).join(",") === "a,b,c", "fusion lost source order, source-plan provenance, or the exact covering validation manifest");
 assert(JSON.stringify(deriveExecutionGraph(fused.packet).edges) === JSON.stringify([[fusedNode.id, "final-validation"]]), "fused graph did not preserve the final-validation boundary");
@@ -183,7 +188,7 @@ for (const name of readdirSync("packages/fanout-core/src").filter((name) => name
 const providerPackage = JSON.parse(readFileSync("packages/doubleword-provider/package.json", "utf8"));
 assert(!JSON.stringify(providerPackage).includes("fanout-core") && !JSON.stringify(providerPackage).includes("fanout-pi"), "standalone Doubleword package depends on Fanout");
 
-console.log("hardened compiler cutover smoke passed (plan v4, details v7, packet v10, package independence)");
+console.log("hardened compiler cutover smoke passed (plan v4, details v8, packet v11, package independence)");
 
 function compileSerialFixture(shape) {
   const ids = shape === "branch" || shape === "join" || shape === "chain" ? ["a", "b", "c"] : ["a", "b"];
@@ -229,6 +234,7 @@ function compileSerialFixture(shape) {
       changes: [{ kind: "create", target: { resource: resources[id], sourcePlanIds: [id] }, contentIntent: `create ${id}` }],
       readDependencies: reads[id].map(({ id: readId, timing }) => ({ resource: resources[readId], timing, timingSource: "phase-b", sourcePlanIds: [id], reason: `read ${readId}` })),
       validationCommands: manifests[id],
+      advisoryValidationMode: "collect-independent",
       advisoryNotes: [],
     })),
     finalValidationCommands: [{ executable: "rtk", args: ["final"] }],

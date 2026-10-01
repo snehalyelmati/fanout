@@ -7,7 +7,7 @@ const source = { id: "source-8-1", path: "packet/executions/run-1/events.jsonl",
 const packetSource = { id: "source-8-2", path: "packet/execution-packet.json", kind: "planning" as const, byteLength: 456, modifiedAtMs: 1 };
 const profile = { path: "profiles/default.json", sha256: "a".repeat(64), byteLength: 10 };
 const packet = {
-	version: 10,
+	version: 11,
 	profile,
 	objective: "Keep <script>alert('no')</script> as evidence text",
 	nodes: [
@@ -144,7 +144,7 @@ test("planning-only Workflow Lineages are openable without invented execution st
 
 	const currentLineage = queryWorkspace(snapshot, { selection: { kind: "lineage", id: "packet" } });
 	expect(currentLineage.inspector.fields).toContainEqual(["Execution state", "1 admitted Execution Run available; none selected"]);
-	expect(currentLineage.inspector.receipt).toMatchObject({ artifactGeneration: "Planning v4 / Details v7 / Packet v10", profileIdentity: profile, missingInputs: ["selected Execution Run"] });
+	expect(currentLineage.inspector.receipt).toMatchObject({ artifactGeneration: "Planning v4 / Details v8 / Packet v11", profileIdentity: profile, missingInputs: ["selected Execution Run"] });
 });
 
 

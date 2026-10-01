@@ -9,7 +9,7 @@ const profile = { path: "profiles/default.json", sha256: "c".repeat(64), byteLen
 const otherProfile = { path: "profiles/other.json", sha256: "d".repeat(64), byteLength: 10 };
 const packetSource: SourceReference = { id: "packet-source", path: packet.path, kind: "planning", byteLength: 10, modifiedAtMs: 1 };
 const base = { headCommit: "1".repeat(40), tree: "2".repeat(40) };
-const contract = { schema: "fanout.work-contract", version: 5, goals: [{ sourcePlanId: "goal", statement: "Do exact work" }], changes: [], readDependencies: [], forbiddenWrites: [], validationCommands: [], capabilities: { modelCallableTools: ["read", "grep", "find", "ls", "edit", "write", "fanout_validate"], validationExecution: "worker-advisory-controller-authoritative", shell: "unavailable", extensionTools: "fanout-validate-only" }, semanticReviewCriteria: [{ sourcePlanId: "criterion", statement: "It works" }], advisoryNotes: [] };
+const contract = { schema: "fanout.work-contract", version: 6, goals: [{ sourcePlanId: "goal", statement: "Do exact work" }], changes: [], readDependencies: [], forbiddenWrites: [], validationCommands: [], advisoryValidationMode: "fail-fast", capabilities: { modelCallableTools: ["read", "grep", "find", "ls", "edit", "write", "fanout_validate"], validationExecution: "worker-advisory-controller-authoritative", shell: "unavailable", extensionTools: "fanout-validate-only" }, semanticReviewCriteria: [{ sourcePlanId: "criterion", statement: "It works" }], advisoryNotes: [] };
 
 function totals(runDurationMs: number, totalTokens: number, estimatedCostUsd: number): ExecutionTotals {
 	return {

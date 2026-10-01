@@ -5,12 +5,13 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { parseArtifactIdentity, type ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
 import { parseValidationCommands, type ValidationCommand } from "../../fanout-core/src/validation-command.ts";
 import { parseResource, type Resource } from "../../fanout-core/src/repository-resource.ts";
+import { parseAdvisoryValidationMode, type AdvisoryValidationMode } from "../../fanout-core/src/work-contract.ts";
 import { readVerifiedArtifact, writeArtifactAtomically } from "./artifact-store.ts";
 import { runValidationCommands, type ValidationCommandResult, type ValidationRunResult } from "./validation-runner.ts";
 
 export const FANOUT_VALIDATE_TOOL = "fanout_validate";
 export const WORKER_VALIDATION_MANIFEST_SCHEMA = "fanout.worker-validation-manifest";
-export const WORKER_VALIDATION_MANIFEST_VERSION = 2;
+export const WORKER_VALIDATION_MANIFEST_VERSION = 3;
 const MANIFEST_PATH = "worker-validation-manifest.json";
 const MODEL_VISIBLE_FAILURE_OUTPUT_LIMIT = 8_000;
 
@@ -24,6 +25,7 @@ export interface WorkerValidationManifest {
 	worktreeRoot: string;
 	platform: NodeJS.Platform;
 	commands: ValidationCommand[];
+	advisoryValidationMode: AdvisoryValidationMode;
 	writeResources: Resource[];
 	forbiddenWrites: Resource[];
 	timeoutMs: number;
@@ -50,6 +52,7 @@ export function publishWorkerValidationManifest(
 		worktreeRoot: realpathSync(resolve(input.worktreeRoot)),
 		platform: input.platform,
 		commands: parseValidationCommands(input.commands, input.platform),
+		advisoryValidationMode: parseAdvisoryValidationMode(input.advisoryValidationMode),
 		writeResources: parseResources(input.writeResources),
 		forbiddenWrites: parseResources(input.forbiddenWrites),
 		timeoutMs: positiveInteger(input.timeoutMs, "timeoutMs"),
@@ -119,6 +122,7 @@ export async function runWorkerValidation(
 			scopeId: `${manifest.attemptId}/worker-validation`,
 			timeoutMs: manifest.timeoutMs,
 			inheritedEnv: validationEnvironment(),
+			continueAfterNonzero: manifest.advisoryValidationMode === "collect-independent",
 			signal,
 		});
 	} catch (caught) {
@@ -159,7 +163,7 @@ export function readManifest(context: WorkerValidationContext): WorkerValidation
 }
 
 function parseManifest(value: unknown): WorkerValidationManifest {
-	const fields = ["schema", "version", "runId", "nodeId", "attemptId", "attemptRoot", "worktreeRoot", "platform", "commands", "writeResources", "forbiddenWrites", "timeoutMs"];
+	const fields = ["schema", "version", "runId", "nodeId", "attemptId", "attemptRoot", "worktreeRoot", "platform", "commands", "advisoryValidationMode", "writeResources", "forbiddenWrites", "timeoutMs"];
 	if (!isRecord(value) || Object.keys(value).length !== fields.length || fields.some((field) => !Object.hasOwn(value, field))) throw new TypeError("worker validation manifest has unknown or missing fields");
 	if (value.schema !== WORKER_VALIDATION_MANIFEST_SCHEMA || value.version !== WORKER_VALIDATION_MANIFEST_VERSION) throw new TypeError("unsupported worker validation manifest generation");
 	const platform = value.platform as NodeJS.Platform;
@@ -176,6 +180,7 @@ function parseManifest(value: unknown): WorkerValidationManifest {
 		worktreeRoot,
 		platform,
 		commands: parseValidationCommands(value.commands, platform),
+		advisoryValidationMode: parseAdvisoryValidationMode(value.advisoryValidationMode),
 		writeResources: parseResources(value.writeResources),
 		forbiddenWrites: parseResources(value.forbiddenWrites),
 		timeoutMs: positiveInteger(value.timeoutMs, "timeoutMs"),
@@ -190,10 +195,13 @@ function parseResources(value: unknown): Resource[] {
 function formatResult(result: ValidationRunResult): string {
 	if (!result.commands.length) return "fanout_validate: No focused validation commands are declared for this attempt. The controller still runs the combined authoritative final gates.";
 	const lines = [`fanout_validate ${result.status}: ${result.executedCount}/${result.commands.length} commands executed in ${result.durationMs}ms.`];
+	const failures = result.commands.filter((command) => command.outcome !== "passed" && command.outcome !== "unexecuted");
+	// Share one diagnostic budget; retain every positional status even for long manifests.
+	const diagnosticLimit = Math.floor(MODEL_VISIBLE_FAILURE_OUTPUT_LIMIT / Math.max(1, failures.length));
 	for (const command of result.commands) {
 		lines.push(`[${command.index}] ${command.outcome} (exit ${command.exitCode ?? "none"}, ${command.durationMs}ms)`);
 		if (command.outcome !== "passed" && command.outcome !== "unexecuted") {
-			const diagnostics = formatFailureDiagnostics(command);
+			const diagnostics = formatFailureDiagnostics(command, diagnosticLimit);
 			if (diagnostics) lines.push(diagnostics);
 		}
 	}
@@ -201,16 +209,17 @@ function formatResult(result: ValidationRunResult): string {
 	return lines.join("\n");
 }
 
-function formatFailureDiagnostics(command: ValidationCommandResult): string {
+function formatFailureDiagnostics(command: ValidationCommandResult, limit: number): string {
 	const output = [
 		command.spawnError ? `spawn error: ${command.spawnError}` : "",
 		command.stdout ? `stdout:\n${command.stdout}` : "",
 		command.stderr ? `stderr:\n${command.stderr}` : "",
 	].filter(Boolean).join("\n");
-	if (output.length <= MODEL_VISIBLE_FAILURE_OUTPUT_LIMIT) return output;
+	if (output.length <= limit) return output;
 	const marker = "\n... [fanout_validate output truncated; head and tail shown] ...\n";
-	const retained = MODEL_VISIBLE_FAILURE_OUTPUT_LIMIT - marker.length;
-	return `${output.slice(0, Math.ceil(retained / 2))}${marker}${output.slice(-Math.floor(retained / 2))}`;
+	if (limit <= marker.length) return marker.slice(0, limit);
+	const retained = limit - marker.length;
+	return `${output.slice(0, Math.ceil(retained / 2))}${marker}${output.slice(output.length - Math.floor(retained / 2))}`;
 }
 
 function validationEnvironment(): NodeJS.ProcessEnv {

@@ -1,6 +1,6 @@
 import { lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import type { AcceptedPatch, AcceptedStateTransition } from "../../fanout-core/src/artifact-identity.ts";
+import type { AcceptedPatch, AcceptedStateTransition, ArtifactIdentity } from "../../fanout-core/src/artifact-identity.ts";
 import type { CorrelatedAttemptMetrics } from "../../fanout-core/src/attempt-metrics.ts";
 import type { AttemptAllocation, StageFact } from "../../fanout-core/src/execution-attempt.ts";
 import type { AttemptRecoveryContext } from "../../fanout-core/src/recovery-evidence.ts";
@@ -21,6 +21,7 @@ import {
 import { WORKER_MODEL_TOOLS } from "./worker-capabilities.ts";
 import { buildWorkerSourceContext } from "./worker-context.ts";
 import { publishWorkerValidationManifest } from "./worker-validation.ts";
+import { prepareProjectWorktree } from "./project-execution-profile.ts";
 
 export interface WorkerTier {
 	tier: TierName;
@@ -70,6 +71,7 @@ export interface WorkerAttemptExecutionOptions {
 	ledger: readonly { patch: AcceptedPatch }[];
 	profile: ProjectExecutionProfile;
 	preparedBase?: PlanningBase;
+	profileIdentity: ArtifactIdentity;
 	allocation: AttemptAllocation;
 	attemptDir: string;
 	worktreePath: string;
@@ -104,6 +106,13 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 		mkdirSync(attemptDir, { recursive: true });
 		const attemptBase = options.preparedBase ?? createReconstructedWorktree(options.repoRoot, worktreePath, options.planningBase, options.runDir, options.ledger);
 		if (!options.preparedBase && options.seedPatch) applyRepairSeedOverlay(worktreePath, options.runDir, options.seedPatch, { exact: options.recovery?.kind === "final-validation" });
+		const prepared = await prepareProjectWorktree(options.profile, options.profileIdentity, {
+			worktreePath, artifactRoot: options.runDir,
+			evidencePath: `${relative(options.runDir, attemptDir).split("\\").join("/")}/preparation.json`,
+			scopeId: attemptId, timeoutMs: options.validationTimeoutMs, signal,
+		});
+		signal?.throwIfAborted();
+		if (prepared.evidence.status !== "passed") throw new Error(`project worktree preparation failed: ${prepared.evidence.error ?? "unknown failure"}`);
 
 		const promptPath = join(attemptDir, "prompt.md");
 		const stdoutPath = join(attemptDir, "stdout.log");
@@ -133,6 +142,7 @@ export async function executeWorkerAttempt(options: WorkerAttemptExecutionOption
 			worktreeRoot: worktreePath,
 			platform: packet.planningHost.platform,
 			commands: contract.validationCommands,
+			advisoryValidationMode: contract.advisoryValidationMode,
 			writeResources: contractWriteResources(contract),
 			forbiddenWrites: contract.forbiddenWrites.map((entry) => entry.resource),
 			timeoutMs: options.validationTimeoutMs,

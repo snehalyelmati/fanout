@@ -1,10 +1,248 @@
 # Benchmark Metrics
 
+## Findings at a glance — 2026-09-30
+
+- **Measured:** one independently checked p-map run with Fanout Kimi K3 planning and DeepSeek V4.1 Flash realtime workers cost **$0.32**, versus **$0.55** for raw Pi GPT-5.6 Sol (**−42%**); active time was **523.8s versus 274.1s**, not a speedup.
+- **Modeled:** with realtime planning, async workers take **27.7 min**, falling to **10.7 min** with hypothetical continuation groups of 10 at about **$0.31**.
+- **Modeled:** combining continuations, shallower chains and half the output on a **4×-sized task in four parallel parts** gives **0.49× time / 0.13× cost** versus sequential raw Sol.
+
+Dollar figures are token-price estimates, not invoices. These selected anchors do not establish reliability or measured async gains. See the [case study](case-studies/coding-agents-at-async-prices/README.md), [model and caveats](case-studies/coding-agents-at-async-prices/MODEL.md), and [updated study](STUDY.md).
+
+The chronological canary inventories are the [p-map run ledger](benchmarks/p-map-abort-signal-canary-tracker.md#run-ledger) and [Execa run ledger](benchmarks/execa-web-streams-manual-e2e.md#run-ledger). This index retains experiment summaries, methodology, recovery analysis and aggregate comparisons; individual execution records are maintained in those ledgers.
+
+## Raw Pi p-map Kimi K3 controls — 2026-09-29
+
+Three sequential ordinary Pi p-map runs used Doubleword Kimi K3 medium throughout, without Fanout. The first two passed the full suite, diff check and all six frozen acceptance-v2 cases in **691.486s / $0.8515143** and **684.565s / $0.9930861** active E2E / estimated cost. The third timed out at the 20-minute watchdog before final gates; its recorded **128,692 tokens / $0.521448** are lower bounds because the aborted request has unknown usage. All three reused the historical raw-v2 task/checker and skipped previously validated baseline tests. [Run identities, configuration and preserved evidence](benchmarks/p-map-abort-signal-canary-tracker.md#2026-09-29-raw-pi-kimi-k3-control).
+
+## p-map AbortSignal benchmark validation update — 2026-09-27
+
+Updated the existing [p-map benchmark task](benchmarks/p-map-abort-signal/TASK.md) and frozen direct-argv command for the runtime/behavioral-test worker. The check waits until a source value is being awaited, aborts, requires prompt rejection with the exact reason, then resolves the value and requires zero mapper starts. It runs through the existing `fanout_validate` and authoritative node validation paths. The approved 1,374-byte profile (`2b0248d9a4f65fa271ad05eeb15ca67ed0ec158bfe36450e9a96ab39a072bb8a`) is reused unchanged; task-specific coverage belongs in the packet.
+
+The updated [prepared packet](benchmarks/p-map-abort-signal/prepared/execution-packet.json) freezes this command first in `runtime-and-behavioral-tests`. Offline recompilation and identity checks pass; the packet is not activated or executed. Its [provenance](benchmarks/p-map-abort-signal/prepared/provenance.json) records the preserved source artifacts and new task identity.
+
+This updates the existing benchmark; it does not create a separate benchmark. Future results must record the updated task and packet identities because workers now see the previously external regression. Archived task versions, packets, candidates and frozen `p-map-acceptance-v2.mjs` remain unchanged; that external checker still determines benchmark acceptance. Offline synthetic failure/pass controls verify the new command and validation wiring. No planning/model call, candidate fix, live run, repetition, baseline suite, or new cost/time/quality measurement accompanies this setup.
+
+## p-map Kimi/DeepSeek validated canaries — 2026-09-28
+
+Two separately authorized singleton canaries exercised the updated promised-source-value worker gate from clean p-map baseline commit/tree `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`. Both used Kimi K3 medium planning/control, disabled async Tier 2, DeepSeek V4.1 Flash medium realtime fallback, concurrency four, and the unchanged 1,374-byte profile `2b0248d9a4f65fa271ad05eeb15ca67ed0ec158bfe36450e9a96ab39a072bb8a`. Each was freshly planned because routing and task authority are packet-frozen; no baseline suite or profile rebuild was repeated.
+
+Run identities, measurements, final trees and validation results are in the [p-map run ledger](benchmarks/p-map-abort-signal-canary-tracker.md#run-ledger).
+
+Both live runs completed two originals, accepted exactly the five authorized files, passed the profile's single final `npm test`, and passed frozen acceptance v2 including zero mapper starts in `promised-source-value-abort`. The first planning call recovered one compiler-admission correction; the second was accepted on its first submission. Runtime/test validation feedback was repaired inside the original worker boundary and both runtime patches applied through deterministic reconciliation; no controller retry/repair attempt was allocated. Final diff, worktree, process and lock checks passed, and pane `%17` remains preserved for the second run. These are two successful observations, not a stable reliability rate or provider comparison. Detailed identities and recovery notes are in the [canary tracker](benchmarks/p-map-abort-signal-canary-tracker.md).
+
+## Retrospective successful-run inventory — 2026-08-30 through 2026-09-28
+
+An artifact-to-documentation audit added **33 previously unindexed successful live executions** and their dry-run identities to the task-specific records. All finished `completed` with final validation `passed`; failed, aborted, unfinished, and planning-only artifacts are excluded.
+
+- The [p-map canary tracker](benchmarks/p-map-abort-signal-canary-tracker.md) now records 29 runs: seven Sol-medium/Terra-medium, two Doubleword GLM-5.3-medium/DeepSeek-V4.1-Flash-medium, and twenty Doubleword Kimi-K3-medium/DeepSeek-V4.1-Flash-medium executions. Its ledger includes full live and dry-run IDs, attempts, duration, tokens, recorded cost, and final tree.
+- The [Execa Web Streams E2E record](benchmarks/execa-web-streams-manual-e2e.md) now records four runs: three Sol-medium/Terra-medium executions on 2026-08-30 and one Sol-medium/Luna-high execution on 2026-09-06, with the same execution evidence fields.
+
+These historical rows are an inventory of separate successful runs across changing packets and routing, not a fixed-input cohort or a new aggregate performance baseline.
+
+## p-map Doubleword post-fix canary — 2026-09-24
+
+The owner's single authorized live canary used Kimi K3 medium planning/control and DeepSeek V4.1 Flash medium realtime fallback (async Tier 2 disabled, concurrency four) after `/fanout-config` verification. Pi 0.87 transcript compatibility was validated by offline mock and then live Kimi planning: the model read the p-map task, used tools, and published an accepted packet. Source was local `9bc2ddc9a666a9d76410ddec8a0433539ecec6e4` plus frozen uncommitted runtime patch; clean standalone target was p-map baseline tree `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`. The approved execution profile was reused unchanged, not rebuilt. Planning took 472.223s / 127,501 tokens / estimated `$0.5311062`; a 15.381s dry-run passed with zero workers or target changes.
+
+Run identities, measurements, final trees and validation results are in the [p-map run ledger](benchmarks/p-map-abort-signal-canary-tracker.md#run-ledger).
+
+DeepSeek's documentation original was accepted, but its grouped runtime/test original timed out after 602.004s without editing or invoking `fanout_validate`. Controller `run-finished` labels this `user-abort`; the attempt records `process.timedOut: true` and exit 143. Frozen acceptance v2 on the **partial** tree failed four unimplemented abort-behavior cases; this is not a completed-candidate quality verdict. Preserved candidate, plan, packet, provenance, metrics, acceptance receipt and cleanup evidence: [run-3 archive](../runs/p-map-kimi-deepseek-three-20260923/README.md). The isolated Pi/auth copy and stale lock were removed after verified ownership/tree; no replacement execution occurred. There is no successful new Doubleword canary and no speedup or reliability claim.
+
+## Offline diagnosis of the Kimi planning stop — 2026-09-24
+
+The two preserved failures below are explained by a reproduced local provider compatibility defect, not evidence of Kimi quality. Pi's [0.86 breaking change](https://github.com/earendil-works/pi/blob/v0.87.0/packages/ai/CHANGELOG.md) moved system prompts/tools into transcript system messages. At diagnosis the installed CLI was 0.87.0 and this checkout's SDK dependency was 0.83.0. Doubleword still read only `context.systemPrompt` and `context.tools` and skipped system messages. `/fanout-config` correctly selected the model but could not detect this serialization loss.
+
+`npm run smoke:planning-request` reproduces the full local path without credentials or remote inference. In the negative control, `before_agent_start` and the actual provider context contained the implementation objective, an 11,567-byte prompt and five tools, while POST `/responses` had zero system bytes, zero tools, and only the generic planning-trigger user message. After resolving the provider context through Pi's transcript helpers, the HTTP prompt hash matches the hook hash, all five tools survive, Pi reads the synthetic task, and Fanout accepts the synthetic plan. The interim compatibility fix passed on CLI 0.87.0 and local CLI 0.83.0. The owner then chose 0.87.0 as the new minimum: SDK/CLI development dependencies are pinned to it and legacy-context support is removed for provider 0.2.0. Section/tool delta replay is tested too. This is transport/tool-loop evidence, not model-performance evidence.
+
+The September 19 Kimi executions `287c5977`, `a5df7210`, and `b29698ac` below record Pi 0.85.1 in `execution-run.json` launcher preflight. Their first Kimi provider receipts report 12,447 input tokens and their sessions invoke `read ../TASK.md` and `ls`, consistent with the pre-0.86 contract. In contrast, both September 23 archived sessions record five planning tools in `toolsAdded`, followed by native receipts of 97 input tokens and no tool calls. Their empty persisted system `content` is not proof that the hook failed: Pi can persist sections separately and apply forced run prompts to provider context. The loopback probe observes that latter boundary directly.
+
+Historical outbound HTTP bodies and gateway ingress were not captured; the exact 97-token accounting and any additional remote behavior remain unverified. No paid request, candidate edit, profile execution, live canary, commit, or push was performed **during the offline diagnosis**. The later separately authorized live canary is documented above. Historical gateway inspection can use response IDs `resp_ced57ffc-90df-40dd-a852-59b3a0a5cb86` and `resp_0ae27491-ebac-4a7d-ab87-de06cc7b8b91` without generating another inference request.
+
+## p-map Kimi K3 / DeepSeek V4.1 Flash planning stop — 2026-09-23
+
+The owner switched the requested three new runs from Sol/Terra to Kimi K3 medium control and DeepSeek V4.1 Flash medium realtime fallback, with async Tier 2 disabled and concurrency four. Source `9bc2ddc9a666a9d76410ddec8a0433539ecec6e4`, p-map baseline tree `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`, task and approved profile were verified and frozen. A fresh standalone clone passed `npm ci --ignore-scripts` and `npm ls --depth=0`; the previously validated 51-test baseline and byte-identical profile were reused, not rebuilt.
+
+| Planning attempt | Outcome | Duration / TTFT | Tokens / estimated cost |
+| --- | --- | --- | --- |
+| Initial Kimi turn | Unrelated architecture; zero tool calls; no submitted plan | 25.656s / 20.746s | 3,160 / `$0.046236` |
+| Fresh-clone/session retry | Repeated unrelated prose; zero tool calls; no submitted plan | 22.888s / 15.734s | 2,732 / `$0.039816` |
+
+**Zero live runs occurred during these two historical planning attempts.** The initial Kimi `/fanout-plan` turn ignored the p-map task and answered with an unrelated event-fanout architecture. At the owner's direction a fresh standalone clone and Pi session checked `/fanout-config` again; Kimi medium Tier 1 and DeepSeek V4.1 Flash medium fallback were confirmed before retrying `/fanout-plan`. Fanout rejected both unsubmitted plans; there was no packet, dry-run, worker, DeepSeek call, candidate, controller validation or independent acceptance **in these attempts**. Combined estimated planning cost was `$0.086052`. Both targets remain clean and both Pi sessions, temporary credentials and panes are gone. [Two planning failures and frozen evidence](../runs/p-map-kimi-deepseek-three-20260923/README.md). The provider reported exactly 97 input tokens in each turn; subsequent offline diagnosis reproduced the Pi transcript-compatibility defect. These historical planning misses are not evidence of completion rate, runtime quality, or provider comparison; the separately authorized later canary aborted as documented above.
+
+## Four further sequential p-map Sol/Terra runs — 2026-09-23
+
+The user authorized **four more runs** after the failed singleton below. All four reused the same local Fanout source `9bc2ddc9a666a9d76410ddec8a0433539ecec6e4`, packet SHA-256 `74ba72f949d25c453744f136942187322dc9813d08fac2cd0ecc6ed135e11012`, approved profile SHA-256 `1fba48e8caf34ea2d81299ab57052d63ba69f61b198c0456601169669267dcd0`, frozen task and baseline tree `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`. Each used a clean, separate standalone clone and isolated agent artifacts, not a linked active worktree. Sol medium remained controller, async Tier 2 disabled, Terra medium realtime fallback, concurrency four. No planning call or profile rebuild was repeated. Four dry runs passed with zero workers, provider calls, attempts, accepted transitions, tokens, cost, or active changes; each approved profile check still performed isolated setup.
+
+Run identities, measurements, final trees and validation results are in the [p-map run ledger](benchmarks/p-map-abort-signal-canary-tracker.md#run-ledger).
+
+Every controller completed one accepted Terra original with no retry, repair, fallback attempt, or reconciliation. All four passed complete final `npm test`, `git diff --check`, ownership/apply and accepted-tree checks, changing exactly the authorized five files. Worker events' effective `tier1` label is expected for the disabled async Tier 2; runtime contexts and packet prove Terra's configured fallback provenance. Runs 1–3 still fail the benchmark despite controller completion: they invoke the mapper after awaiting a promised source value without rechecking abort. Run 4 independently passes because the generated candidate checks abort **between** the value await and mapper invocation. There was no manual candidate edit or replacement run. Pi/process/lock/worktree/credential cleanup passed and all four outcomes remain preserved.
+
+Four execution runs together recorded **1,223,942 tokens, `$0.9031496` execution cost, 40 worker turns, and 77.322s aggregate TTFT**, including all three failed candidates. Controller durations range 216.516–363.956s; there is only one independently accepted completion, so these numbers establish no accepted-run median, speedup, stable reliability rate, or causal advisory-validation benefit. Previous planning cost belongs to the earlier singleton and was not charged again. Detailed run identities, per-stage metrics, patches, independent receipts and checksums: [four-run archive](../runs/p-map-sol-terra-four-20260923/README.md). Earlier cohorts remain separately labeled.
+
+## p-map Sol/Terra advisory-validation canary — 2026-09-23
+
+**One fresh singleton: controller completed, independent acceptance failed.** Clean local Fanout source commit/tree `9bc2ddc9a666a9d76410ddec8a0433539ecec6e4` / `856116a9ed00013f103fe0274a654343a838c236` includes the advisory-validation and provenance changes below. The previously prepared standalone run-3 p-map clone was verified clean at baseline commit/tree `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`; historical failed candidates were not reset. The unchanged approved profile was reused at SHA-256 `1fba48e8caf34ea2d81299ab57052d63ba69f61b198c0456601169669267dcd0`, not rebuilt. Sol medium planned/controlled; async Tier 2 was disabled; Terra medium served as the realtime fallback with maximum concurrency four.
+
+Fresh ordinary planning produced packet-v11 SHA-256 `74ba72f949d25c453744f136942187322dc9813d08fac2cd0ecc6ed135e11012`. The effective `tier1` worker label was expected: the packet and runtime context identify Terra from `fanout.execution.tier2Fallback`.
+
+Run identities, measurements, final trees and validation results are in the [p-map run ledger](benchmarks/p-map-abort-signal-canary-tracker.md#run-ledger).
+
+**Frozen independent acceptance v2 failed only `promised-source-value-abort`:** one mapper started after abort while a source value was unresolved, expected zero. The candidate invokes `mapper(await value, currentIndex)` without a post-await abort guard; the other five acceptance cases passed. It remains frozen in the standalone checkout; no manual candidate fix or second live run occurred. Pi, credential copy, lock, worker processes/worktrees and canary pane were cleaned up. Full evidence and checksums: [`runs/p-map-sol-terra-canary-20260923/`](../runs/p-map-sol-terra-canary-20260923/README.md). This failed singleton establishes neither accepted-completion latency nor a quality, reliability, or speedup gain from advisory validation. The prior 0/2 post-efficiency sequence remains historical and separate.
+
+## p-map post-efficiency success sequence paused — 2026-09-20
+
+**Outcome: 0/2 attempted observations successful; paused after the resumed observation immediately reproduced the same semantic miss.** The user requested three successful canaries rather than three attempts. The original failed cohort remains frozen and unchanged; a separately recorded resumed sequence reused its prepared clean standalone run-2 baseline, exact task/profile/config, and fixed packet. Fanout runtime source stayed frozen at local, unpushed commit/tree `32f1e0bb52785764ceffff7c030ffd36dff1dfe6` / `9542b9b10f93f0c7bc10739fd398892e009f0432`.
+
+The resumed execution reused packet `e2df14f8a19cff75b461e540fba97b6cbbf166f9643f1053d9b38239308e5724` and profile `1fba48e8caf34ea2d81299ab57052d63ba69f61b198c0456601169669267dcd0`. Sol medium remained control, async Tier 2 disabled, Terra medium realtime fallback, and concurrency four.
+
+Run identities, measurements, final trees and validation results are in the [p-map run ledger](benchmarks/p-map-abort-signal-canary-tracker.md#run-ledger).
+
+
+Independent acceptance v2 again failed only `promised-source-value-abort`, observing one mapper start instead of zero. Inspection found the same defect class at candidate `index.js:276`: `mapper(await value, currentIndex)` lacks a terminal-state check after the promised value resolves. This independently generated candidate differed from observation 1 but deterministically violated the same frozen requirement. Under the immediate-repeat stop rule, run 3 remained clean and unexecuted; no repair, replacement, prompt/task change, or acceptance weakening occurred.
+
+Patch SHA-256 is `4a521b90fba6f9d660ac9517e4a5642a7030eb3cc615e55c4abecc04083e1f73`; acceptance receipt SHA-256 is `aa8a5d894b0ecd3dc5efac84d7f9b148a43b517e73fc51cf1d2c508270adbbb0`. Evidence is under `runs/p-map-efficiency-success-sequence-20260920/`. No process, execution lock, credential copy, disposable worker worktree, or linked cohort worktree remained. The requested three successful observations remain outstanding; this 0/2 denominator supports no speedup, reliability-rate, or model comparison.
+
+## p-map post-efficiency cohort — 2026-09-20
+
+**Outcome: stopped after observation 1; 1/3 attempted and 0/3 successful.** The frozen source was clean local, unpushed commit/tree `32f1e0bb52785764ceffff7c030ffd36dff1dfe6` / `9542b9b10f93f0c7bc10739fd398892e009f0432`. Each observation had a fresh standalone clone at p-map commit/tree `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`; no linked active worktree was used. The approved profile was reused unchanged at SHA-256 `1fba48e8caf34ea2d81299ab57052d63ba69f61b198c0456601169669267dcd0`, 2,278 bytes. Sol medium remained planning/control, async Tier 2 remained disabled, Terra medium remained the realtime fallback, and concurrency remained four.
+
+Planning produced two concurrently ready nodes: runtime/tests/types and documentation. Packet SHA-256 was `e2df14f8a19cff75b461e540fba97b6cbbf166f9643f1053d9b38239308e5724`, 29,603 bytes.
+
+Run identities, measurements, final trees and validation results are in the [p-map run ledger](benchmarks/p-map-abort-signal-canary-tracker.md#run-ledger).
+
+
+Runtime contexts confirm Terra came from `fanout.execution.tier2Fallback`; the effective `tier1` event label was expected while async Tier 2 was disabled.
+
+Independent acceptance v2 then failed only `promised-source-value-abort`: one mapper started after abort where zero were required. The other five cases passed. The candidate invokes `mapper(await value, currentIndex)` without checking terminal state after the promised source value resolves, preserving the race that controller tests missed. The candidate was frozen, not repaired or replaced, and observations 2–3 remained unrun under the cohort stop rule.
+
+| Execution timing detail | Value |
+| --- | --- |
+| Worker / tool / poll time | 332.401s / 14.757s / 0 |
+| Worker turns / aggregate TTFT | 13 / 21.607s |
+| Admission / batched profile-command preflight | 326.210ms / 283.267ms; three resolutions and five positional records |
+| Profile validation / reconciliation reconstruction / final reconstruction | 9.063s / 499.446ms / 653.324ms |
+
+These nested timings and this failed singleton do not establish a speedup.
+
+Candidate patch SHA-256 is `2d9cc21eae101a948ed3b0db95d2ad881e0eda3cdd6c44109dd42704cc1071cf`; failed acceptance receipt SHA-256 is `d7807dd90711f7f1f792f6323b5a0304b9ad6e30d42f204b31462ba494f6e72c`. Evidence is under `runs/p-map-efficiency-cohort-20260920/`. Pi exited cleanly; no current-run process, lock, or disposable worker worktree remained. With no successful observation, this cohort provides no repetition distribution, reliability rate, speedup, or general model comparison.
+
+## Keyless bounded-efficiency fixtures — 2026-09-20
+
+Reproduce with `node --disable-warning=ExperimentalWarning scripts/smoke-fanout-execute.mjs`, `scripts/smoke-artifact-identity.mjs`, and `scripts/smoke-validation-runner.mjs` (also included in `npm run check`). No provider calls or paid canaries are involved. The scheduler now derives the admitted graph once instead of twice per `runDag` invocation; chain, diamond, independent-node, invalid-packet-before-callback, fail-fast, and final-node-exclusion fixtures preserve scheduling authority.
+
+The three-node fixture has three normalizer manifest positions (including two text-identical entries and one unavailable entry) plus one final gate. A filesystem-boundary counter independently observes **4 real profile resolutions instead of 10**, while **10 positional records remain** (9 normalization, 1 final gate). The representative full-check run measured 116.55ms post-qualification preflight wall time, including repository/capability checks, not just resolution. Executable removal/replacement and inherited PATH changes between invocations are freshly resolved; empty and final-only profiles preserve their counts. Ordered duplicate execution still writes `axx`; disappearing executables and cwd-symlink replacement are rechecked immediately before launch.
+
+In that same run, failed qualification measured 702.17ms wall, including 12.29ms cleanup and 61.27ms normalization command time; the failure evidence retains that normalization duration. A real three-worker executor race produced a 2587.47ms successful reconciliation trial discarded when the ledger advanced from 1 to 2, followed by a 1477.97ms trial selected against ledger length 2. Both immutable trial results remain hash-verifiable and all three accepted file changes survive. A separate failed-replay fixture records ledger length 3, attempted transitions 2, completed transitions 1, and verifies the surviving exact prefix.
+
+These wall times are illustrative local diagnostics, **not a before/after speedup or E2E target**. The operation-count reduction is deterministic; host timing is not. Qualification includes reconstruction and cleanup, reconstruction includes replay, setup contains preparation/readiness, and each phase contains its command sum: do not add nested timings to their parents. Trial duration excludes later decision/apply/cleanup. Supporting diagnostics can be absent after publication failure; absence is not zero work. Early admission failures still require external harness timing because they intentionally create no run artifact. Historical paid measurements below retain their original semantics.
+
+## Independent advisory validation mechanism — 2026-09-23
+
+Details v8 / Work Contract v6 / packet v11 / worker manifest v3 support explicit `collect-independent` consent for one sequential advisory `fanout_validate` call. Keyless fixtures run the same three direct-argv commands: fail-fast executes only exit 7; opted-in collection records exit 7, exit 9 and a final passing check, reports both failures, and remains failed. Combined diagnostics share an 8,000-character budget while every positional status and full persisted output/timing evidence remain available. Merges/fusions and final repairs conservatively use fail-fast; controller node, reconciliation and fresh final gates are unchanged.
+
+Planning guidance now prefers collection whenever independence is established; dependent or uncertain lists retain fail-fast. This prompt preference has no paid behavioral evaluation or measured performance gain, and does not reinterpret existing manifests or change artifact generations.
+
+This mechanism targets tests→repair→lint→repair worker request depth. It does not measure a causal reduction in worker turns, latency, tokens or cost; no savings or reliability claim follows from offline fixtures. There are no paid canaries in this change. Existing frozen runs and prior baseline measurements retain their original semantics. The profiler benchmark generator now emits current-generation fail-fast fixtures without changing its dataset size, pricing or recorded baseline metrics.
+
+## Lifecycle timing semantics — 2026-09-20
+
+After lifecycle hardening, controller `durationMs` measures `executeFanout` entry through terminal cleanup/publication preparation, including exact artifact/base admission and capability checks. Earlier run durations started after admission/lock acquisition; keep those archived numbers unchanged and identify the implementation revision when comparing cohorts. Provider/worker timings and usage remain separate: a failed allocated setup has causal duration but no fabricated worker usage. Missing launcher/extension admission throws without a run artifact, so benchmark harnesses must record the external invocation failure and wall time rather than invent a profile-validation result. Valid dry runs still perform actual profile preparation/readiness/normalization checks. The interrupted live canary below exercised allocation and accepted transitions but produced no terminal controller duration, so it is not timing validation for the new entry-duration semantics.
+
+## p-map lifecycle canary rerun — 2026-09-20
+
+**Outcome: passed controller and independent acceptance.** One newly authorized canary used a fresh standalone clone at the exact p-map baseline commit/tree `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`. Fanout runtime source remained byte-identical to the reviewed clean local commit `70e6fb5b3e4655c46f8b368958635c84e6c7e54c`, including `3b90ba09b66ada1000afc85a6bcd5f9c698c0101`; only the known benchmark reporting files from the interrupted observation were modified. The approved profile remained applicable and was reused unchanged at SHA-256 `1fba48e8caf34ea2d81299ab57052d63ba69f61b198c0456601169669267dcd0`, 2,278 bytes. No linked active worktree was used.
+
+GPT-5.6 Sol medium performed planning/control. Async Tier 2 remained disabled, GPT-5.6 Terra medium remained the realtime execution fallback, and concurrency remained four. Planning produced one all-files repair boundary followed by final validation; packet SHA-256 was `cb3b64679115500ed91a947febb8b72e288ba65b5a2d22cb2101d6088ad86cf4`, 25,320 bytes.
+
+Run identities, measurements, final trees and validation results are in the [p-map run ledger](benchmarks/p-map-abort-signal-canary-tracker.md#run-ledger).
+
+
+The effective worker event assignment was labeled `tier1`, as expected for the configured realtime fallback while async Tier 2 was disabled.
+
+| Stage / timing detail | Recorded measurement |
+| --- | --- |
+| Planning | 65.105s; TTFT 2.858s; 29,373 tokens; `$0.197639` |
+| Before `run-started` / live confirmation / original attempt / final-validation wall / cleanup | 19.307s / 15.616s / 322.857s / 24.984s / 1.655s |
+| Profile preparation / readiness / normalization | 14.025s / 0.400s / 2.623s |
+| Final worktree preparation / readiness / controller commands | 13.926s / 0.411s / 8.609s |
+| Worker / tools / poll | 310.595s / 18.035s / 0 |
+| Worker turns / aggregate TTFT | 8 / 22.334s |
+
+Rounded stages overlap only at event boundaries.
+
+Candidate patch SHA-256 is `fa477616f7389241372f7a7fb68327e67ac04f54e6cdbf27fb23cc56048389f6`; passing acceptance receipt SHA-256 is `6d706510f2a639cb42b7229794465e204c107157fd31705843a6a8b33b3be584`. Evidence is archived under `runs/p-map-lifecycle-rerun-1-20260920/`. Pi exited cleanly; no current-run worker process, execution lock, or disposable worktree remained. This successful singleton validates the exercised lifecycle and candidate only; it provides no repetition distribution, speedup, reliability rate, or general model comparison.
+
+## p-map lifecycle canary — 2026-09-20
+
+**Outcome: operator-interrupted; no valid canary result.** One authorized live execution started from a fresh standalone clone at the exact p-map baseline commit/tree `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`. Fanout source was the clean local commit `70e6fb5b3e4655c46f8b368958635c84e6c7e54c`, including `3b90ba09b66ada1000afc85a6bcd5f9c698c0101`. The approved profile was applicable and reused unchanged at SHA-256 `1fba48e8caf34ea2d81299ab57052d63ba69f61b198c0456601169669267dcd0`, 2,278 bytes. No linked active worktree was used.
+
+GPT-5.6 Sol medium performed planning/control, async Tier 2 was disabled, and GPT-5.6 Terra medium was the configured realtime execution fallback at concurrency four. Packet SHA-256 was `b306205df17ad6181825d4505ad7358e024c8410177f0544638ab827b712db26`, 40,689 bytes.
+
+Run identities, measurements, final trees and validation results are in the [p-map run ledger](benchmarks/p-map-abort-signal-canary-tracker.md#run-ledger).
+
+Live run `2026-09-20T16-21-37-325Z-c5f51713` allocated all three originals to the expected Terra realtime fallback. The event assignment names the effective worker route `tier1`; worker runtime context and the parent runtime plan show that Terra came from `fanout.execution.tier2Fallback` because async Tier 2 was unavailable. The operator incorrectly treated that label as configuration drift and terminated Pi. By termination, documentation had been accepted ordinarily and types had been accepted through one disjoint deterministic reconciliation; the runtime/test worker was still in its second turn. Final validation and controller cleanup/publication never ran. This was operator error, not evidence of a lifecycle, routing, model-quality, or task failure, and the authorized execution was not repeated.
+
+
+The usage lower bound includes the two accepted attempts and the runtime worker's first completed response. A ninth provider turn had emitted first output but no terminal usage before process termination, so exact usage and cost are unavailable.
+
+Manual cleanup removed the stale execution lock and all three disposable worker worktrees; no current-run process remains. The partial candidate itself remains frozen at `/private/tmp/fanout-pmap-lifecycle-20260920/repo`. Evidence is archived under `runs/p-map-lifecycle-20260920/`. This interrupted singleton supports no completion-time, entry-duration, correctness, speedup, reliability, or model comparison claim.
+
+## p-map AbortSignal baseline rerun canary — 2026-09-20
+
+**Outcome: passed controller and independent acceptance.** The standalone target was restored to the exact baseline before planning, the approved Project Execution Profile was reused unchanged, and no linked active worktree was created. The fresh candidate passed the controller's authoritative 55-test `npm test`, `git diff --check`, and all six independent acceptance v2 cases, including the `promised-source-value-abort` case that failed the preceding canary. No repetition was requested or started.
+
+Planning used GPT-5.6 Sol medium and produced packet SHA-256 `aadcaa7d955f7a2b92e3d9053992552fa3780911000fae470cef8c8dfebac497`, 35,010 bytes. The graph had two concurrently ready repair boundaries: runtime plus AVA tests, and types plus documentation. Async Tier 2 remained disabled; both original workers used GPT-5.6 Terra medium realtime fallback.
+
+Run identities, measurements, final trees and validation results are in the [p-map run ledger](benchmarks/p-map-abort-signal-canary-tracker.md#run-ledger).
+
+
+The types/docs transition applied first and the disjoint runtime/test transition was accepted through deterministic reconciliation. Cost covers execution, not total planning-session spend.
+
+The accepted candidate patch SHA-256 is `e1eb7559d6961f21ac173c34c4a1091d7704cd9044991257e89c46721f077664`; its passing independent acceptance receipt SHA-256 is `5ab7896d2ed264c546ab5246e61258d1b08255f41df0fa067601451585f8530d`. Evidence and the exact source freeze are archived under `runs/p-map-lean-planning-20260920-rerun-1/`. Pi exited cleanly; no worker process, execution lock, or leftover Fanout-created worktree remained. This successful singleton does not provide a repetition distribution or reliability-rate claim.
+
+## p-map AbortSignal canary — 2026-09-20
+
+**Outcome: failed independent acceptance; cohort stopped.** The controller completed the singleton canary and passed its authoritative 55-test `npm test` and `git diff --check` gates, but the frozen candidate failed the separate acceptance v2 case `promised-source-value-abort`: the mapper started once after abort where zero starts were required. The implementation creates the mapper continuation while adopting a promised source value, so abort cannot prevent that continuation after the value resolves. The other five independent cases passed, including changed-path authority. No repetition or repair run was started.
+
+The target was one standalone clone at baseline commit/tree `c3c261e2189f94d1a09724e8f03d5345af518017` / `8a2aeffb7e9e378c05dcb0cec8503b1fb530143f`; no linked active worktree was created. Recorded setup validation had 51 passing baseline tests. The exact approved Project Execution Profile was reused rather than rebuilt: SHA-256 `1fba48e8caf34ea2d81299ab57052d63ba69f61b198c0456601169669267dcd0`, 2,278 bytes. An earlier proposed replacement profile was rejected before publication because it omitted XO normalization and `git diff --check`; it made no target change and is not part of the frozen canary identity.
+
+Planning used GPT-5.6 Sol medium with packet SHA-256 `b5dd5f98386d800e703954de378cea2e5a24c78fff93890d0d2310c66ea78574`. It produced three concurrently ready original nodes: runtime plus AVA tests, types plus tsd tests, and README. Async Tier 2 was disabled; all workers used the configured GPT-5.6 Terra medium realtime fallback.
+
+Run identities, measurements, final trees and validation results are in the [p-map run ledger](benchmarks/p-map-abort-signal-canary-tracker.md#run-ledger).
+
+
+Cost covers execution, not total planning-session spend.
+
+The failed candidate remains frozen only as evidence. Its patch SHA-256 is `1ced2c5832d6ca03605981f3a952571c01654fba7f2913fb2278c4d8bc8e7b8d`; the independent acceptance receipt SHA-256 is `54de230e94a808548df042b4130dfa4d278c1061914c20039713cf51ab9fb6a3`. Evidence and the exact source freeze are archived under `runs/p-map-lean-planning-20260920/`. Pi exited cleanly; no worker process, execution lock, or leftover Fanout-created worktree remained.
+
+## Singleton checkout reuse — 2026-09-20
+
+One-at-a-time benchmark canaries and sequential repetitions now run from one verified clean checkout, restored between runs, or from one standalone clone. Do not create linked Git worktrees merely for singleton isolation; reserve one active worktree per run for intentionally concurrent cohorts, where distinct execution locks are required. Existing historical worktree-backed runs remain unchanged.
+
+## Unchanged execution-profile reuse — 2026-09-20
+
+Benchmark canaries now reuse an existing approved Project Execution Profile when the target remains at the exact clean baseline and the dependency state, platform, required commands, profile schema, profile bytes, and pointer identity remain applicable. Do not spend a planning call rebuilding an unchanged profile merely because the execution is a new canary. Build or refresh only after a profile-defining change, when no approved profile exists, or when identity/applicability cannot be verified. This is protocol guidance for future runs; it does not rewrite historical profile-construction cost or evidence.
+
+## Planning prompt and typed corrections — 2026-09-20
+
+Offline workflow change: remove the prompt's duplicate schema example and retain compiler-rejected complete drafts for at most two typed record-replacement attempts. Initial submission, model context and persisted artifact semantics remain combined and unchanged. Stubbed real Pi SDK checks establish one response for an immediate successful submission, two for an initial rejection plus accepted correction, and three for an initial rejection plus two corrections. Schema-invalid corrections consume that same budget before tool execution; acceptance does not add a final response.
+
+These are deterministic protocol checks, not model performance measurements. No paid provider calls, new dataset, routing change or token/time/cost saving is reported. Reduced prompt bytes and smaller correction payloads do not establish tokenization, reasoning, caching, quality or latency gains. Historical p-map observations remain unchanged and did not reproduce unreliable initial generations. This optimization addresses compiler-rejected structurally valid drafts, not truncated/malformed initial responses, semantic omissions or provider failures. See the [design decision](DESIGN_DECISIONS.md#retain-rejected-planning-drafts-for-bounded-typed-corrections).
+
+## Unchanged baseline validation reuse — 2026-09-20
+
+For all benchmarks, preflight reuses recorded successful setup validation when the clean baseline commit/tree, task, dependencies, and platform are unchanged and verified. Do not rerun baseline tests or require a per-run user waiver for that fixture. Initial setup and changed or unverified fixtures still require baseline validation; generated implementations still undergo their required validation and acceptance gates. Record the reused setup evidence and identity checks. The [common canary protocol](benchmarks/fanout-canary-run-protocol.md#2-verify-the-target-baseline) supersedes historical duplicate-preflight instructions. This reduces redundant preparation work; no measured timing improvement or change to historical results is claimed.
+
+## Doubleword pricing refresh — 2026-09-20
+
+Regenerated the reviewed pricing snapshot from the official Doubleword catalogue using `npm run sync:doubleword-pricing`: 36 exact model IDs, up from 32. Added [DeepSeek V4.1 Flash](https://docs.doubleword.ai/inference-api/models/deepseek-ai-deepseek-v4-1-flash.md), [DeepSeek V4 Pro 0813](https://docs.doubleword.ai/inference-api/models/deepseek-ai-deepseek-v4-pro-0813.md), [MiMo V2.5 Pro](https://docs.doubleword.ai/inference-api/models/xiaomimo-mimo-v2-5-pro.md), and [GLM-5.3](https://docs.doubleword.ai/inference-api/models/zai-org-glm-5-3.md), each with realtime, async, and batch input/cache-read/output rates. Exact IDs and rates are in the [pricing snapshot](../packages/doubleword-provider/src/pricing.ts). The 32 existing models have no price or tier changes, and no models were removed.
+
+The snapshot retrieval date is 2026-09-20 and its canonical SHA-256 is `9407511c866d622e81d063a2e3c476cc76c31c151e2b38bfa239a0de5ffff03b`. This updates pricing coverage only: availability still comes from model discovery, with no routing/default-model changes or paid inference calls. Historical benchmark prices, evidence, and results remain unchanged.
+
 ## Research preview — 2026-09-16
 
 Read the [public study](STUDY.md) for the curated narrative and [summary data/static figures](study/README.md) for reproducible calculations. Parallel Fanout remains the primary architecture; whole-task submission is a request-depth experiment. Conditional winning mechanisms and modeled feasibility are distinct from repeated empirical task/model/provider coverage.
 
-This ledger preserves historical outcomes and accounting. Operational “next” instructions below describe their dated checkpoints and do not authorize new runs. Current work is public research-preview preparation: source setup, report and static figures, with no interactive explorer or paid canaries. New raw sessions, prompts, tool logs and event streams remain local. `runs/...` identifiers name private local archives, not files included in the release; public summaries cannot replay them. Historical recorded fixtures were removed from the current tree; see [publication checks](PUBLICATION.md).
+This ledger preserves historical outcomes and accounting. Operational “next” instructions below describe their dated checkpoints and do not authorize new runs. Current work is public research-preview preparation: source setup, report and static figures, with no interactive explorer or paid canaries. New raw sessions, prompts, tool logs and event streams remain local. `runs/...` identifiers name private local archives, not files included in the release; public summaries cannot replay them. Historical recorded fixtures were removed from the current tree; publication checks cover credentials, personal paths, evidence labels and offline source setup.
 
 ## Historical experiment ordering — Codex first
 
@@ -246,9 +484,19 @@ The same context fix is implemented separately in `scripts/benchmarks/p-map-comp
 
 ### Completed p-map pilot evidence
 
-The user-authorized [2026-09-06 p-map efficiency pilot](benchmarks/p-map-efficiency-pilot.md) compares raw Pi, current Fanout and improved Fanout with fixed Codex routing and planning included. All three passed the initial acceptance, but a subsequent pending-source-value audit found current Fanout incorrect; raw Pi and improved Fanout passed both audits. Improved Fanout took 393.781s/$0.5128764 versus raw Pi 307.421s/$0.627699 and current Fanout 486.832s/$0.8119022. Cost improved, but latency remained worse than raw Pi; one sample did not establish reliability. Its independent post-run audits were excluded from E2E. The strengthened study will include required independent acceptance and any resulting repairs; preserve this protocol distinction.
+The user-authorized [2026-09-06 p-map efficiency pilot](benchmarks/p-map-efficiency-pilot.md) compares raw Pi, current Fanout and improved Fanout with fixed Codex routing and planning included.
 
-An authorized reverse-order repeat on unchanged source measured improved Fanout at 369.965s/$0.5307096 and raw Pi at 255.175s/$0.514409. Both repeat candidates failed the supplemental pending-value abort check despite passing their full suites. Fanout consumed 45.0% more time and 3.2% more estimated cost; these are failed-task resource measurements. The initial cost advantage did not repeat. Detailed evidence and limitations are in the same pilot report.
+| Observation | Duration | Estimated cost | Acceptance |
+| --- | ---: | ---: | --- |
+| Initial raw Pi | 307.421s | `$0.627699` | Initial and pending-source-value audits passed |
+| Initial current Fanout | 486.832s | `$0.8119022` | Initial acceptance passed; pending-source-value audit failed |
+| Initial improved Fanout | 393.781s | `$0.5128764` | Initial and pending-source-value audits passed |
+| Reverse-order improved Fanout repeat | 369.965s | `$0.5307096` | Full suite passed; supplemental pending-value abort check failed |
+| Reverse-order raw Pi repeat | 255.175s | `$0.514409` | Full suite passed; supplemental pending-value abort check failed |
+
+Cost improved in the initial observation, but latency remained worse than raw Pi; one sample did not establish reliability. Independent post-run audits were excluded from E2E. The strengthened study will include required independent acceptance and any resulting repairs; preserve this protocol distinction.
+
+In the authorized reverse-order repeat on unchanged source, Fanout consumed 45.0% more time and 3.2% more estimated cost; these are failed-task resource measurements. The initial cost advantage did not repeat. Detailed evidence and limitations are in the same pilot report.
 
 This is the primary running document for Doubleword cost/time experiments. Update it whenever workflow changes, routing changes, pricing changes, or benchmark datasets change.
 
@@ -329,15 +577,18 @@ Caveat: worker usage and cost in this smoke are synthetic fake-provider fixtures
 
 Date prepared: 2026-07-10; release-candidate update: 2026-07-14
 
-Status: the 2026-07-27 implementation addresses the prerequisite and Points 1–4 from the reliability investigation. Its controlled sequence completed the canary and repetitions 1–2, then stopped when repetition 3 exhausted the fused runtime/test node's two validation repairs. The release-confidence gate therefore remains open. The 2026-07-28 Worker-summary sequence first stopped before workers on a confirmation-label defect. After reviewed fix `3fef090`, its restarted canary completed with final tree `73e501a3…`, 55 passing tests, 420.728s wall time, 486,170 tokens, and `$0.8393655`. Repetition 1 stopped after the test-only node exhausted two repairs against a production abort-race defect outside its write authority; repetitions 2–3 were not run.
+Status: the 2026-07-27 implementation addresses the prerequisite and Points 1–4 from the reliability investigation. Its controlled sequence completed the canary and repetitions 1–2, then stopped when repetition 3 exhausted the fused runtime/test node's two validation repairs. The release-confidence gate therefore remains open. The 2026-07-28 Worker-summary sequence first stopped before workers on a confirmation-label defect. After reviewed fix `3fef090`, its restarted canary completed. Repetition 1 stopped after the test-only node exhausted two repairs against a production abort-race defect outside its write authority; repetitions 2–3 were not run.
+
+Run identities, measurements, final trees and validation results are in the [p-map run ledger](benchmarks/p-map-abort-signal-canary-tracker.md#run-ledger).
 
 The subsequent reviewed planning-boundary fix `0f008e1` was exercised with a realistic issue-style task rather than a Fanout-specific decomposition. Ordinary planning naturally placed `index.js` and `test.js` in one repair boundary. Canary `2026-07-28T13-19-03-879Z-2f6c81a7` then stopped after that joint node exhausted its two validation repairs; the last AVA run passed the new deterministic abort tests but failed the existing timing-bound `pMapIterable - concurrency: 2` assertion at 304.840 ms against its 200–250 ms interval. One exact offline replay of rejected tree `f25f6832…` failed the same assertion at 303.720 ms while the new tests again passed, ruling out a simple one-off timing flake and pointing to a repeatable candidate scheduling regression. The independent accepted partial tree retained only the documentation transition and passed all 51 baseline tests. Repetitions 1–3 were not run. This revised-task cohort is not byte-identical to earlier task-input cohorts, and no completed-run median, range, reliability rate, or universal SLO is inferred.
 
-The 2026-07-29 action-first prompt canary used source commit `3926f8f` plus the user-edited batching discipline SHA-256 `25597ad6…`. Its fresh plan grouped all five allowed files into one work node, so it is not an identical or parallel-speed comparison. Canary `2026-07-29T15-40-31-736Z-90f6d680` completed on exact tree `8ab065be…`: the original candidate failed XO, one summary-backed validation repair passed, both final `npm test` gates passed, and an independent run reported 56 tests. Wall time was 416.529s, profiler completion boundary 381.009s, total tokens 629,129, and estimated cost `$0.657389`. No repeat cohort or reliability claim is attached to this single changed-plan canary.
+The 2026-07-29 action-first prompt canary used source commit `3926f8f` plus the user-edited batching discipline SHA-256 `25597ad6…`. Its fresh plan grouped all five allowed files into one work node, so it is not an identical or parallel-speed comparison. The original candidate failed XO and one summary-backed validation repair passed. No repeat cohort or reliability claim is attached to this single changed-plan canary.
 
-A second fresh-planning sample exercised the user's next prompt revision at the same source commit, with batching-discipline SHA-256 `84e9661e…` and implementation-plan prompt SHA-256 `e6d7a3c4…`. Ordinary planning produced three independently owned items and kept `index.js` with `test.js`; honest typed reads serialized runtime, types, and documentation. Canary `2026-07-29T16-35-28-543Z-9dbcf498` completed on exact accepted tree `7cd01449…` after the runtime node used both validation repairs; types and documentation passed on their original attempts. Both final gates and an independent 54-test run passed. Wall time was 525.529s, profiler completion boundary 467.485s, tokens were 539,203, and estimated cost was `$0.833411`. This fresh packet/profile is not an identical repeat of the preceding canary, so no median, range, reliability rate, or SLO is reported.
+A second fresh-planning sample exercised the user's next prompt revision at the same source commit, with batching-discipline SHA-256 `84e9661e…` and implementation-plan prompt SHA-256 `e6d7a3c4…`. Ordinary planning produced three independently owned items and kept `index.js` with `test.js`; honest typed reads serialized runtime, types, and documentation. This fresh packet/profile is not an identical repeat of the preceding canary, so no median, range, reliability rate, or SLO is reported.
 
-A third prompt revision used implementation-plan/details prompt SHA-256 identities `09ba7e33…` / `f2427fec…` and produced three disjoint work nodes concurrently ready in the first group, followed only by final validation. Runtime retained joint `index.js`/`test.js` authority, while type and README reads were correctly classified as planning-baseline context. Dry-run `2026-07-29T17-04-06-745Z-0ccaa087` completed in 17.538s with zero attempts, tokens, cost, or repository changes. Live canary `2026-07-29T17-07-55-275Z-f8eca267` then completed on exact tree `02541d0d…`: types and README passed on their original attempts, while the runtime original failed four XO checks and one summary-backed validation repair passed. Both final `npm test` gates and an independent 55-test run passed. Wall time was 267.536s, the profiler completion boundary was 224.839s with 48.313s observed node overlap, tokens were 340,140, and estimated cost was `$0.497531`. The user paused the three repetitions before any repetition worktree or run was started, so no median, range, reliability rate, or SLO is reported.
+A third prompt revision used implementation-plan/details prompt SHA-256 identities `09ba7e33…` / `f2427fec…` and produced three disjoint work nodes concurrently ready in the first group, followed only by final validation. Runtime retained joint `index.js`/`test.js` authority, while type and README reads were correctly classified as planning-baseline context. Its runtime original failed four XO checks and one summary-backed validation repair passed. The user paused the three repetitions before any repetition worktree or run was started, so no median, range, reliability rate, or SLO is reported.
+
 
 Runbook: [`docs/benchmarks/p-map-abort-signal-manual-e2e.md`](benchmarks/p-map-abort-signal-manual-e2e.md)
 
@@ -371,11 +622,16 @@ Fixed fixture:
 
 The fixture is a shallow single-history checkout with no remote, keeping the historical implementation unavailable to workers through local Git history. Runbook and exact evidence: [`docs/benchmarks/execa-web-streams-manual-e2e.md`](benchmarks/execa-web-streams-manual-e2e.md).
 
-Dry run `2026-07-29T18-34-56-001Z-b5556ab8` passed without workers or mutations. Live canary `2026-07-29T18-35-56-724Z-06e1182a` completed from the exact baseline with four ordinary nodes, concurrency two, and final accepted tree `c3ad52480adfb65a9bda2b63f609b7133aaef7b7`. The final checkout changed exactly the 14 allowed paths, independent `npm test` and `git diff --check` passed, and no current-run process, extra worktree, or execution lock remained.
+Run identities, measurements, final trees and validation results are in the [Execa run ledger](benchmarks/execa-web-streams-manual-e2e.md#run-ledger).
+
+
+The first live canary used four ordinary nodes and concurrency two. No current-run process, extra worktree, or execution lock remained.
 
 Three ordinary nodes passed first try. The joint runtime/test node required both validation repairs after a 240-second focused AVA timeout and a second program failure. One project final-validation repair fixed three integrated XO findings, then both ordered full `npm test` gates passed. Immediate worker-summary continuity held across the runtime repair chain and remained outside authoritative event and recovery state. There was no integration repair, reconciliation, exact-no-progress stop, budget exhaustion, fusion, or attempt fallback.
 
-The run took 1,240.055s, used 1,403,298 tokens, and cost an estimated `$1.8652415`. Profiler compatibility passed with the exact profile identity and derived a 1,193.167s observed completion boundary, 231.712s ordinary-node overlap, 596.734s final-validation span, 65.718s aggregate TTFT, and 316.537s aggregate generation. Ordinary workers used Terra medium as the configured realtime fallback for unavailable async Tier 2; repairs used Sol medium, with no Tier 2 provider calls.
+Profiler compatibility passed with the exact profile identity. Ordinary workers used Terra medium as the configured realtime fallback for unavailable async Tier 2; repairs used Sol medium, with no Tier 2 provider calls.
+
+Per-run stage measurements are in the [Execa run ledger](benchmarks/execa-web-streams-manual-e2e.md#run-ledger).
 
 Post-canary protocol analysis found avoidable validation breadth: Phase B repeated the profile's exact `npm test` gate as packet-final validation, so effective final validation ran the full suite twice; the type node also selected repository-wide `npm run type` rather than a focused type-test invocation. The 2026-07-30 planning fix supplies the exact approved profile to Phase B, requires the narrowest meaningful node checks, reserves packet-final commands for additional task-specific integration, and rejects exact profile-gate duplicates as correctable drafts without ending planning. This is workflow-validation hardening, not a revised Execa performance result; measure its effect only in a newly authorized clean canary.
 
@@ -387,15 +643,15 @@ Live run `2026-07-30T13-31-34-936Z-035a16ed` stopped when the Terra runtime work
 
 The adopted routing follow-up discards an original unauthorized candidate whole and spends at most the existing clean retry in a fresh reconstruction with the same assignment, prompt, and work contract. It does not trim unauthorized paths, seed rejected bytes, expand ownership, or retry forbidden/repeated violations. This is a bounded reliability-policy change, not a revised Execa result; measure it only in a separately authorized canary.
 
-The focused type gate fell from 9.376s to 3.887s, and the combined docs gate took 1.897s versus 3.524s summed previously. Because the run stopped before runtime and final validation, it cannot measure the full duplicate-suite removal. The stopped run lasted 307.657s, used 999,692 tokens, and cost `$1.030657`; profiler evidence covers only the recorded prefix. Treat the failure as worker scope obedience, not evidence against the validation-scope change.
+The focused type gate fell from 9.376s to 3.887s, and the combined docs gate took 1.897s versus 3.524s summed previously. Because the run stopped before runtime and final validation, it cannot measure the full duplicate-suite removal; profiler evidence covers only the recorded prefix. Treat the failure as worker scope obedience, not evidence against the validation-scope change.
 
 The recovery-policy canary ran at Fanout commit `5ee0d8e` with a new ordinary plan and packet, the exact unchanged profile, and the same Sol medium / disabled async Tier 2 / Terra medium fallback routing. Dry run `2026-07-30T14-49-23-602Z-ddb21840` passed without workers or mutations. Live run `2026-07-30T14-50-17-829Z-86af4e51` completed with current Event v5 / Projection v6 evidence and final accepted tree `b320d9829b6257000cf22845c932a0e594fae5e8`.
 
 All original candidates stayed within authority, so the new clean retry for an original `unauthorized-change` was not exercised. Types and docs passed originally; runtime required one validation repair after focused AVA failure; project final validation required one repair for two XO findings. The repaired XO gate and the profile's sole full `npm test` passed. Exactly the 14 allowed paths changed, `git diff --check` passed, and cleanup left no current-run process, extra worktree, or lock.
 
-The completed canary took 733.668s, used 989,440 tokens, and cost `$1.1097045`. The profiler admitted it as Current with exact profile identity: 657.421s observed completion boundary, 214.021s ordinary-node overlap, 367.586s final-validation span, 64.381s aggregate TTFT, and 302.938s aggregate generation. This separately planned canary shows successful-path compatibility only; it does not establish a recovery rate, median, range, reliability rate, or universal SLO.
+The profiler admitted the recovery-policy canary as Current with exact profile identity. This separately planned canary shows successful-path compatibility only; it does not establish a recovery rate, median, range, reliability rate, or universal SLO.
 
-A normal Pi control then ran from the same clean baseline in pane `%272`, using Sol medium without the Fanout extension. It completed in 712.072s prompt-to-final, including a 127.232s plan-approval interval, or 584.840s after approval. The session used 1,928,547 tokens and cost `$1.891544`; its full `npm test` passed 5,115 tests. Exactly the 14 allowed paths changed, `git diff --check` passed, and the result tree was `ed7963c8f5e7304acfb9d5074f4190bcb7b2d7e9`.
+A normal Pi control then ran from the same clean baseline in pane `%272`, using Sol medium without the Fanout extension. Its prompt-to-final duration includes a 127.232s plan-approval interval.
 
 For the closest end-to-end comparison, adding Fanout's 561,857-token / `$1.548218` planning session to its live execution yields 1,551,297 tokens and `$2.6579225` across 1,206.511s from Phase A prompt through the terminal execution report. Normal Pi was 494.439s (41.0%) shorter and `$0.7663785` (28.8%) cheaper, while recording 377,250 (24.3%) more total tokens because of heavier cache reads. Fanout used 8 planning plus 33 execution turns and 180 model tool calls; normal Pi used 33 turns and 63 tool calls.
 
@@ -407,17 +663,24 @@ Against completed historical run `2026-08-04T13-58-43-157Z-e46c2a14`, repair lau
 
 After correcting the direct-argv validation authority and causal failed-node routing, packet-v9 canary `2026-08-05T03-55-29-413Z-80959fd6` completed from the exact baseline at Fanout commit `505c258`. Its four original Terra workers launched at concurrency four and all passed without node repair; types, API docs, and runtime used deterministic reconciliation. Initial integrated XO found three findings across two test files, and one Sol final-validation repair passed its manifest-bound worker validation before the controller independently reran focused XO and the profile's full `npm test`.
 
-The final checkout changed exactly the 14 authorized paths and produced tree `375b89e307bb59cd121cb5b8eb5abc8c6aa08a5c`. Independent `npm test` passed lint, 5,109 AVA tests, `tsd`, and `tsc`; `git diff --check`, worktree, process, and lock cleanup checks passed. The 998.923s run used 1,376,170 tokens and `$1.1057552`; median TTFT was 4.505s, and the four original generation envelopes saved 295.202s through overlap. This is one separately planned successful canary, not a repetition cohort. The prior exact-no-progress causal-failure route was not exercised, so no claim is made for that corrected branch or for a repair/reliability rate.
+Worktree, process, and lock cleanup checks passed. Median TTFT was 4.505s, and the four original generation envelopes saved 295.202s through overlap. This is one separately planned successful canary, not a repetition cohort. The prior exact-no-progress causal-failure route was not exercised, so no claim is made for that corrected branch or for a repair/reliability rate.
 
 Five repetitions reused the exact corrected packet/profile, Execa baseline, routing, concurrency four, and platform at Fanout commit `ebbbd7e`; compared with the canary commit, only the benchmark documentation differed and runtime bytes were unchanged. All five runs completed and passed controller final validation, independent `npm test`, `git diff --check`, authority, worktree, process, and lock checks. Their exact final trees differed, as expected from independently generated implementations.
 
 Across those repetitions, wall time had median 995.074s and range 631.296–1,530.488s; tokens median 1,143,064 and range 756,614–1,654,515; and cost median `$0.8866022` and range `$0.5685264`–`$1.1499204`. The 25 attempts comprised 20 originals, one successful clean runtime retry after a 602-second worker-process timeout, and four successful final repairs. Workers made 36 manifest-bound validation calls, 29 passing and seven failing before in-attempt correction. No fallback, node validation repair, integration repair, exact-no-progress termination, budget exhaustion, internal failure, or manual code intervention occurred. This supports a 5/5 completed-run observation for the fixed repetition cohort, not a universal reliability claim; the corrected exact-no-progress causal branch remains untested.
 
-The controller-only profile-gate repair canary then ran at Fanout commit `38f3a6d` from the same exact baseline with a newly planned packet/profile. All three originals passed; initial focused AVA passed, and profile `npm test` found two XO errors. The single Sol final repair received only focused AVA in `fanout_validate`, not `npm test`, while complete failure evidence remained controller-visible. Focused AVA and the controller's sole repaired full `npm test` passed, producing exact 14-path tree `5f465919dc8ed42effcc47f0c866214d3e7d552e`. The 641.878s run used 841,523 tokens and `$0.6997986`; no retry, fallback, node repair, integration repair, exact-no-progress stop, budget exhaustion, or internal failure occurred. This directly validates the changed repair routing in one canary; it is not part of the prior repetition cohort.
+The controller-only profile-gate repair canary then ran at Fanout commit `38f3a6d` from the same exact baseline with a newly planned packet/profile. All three originals passed; initial focused AVA passed, and profile `npm test` found two XO errors. The single Sol final repair received only focused AVA in `fanout_validate`, not `npm test`, while complete failure evidence remained controller-visible. No retry, fallback, node repair, integration repair, exact-no-progress stop, budget exhaustion, or internal failure occurred. This directly validates the changed repair routing in one canary; it is not part of the prior repetition cohort.
 
 The requested Doubleword routing matrix then established local Execa baseline `33e0ba6` / tree `dc79b511` so `.envrc` credentials and provider `runs/` output remain ignored. Pair 1 repetition 1 used Kimi K3 medium for Tier 1 and DeepSeek V4 Flash 0731 medium as the realtime fallback, with async Tier 2 disabled and concurrency four. Dry run `2026-08-06T06-13-00-032Z-0ff9b4d4` was inert. Live run `2026-08-06T06-13-56-156Z-eb5bb1de` stopped after 1,294.141s: runtime and docs candidates failed metrics correlation because Doubleword `provider_end` events omitted required `usageSource` and `pricingSource`; the runtime-test original and clean retry each timed out at 602s. Zero candidates were accepted and final validation did not run. The checkout remained clean at baseline with one worktree and no process/lock leak. Per the first-failure protocol, the other eight matrix runs were not launched; no model-quality, latency, cost, or reliability comparison is inferred.
 
-Repair-functionality canaries (2026-08-27): at Fanout commit `dd04534`, GPT run `2026-08-27T06-28-14-294Z-7e838687` completed from Execa baseline `33e0ba6` / tree `dc79b511`. One Terra original was accepted, the initial full-suite failure triggered two Sol validation repairs, and the second repair passed focused AVA plus profile `npm test`. The 782.446s run used 746,254 tokens and `$0.877555`, produced exact 14-path tree `3206f83d61eebe9fe80342c2e0ba2d8a3321236c`, and was preserved as stash `fanout-canary-gpt-2026-08-27T06-28-14-294Z-7e838687`. A medium-reasoning Kimi planning turn then received recoverable details feedback, but the operator interrupted its self-correction; that stop is operator error, not Fanout recovery failure. Fresh high-reasoning Kimi planning recovered from overlapping `forbiddenWrites`, accepted plan and details, then terminated during packet compilation because `package.json` was not authorized by source `runtime-web-streams`. No dry-run, live execution, or Execa mutation followed.
+Repair-functionality canaries (2026-08-27): at Fanout commit `dd04534`, the GPT run used Execa baseline `33e0ba6` / tree `dc79b511`. Its initial full-suite failure triggered two Sol validation repairs; the second passed. The candidate was preserved as stash `fanout-canary-gpt-2026-08-27T06-28-14-294Z-7e838687`.
+
+| Subsequent planning attempt | Outcome | Execution / mutations |
+| --- | --- | --- |
+| Kimi medium | Operator interrupted recoverable details self-correction | Planning only |
+| Fresh Kimi high | Recovered overlapping `forbiddenWrites`; plan/details accepted; packet compilation rejected unauthorized `package.json` read for `runtime-web-streams` | No dry-run, live execution or Execa mutation |
+
+The medium-reasoning stop is operator error, not Fanout recovery failure.
 
 Planning-parallelism prompt check (2026-08-30): three fresh GPT-5.6 Sol medium planning-only sessions used the exact clean Execa baseline and saved profile. The regressed prompt produced one 14-path work node. The first replacement exposed five ownership units but falsely serialized early-error and pipe work behind the core adapter. Adding the generic rule that dependency edges cannot substitute for shared repair authority produced the intended three concurrently ready units—runtime plus AVA, types plus `tsd`, and documentation—followed only by compiler-owned final validation. The final plan/packet identities were `8cc3eb1…` / `c9b423a…`; the Execa checkout remained clean at `33e0ba6` / `dc79b511`. No dry-run or live execution occurred, so this is direct planning-regression evidence rather than runtime, correctness, latency, or reliability evidence; the full canary remains separate.
 
@@ -1018,6 +1281,19 @@ As a compatibility check, 28,402 reasoning tokens at 131 tokens/s take 216.8s. T
 **Inference:** these replays exclude a large initial pre-generation queue as their dominant latency: reasoning was already arriving within 2.295s, and no long silent reasoning-delivery gap was observed. They do not establish the original request's queue/compute split, exclude many short scheduling pauses or buffering, or prove that all generated reasoning was necessary. A shorter successful API response is not a quality-preserving speedup. Measuring reducible latency without provider internals requires controlled changes (for example reasoning effort) with independent output validation; identifying exact queue/prefill/decode phases still requires trustworthy provider-side timing. No further paid experiments or routing changes were made.
 
 Private evidence remains under ignored `runs/doubleword-ttft/`: original `console-83c809f4/console.json` and `console.txt`; cohort stems `2026-09-19T13-14-03.378Z` and `2026-09-19T13-34-46.967Z` (`.json`, `.request.json`, `.events.jsonl`); manifests `2026-09-19T13-14-03.301Z.replay-manifest.json` and `2026-09-19T13-34-46.880Z.replay-manifest.json`; and derived scalar analysis `2026-09-19-replay-20.analysis.json`. Original input SHA-256: `48cdbb4a64087834cd02b692496e7cc410da8e2d1d9d16ca6c2e5d1ae35b1bab`. Request/journal files have mode `0600`; raw prompts, reasoning, and returned code are not published. Probe self-tests and syntax checks passed.
+
+### 2026-09-19 — p-map GLM/Kimi planning with DeepSeek V4.1 execution
+
+Seven singleton canaries used concurrency four, disabled async Tier 2, a 65,536-token output limit, and the saved execution profile. Four planning sessions used realtime `zai-org/GLM-5.3` medium and three used realtime `moonshotai/kimi-k3` medium; realtime `deepseek-ai/DeepSeek-V4.1-Flash` medium was the execution fallback. Reported time is active planning plus live execution only; it excludes profile preparation, dry-runs, setup, operator gaps, and post-run inspection.
+
+Costs are estimates from recorded input, cache-read, and output tokens. Realtime per-million-token rates are `$1.40/$0.28/$4.40` for GLM 5.3, `$3.00/$0.30/$15.00` for Kimi K3, and the user-supplied `$0.15/$0.01/$0.60` for DeepSeek V4.1 Flash, in input/cache-read/output order. They are not confirmed billing.
+
+Per-run stage measurements are in the [p-map run ledger](benchmarks/p-map-abort-signal-canary-tracker.md#run-ledger).
+
+| Cohort | Runs | Mean time | Median time | Mean cost |
+| --- | ---: | ---: | ---: | ---: |
+| GLM 5.3 | 4 | 11m 56.359s | 10m 54.533s | `$0.380731` |
+| Kimi K3 | 3 | 10m 41.543s | 11m 27.240s | `$0.420227` |
 
 ## Hardened execution baseline
 

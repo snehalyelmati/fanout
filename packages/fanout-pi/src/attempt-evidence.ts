@@ -87,6 +87,12 @@ export function attemptEvidenceRefs(runDir: string, attempt: PatchAttemptEvidenc
 	if (artifactFile(join(attempt.attemptDir, "observability.jsonl"))) refs.push("observability.jsonl");
 	if (attempt.patch) refs.push(attempt.patch.artifact.path);
 	for (const name of ["preparation.json", "candidate-normalization.json", "validation.json", "ownership-check.json", "apply-check.json", "reconciliation.json", "worker-validation-manifest.json"]) if (artifactFile(join(attempt.attemptDir, name))) refs.push(name);
+	const reconciliationDir = join(attempt.attemptDir, "reconciliation");
+	if (existsSync(reconciliationDir)) for (const trial of readdirSync(reconciliationDir).filter((name) => /^\d+$/.test(name)).sort()) {
+		for (const name of ["result.json", "preparation.json", "patch.bin", "ownership-check.json"]) {
+			if (artifactFile(join(reconciliationDir, trial, name))) refs.push(`${prefix}/reconciliation/${trial}/${name}`);
+		}
+	}
 	const workerValidationDir = join(attempt.attemptDir, "worker-validation");
 	if (existsSync(workerValidationDir) && lstatSync(workerValidationDir).isDirectory()) for (const name of readdirSync(workerValidationDir).sort()) if (artifactFile(join(workerValidationDir, name))) refs.push(`${prefix}/worker-validation/${name}`);
 	return [...new Set(refs.filter((reference) => !excluded.has(reference)).map((reference) => reference.includes("/") ? reference : `${prefix}/${reference}`))];
@@ -191,7 +197,7 @@ export function correlatedWorkerMetrics(options: WorkerMeasurementOptions): Corr
 	}
 	const turnKey = (index: number) => turnEnds[index]?.turnIndex ?? `assistant-${index}`;
 	const providerEnds = observability.filter((event) => event.event === "provider_end");
-	const responses = providerEnds.map((event, index) => {
+	const responses: Record<string, unknown>[] = providerEnds.map((event, index) => {
 		const path = `worker.provider_end[${index}]`;
 		const turnId = `${attemptId}/turn-${event.turnIndex}`;
 		const ttft = observability.find((candidate) => candidate.event === "provider_ttft" && candidate.turnIndex === event.turnIndex && candidate.responseId === event.responseId);

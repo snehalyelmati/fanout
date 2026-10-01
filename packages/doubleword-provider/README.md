@@ -14,12 +14,15 @@ Doubleword's APIs are OpenAI-compatible and let you trade latency for lower cost
 - **Async / flex**: reduced pricing with background polling; Doubleword docs say submitted async work starts within about a minute.
 - **Batch**: lowest pricing for bulk jobs with a 24h SLA.
 
-Bundled historical price snapshot (retrieved 2026-08-29), per 1M input/cache-read/output tokens:
+Bundled [pricing snapshot](src/pricing.ts) (retrieved 2026-09-20), USD per 1M input/cache-read/output tokens. These rates support token-price estimates, not invoice totals.
 
-| Model | Realtime | Async | Batch |
+| Model (catalog ID) | Realtime | Async | Batch |
 | --- | --- | --- | --- |
-| DeepSeek V4 Flash 0731 | $0.09 / $0.02 / $0.18 | $0.07 / $0.01 / $0.14 | $0.05 / $0.01 / $0.09 |
-| GLM 5.3 Flash | $0.15 / $0.03 / $0.50 | $0.11 / $0.02 / $0.38 | $0.08 / $0.02 / $0.25 |
+| Kimi K3 (`moonshotai/kimi-k3`) | $3.00 / $0.30 / $15.00 | $2.15 / $0.22 / $11.25 | $1.50 / $0.15 / $7.50 |
+| DeepSeek V4.1 Flash (`deepseek-ai/DeepSeek-V4.1-Flash`) | $0.15 / $0.01 / $0.60 | $0.12 / $0.01 / $0.48 | $0.08 / $0.01 / $0.30 |
+| GLM-5.3 (`zai-org/GLM-5.3`) | $1.40 / $0.28 / $4.40 | $1.05 / $0.21 / $3.30 | $0.70 / $0.14 / $2.20 |
+| DeepSeek V4 Flash 0731 (`deepseek-ai/DeepSeek-V4-Flash-0731`) | $0.09 / $0.02 / $0.18 | $0.07 / $0.01 / $0.14 | $0.05 / $0.01 / $0.09 |
+| GLM 5.3 Flash (`zai-org/GLM-5.3-Flash`) | $0.15 / $0.03 / $0.50 | $0.11 / $0.02 / $0.38 | $0.08 / $0.02 / $0.25 |
 
 Check current service terms and prices before a live run. Prices are synchronized manually from the [official model catalogue](https://docs.doubleword.ai/inference-api/models) into a reviewed snapshot; provider startup never scrapes pricing.
 
@@ -27,9 +30,15 @@ This provider exposes realtime and async in Pi; batch is better suited for offli
 
 ## Install
 
+Requires **Pi 0.87.0 or newer**. Version 0.2.0 raises the minimum Pi version; upgrade Pi before installing it.
+
 ```bash
 pi install npm:@snehalyelmati/pi-doubleword-provider
 ```
+
+### 0.2.0 migration
+
+Pi 0.86 moved system instructions and tools into transcript system messages. This release uses Pi's transcript helpers directly, fixing requests that silently omitted instructions and tools on newer Pi versions. Older Pi context formats are no longer supported. Realtime and async execution share the corrected serialization. No Fanout installation is required.
 
 ## Quick start
 
@@ -83,6 +92,8 @@ From the repo root:
 ```bash
 pi -e . --model doubleword-stub/deepseek-v4-flash
 ```
+
+Run `npm run test:doubleword-provider` for offline request, usage, realtime, async, and planning regressions. The transport mocks load the standalone provider without Fanout. To check a release tarball, extract it and set `DOUBLEWORD_TEST_EXTENSION` to its absolute `package` directory when running `npm run smoke:live:realtime:mock`, `npm run smoke:live:async:mock`, and `node scripts/smoke-live-async-multiturn-mock.mjs` (with the local Pi binary on PATH). These tests use loopback servers, not paid endpoints.
 
 ## Limitations
 

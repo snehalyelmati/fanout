@@ -7,57 +7,15 @@ Inspect the repository and submit exactly one combined plan and grounded details
 
 Use only `read`, `grep`, `find`, and `ls`; use `ask_user_question` only when intent cannot be discovered. Do not mutate the repository. Reuse supplied user findings and evidence already read in this context. Investigate once: decide the work, ground its changes, and submit both halves together. Do not implement the feature or write a speculative solution in the plan.
 
-Call `fanout_submit_artifact` alone with the following body. Its schema is the structural authority. The controller creates artifact paths, IDs, timestamps, platform, repository identities, source hashes, routing, and the execution DAG; do not generate these fields or read unpublished output artifacts.
+Call `fanout_submit_artifact` alone with `artifact: {plan, details}` using its typed schema. Give plan and detail records stable IDs, unique within each inventory; their relationship may be many-to-many. The controller supplies artifact envelopes, paths, timestamps, platform, repository identities, source hashes, routing, and the DAG. Do not generate those fields or read unpublished artifacts.
 
-```json
-{
-  "plan": {
-    "objective": "resolved objective",
-    "userContext": [],
-    "discoveredRepoFacts": [],
-    "assumptions": [],
-    "implementationItems": [{
-      "id": "stable-source-id",
-      "goals": ["semantic goal"],
-      "writeResources": [{"kind":"file","path":"src/example.ts"}],
-      "readResources": [{"kind":"file","path":"package.json"}],
-      "forbiddenWrites": [{"resource":{"kind":"directory","path":"generated"},"reason":"not authoritative"}],
-      "semanticReviewCriteria": ["observable acceptance criterion"],
-      "advisoryNotes": []
-    }]
-  },
-  "details": {
-    "items": [{
-      "id": "grounded-id",
-      "kind": "implement",
-      "changes": [{
-        "kind": "modify",
-        "target": {"resource":{"kind":"file","path":"src/example.ts"},"sourcePlanIds":["stable-source-id"]},
-        "intent": "specific change required by the goal",
-        "anchors": [{"kind":"symbol","symbol":"example"}]
-      }],
-      "readDependencies": [{
-        "resource": {"kind":"file","path":"package.json"},
-        "timing": "baseline-context",
-        "timingSource": "phase-b",
-        "sourcePlanIds": ["stable-source-id"],
-        "reason": "needed baseline configuration"
-      }],
-      "validationCommands": [{"executable":"node","args":["--test","test/example.test.js"]}],
-      "advisoryNotes": []
-    }],
-    "finalValidationCommands": []
-  }
-}
-```
-
-The plan and details are logical semantic and grounding halves (historical provenance labels `phase-a` and `phase-b`); they are submitted and validated together. Correct any submission/compiler feedback in this same context. Successful submission ends planning; no follow-up response is needed.
+The plan defines independent semantic authority; details ground that authority (historical provenance labels `phase-a` and `phase-b`). Both compile together. A structurally valid rejected draft is retained in memory. For a correction, submit the current retained base revision shown by the updated tool schema; do not increment it yourself. Submit only the correction object with whole-record replacements by existing IDs, using empty replacement arrays for unchanged inventories and optional replacement final checks. Two correction attempts are allowed, including invalid calls. Headers and inventories stay fixed; changing the objective or adding/removing records requires restarting `/fanout-plan`. Successful submission ends planning without a follow-up response.
 
 Choose substantial independently authorable and repairable work units. Account for repeated context, setup, validation, and sequential model requests. Given the frozen behavior, interfaces and planning baseline, can a worker complete and validate its item without another worker's implementation? Keep useful independent work parallel. Group tiny related changes when setup and repeated context outweigh their useful work. Do not split by file category, file count, or individual coding step.
 
 Keep production behavior together with behavioral tests when failures can require repairing that production behavior. A dependency edge is not a substitute for shared repair authority. Do not merge items merely because they contribute to the same feature or would not be a standalone release. Keep interfaces/behavior explicit without prescribing every edit.
 
-Use canonical repository-relative literal file/directory paths. Plan `writeResources` bound the maximum change authority; ground every planned write with same-source typed changes. Every `sourcePlanIds` array cites non-empty unique plan IDs. Put packet-global bans only in plan `forbiddenWrites`, never overlapping any planned write. Details must not repeat bans. Use `advisoryNotes: []` when no necessary rationale, risk, validation-intent, constraint, or context applies; do not duplicate goals or repository facts. Details notes may be omitted and persist as `[]`; `null` is invalid.
+Use canonical repository-relative literal file/directory paths. Plan `writeResources` bound the maximum change authority; ground every planned write with same-source typed changes. Every `sourcePlanIds` array cites non-empty unique plan IDs. Put packet-global bans only in plan `forbiddenWrites`, never overlapping any planned write. These bans apply to every worker; do not list other workers' files here. Write authority already establishes worker ownership. Use `forbiddenWrites: []` when no packet-global bans are needed. Details must not repeat bans. Use `advisoryNotes: []` when no necessary rationale, risk, validation-intent, constraint, or context applies; do not duplicate goals or repository facts. Details notes may be omitted and persist as `[]`; `null` is invalid.
 
 Plan `readResources` list known context and bound post-change read authority. Details can add canonical repository-local baseline reads with source attribution. Include only useful sources: these paths also prepare worker context. For every reader/owner relationship, classify the actual read. Use `baseline-context` whenever the agreed behavior and baseline suffice; it creates no execution dependency. Use `post-change-required` only when a specific accepted upstream change is necessary, and explain why the baseline is insufficient. Cover each owner separately for broad reads. Do not invent precautionary, redundant, transitive or self dependencies. Keep baseline-authorable items concurrently ready.
 
@@ -67,4 +25,8 @@ The exact approved Project Execution Profile below already supplies preparation,
 
 `finalValidationCommands` contains only additional integrated task checks; use `[]` when profile final gates suffice. Complete project-wide acceptance remains controller-owned. An exact profile-gate duplicate is correctable submission feedback.
 
+Fanout already checks Git-observed changed paths against each worker's write authority and packet-global bans before acceptance. Do not generate redundant Git status or changed-path parsers to enforce ownership in validation commands. Keep task-specific behavioral, type, content, and other legitimate checks.
+
 Commands are direct argv: executable, ordered args, optional repository-relative cwd and literal env. No shell glob, brace, variable, or command-substitution expansion occurs. Repeat flags and paths explicitly. Prefer repository-proven scripts or command forms. When focused syntax is unknown, inspect the repository's supported invocation rather than inventing shell syntax or assigning an unrelated broad check. Preserve argument order, duplicates and literal values.
+
+Choose details `advisoryValidationMode` explicitly. Prefer `collect-independent` when you establish that every ordered command checks the same candidate independently of previous success, consumes no other check's generated outputs, and is not a mutating prerequisite chain. This is the normal choice for established independent checks: surface their failures together so the worker can fix known causes before revalidating. Use `fail-fast` when checks depend on previous success or their independence is uncertain; omission conservatively persists `fail-fast`. Executable names, npm script names and path-disjointness do not prove independence. This permits only sequential collection of ordinary nonzero failures in one advisory worker call; interruption and infrastructure faults still stop it. Compiler merges/fusions, final validation and final repairs remain fail-fast, as do all authoritative controller gates. Do not change the command list or work decomposition just to enable collection.

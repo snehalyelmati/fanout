@@ -9,9 +9,9 @@
     "@juicesharp/rpiv-ask-user-question": "^1.20.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": ">=0.83.0",
-    "@earendil-works/pi-tui": "*"
+    "@earendil-works/pi-ai": ">=0.87.0",
+    "@earendil-works/pi-coding-agent": ">=0.87.0",
+    "@earendil-works/pi-tui": ">=0.87.0"
   },
   "pi": {
     "extensions": ["./src/index.ts"]

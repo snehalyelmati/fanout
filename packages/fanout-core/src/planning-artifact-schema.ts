@@ -10,7 +10,7 @@ export const ACTIVE_PROJECT_EXECUTION_PROFILE_VERSION = 1;
 export const IMPLEMENTATION_PLAN_SCHEMA = "fanout.implementation-plan";
 export const IMPLEMENTATION_PLAN_VERSION = 4;
 export const IMPLEMENTATION_DETAILS_SCHEMA = "fanout.implementation-details";
-export const IMPLEMENTATION_DETAILS_VERSION = 7;
+export const IMPLEMENTATION_DETAILS_VERSION = 8;
 
 export const ORDINARY_WORK_KINDS = ["implement", "test", "docs", "inspect", "validate-shard", "review-shard"] as const;
 
@@ -73,7 +73,7 @@ const implementationPlanItem = Type.Object({
 	goals: Type.Array(semanticText, { minItems: 1 }),
 	writeResources: Type.Array(RepositoryResourceSchema),
 	readResources: Type.Array(RepositoryResourceSchema),
-	forbiddenWrites: Type.Array(forbiddenPlan),
+	forbiddenWrites: Type.Array(forbiddenPlan, { description: "Packet-global write bans applying to every worker, never files owned by another worker. Write authority already establishes worker ownership. Use [] when no packet-global bans are needed; bans must not overlap any planned write." }),
 	semanticReviewCriteria: Type.Array(semanticText, { minItems: 1 }),
 	advisoryNotes: Type.Array(AdvisoryNoteBodySchema),
 }, closed);
@@ -160,12 +160,17 @@ const detailItemProperties = {
 	readDependencies: Type.Array(ReadDependencySchema),
 	validationCommands: Type.Array(DirectArgvCommandSchema, { minItems: 1 }),
 };
+const advisoryValidationMode = Type.Enum(["fail-fast", "collect-independent"] as const, {
+	description: "Prefer collect-independent when you establish that every ordered command checks the same candidate independently of previous success, consumes no other check's generated outputs, and is not a mutating prerequisite chain. Use fail-fast when checks depend on previous success or their independence is uncertain. Choose explicitly; omission conservatively persists fail-fast. Advisory worker execution only; commands remain sequential and controller gates fail-fast.",
+});
 const detailsItemBody = Type.Object({
 	...detailItemProperties,
+	advisoryValidationMode: Type.Optional(advisoryValidationMode),
 	advisoryNotes: Type.Optional(Type.Array(AdvisoryNoteBodySchema)),
 }, closed);
 const detailsItemArtifact = Type.Object({
 	...detailItemProperties,
+	advisoryValidationMode,
 	advisoryNotes: Type.Array(AdvisoryNoteBodySchema),
 }, closed);
 
@@ -189,6 +194,24 @@ export const ImplementationPlanSubmissionParametersSchema = Type.Object({ artifa
 export const ImplementationDetailsSubmissionParametersSchema = Type.Object({ artifact: ImplementationDetailsBodySchema }, closed);
 export const CombinedPlanningBodySchema = Type.Object({ plan: ImplementationPlanBodySchema, details: ImplementationDetailsBodySchema }, closed);
 export const CombinedPlanningSubmissionParametersSchema = Type.Object({ artifact: CombinedPlanningBodySchema }, closed);
+export const PlanningRepairBodySchema = Type.Object({
+	revision: Type.Integer({ minimum: 1, description: "Current retained base revision; submit it unchanged rather than incrementing it." }),
+	replacePlanItems: Type.Array(implementationPlanItem, { description: "Complete replacement plan records keyed by existing IDs; use [] when none change." }),
+	replaceDetailItems: Type.Array(detailsItemBody, { description: "Complete replacement detail records keyed by existing IDs; use [] when none change." }),
+	finalValidationCommands: Type.Optional(Type.Array(DirectArgvCommandSchema, { description: "Optional whole-array replacement for final validation commands." })),
+}, { ...closed, description: "A correction object containing only whole-record replacements for the retained draft." });
+export const PlanningRepairSubmissionParametersSchema = Type.Object({ artifact: PlanningRepairBodySchema }, closed);
+export function planningRepairSubmissionParameters(revision: number) {
+	return Type.Object({
+		artifact: Type.Object({
+			...PlanningRepairBodySchema.properties,
+			// Equal bounds include the expected value in SDK errors; a literal only reports "equal to constant".
+			revision: Type.Integer({ minimum: revision, maximum: revision, description: `Submit the current retained base revision ${revision}; do not increment it.` }),
+		}, { ...closed, description: `Correct retained draft revision ${revision} with whole-record replacements only.` }),
+	}, closed);
+}
+export type CombinedPlanningBody = Static<typeof CombinedPlanningBodySchema>;
+export type PlanningRepairBody = Static<typeof PlanningRepairBodySchema>;
 
 export type RepositoryResourceStructure = Static<typeof RepositoryResourceSchema>;
 export type ArtifactIdentityStructure = Static<typeof ArtifactIdentitySchema>;

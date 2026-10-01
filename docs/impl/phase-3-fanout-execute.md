@@ -2,7 +2,7 @@
 
 ## Status
 
-This is the current technical reference for execution contracts and the named offline acceptance matrix. The coordinated caller cutover is implemented. Stable-runtime acceptance of an exact immutable candidate requires a controlled p-map canary, three identical repetitions, evidence inspection and repository-owner approval; those gates are not marked passed here. Publishing the [source research preview](../PUBLICATION.md) does not claim stable live readiness.
+This is the current technical reference for execution contracts and the named offline acceptance matrix. The coordinated caller cutover is implemented. Stable-runtime acceptance of an exact immutable candidate requires a controlled p-map canary, three identical repetitions, evidence inspection and repository-owner approval; those gates are not marked passed here. Publishing the source research preview does not claim stable live readiness.
 
 ## Executable generation
 

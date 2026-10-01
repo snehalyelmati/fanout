@@ -120,8 +120,8 @@ function createFixture() {
 	const planBytes = bytes(plan);
 	const planIdentity = artifactIdentity("implementation-plan.json", planBytes);
 	const details = {
-		schema: "fanout.implementation-details", version: 7, detailsId: lineageId, createdAt: isoTimestamp(baseTime + 1), plan: planIdentity,
-		items: implementationItems.map((item) => ({ id: item.id, kind: "implement", changes: [{ kind: "create", target: { resource: item.writeResources[0], sourcePlanIds: [item.id] }, contentIntent: "benchmark work" }], readDependencies: [], validationCommands: [command], advisoryNotes: [] })),
+		schema: "fanout.implementation-details", version: 8, detailsId: lineageId, createdAt: isoTimestamp(baseTime + 1), plan: planIdentity,
+		items: implementationItems.map((item) => ({ id: item.id, kind: "implement", changes: [{ kind: "create", target: { resource: item.writeResources[0], sourcePlanIds: [item.id] }, contentIntent: "benchmark work" }], readDependencies: [], validationCommands: [command], advisoryValidationMode: "fail-fast", advisoryNotes: [] })),
 		finalValidationCommands: [command],
 	};
 	const detailsBytes = bytes(details);

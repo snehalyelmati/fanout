@@ -51,6 +51,7 @@ function fusePair(left: FanoutPacketNode, right: FanoutPacketNode, sourceIds: re
 		readDependencies: exactUnion(left.workContract.readDependencies, right.workContract.readDependencies),
 		forbiddenWrites: exactUnion(left.workContract.forbiddenWrites, right.workContract.forbiddenWrites),
 		validationCommands: coveringValidation(left.workContract.validationCommands, right.workContract.validationCommands)!,
+		advisoryValidationMode: "fail-fast",
 		capabilities: FIXED_WORKER_CAPABILITIES,
 		semanticReviewCriteria: exactUnion(left.workContract.semanticReviewCriteria, right.workContract.semanticReviewCriteria),
 		advisoryNotes: exactUnion(left.workContract.advisoryNotes, right.workContract.advisoryNotes),

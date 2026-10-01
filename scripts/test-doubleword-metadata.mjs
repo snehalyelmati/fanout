@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { deepStrictEqual } from "node:assert/strict";
+import { normalizeContext } from "@earendil-works/pi-ai";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -7,21 +9,44 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "doubleword-metadata-test-"));
 process.env.DOUBLEWORD_API_KEY = "mock-key";
 process.env.DOUBLEWORD_MODEL_CACHE_FILE = join(dir, "models.json");
+process.env.DOUBLEWORD_OBSERVABILITY_FILE = join(dir, "observability.jsonl");
+const responseHeaders = [];
 
 function assert(ok, message) {
   if (!ok) throw new Error(message);
 }
+
+// Official model-page prices reviewed on 2026-09-20; USD per 1M tokens,
+// in input/cache-read/output order. Sources: docs/BENCHMARKS.md (2026-09-20 refresh).
+const addedModelPrices = [
+  { id: "deepseek-ai/DeepSeek-V4.1-Flash", realtime: [0.15, 0.01, 0.6], async: [0.12, 0.01, 0.48], batch: [0.08, 0.01, 0.3] },
+  { id: "deepseek-ai/DeepSeek-V4-Pro-0813", realtime: [1.32, 0.13, 3.96], async: [0.99, 0.1, 2.97], batch: [0.66, 0.07, 1.98] },
+  { id: "XiaomiMiMo/MiMo-V2.5-Pro", realtime: [0.44, 0.01, 0.87], async: [0.33, 0.01, 0.65], batch: [0.22, 0.01, 0.44] },
+  { id: "zai-org/GLM-5.3", realtime: [1.4, 0.28, 4.4], async: [1.05, 0.21, 3.3], batch: [0.7, 0.14, 2.2] },
+];
 
 function sendJson(res, status, body) {
   res.writeHead(status, { "content-type": "application/json" });
   res.end(JSON.stringify(body));
 }
 
-const server = createServer((req, res) => {
+const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
+  if (req.method === "POST" && url.pathname === "/responses") {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    const request = JSON.parse(body);
+    responseHeaders.push(req.headers);
+    const response = { id: `headers-${responseHeaders.length}`, status: "completed", output_text: "Header check passed.", usage: { input_tokens: 1, output_tokens: 3, total_tokens: 4 } };
+    if (!request.stream) return sendJson(res, 200, response);
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.end(`event: response.completed\ndata: ${JSON.stringify({ response })}\n\n`);
+    return;
+  }
   if (req.method === "GET" && url.pathname === "/models") {
     return sendJson(res, 200, {
       data: [
+        ...addedModelPrices.map(({ id }) => ({ id })),
         { id: "deepseek-ai/DeepSeek-V4-Flash-0731", name: "DeepSeek V4 Flash 0731" },
         { id: "mock-provider/Capabilities-Reasoning", name: "Capabilities Reasoning", capabilities: ["reasoning"] },
         { id: "mock-provider/Capabilities-Plain", name: "Capabilities Plain", capabilities: ["text"] },
@@ -53,8 +78,8 @@ try {
 
   const { discoverLiveModels, REALTIME_STUB_MODELS, DOUBLEWORD_THINKING_LEVEL_MAP, tierPricingProvenance, tierPricingSource, withTierCost } = await import("../packages/doubleword-provider/src/models.ts");
   const { DOUBLEWORD_PRICING_PROVENANCE, DOUBLEWORD_TIER_PRICING } = await import("../packages/doubleword-provider/src/pricing.ts");
-  const { responsesRequestBody } = await import("../packages/doubleword-provider/src/live.ts");
-  const { responseUsageSource } = await import("../packages/doubleword-provider/src/messages.ts");
+  const { responsesRequestBody, streamLiveRealtime, streamLiveAsync } = await import("../packages/doubleword-provider/src/live.ts");
+  const { responseUsageSource, usageFor, usageFromResponse } = await import("../packages/doubleword-provider/src/messages.ts");
   const { modelPagePaths, parseModelPricing } = await import("./sync-doubleword-pricing.mjs");
 
   const models = await discoverLiveModels();
@@ -64,6 +89,21 @@ try {
   const metadataModel = models.find((model) => model.id === "mock-provider/Metadata-Model");
   const ocr = models.find((model) => model.id === "doubleword/OCR-Pro");
   const embedding = models.find((model) => model.id === "doubleword/text-embedding");
+
+  for (const expected of addedModelPrices) {
+    const model = models.find((candidate) => candidate.id === expected.id);
+    assert(model, `new model was not discovered: ${expected.id}`);
+    for (const tier of ["realtime", "async", "batch"]) {
+      const [input, cacheRead, output] = expected[tier];
+      const prices = DOUBLEWORD_TIER_PRICING[expected.id]?.[tier];
+      assert(prices?.input === input && prices.cacheRead === cacheRead && prices.output === output, `wrong ${expected.id} ${tier} snapshot prices: ${JSON.stringify(prices)}`);
+      if (tier === "batch") continue;
+      const { cost } = withTierCost(model, tier);
+      assert(cost.input === input && cost.cacheRead === cacheRead && cost.output === output && cost.cacheWrite === 0, `wrong ${expected.id} ${tier} model cost: ${JSON.stringify(cost)}`);
+      const evidence = tierPricingProvenance(model, tier);
+      assert(evidence?.pricingSource === "doubleword-model-metadata" && evidence.pricingSourceUrl === DOUBLEWORD_PRICING_PROVENANCE.sourceUrl && evidence.pricingRetrievedAt === DOUBLEWORD_PRICING_PROVENANCE.retrievedAt && evidence.pricingSnapshotSha256 === DOUBLEWORD_PRICING_PROVENANCE.snapshotSha256, `missing ${expected.id} ${tier} provenance: ${JSON.stringify(evidence)}`);
+    }
+  }
 
   assert(gen?.reasoning === true, `generation model not reasoning-capable: ${JSON.stringify(gen)}`);
   assert(gen.thinkingLevelMap?.off === "none" && gen.thinkingLevelMap?.xhigh === "xhigh", `bad thinking map: ${JSON.stringify(gen.thinkingLevelMap)}`);
@@ -110,7 +150,24 @@ try {
   assert(responseUsageSource({ usage: { prompt_tokens: 1, completion_tokens: 2 } }) === "estimated", "compatibility usage aliases were falsely classified as native provider usage");
 
   const piModel = { ...gen, api: "doubleword-api", provider: "doubleword", baseUrl: process.env.DOUBLEWORD_BASE_URL };
-  const context = { messages: [{ role: "user", content: "hello", timestamp: Date.now() }] };
+  const context = normalizeContext({ messages: [{ role: "user", content: "hello", timestamp: Date.now() }] });
+  // Exercise current transcript deltas, not just the initial prompt/tool declarations.
+  const tool = (name, description) => ({ name, description, parameters: { type: "object", properties: {} } });
+  const transcript = normalizeContext({ messages: [
+    { role: "system", content: "base", sections: { task: "old", removed: "obsolete" }, toolsAdded: [tool("read", "old"), tool("bash", "remove")], timestamp: 0 },
+    { role: "user", content: "synthetic", timestamp: 1 },
+    { role: "system", content: "later", sections: { task: "new", removed: null }, toolsRemoved: [{ name: "bash" }], toolsAdded: [tool("read", "new")], timestamp: 2 },
+  ] });
+  const before = JSON.stringify(transcript);
+  const request = responsesRequestBody(piModel, transcript, undefined, {});
+  deepStrictEqual(request.input, [
+    { role: "system", content: [{ type: "input_text", text: "base\n\nlater\n\nnew" }] },
+    { role: "user", content: [{ type: "input_text", text: "synthetic" }] },
+  ]);
+  deepStrictEqual(request.tools, [{ type: "function", ...tool("read", "new"), strict: false }]);
+  assert(JSON.stringify(transcript) === before, "request serialization mutated the transcript");
+  assert(usageFor(piModel, transcript, "answer").input === 4, "synthetic usage counted stale or duplicate system text");
+  assert(usageFromResponse(piModel, transcript, "answer", {}).input === 4, "fallback usage omitted resolved system text");
   assert(responsesRequestBody(piModel, context, { reasoning: "high" }, {}).reasoning_effort === "high", "reasoning_effort high was not sent");
   assert(responsesRequestBody(piModel, context, undefined, {}).reasoning_effort === DOUBLEWORD_THINKING_LEVEL_MAP.medium, "default should map to medium");
   assert(responsesRequestBody(piModel, context, { reasoning: "off" }, {}).reasoning_effort === DOUBLEWORD_THINKING_LEVEL_MAP.off, "off should map to none");
@@ -118,6 +175,17 @@ try {
   const metadataPiModel = { ...metadataModel, api: "doubleword-api", provider: "doubleword", baseUrl: process.env.DOUBLEWORD_BASE_URL };
   assert(!("reasoning_effort" in responsesRequestBody(metadataPiModel, context, { reasoning: "off" }, {})), "explicit off:null should omit reasoning_effort");
   assert(responsesRequestBody(metadataPiModel, context, { reasoning: "high" }, {}).reasoning_effort === "catalog-high", "catalog thinking override was not used");
+  assert(!("reasoning_effort" in responsesRequestBody(piModel, context, { reasoning: "max" }, {})), "unmapped thinking level gained an unsupported provider effort");
+  assert(responsesRequestBody({ ...piModel, thinkingLevelMap: { max: "catalog-max" } }, context, { reasoning: "max" }, {}).reasoning_effort === "catalog-max", "new SDK thinking level ignored its catalog mapping");
+
+  for (const stream of [streamLiveRealtime, streamLiveAsync]) {
+    const result = await stream(piModel, context, { headers: { "X-Preserved": "present", "x-preserved": "extra", "x-omitted": null, "x-empty": "", authorization: null, "content-type": "wrong" } }).result();
+    assert(result.stopReason === "stop" && result.content.some((part) => part.type === "text" && part.text === "Header check passed."), `header request failed: ${JSON.stringify(result)}`);
+    const headers = responseHeaders.at(-1);
+    assert(headers["x-preserved"] === "present, extra" && headers["x-empty"] === "" && headers["x-omitted"] === undefined, `nullable SDK headers were not normalized: ${JSON.stringify(headers)}`);
+    assert(headers.authorization === "Bearer mock-key" && headers["content-type"] === "application/json", "custom headers replaced mandatory authentication or content type");
+  }
+  assert(responseHeaders.length === 2, "both provider transports must exercise header normalization");
 
   delete process.env.DOUBLEWORD_API_KEY;
   const cached = await discoverLiveModels();

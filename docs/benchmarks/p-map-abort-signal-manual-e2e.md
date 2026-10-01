@@ -1,6 +1,8 @@
 # p-map AbortSignal manual Fanout E2E
 
-This is the historical task definition and operator procedure. The detailed 2026-07-14 through 2026-07-29 canary outcomes, qualifications, source identities and metrics are in the [canary tracker](p-map-abort-signal-canary-tracker.md). Its latest prompt canary completed, but the user paused repetitions before they began; the stable-runtime release gate remains open.
+This is the current task definition and operator procedure for the existing p-map AbortSignal benchmark. Historical canary outcomes, qualifications, source identities and metrics remain in the [canary tracker](p-map-abort-signal-canary-tracker.md).
+
+The 2026-09-27 [validation update](p-map-abort-signal/README.md) makes the promised-source-value abort regression visible in the runtime worker's frozen validation contract. Use the updated task and packet for future runs; retain historical inputs and result identities. No new run was performed for this update.
 
 ## Objective
 
@@ -13,7 +15,7 @@ Do not automate the benchmark, create routing variations, or modify benchmark fi
 | Item | Value |
 | --- | --- |
 | Task | Add `AbortSignal` support to `pMapIterable` |
-| Task brief | `<p-map-benchmark>/TASK.md` |
+| Task brief | `<p-map-benchmark>/TASK.md`, matching the [current task](p-map-abort-signal/TASK.md), with adjacent [validation-command.json](p-map-abort-signal/validation-command.json) |
 | Nested repository | `<p-map-benchmark>/repo` |
 | Upstream SHA | `3ada5f36632aca8df860c376856270b6d2ba2de8` |
 | Reproducible local baseline | `c3c261e2189f94d1a09724e8f03d5345af518017` |
@@ -33,7 +35,7 @@ The benchmark lives outside the Fanout repository, and the nested p-map reposito
 - Do not commit benchmark or Fanout changes unless explicitly requested.
 - Keep failed and interrupted run artifacts for diagnosis.
 - Do not build an automated harness or run experimental variations.
-- Hold Fanout commit, packet/profile bytes, routing, concurrency, platform, and clean independent worktrees constant across the canary and repetitions.
+- Hold Fanout commit, packet/profile bytes, routing, concurrency, platform, and clean active-checkout state constant across the canary and repetitions.
 
 ## 1. Preflight
 
@@ -48,14 +50,14 @@ Confirm the fixed baseline:
 ```bash
 git status --short --branch
 git rev-parse HEAD
-npm test
+git rev-parse 'HEAD^{tree}'
 ```
 
 Required state:
 
-- worktree is clean;
+- active checkout is clean;
 - `HEAD` is `c3c261e2189f94d1a09724e8f03d5345af518017`;
-- all 51 baseline tests pass;
+- recorded setup validation passed all 51 baseline tests; reuse that evidence without rerunning tests when the fixture, dependencies, task, and platform are unchanged, following the [common baseline policy](fanout-canary-run-protocol.md#2-verify-the-target-baseline);
 - no stale execution lock is present;
 - the Fanout source revision used by the local extension is recorded with the run.
 
@@ -70,7 +72,7 @@ tmux has-session -t doubleword
 tmux list-windows -t doubleword
 ```
 
-For every canary or repetition, create a new pane rooted at that run's absolute clean p-map worktree, record the returned pane ID, then select it:
+For a singleton canary or sequential repetition, root the pane in the clean p-map checkout (or one standalone clone), record the returned pane ID, then select it. Do not create linked Git worktrees for one-at-a-time execution. Concurrent runs still require separate active checkouts.
 
 ```bash
 tmux split-window -t doubleword:fanout-canary -c <absolute-run-worktree> -P -F '#{pane_id}' -- env -u DOUBLEWORD_API_KEY pi -e <fanout-source>/packages/fanout-pi/src/index.ts
@@ -99,26 +101,23 @@ Evaluate whether role descriptions, multiline rendering, arrow and `j`/`k` navig
 
 ## 4. Prepare the execution packet
 
-For the canary, publish or refresh the approved Project Execution Profile before planning:
+At the exact clean baseline, reuse the existing approved Project Execution Profile after verifying its identity and applicability. Do not rebuild it for a new canary when the repository, dependency state, platform, required commands, profile schema, and profile bytes are unchanged. Publish or refresh a profile only when one of those inputs changed or no verifiable approved profile exists.
+
+Plan against the selected profile:
 
 ```text
-/fanout-plan --refresh-profile Read ../TASK.md and implement that feature request exactly.
+/fanout-plan Read ../TASK.md and its adjacent validation-command.json; implement the task exactly, preserving its frozen runtime-worker validation requirement.
 ```
 
-The profile uses isolated direct-argv preparation/readiness with explicit purpose, mutation, network, and lifecycle disclosures, declares direct-argv offline XO candidate normalization, and includes the repository-wide required final gate. It must not share or link `node_modules`. Repetitions reuse the exact validated profile and packet bytes.
+The approved profile uses isolated direct-argv preparation/readiness with explicit purpose, mutation, network, and lifecycle disclosures, has no candidate normalization, and includes the repository-wide required `npm test` gate. Reuse its exact 1,374 bytes (SHA-256 `2b0248d9a4f65fa271ad05eeb15ca67ed0ec158bfe36450e9a96ab39a072bb8a`); the new task check belongs in the packet. It must not share or link `node_modules`. Repetitions reuse the exact validated profile and packet bytes.
 
 Expected flow:
 
-1. Phase A reads `../TASK.md`, explores p-map, and writes an implementation plan with the resolved objective.
-2. Phase B binds the exact accepted plan identity and grounds task-specific files, anchors, edit intent, and validation commands; it does not own profile commands.
-3. The deterministic compiler emits plan v3, details v5, and profile-bound packet v7 with embedded work-contract v3 nodes and any eligible vertical fusion.
-4. Planning writes immutable artifacts under Pi-owned storage, derives human views from packet v7, and publishes pointer v2 last without modifying p-map.
+1. The combined planning context reads `../TASK.md` and `../validation-command.json`, explores p-map, and submits the plan and grounded details together.
+2. The deterministic compiler emits the profile-bound packet with immutable worker contracts.
+3. Planning writes immutable artifacts under Pi-owned storage and publishes the active pointer last without modifying p-map.
 
-The task brief is a realistic issue-style feature request. It states that the
-runtime implementation and behavioral regression tests must pass together,
-without prescribing nodes, ownership, fusion, or repair boundaries. A
-clarification question is acceptable only if repository evidence exposes a real
-unresolved choice.
+The task requires the runtime implementation and behavioral tests to share repair authority. The supplied regression command must be first in that worker's validation contract, followed by its scoped runtime checks. A clarification question is appropriate only when repository evidence exposes a real unresolved choice.
 
 ## 5. Review gate
 
@@ -135,7 +134,7 @@ Expected ownership and validation:
 
 | Node | Owns | Depends on | Validation |
 | --- | --- | --- | --- |
-| `runtime-and-behavioral-tests` | `index.js`, `test.js` | none | `npx xo index.js test.js && npx ava test.js` |
+| `runtime-and-behavioral-tests` | `index.js`, `test.js` | none | Exact `validation-command.json` first, then scoped XO and AVA checks |
 | `types-abort` | `index.d.ts`, `index.test-d.ts` | none | `npx tsd` |
 | `docs-abort` | `readme.md` | none | `git diff --check` |
 | final validation | none | all workers | `npm test` |
@@ -145,6 +144,14 @@ share one independently acceptable and repairable boundary. Prefer one Phase A
 item; compiler fusion is acceptable only when the immutable packet proves the
 same union. Split items may declare shared reads only when they genuinely need
 that context; reads must never be padded merely to force fusion.
+
+Verify the frozen regression gate before accepting the packet:
+
+```sh
+node <fanout-source>/scripts/benchmarks/verify-p-map-abort-signal-packet.mjs <execution-packet.json>
+```
+
+Fanout already enforces changed-path ownership; do not add redundant Git status/path parsers. Keep the independent external acceptance checker unchanged.
 
 The active profile, not details or the packet, declares candidate
 normalization. Packet final commands execute before profile-required final
@@ -205,7 +212,7 @@ Provider-cost and mutation gate: the user must explicitly choose to run this com
 /fanout-execute
 ```
 
-Run one canary first. If it and all post-run checks pass, run three additional repetitions from fresh independent clean worktrees and fresh tmux panes with identical Fanout commit, packet/profile bytes, routing, concurrency, and platform. Stop on any failure or artifact/configuration change; after any code, packet, profile, or configuration change, restart at the canary.
+Run one canary first. If it and all post-run checks pass, run three additional repetitions sequentially by restoring and reusing the clean checkout, each in a fresh tmux pane with identical Fanout commit, packet/profile bytes, routing, concurrency, and platform. Use separate active worktrees only if the repetitions are intentionally concurrent. Stop on any failure or artifact/configuration change; after any code, packet, profile, or configuration change, restart at the canary.
 
 During execution, capture or note:
 
@@ -266,7 +273,7 @@ Track:
 - worker and validation failures;
 - changed files and patch statistics;
 - discrepancies between events, summary, final validation, and Git.
-- exact profile identity, phase timings, cleanup duration, tmux pane ID, and pane worktree.
+- exact profile identity, phase timings, cleanup duration, tmux pane ID, and active-checkout path.
 
 ## 10. Failure and interruption protocol
 

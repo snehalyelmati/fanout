@@ -2,7 +2,7 @@
 
 ## Status
 
-This is the current technical reference for planning contracts and offline checks. The audit cutover is implemented; historical checks and independent review are recorded in the [audit register](fanout-audit-progress.md). Live canary and exact-candidate approval requirements below concern stable-runtime acceptance, not publication of the [source research preview](../PUBLICATION.md). This document does not mark unpassed gates complete.
+This is the current technical reference for planning contracts and offline checks. The audit cutover is implemented; historical checks and independent review are recorded in the [audit register](fanout-audit-progress.md). Live canary and exact-candidate approval requirements below concern stable-runtime acceptance, not publication of the source research preview. This document does not mark unpassed gates complete.
 
 ## One executable generation
 

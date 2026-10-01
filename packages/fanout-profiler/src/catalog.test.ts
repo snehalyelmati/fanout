@@ -62,8 +62,8 @@ function currentLineage(artifactRoot: string, id = "packet"): { packetIdentity: 
 	const planIdentity = artifactIdentity("implementation-plan.json", planBytes);
 	const command = { executable: "node", args: ["--version"] };
 	const details = {
-		schema: "fanout.implementation-details", version: 7, detailsId: id, createdAt: "2026-07-19T00:01:00.000Z", plan: planIdentity,
-		items: [{ id: "work", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "src/work.ts" }, sourcePlanIds: ["work"] }, contentIntent: "work" }], readDependencies: [], validationCommands: [command], advisoryNotes: [] }],
+		schema: "fanout.implementation-details", version: 8, detailsId: id, createdAt: "2026-07-19T00:01:00.000Z", plan: planIdentity,
+		items: [{ id: "work", kind: "implement", changes: [{ kind: "create", target: { resource: { kind: "file", path: "src/work.ts" }, sourcePlanIds: ["work"] }, contentIntent: "work" }], readDependencies: [], validationCommands: [command], advisoryValidationMode: "fail-fast", advisoryNotes: [] }],
 		finalValidationCommands: [command],
 	};
 	const detailsBytes = Buffer.from(`${JSON.stringify(details)}\n`);

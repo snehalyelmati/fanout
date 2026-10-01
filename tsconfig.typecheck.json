@@ -11,6 +11,7 @@
   },
   "files": [
     "packages/fanout-core/src/final-validation.ts",
+    "packages/fanout-pi/src/fanout-planning-controller.ts",
     "packages/fanout-pi/src/final-validation.ts"
   ]
 }

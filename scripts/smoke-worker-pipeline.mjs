@@ -1,11 +1,13 @@
 import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
-import { spawnSync } from "node:child_process";
+import childProcess, { spawnSync } from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DOUBLEWORD_PRICING_PROVENANCE } from "../packages/doubleword-provider/src/pricing.ts";
 import { deriveAttemptMetricTotals } from "../packages/fanout-core/src/attempt-metrics.ts";
+import { artifactIdentity } from "../packages/fanout-core/src/artifact-identity.ts";
 import { correlatedWorkerMetrics } from "../packages/fanout-pi/src/attempt-evidence.ts";
 import { extractWorkerSummary } from "../packages/fanout-pi/src/fanout-worker-contract.ts";
 import { buildWorkerSourceContext } from "../packages/fanout-pi/src/worker-context.ts";
@@ -179,8 +181,41 @@ function testWorkerSourceContext() {
   mkdirSync(join(cwd, "wide"));
   for (let index = 0; index < 300; index++) writeFileSync(join(cwd, "wide", `${index}.txt`), "");
   const wide = buildWorkerSourceContext(cwd, baselineTree, { changes: [], readDependencies: [{ resource: { kind: "directory", path: "wide" }, timing: "post-change-required" }] });
-  assert(wide.files.length <= 128 && wide.omitted.length === 1 && JSON.stringify(wide).length < 192 * 1024, "wide empty-file directory bypassed context ceiling");
+  assert(wide.files.length === 128 && wide.omitted.length === 1 && JSON.stringify(wide).length < 192 * 1024, "wide empty-file directory changed the exact entry ceiling");
 
+  mkdirSync(join(cwd, "batch"));
+  const names = ["space name", "tab\tname", "line\nname", 'quote"name', "[literal]*", ...Array.from({ length: 35 }, (_, index) => `file-${index}`)];
+  for (const name of names) writeFileSync(join(cwd, "batch", name), "shared immutable bytes\n");
+  writeFileSync(join(cwd, "batch", "invalid"), Buffer.from([0xc3, 0x28]));
+  writeFileSync(join(cwd, "batch", "at-limit"), "a".repeat(64 * 1024));
+  writeFileSync(join(cwd, "batch", "over-limit"), "b".repeat(64 * 1024 + 1));
+  git("add", "."); git("commit", "-qm", "batch source");
+  const batchBase = capturePlanningBase(cwd).tree;
+  writeFileSync(join(cwd, "owned.txt"), "different current tree\n");
+  const batchContract = { changes: [], readDependencies: [
+    ...names.map((name) => ({ resource: resource(`batch/${name}`), timing: "post-change-required" })),
+    { resource: resource(`batch/${names[0]}`), timing: "baseline-context" },
+    ...["invalid", "at-limit", "over-limit"].map((name) => ({ resource: resource(`batch/${name}`), timing: "post-change-required" })),
+  ] };
+  const originalExec = childProcess.execFileSync;
+  const calls = [];
+  childProcess.execFileSync = (file, args, options) => { calls.push({ args, input: options.input }); return originalExec(file, args, options); };
+  syncBuiltinESMExports();
+  let batched;
+  try { batched = buildWorkerSourceContext(cwd, batchBase, batchContract); }
+  finally { childProcess.execFileSync = originalExec; syncBuiltinESMExports(); }
+  assert(batched.files.slice(0, names.length).every((file, index) => file.path === `batch/${names[index]}` && file.text === "shared immutable bytes\n" && file.tree === batched.currentTree), "batching changed source output order, unusual paths, or content");
+  assert(batched.files[names.length].tree === batchBase && batched.files[names.length].blob === batched.files[0].blob, "shared blob cache confused baseline/current identity");
+  const fetched = calls.filter(({ args }) => args.includes("--batch")).flatMap(({ input }) => input.trim().split("\n"));
+  assert(fetched.filter((blob) => blob === batched.files[0].blob).length === 1 && calls.length < 10, `source batching retained per-file subprocesses: ${calls.length}`);
+  assert(batched.files.at(-1).text.length === 64 * 1024 && batched.omitted.map((entry) => entry.reason).join("|") === "binary or invalid UTF-8|source context byte limit", "UTF-8 rejection or raw byte boundary changed");
+  assert(!fetched.includes(git("rev-parse", `${batchBase}:batch/over-limit`)), "oversized content fetched before size admission");
+  const serialized = buildWorkerSourceContext(cwd, batchBase, { changes: [], readDependencies: Array.from({ length: 4 }, () => ({ resource: resource("batch/at-limit"), timing: "baseline-context" })) });
+  assert(serialized.files.length === 1, "duplicate requests consumed serialized-byte budget");
+  mkdirSync(join(cwd, "budget"));
+  for (const name of ["a", "b", "c", "d"]) writeFileSync(join(cwd, "budget", name), '"'.repeat(64 * 1024));
+  const budget = buildWorkerSourceContext(cwd, batchBase, { changes: [], readDependencies: [{ resource: { kind: "directory", path: "budget" }, timing: "post-change-required" }] });
+  assert(budget.files.length === 1 && budget.omitted.length === 3, "JSON escaping bypassed serialized-byte admission");
 }
 
 async function testWorkerValidation(root, worktree) {
@@ -195,6 +230,7 @@ async function testWorkerValidation(root, worktree) {
     writeResources: [{ kind: "directory", path: "src" }], forbiddenWrites: [{ kind: "file", path: "src/blocked.txt" }],
     platform: process.platform,
     commands: [command],
+    advisoryValidationMode: "fail-fast",
     timeoutMs: 5_000,
   });
   const env = {
@@ -233,6 +269,7 @@ async function testWorkerValidation(root, worktree) {
   const bulkCommands = [
     { executable: process.execPath, args: ["-e", "process.stdout.write('PASSED_HEAD_' + 'p'.repeat(20_000) + '_PASSED_TAIL')"] },
     { executable: process.execPath, args: ["-e", "process.stdout.write('FAILED_STDOUT_HEAD_' + 'o'.repeat(12_000) + '_FAILED_STDOUT_TAIL'); process.stderr.write('FAILED_STDERR_HEAD_' + 'e'.repeat(12_000) + '_FAILED_STDERR_TAIL'); process.exit(7)"] },
+    { executable: process.execPath, args: ["-e", "process.stdout.write('SECOND_HEAD_' + 's'.repeat(12_000)); process.stderr.write('f'.repeat(12_000) + '_SECOND_TAIL'); process.exit(9)"] },
   ];
   const bulkIdentity = publishWorkerValidationManifest(attemptDir, {
     runId: "run-1",
@@ -242,6 +279,7 @@ async function testWorkerValidation(root, worktree) {
     writeResources: [{ kind: "directory", path: "src" }], forbiddenWrites: [{ kind: "file", path: "src/blocked.txt" }],
     platform: process.platform,
     commands: bulkCommands,
+    advisoryValidationMode: "collect-independent",
     timeoutMs: 5_000,
   });
   const bulkContext = loadWorkerValidationContext({ ...env, FANOUT_VALIDATION_MANIFEST: JSON.stringify(bulkIdentity) }, worktree);
@@ -249,10 +287,62 @@ async function testWorkerValidation(root, worktree) {
   const bulkText = bulk.content[0].text;
   assert(bulk.isError === true && bulkText.includes("[0] passed") && !bulkText.includes("PASSED_HEAD_") && !bulkText.includes("_PASSED_TAIL"), "passed worker validation output remained model-visible");
   assert(bulkText.length < 9_000 && bulkText.includes("fanout_validate output truncated") && bulkText.includes("FAILED_STDOUT_HEAD_") && bulkText.includes("_FAILED_STDERR_TAIL"), "failed worker validation output was not bounded with useful head/tail diagnostics");
+  assert(bulkText.includes("[2] nonzero") && bulkText.includes("SECOND_HEAD_") && bulkText.includes("_SECOND_TAIL"), "second independent failure lost diagnostics");
   assert(bulk.details.result.commands[0].stdout.includes("_PASSED_TAIL") && bulk.details.result.commands[1].stdout.includes("_FAILED_STDOUT_TAIL") && bulk.details.result.commands[1].stderr.includes("_FAILED_STDERR_TAIL"), "bounded model output truncated authoritative validation details");
   const bulkEvidence = JSON.parse(readFileSync(join(attemptDir, bulk.details.evidence.path), "utf8"));
   assert(bulkEvidence.result.commands[0].stdout.includes("_PASSED_TAIL") && bulkEvidence.result.commands[1].stderr.includes("_FAILED_STDERR_TAIL"), "bounded model output truncated stored validation evidence");
 
+  // 120 failures leave only one diagnostic character beyond each truncation marker.
+  const manyIdentity = publishWorkerValidationManifest(attemptDir, {
+    runId: "run-1", nodeId: "node-1", attemptId: "node-1:000001", worktreeRoot: worktree,
+    writeResources: [], forbiddenWrites: [], platform: process.platform,
+    commands: Array.from({ length: 120 }, () => ({ executable: process.execPath, args: ["-e", "process.stderr.write('x'.repeat(1000)); process.exit(7)"] })),
+    advisoryValidationMode: "collect-independent", timeoutMs: 5_000,
+  });
+  const manyContext = loadWorkerValidationContext({ ...env, FANOUT_VALIDATION_MANIFEST: JSON.stringify(manyIdentity) }, worktree);
+  const many = await runWorkerValidation(manyContext, "validate-many", undefined, worktree);
+  assert(many.isError && many.content[0].text.length < 14_000 && (many.content[0].text.match(/^\[\d+\] nonzero/gm) ?? []).length === 120, "tiny diagnostic budgets leaked full output or hid failure statuses");
+  const manyEvidence = JSON.parse(readFileSync(join(attemptDir, many.details.evidence.path), "utf8"));
+  assert(manyEvidence.result.commands.length === 120 && manyEvidence.result.commands.every(({ stderr }) => stderr.length === 1000), "tiny diagnostic budgets truncated stored evidence");
+
+  const orderPath = join(worktree, "validation-order.txt");
+  const orderedCommands = [7, 9, 0].map((code, index) => ({ executable: process.execPath, args: ["-e", `require('node:fs').appendFileSync('validation-order.txt','${index}'); console.error('check-${index}'); process.exit(${code})`] }));
+  for (const mode of ["fail-fast", "collect-independent"]) {
+    rmSync(orderPath, { force: true });
+    const manifest = publishWorkerValidationManifest(attemptDir, {
+      runId: "run-1", nodeId: "node-1", attemptId: "node-1:000001", worktreeRoot: worktree,
+      writeResources: [], forbiddenWrites: [], platform: process.platform,
+      commands: orderedCommands, advisoryValidationMode: mode, timeoutMs: 5_000,
+    });
+    const verified = loadWorkerValidationContext({ ...env, FANOUT_VALIDATION_MANIFEST: JSON.stringify(manifest) }, worktree);
+    registerWorkerValidationTool({ registerTool(tool) { registered = tool; }, on() {} }, verified);
+    const response = await registered.execute(`ordered-${mode}`, { advisoryValidationMode: "collect-independent", commands: [] }, undefined, undefined, { cwd: worktree });
+    const result = response.details.result;
+    assert(readFileSync(orderPath, "utf8") === (mode === "fail-fast" ? "0" : "012"), "commands were reordered, rerun, or a later sentinel ran after fail-fast");
+    assert(response.isError && result.status === "failed", "last passing check manufactured success");
+    assert(JSON.stringify(result.commands.map(({ outcome }) => outcome)) === JSON.stringify(mode === "fail-fast" ? ["nonzero", "unexecuted", "unexecuted"] : ["nonzero", "nonzero", "passed"]), `wrong advisory mode behavior: ${JSON.stringify(response)}`);
+    assert(JSON.stringify(result.commands.map(({ command }) => command)) === JSON.stringify(orderedCommands), "advisory collection changed ordered argv");
+    assert(result.commands.map(({ id }) => id).join(",") === "node-1:000001/worker-validation/0,node-1:000001/worker-validation/1,node-1:000001/worker-validation/2", "advisory collection changed command identities");
+    assert(response.content[0].text.includes("check-0") && (mode === "fail-fast" || response.content[0].text.includes("check-1")), "known failures were hidden from worker");
+    const stored = JSON.parse(readFileSync(join(attemptDir, response.details.evidence.path), "utf8"));
+    assert(JSON.stringify(stored.result) === JSON.stringify(result) && stored.manifest.sha256 === manifest.sha256, "ordered results/timings were not stored in full against manifest");
+  }
+
+  const validManifest = JSON.parse(readFileSync(join(attemptDir, identity.path), "utf8"));
+  for (const mutate of [
+    (value) => { delete value.advisoryValidationMode; },
+    (value) => { value.advisoryValidationMode = "parallel"; },
+    (value) => { value.version = 2; },
+    (value) => { value.continueAfterNonzero = true; },
+  ]) {
+    const malformed = structuredClone(validManifest); mutate(malformed);
+    const bytes = Buffer.from(JSON.stringify(malformed));
+    writeFileSync(join(attemptDir, identity.path), bytes);
+    const alteredEnv = { ...env, FANOUT_VALIDATION_MANIFEST: JSON.stringify(artifactIdentity(identity.path, bytes)) };
+    let rejected = false;
+    try { loadWorkerValidationContext(alteredEnv, worktree); } catch { rejected = true; }
+    assert(rejected, "digest-valid malformed/legacy manifest silently acquired policy");
+  }
   writeFileSync(join(attemptDir, identity.path), "{}\n");
   let tamperRejected = false;
   try { loadWorkerValidationContext(env, worktree); } catch (error) { tamperRejected = /digest|length|artifact/i.test(String(error)); }
@@ -265,7 +355,7 @@ function testDiscoveredExtensionWithFixedProfile(root) {
   const attemptDir = join(root, "discovery-attempt");
   mkdirSync(join(repo, ".pi", "extensions"), { recursive: true });
   mkdirSync(attemptDir);
-  const manifest = publishWorkerValidationManifest(attemptDir, { runId: "discovery", nodeId: "node", attemptId: "node:000001", worktreeRoot: repo, writeResources: [], forbiddenWrites: [], platform: process.platform, commands: [], timeoutMs: 5_000 });
+  const manifest = publishWorkerValidationManifest(attemptDir, { runId: "discovery", nodeId: "node", attemptId: "node:000001", worktreeRoot: repo, writeResources: [], forbiddenWrites: [], platform: process.platform, commands: [], advisoryValidationMode: "fail-fast", timeoutMs: 5_000 });
   writeFileSync(join(repo, ".pi", "extensions", "discovered.ts"), `import { writeFileSync } from "node:fs";\nexport default function discovered(pi) {\n  pi.registerTool({ name: "discovered_tool", label: "Discovered", description: "Must remain unavailable", parameters: { type: "object", properties: {} }, async execute() { return { content: [{ type: "text", text: "unexpected" }] }; } });\n  pi.on("session_start", () => writeFileSync(${JSON.stringify(marker)}, JSON.stringify(pi.getActiveTools())));\n}\n`);
   const sessionDir = join(root, "sessions");
   const result = spawnSync("pi", [
@@ -313,7 +403,7 @@ async function testNormalizedWorkerValidation(root, worktree) {
   for (const mode of ["pass", "program", "tamper", "publication", "empty"]) {
     const attemptRoot = join(root, `sdk-${mode}`);
     mkdirSync(attemptRoot);
-    const identity = publishWorkerValidationManifest(attemptRoot, { runId: "sdk", nodeId: "node", attemptId: "node:000001", worktreeRoot: worktree, writeResources: [], forbiddenWrites: [], platform: process.platform, commands: mode === "empty" ? [] : [{ executable: process.execPath, args: ["-e", mode === "program" ? "console.error('program failed');process.exit(7)" : "process.exit(0)"] }], timeoutMs: 5000 });
+    const identity = publishWorkerValidationManifest(attemptRoot, { runId: "sdk", nodeId: "node", attemptId: "node:000001", worktreeRoot: worktree, writeResources: [], forbiddenWrites: [], platform: process.platform, commands: mode === "empty" ? [] : [{ executable: process.execPath, args: ["-e", mode === "program" ? "console.error('program failed');process.exit(7)" : "process.exit(0)"] }], advisoryValidationMode: "fail-fast", timeoutMs: 5000 });
     const context = loadWorkerValidationContext({ FANOUT_RUN_ID: "sdk", FANOUT_NODE_ID: "node", FANOUT_ATTEMPT_ID: "node:000001", FANOUT_WORKER_DIR: attemptRoot, FANOUT_WORKTREE_ROOT: worktree, FANOUT_VALIDATION_MANIFEST: JSON.stringify(identity) }, worktree);
     if (mode === "tamper") writeFileSync(join(attemptRoot, identity.path), "{}\n");
     if (mode === "publication") writeFileSync(join(attemptRoot, "worker-validation"), "blocked");

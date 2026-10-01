@@ -1,0 +1,347 @@
+/*-- scss:defaults --*/
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap');
+
+// Palette (moon base)
+$ink: #002b36;       // background
+$paper: #eee8d5;     // primary text
+$fog: #93a1a1;       // secondary text
+$line: rgba(238, 232, 213, .14);
+$measured: #6fa8dc;  // measured, Tier 1 realtime
+$dw: #2ec4b6;        // Doubleword / async / Tier 2
+$harness: #e9a23b;
+$models: #b39ddb;
+$combined: #e57cd8;
+
+// Type roles
+$display: 'IBM Plex Sans Condensed', 'Arial Narrow', sans-serif;
+$text: 'IBM Plex Sans', system-ui, sans-serif;
+$data: 'IBM Plex Mono', ui-monospace, monospace;
+
+$font-family-sans-serif: $text;
+$font-family-monospace: $data;
+$presentation-font-size-root: 36px;
+$presentation-heading-font: $display;
+$presentation-heading-color: $paper;
+$presentation-heading-font-weight: 600;
+$presentation-heading-text-transform: none;
+$presentation-heading-letter-spacing: -0.01em;
+$presentation-heading-line-height: 1.1;
+$presentation-h1-font-size: 2.6em;
+$presentation-h2-font-size: 1.45em;
+$body-color: $paper;
+$link-color: $dw;
+
+/*-- scss:rules --*/
+// Type scale (em of 36px root): h2 1.45 · lead 1.05 · body .9 · label .7 · meta .55
+.reveal { font-family: $text; }
+.reveal .slides section { text-align: left; }
+.reveal h1, .reveal h2 { font-family: $display; text-transform: none; }
+.reveal h2 { margin: 0 0 .7em; }
+.reveal p, .reveal li { font-size: .9em; line-height: 1.4; }
+.reveal li li { font-size: 1em; }
+.reveal ul, .reveal ol { margin-left: 1.1em; }
+.reveal li { margin-bottom: .3em; }
+.reveal li::marker { color: $fog; }
+.reveal strong { font-weight: 600; color: #fdf6e3; }
+.reveal em { font-style: italic; }
+.reveal code { font-family: $data; font-size: .85em; color: $harness; background: none; }
+.reveal .lead { font-size: 1.05em; line-height: 1.35; color: $paper; }
+.reveal p.lead, .reveal .lead p { font-size: 1.05em; }
+.reveal .muted { color: $fog; }
+.reveal .caption, .reveal .key { font-size: .55em; line-height: 1.45; color: $fog; margin-top: 1em; }
+.reveal .caption p, .reveal .key p { font-size: 1em; }
+.reveal .dw { color: $dw; } .reveal .harness { color: $harness; }
+.reveal .models { color: $models; } .reveal .combined { color: $combined; }
+.reveal .slide-number { font-family: $data; font-size: .45em; color: $fog; background: none; }
+.reveal .tag, .reveal .eyebrow { display: block; font-family: $data; font-size: .5em; letter-spacing: .08em; text-transform: uppercase; color: $fog; }
+
+// Tables: one style everywhere
+.reveal table { font-size: .7em; border-collapse: collapse; width: 100%; margin: .4em 0 .8em; }
+.reveal table th { font-family: $data; font-size: .75em; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: $fog; border-bottom: 2px solid $line !important; padding: .5em .6em; }
+.reveal table td { padding: .55em .6em; border-bottom: 1px solid $line !important; vertical-align: top; line-height: 1.35; }
+.reveal table th, .reveal table td { text-align: left !important; }
+.reveal table td code { font-size: .9em; }
+.reveal table td.num { font-family: $data; }
+
+// Stat cards
+.reveal .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: .7em; margin: .2em 0 .9em; }
+.reveal .card { background: rgba(255,255,255,.04); border-top: 3px solid $fog; padding: .7em .8em .8em; }
+.reveal .card:nth-child(1) { border-top-color: $measured; }
+.reveal .card:nth-child(2) { border-top-color: $harness; }
+.reveal .card:nth-child(3) { border-top-color: $dw; }
+.reveal .card p { font-size: .72em; margin: 0 0 .5em; color: $fog; }
+.reveal .card p:has(.big) { margin: .1em 0 .35em; }
+.reveal .card .big { font-family: $data; font-weight: 500; font-size: 2.4em; line-height: 1.05; color: $paper; letter-spacing: -.02em; white-space: nowrap; }
+.reveal .card .tag { margin-top: .7em; font-size: .72em; }
+
+// Provider screenshot
+.reveal .shot img { box-shadow: none; border-radius: 0; background: none; }
+
+// ---------- bar charts ----------
+.reveal .bchart { display: grid; grid-template-columns: 30% 1fr 1fr; column-gap: 2.5%; font-size: .7em; }
+.reveal .bchart.compact { font-size: .62em; }
+.reveal .bhead, .reveal .brow { display: contents; }
+.reveal .bhead span { font-family: $data; font-size: .75em; letter-spacing: .08em; text-transform: uppercase; color: $fog; padding-bottom: .5em; }
+.reveal .blab { align-self: center; line-height: 1.2; padding: .45em 0; }
+.reveal .blab small { display: block; font-family: $data; font-size: .72em; color: $fog; margin-top: .15em; }
+.reveal .btrack { position: relative; min-height: 2.6em; }
+.reveal .bchart.compact .btrack { min-height: 2.2em; }
+.reveal .bfill, .reveal .bext { position: absolute; top: 24%; height: 52%; left: 0; border-radius: 0 3px 3px 0; }
+.reveal .bfill { transform-origin: left center; transform: scaleX(0); transition: transform .9s cubic-bezier(.2,.8,.2,1); }
+.reveal .bext { border: 2px dashed $fog; border-left: none; opacity: 0; transition: opacity .5s .8s; }
+.reveal .bval { position: absolute; z-index: 2; top: 50%; margin: -.75em .45em 0; line-height: 1.5em; white-space: nowrap; font-family: $data; font-size: .92em; background: $ink; padding: 0 .3em; opacity: 0; transition: opacity .4s .6s; }
+.reveal .bval em { color: $fog; font-style: normal; font-size: .85em; }
+.reveal .bbase { position: absolute; z-index: 1; top: 0; bottom: 0; border-left: 2px dashed rgba(238,232,213,.5); }
+.reveal .brow.on .bfill, .reveal .brow.visible .bfill { transform: scaleX(1); }
+.reveal .brow.on .bval, .reveal .brow.visible .bval, .reveal .brow.on .bext, .reveal .brow.visible .bext { opacity: 1; }
+.reveal .brow.fragment { opacity: 1; visibility: visible; }
+.reveal .brow.fragment:not(.visible) > * { opacity: 0; }
+.reveal .brow > * { transition: opacity .3s; }
+.reveal .split { grid-template-columns: 24% 1fr; }
+.reveal .split .bfill b { position: absolute; left: .5em; top: 50%; transform: translateY(-50%); font-family: $data; font-weight: 500; font-size: .85em; color: $ink; white-space: nowrap; }
+
+.k-measured { background: $measured; }
+.k-workers { background: lighten($measured, 22%); }
+@mixin hatch($c) { background: repeating-linear-gradient(135deg, $c 0 10px, darken($c, 11%) 10px 20px); }
+.k-modeled { @include hatch(#2a9d8f); }
+.k-dw { @include hatch($dw); }
+.k-harness { @include hatch($harness); }
+.k-models { @include hatch($models); }
+.k-combined { @include hatch($combined); }
+
+.reveal .key i { display: inline-block; width: 1.4em; height: .75em; margin: 0 .35em 0 1em; vertical-align: -.05em; border-radius: 2px; }
+.reveal .key i:first-child { margin-left: 0; }
+.reveal .key .ghost { border: 2px dashed $fog; }
+
+// ---------- SVG charts ----------
+.reveal .lchart svg { width: 100%; height: auto; overflow: visible; }
+.reveal .lchart text { fill: $paper; font-family: $text; }
+.reveal .lchart .tick { font-family: $data; font-size: 18px; fill: $fog; }
+.reveal .lchart .axis { font-size: 20px; fill: $fog; }
+.reveal .lchart .ptitle { font-family: $display; font-size: 28px; font-weight: 600; }
+.reveal .lchart .grid { stroke: rgba(255,255,255,.08); stroke-width: 1; }
+.reveal .lchart .grid.one { stroke: rgba(238,232,213,.6); stroke-dasharray: 6 6; stroke-width: 2; }
+.reveal .lchart .win { fill: rgba(46,196,182,.07); }
+.reveal .lchart .wintxt { font-family: $data; font-size: 16px; fill: $dw; }
+.reveal .lchart .band { fill: rgba(233,162,59,.1); }
+.reveal .lchart .bandtxt { font-family: $data; font-size: 18px; fill: $harness; }
+.reveal .lchart .lab { font-family: $data; font-size: 20px; font-weight: 600; }
+.reveal .lchart path.line { fill: none; stroke-width: 4; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset 1.2s ease-out; }
+.reveal .lchart .visible path.line { stroke-dashoffset: 0; }
+.reveal .lchart .hl { fill: none; stroke: #fff; stroke-width: 3; }
+.reveal .lchart .hltxt { font-family: $data; font-size: 22px; font-weight: 600; }
+.reveal .legend { display: flex; flex-wrap: wrap; justify-content: center; gap: .3em 1.4em; font-size: .55em; color: $fog; margin-top: .4em; }
+.reveal .legend i { display: inline-block; width: 1.2em; height: .3em; margin-right: .45em; vertical-align: middle; border-radius: 2px; }
+
+// ---------- journey meter ----------
+.reveal .journey { margin: 0 0 1em; }
+.reveal .jstep { font-family: $data; font-size: .5em; letter-spacing: .08em; text-transform: uppercase; color: $fog; display: flex; align-items: center; gap: .8em; }
+.reveal .jkey { text-transform: none; letter-spacing: 0; margin-left: auto; }
+.reveal .badge { padding: .15em .7em; border-radius: 1em; }
+.reveal .b-measured { background: rgba(111,168,220,.18); color: $measured; }
+.reveal .b-modeled { background: rgba(46,196,182,.15); color: $dw; }
+.reveal .chips { display: flex; flex-wrap: wrap; gap: .4em; margin: .7em 0 1.1em; min-height: 1.5em; }
+.reveal .chip { display: inline-flex; align-items: center; font-size: .55em; line-height: 1; padding: .45em .9em; border-radius: 2em; border: 1.5px solid $fog; }
+.reveal .k2-base { border-color: $measured; color: $measured; }
+.reveal .k2-dw { border-color: $dw; color: $dw; }
+.reveal .k2-harness { border-color: $harness; color: $harness; }
+.reveal .k2-models { border-color: $models; color: $models; }
+.reveal .k2-combined { border-color: $combined; color: $combined; }
+.reveal .meter { display: grid; gap: .7em; }
+.reveal .mrow { display: grid; grid-template-columns: 3.4em 1fr; align-items: center; }
+.reveal .mlab { font-family: $data; font-size: .6em; letter-spacing: .08em; text-transform: uppercase; color: $fog; }
+.reveal .mtrack { position: relative; height: 2.4em; background: rgba(255,255,255,.04); border-radius: 4px; }
+.reveal .mfill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+.reveal .mghost { position: absolute; top: 0; bottom: 0; border: 2px dashed $fog; border-left: none; border-radius: 0 4px 4px 0; }
+.reveal .mbase { position: absolute; z-index: 1; top: -.3em; bottom: -.3em; border-left: 3px dashed $paper; }
+.reveal .mval { position: absolute; z-index: 2; top: 50%; margin: -.8em .6em 0; line-height: 1.6em; white-space: nowrap; font-family: $data; font-size: .7em; background: $ink; padding: .05em .4em; border-radius: 3px; }
+.reveal .mval strong { font-weight: 600; }
+.reveal .mval em { color: $fog; font-style: normal; font-size: .85em; }
+
+.reveal .journey + ul { margin-top: .4em; }
+
+// ---------- What Fanout is ----------
+.reveal .arch { display: grid; grid-template-columns: 1fr 1.6fr 1fr; gap: 1.2em; margin-top: .4em; }
+.reveal .stage { position: relative; }
+.reveal .stage .eyebrow { margin-bottom: .6em; }
+.reveal .stage h3 { font-family: $display; font-size: .95em; font-weight: 600; margin: 0 0 .5em; color: $paper; text-transform: none; }
+.reveal .stage p { font-size: .62em; color: $fog; margin: .6em 0 0; line-height: 1.4; }
+.reveal .box { border: 2px solid $fog; border-radius: 6px; padding: .5em .7em; font-size: .62em; background: rgba(255,255,255,.03); }
+.reveal .box b { display: block; font-family: $display; font-size: 1.25em; font-weight: 600; color: $paper; }
+.reveal .box small { font-family: $data; font-size: .85em; color: $fog; }
+.reveal .box.rt { border-color: $measured; } .reveal .box.rt small { color: $measured; }
+.reveal .box.t2 { border-color: $dw; } .reveal .box.t2 small { color: $dw; }
+.reveal .box + .box { margin-top: .45em; }
+.reveal .lanes { display: grid; gap: .45em; }
+.reveal .lane { display: grid; grid-template-columns: 1fr; }
+.reveal .lane.dep { grid-template-columns: .45fr 1fr; }
+.reveal .lane.dep .wait { font-family: $data; font-size: .5em; color: $fog; align-self: center; border-top: 2px dashed $fog; padding-top: .3em; margin-right: .6em; }
+.reveal .stage:not(:last-child)::after { content: '→'; position: absolute; right: -.95em; top: 2.3em; color: $fog; font-size: .9em; }
+.reveal .tiers { display: flex; gap: 1.6em; margin-top: 1.1em; font-size: .55em; color: $fog; }
+.reveal .tiers i { display: inline-block; width: .9em; height: .9em; border: 2px solid; border-radius: 3px; margin-right: .45em; vertical-align: -.1em; }
+
+// ---------- closing slide ----------
+.reveal .closing { display: grid; grid-template-columns: .85fr 1.15fr; gap: 2.2em; align-items: center; min-height: 760px; }
+.reveal .closing .eyebrow { margin-bottom: .9em; }
+.reveal .closing h3 { font-family: $display; font-size: 1.75em; line-height: 1.08; font-weight: 600; margin: 0 0 .7em; color: $paper; text-transform: none; }
+.reveal .closing p { font-size: .72em; color: $fog; margin: 0 0 .7em; }
+.reveal .closing .contact { font-family: $data; font-size: .6em; color: $paper; margin-top: 1.8em; }
+.reveal .closing .contact a { color: $dw; }
+.reveal .recap { border-left: 2px solid $line; padding-left: 1.6em; }
+.reveal .recap .eyebrow { margin-bottom: .8em; }
+.reveal .recapbars { grid-template-columns: 38% 1fr 1fr; font-size: .62em; column-gap: 3%; }
+.reveal .recapbars .btrack { min-height: 2.9em; }
+
+// stage descriptions align to a common baseline
+.reveal .arch { align-items: stretch; }
+.reveal .stage { display: flex; flex-direction: column; }
+.reveal .stage p { margin-top: auto; padding-top: .9em; }
+.reveal section.center-title h1 { text-align: center; width: 100%; }
+.reveal .install { font-family: $data; font-size: .6em; color: $harness; margin-top: .9em; }
+.reveal .slides section.center-title { display: flex !important; flex-direction: column; justify-content: center; align-items: center; height: 100%; }
+
+
+// ---------- journey layout: meter 2/3 · timeline 1/3 ----------
+.reveal .jgrid { display: grid; grid-template-columns: 2fr 1fr; gap: 1.6em; height: 640px; align-items: start; }
+.reveal .jgrid .journey { margin: 0; }
+.reveal .jgrid .chips { min-height: 2.6em; align-content: flex-start; }
+.reveal .jctx { margin: 1.1em 0 0 1.1em; padding: 0; }
+.reveal .jctx li { font-size: .82em; margin-bottom: .4em; }
+.reveal .jside { border-left: 2px solid $line; padding-left: 1.2em; height: 100%; }
+.reveal .tl .eyebrow { margin-bottom: .8em; }
+.reveal .tl svg { width: 100%; height: auto; overflow: visible; }
+.reveal .tl-lab { font-family: $data; font-size: 15px; fill: $fog; }
+.reveal .tl-axis { font-family: $data; font-size: 14px; fill: $fog; }
+.reveal .tl-track { fill: rgba(255,255,255,.04); }
+.reveal .tl-rt { fill: $measured; background: $measured; }
+.reveal .tl-req { fill: $dw; background: $dw; }
+.reveal .tl-wait { fill: rgba(147,161,161,.45); background: rgba(147,161,161,.45); }
+.reveal .tl-key { display: flex; flex-wrap: wrap; gap: .3em 1em; font-size: .48em; color: $fog; margin-top: .6em; }
+.reveal .tl-key i { display: inline-block; width: .9em; height: .9em; margin-right: .35em; vertical-align: -.1em; border-radius: 2px; }
+.reveal .tl-note { font-size: .62em !important; color: $paper; margin-top: .9em; line-height: 1.4; }
+
+// pricing slide
+.reveal .plan { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .8em; margin: .4em 0 1em; }
+.reveal .plan .card p { font-size: .66em; }
+
+// ---------- concept diagrams ----------
+.reveal .tl svg text { font-family: $data; }
+.reveal .cd-h { font-size: 21px; fill: $paper; font-weight: 600; }
+.reveal .cd-h.hide { display: none; }
+.reveal .cd-sub { font-size: 15px; fill: $fog; }
+.reveal .cd-in { font-size: 15px; fill: $ink; font-weight: 600; }
+.reveal .cd-note { font-size: 17px; fill: $paper; }
+.reveal .cd-more { font-size: 15px; fill: $fog; }
+.reveal .cd-rt { fill: $measured; }
+.reveal .cd-as { fill: $dw; }
+.reveal .cd-wait { fill: rgba(147,161,161,.35); stroke: $fog; stroke-dasharray: 4 3; stroke-width: 1.2; }
+.reveal .cd-think { fill: rgba(179,157,219,.55); }
+.reveal .cd-part { fill: $harness; }
+.reveal .cd-tool { stroke: $fog; stroke-width: 2; stroke-dasharray: 2 3; }
+.reveal .cd-brace, .reveal .cd-end { fill: none; stroke: $paper; stroke-width: 1.5; }
+.reveal .cd-end { stroke-dasharray: 5 4; }
+.reveal .cd-k-rt { background: $measured; } .reveal .cd-k-as { background: $dw; }
+.reveal .cd-k-wait { background: rgba(147,161,161,.35); outline: 1px dashed $fog; }
+.reveal .cd-k-tool { border-left: 2px dotted $fog; width: .1em !important; }
+.reveal .cd-k-think { background: rgba(179,157,219,.55); } .reveal .cd-k-part { background: $harness; }
+
+.reveal .mcold { position: absolute; z-index: 2; top: 50%; margin: -.8em .6em 0; line-height: 1.6em; white-space: nowrap; font-family: $data; font-size: .55em; color: $fog; background: $ink; padding: .05em .4em; border-radius: 3px; }
+
+.reveal .jgrid .journey { overflow: hidden; padding-top: .4em; }
+
+// closing readout
+.reveal .readout { display: grid; gap: .2em; }
+.reveal .rr { display: grid; grid-template-columns: 1.25fr 1fr 1fr; gap: 1em; align-items: center; padding: .55em 0; border-bottom: 1px solid $line; }
+.reveal .rr.rh { padding: 0 0 .3em; font-family: $data; font-size: .5em; letter-spacing: .08em; text-transform: uppercase; color: $fog; border-bottom: 2px solid $line; }
+.reveal .rr.rh span { font-size: 1em; }
+.reveal .rl { font-size: .62em; line-height: 1.25; color: $paper; }
+.reveal .rl small { display: block; font-family: $data; font-size: .75em; color: $fog; margin-top: .2em; }
+.reveal .rc { display: flex; flex-direction: column; gap: .3em; }
+.reveal .rv { font-family: $data; font-size: .95em; font-weight: 500; color: $paper; }
+.reveal .rv.good { color: $dw; } .reveal .rv.bad { color: #e07a5f; }
+.reveal .rbar { position: relative; height: .45em; background: rgba(255,255,255,.05); border-radius: 2px; }
+.reveal .rbar .bfill { top: 0; height: 100%; }
+.reveal .rbar i { position: absolute; top: -.2em; bottom: -.2em; border-left: 2px dashed $paper; }
+
+// ---------- cover ----------
+.reveal .cover { display: grid; grid-template-columns: 1.35fr 1fr; gap: 2.5em; align-items: center; }
+.reveal .cover-side { border-left: 2px solid $line; padding-left: 2em; }
+.reveal .cover-side svg { width: 100%; height: auto; }
+.reveal .cover .contact { margin-top: 2.2em; }
+.reveal .cover h1 { font-family: $display; font-size: 2.35em; line-height: 1.02; letter-spacing: -.02em; margin: .35em 0 .4em; text-align: left; }
+.reveal .cover .cover-sub { font-size: .95em; color: $fog; max-width: 30em; }
+
+
+.reveal .cover .contact { font-family: $data; font-size: .6em; color: $paper; }
+// ---------- finale ----------
+.reveal .finale { text-align: center; }
+.reveal .finale h1 { font-family: $display; font-size: 3.2em; margin: 0 0 .3em; text-align: center; }
+.reveal .finale p { color: $fog; font-size: .95em; }
+.reveal .finale-links { display: flex; flex-direction: column; gap: .4em; margin-top: 1.6em; font-family: $data; font-size: .6em; color: $paper; }
+.reveal .finale-links a { color: $dw; }
+.reveal .small-lead, .reveal p .small-lead { font-size: .8em !important; color: $fog; }
+.reveal .small-lead strong { color: $paper; }
+// ---------- tiers on the Fanout slide ----------
+.reveal .box .tier { display: block; font-family: $data; font-size: .72em; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; margin-bottom: .25em; }
+.reveal .tier.t1 { color: $measured; } .reveal .tier.t2 { color: $dw; } .reveal .tier.td { color: $fog; }
+.reveal .box.rt { border-color: $measured; background: rgba(111,168,220,.1); }
+.reveal .box.t2 { border-color: $dw; background: rgba(46,196,182,.1); }
+.reveal .box.det { border-color: rgba(147,161,161,.6); border-style: dashed; background: none; }
+.reveal .box.t2 small, .reveal .box.rt small { color: $fog; }
+.reveal .tiers { font-size: .62em; color: $paper; gap: 2.2em; margin-top: 1.3em; }
+.reveal .tiers b { font-family: $data; margin-right: .35em; }
+.reveal .tiers .sw { display: inline-block; width: 1.1em; height: 1.1em; border-radius: 3px; margin-right: .5em; vertical-align: -.15em; border: 2px solid; }
+.reveal .tiers .sw.t1 { border-color: $measured; background: rgba(111,168,220,.25); }
+.reveal .tiers .sw.t2 { border-color: $dw; background: rgba(46,196,182,.25); }
+.reveal .tiers .sw.td { border-color: $fog; border-style: dashed; }
+
+.reveal .lchart.scatter svg { max-height: 520px; }
+
+// ---------- animate charts when a slide opens (no clicks) ----------
+@keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.reveal .slides section.present .brow.auto .bfill { animation: grow .9s cubic-bezier(.2,.8,.2,1) var(--d, 0s) both; }
+.reveal .slides section.present .brow.auto .bval,
+.reveal .slides section.present .brow.auto .bext { animation: fadein .4s calc(var(--d, 0s) + .6s) both; }
+.reveal .lchart .auto path.line { stroke-dasharray: 1; stroke-dashoffset: 1; }
+.reveal .slides section.present .lchart .auto path.line { animation: draw 1.2s ease-out var(--d, 0s) both; }
+.reveal .lchart .auto circle, .reveal .lchart .auto text { opacity: 0; }
+.reveal .slides section.present .lchart .auto circle,
+.reveal .slides section.present .lchart .auto text { animation: fadein .4s calc(var(--d, 0s) + .9s) both; }
+html.print-pdf .reveal .lchart .auto path.line { stroke-dashoffset: 0; }
+html.print-pdf .reveal .lchart .auto circle, html.print-pdf .reveal .lchart .auto text { opacity: 1; }
+
+// Fanout slide: tier legend under the title
+.reveal .tiers.top { margin: -.2em 0 1.1em; padding-bottom: .7em; border-bottom: 1px solid $line; font-size: .66em; }
+// agent-session tier cards
+.reveal .tiercards { display: grid; grid-template-columns: 1fr 1.35fr 1fr; gap: .9em; align-items: stretch; }
+.reveal .tcard { border: 1.5px solid $line; border-radius: 8px; padding: .8em 1em; background: rgba(255,255,255,.02); }
+.reveal .tcard.new { border: 2px solid $dw; background: rgba(46,196,182,.08); }
+.reveal .tcard.new .eyebrow { color: $dw; }
+.reveal .tcard dl { display: grid; grid-template-columns: auto 1fr; gap: .6em 1em; margin: .9em 0 0; font-size: .74em; }
+.reveal .tcard { padding: 1em 1.2em; }
+.reveal .tcard dt { font-family: $data; font-size: .85em; color: $fog; text-transform: uppercase; letter-spacing: .05em; padding-top: .1em; }
+.reveal .tcard dd { margin: 0; color: $paper; line-height: 1.35; }
+.reveal .apisketch { margin-top: 1em; display: flex; gap: 1em; align-items: baseline; }
+.reveal .apisketch code { font-size: .6em; color: $harness; }
+.reveal .payoff li { font-size: .78em; }
+
+// lists and table rows appear one by one when the slide opens
+@keyframes rise { from { opacity: 0; transform: translateY(.4em); } to { opacity: 1; transform: none; } }
+.reveal section.autolist li, .reveal section.autolist tbody tr { opacity: 0; }
+.reveal .slides section.present.autolist li, .reveal .slides section.present.autolist tbody tr { animation: rise .3s ease-out both; }
+@for $i from 1 through 8 {
+  .reveal .slides section.present.autolist li:nth-child(#{$i}), .reveal .slides section.present.autolist tbody tr:nth-child(#{$i}) { animation-delay: #{.15 + ($i - 1) * .18}s; }
+}
+html.print-pdf .reveal section.autolist li, html.print-pdf .reveal section.autolist tbody tr { opacity: 1; }
+// title slide spacing
+.reveal .cover { grid-template-columns: 1.6fr 1fr; gap: 3em; }
+.reveal .cover-side { max-width: 460px; }
+.reveal .cover h1 { margin: .55em 0 .6em; }
+.reveal .cover .cover-sub { margin-bottom: 0; }
+.reveal .cover .contact { margin-top: 3em; }
+
+.reveal .bchart.timeonly { grid-template-columns: 30% 1fr; font-size: .8em; }
+.reveal .bchart.timeonly .bhead span:nth-child(3), .reveal .bchart.timeonly .btrack:nth-child(3) { display: none; }
+.reveal .bchart.timeonly .btrack { min-height: 3em; }

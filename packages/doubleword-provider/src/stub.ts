@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createAssistantMessageEventStream, type Api, type AssistantMessageEventStream, type Context, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, getCurrentSystemPrompt, type Api, type AssistantMessageEventStream, type TranscriptContext, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { ASYNC_SERVICE_TIER, BATCHING_DISCIPLINE_MARKER, envInt, sleep } from "./config.ts";
 import { emptyMessage, usageFor } from "./messages.ts";
 import { durationMs, getDoublewordActiveTurnIndex, writeJsonl } from "./observability.ts";
@@ -49,7 +49,7 @@ async function simulateAsyncPolls(model: Model<Api>, responseId: string, turnInd
 	}
 }
 
-function streamStub(tier: "realtime" | "async", model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
+function streamStub(tier: "realtime" | "async", model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
 	const stream = createAssistantMessageEventStream();
 
 	(async () => {
@@ -66,7 +66,7 @@ function streamStub(tier: "realtime" | "async", model: Model<Api>, context: Cont
 				api: model.api,
 				responseId,
 				turnIndex,
-				batchingDiscipline: Boolean(context.systemPrompt?.includes(BATCHING_DISCIPLINE_MARKER)),
+				batchingDiscipline: getCurrentSystemPrompt(context.messages).includes(BATCHING_DISCIPLINE_MARKER),
 			});
 			stream.push({ type: "start", partial: output });
 
@@ -110,10 +110,10 @@ function streamStub(tier: "realtime" | "async", model: Model<Api>, context: Cont
 	return stream;
 }
 
-export function streamRealtimeStub(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
+export function streamRealtimeStub(model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
 	return streamStub("realtime", model, context, options);
 }
 
-export function streamAsyncStub(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
+export function streamAsyncStub(model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
 	return streamStub("async", model, context, options);
 }

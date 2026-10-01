@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { createAssistantMessageEventStream, type Api, type AssistantMessageEventStream, type Context, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, getCurrentTools, type Api, type AssistantMessageEventStream, type TranscriptContext, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { ASYNC_SERVICE_TIER, DEFAULT_ASYNC_TIMEOUT_MS, DEFAULT_CANCEL_TIMEOUT_MS, DOUBLEWORD_API_BASE_URL, elapsedMs, envInt, envString, formatSeconds, maxOutputTokensFor, sleep, withTimeout } from "./config.ts";
 import { fetchJson, fetchJsonWithPollRetry, HttpError } from "./http.ts";
 import { assertCompletedResponse, emitResponseContent, emitResponseToolCalls, emptyMessage, endText, guardRepeatedOutput, pushTextDelta, responsesInput, responsesTools, responseUsageFields, responseUsageSource, startText, usageFromResponse } from "./messages.ts";
@@ -60,6 +60,12 @@ function streamError(data: any): string {
 	return String(data?.error?.message ?? data?.message ?? data?.response?.error?.message ?? JSON.stringify(data));
 }
 
+function requestHeaders(headers: SimpleStreamOptions["headers"]): Headers {
+	const result = new Headers();
+	for (const [name, value] of Object.entries(headers ?? {})) if (value !== null) result.append(name, value);
+	return result;
+}
+
 export function doublewordReasoningEffort(model: Model<Api>, options?: SimpleStreamOptions): string | undefined {
 	if (!model.reasoning) return undefined;
 	const level = options?.reasoning ?? "medium";
@@ -67,8 +73,8 @@ export function doublewordReasoningEffort(model: Model<Api>, options?: SimpleStr
 	return effort === null ? undefined : effort;
 }
 
-export function responsesRequestBody(model: Model<Api>, context: Context, options: SimpleStreamOptions | undefined, body: Record<string, any>): Record<string, any> {
-	const tools = responsesTools(context.tools);
+export function responsesRequestBody(model: Model<Api>, context: TranscriptContext, options: SimpleStreamOptions | undefined, body: Record<string, any>): Record<string, any> {
+	const tools = responsesTools(getCurrentTools(context.messages));
 	const reasoningEffort = doublewordReasoningEffort(model, options);
 	return {
 		model: model.id,
@@ -80,7 +86,7 @@ export function responsesRequestBody(model: Model<Api>, context: Context, option
 	};
 }
 
-export function streamLiveRealtime(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
+export function streamLiveRealtime(model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
 	const stream = createAssistantMessageEventStream();
 
 	(async () => {
@@ -98,7 +104,7 @@ export function streamLiveRealtime(model: Model<Api>, context: Context, options?
 			if (!apiKey) throw new Error("DOUBLEWORD_API_KEY is required for doubleword live provider");
 
 			const baseUrl = envString("DOUBLEWORD_BASE_URL", model.baseUrl ?? DOUBLEWORD_API_BASE_URL).replace(/\/$/, "");
-			const headers = new Headers(options?.headers);
+			const headers = requestHeaders(options?.headers);
 			headers.set("content-type", "application/json");
 			headers.set("authorization", `Bearer ${apiKey}`);
 			const httpResponse = await fetch(`${baseUrl}/responses`, {
@@ -208,7 +214,7 @@ export function streamLiveRealtime(model: Model<Api>, context: Context, options?
 	return stream;
 }
 
-export function streamLiveAsync(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
+export function streamLiveAsync(model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
 	const stream = createAssistantMessageEventStream();
 
 	(async () => {
@@ -220,7 +226,7 @@ export function streamLiveAsync(model: Model<Api>, context: Context, options?: S
 		let lastStatus = "pending";
 		let pollIndex = 0;
 		let baseUrl = envString("DOUBLEWORD_BASE_URL", model.baseUrl ?? DOUBLEWORD_API_BASE_URL).replace(/\/$/, "");
-		let headers = new Headers(options?.headers);
+		let headers = requestHeaders(options?.headers);
 		const output = emptyMessage(model, responseId);
 		const pollMs = envInt("DOUBLEWORD_LIVE_ASYNC_POLL_MS", 2000);
 		const timeoutMs = envInt("DOUBLEWORD_LIVE_ASYNC_TIMEOUT_MS", DEFAULT_ASYNC_TIMEOUT_MS);
