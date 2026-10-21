@@ -162,7 +162,7 @@ try {
   assert(submit.body.service_tier === "flex", `POST /responses missing service_tier flex: ${JSON.stringify(submit.body)}`);
   assert(submit.body.background === true, `POST /responses missing background true: ${JSON.stringify(submit.body)}`);
   assert(submit.body.max_output_tokens === 16384, `POST /responses wrong max_output_tokens: ${JSON.stringify(submit.body)}`);
-  assert(submit.body.reasoning_effort === "medium", `POST /responses missing reasoning_effort medium: ${JSON.stringify(submit.body)}`);
+  assert(submit.body.reasoning?.effort === "medium", `POST /responses missing reasoning.effort medium: ${JSON.stringify(submit.body)}`);
   assert(requests.filter((request) => request.method === "GET" && request.path === `/responses/${successResponseId}`).length === 2, `GET /responses/${successResponseId} retry did not happen: ${JSON.stringify(requests)}`);
 
   const events = readEvents(successLogFile);

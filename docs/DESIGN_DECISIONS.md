@@ -1,5 +1,9 @@
 # Design Decisions
 
+## Send Responses-shaped reasoning effort to Doubleword — 2026-10-21
+
+Doubleword `/v1/responses` now rejects unsupported reasoning fields instead of silently ignoring them. Top-level `reasoning_effort` is the Chat Completions shape; the Responses API expects `reasoning: { effort }`. The provider's realtime and async request body therefore sends `reasoning.effort`. Thinking-level mapping, the `off` → `none` mapping, and omission for non-reasoning models are unchanged.
+
 ## Decode encoded planning objects before Pi validation — 2026-09-28
 
 The Fanout submission tool uses Pi's `prepareArguments` hook to strictly JSON-decode a string-valued `artifact` once before argument validation. Keep the advertised object schema, core artifact contracts, compiler admission, and correction budget unchanged. Apply the same hook to profile, initial combined plan, and correction submissions. Preserve the original tool call and reject malformed JSON with explicit resubmission feedback; do not infer missing structure or recursively decode nested values. Doubleword provider serialization remains independent of Fanout.

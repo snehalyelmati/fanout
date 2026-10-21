@@ -80,7 +80,7 @@ export function responsesRequestBody(model: Model<Api>, context: TranscriptConte
 		model: model.id,
 		input: responsesInput(context),
 		...(tools ? { tools } : {}),
-		...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+		...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
 		...body,
 		max_output_tokens: maxOutputTokensFor(model, options),
 	};

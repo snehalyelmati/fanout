@@ -168,15 +168,15 @@ try {
   assert(JSON.stringify(transcript) === before, "request serialization mutated the transcript");
   assert(usageFor(piModel, transcript, "answer").input === 4, "synthetic usage counted stale or duplicate system text");
   assert(usageFromResponse(piModel, transcript, "answer", {}).input === 4, "fallback usage omitted resolved system text");
-  assert(responsesRequestBody(piModel, context, { reasoning: "high" }, {}).reasoning_effort === "high", "reasoning_effort high was not sent");
-  assert(responsesRequestBody(piModel, context, undefined, {}).reasoning_effort === DOUBLEWORD_THINKING_LEVEL_MAP.medium, "default should map to medium");
-  assert(responsesRequestBody(piModel, context, { reasoning: "off" }, {}).reasoning_effort === DOUBLEWORD_THINKING_LEVEL_MAP.off, "off should map to none");
-  assert(!("reasoning_effort" in responsesRequestBody({ ...piModel, reasoning: false }, context, { reasoning: "high" }, {})), "non-reasoning model should omit reasoning_effort");
+  assert(responsesRequestBody(piModel, context, { reasoning: "high" }, {}).reasoning?.effort === "high", "reasoning.effort high was not sent");
+  assert(responsesRequestBody(piModel, context, undefined, {}).reasoning?.effort === DOUBLEWORD_THINKING_LEVEL_MAP.medium, "default should map to medium");
+  assert(responsesRequestBody(piModel, context, { reasoning: "off" }, {}).reasoning?.effort === DOUBLEWORD_THINKING_LEVEL_MAP.off, "off should map to none");
+  assert(!("reasoning" in responsesRequestBody({ ...piModel, reasoning: false }, context, { reasoning: "high" }, {})), "non-reasoning model should omit reasoning");
   const metadataPiModel = { ...metadataModel, api: "doubleword-api", provider: "doubleword", baseUrl: process.env.DOUBLEWORD_BASE_URL };
-  assert(!("reasoning_effort" in responsesRequestBody(metadataPiModel, context, { reasoning: "off" }, {})), "explicit off:null should omit reasoning_effort");
-  assert(responsesRequestBody(metadataPiModel, context, { reasoning: "high" }, {}).reasoning_effort === "catalog-high", "catalog thinking override was not used");
-  assert(!("reasoning_effort" in responsesRequestBody(piModel, context, { reasoning: "max" }, {})), "unmapped thinking level gained an unsupported provider effort");
-  assert(responsesRequestBody({ ...piModel, thinkingLevelMap: { max: "catalog-max" } }, context, { reasoning: "max" }, {}).reasoning_effort === "catalog-max", "new SDK thinking level ignored its catalog mapping");
+  assert(!("reasoning" in responsesRequestBody(metadataPiModel, context, { reasoning: "off" }, {})), "explicit off:null should omit reasoning");
+  assert(responsesRequestBody(metadataPiModel, context, { reasoning: "high" }, {}).reasoning?.effort === "catalog-high", "catalog thinking override was not used");
+  assert(!("reasoning" in responsesRequestBody(piModel, context, { reasoning: "max" }, {})), "unmapped thinking level gained an unsupported provider effort");
+  assert(responsesRequestBody({ ...piModel, thinkingLevelMap: { max: "catalog-max" } }, context, { reasoning: "max" }, {}).reasoning?.effort === "catalog-max", "new SDK thinking level ignored its catalog mapping");
 
   for (const stream of [streamLiveRealtime, streamLiveAsync]) {
     const result = await stream(piModel, context, { headers: { "X-Preserved": "present", "x-preserved": "extra", "x-omitted": null, "x-empty": "", authorization: null, "content-type": "wrong" } }).result();
