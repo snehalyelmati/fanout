@@ -196,7 +196,7 @@ try {
   assert(submit.body.service_tier === "priority", `POST /responses missing service_tier priority: ${JSON.stringify(submit.body)}`);
   assert(submit.body.stream === true, `POST /responses missing stream=true: ${JSON.stringify(submit.body)}`);
   assert(submit.body.max_output_tokens === 16384, `POST /responses wrong max_output_tokens: ${JSON.stringify(submit.body)}`);
-  assert(submit.body.reasoning_effort === "medium", `POST /responses missing reasoning_effort medium: ${JSON.stringify(submit.body)}`);
+  assert(submit.body.reasoning?.effort === "medium", `POST /responses missing reasoning.effort medium: ${JSON.stringify(submit.body)}`);
   assert(submit.body.background === undefined, `POST /responses should be blocking realtime: ${JSON.stringify(submit.body)}`);
 
   const events = readFileSync(logFile, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));

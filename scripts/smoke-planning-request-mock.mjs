@@ -42,7 +42,7 @@ const server = createServer(async (req, res) => {
       artifactEncoding,
       boundary: "http", model: body.model, system: { present: Boolean(system), ...metadata(system) },
       users: body.input.filter((item) => item.role === "user").map((item) => metadata(JSON.stringify(item.content))),
-      tools: (body.tools ?? []).map((tool) => tool.name), reasoning: body.reasoning_effort,
+      tools: (body.tools ?? []).map((tool) => tool.name), reasoning: body.reasoning?.effort,
     };
     console.log(JSON.stringify(summary));
     requests.push(summary);
@@ -51,7 +51,7 @@ const server = createServer(async (req, res) => {
     assert(system.includes("fanout.plan.orchestration.v1"), "outbound request lost planning instructions");
     assert(system.includes('"phase":"implementation"'), "fixture did not reuse its approved profile");
     assert.deepEqual(summary.tools.toSorted(), ["read", "grep", "find", "ls", "fanout_submit_artifact"].toSorted());
-    assert.equal(body.reasoning_effort, "medium");
+    assert.equal(body.reasoning?.effort, "medium");
     if (scenarioRequests.length === 1) {
       assert(body.input.some((item) => item.type === "function_call_output" && item.output.includes("Synthetic task")), "task read result missing from replay");
     }

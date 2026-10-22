@@ -187,7 +187,7 @@ async function benchmarkCall({ baseUrl, apiKey, model, call, timeoutMs, workload
         input: [{ role: "user", content: [{ type: "input_text", text: workload.prompt }] }],
         service_tier: SERVICE_TIER,
         stream: true,
-        reasoning_effort: REASONING_EFFORT,
+        reasoning: { effort: REASONING_EFFORT },
         max_output_tokens: MAX_OUTPUT_TOKENS,
       }),
     });
@@ -358,7 +358,7 @@ async function selfTest() {
   assert.equal(summary.tokens.reasoning, null);
   assert.equal(summary.reasoningTokenCoverage, "1/2");
   assert.equal(summary.all.firstReasoningMs.count, 1);
-  const replay = await mockCall([[80, frame("response.completed", { response: terminal })], [90, null]], { model: "test-replay", input: [{ role: "user", content: "Keep this input" }], tools: [{ type: "function", name: "test_tool" }], reasoning_effort: "high", max_output_tokens: 65_536, stream: true });
+  const replay = await mockCall([[80, frame("response.completed", { response: terminal })], [90, null]], { model: "test-replay", input: [{ role: "user", content: "Keep this input" }], tools: [{ type: "function", name: "test_tool" }], reasoning: { effort: "high" }, max_output_tokens: 65_536, stream: true });
   assert.equal(replay.record.ok, true);
   assert.equal(replay.record.outputCorrect, null);
   assert.equal(summarize([replay.record]).outputMismatches, 0);
@@ -402,7 +402,7 @@ if (process.argv.includes("--self-test")) {
     createdAt,
     observationsFile,
     timingSource: "client-monotonic-clock; SSE events timestamped at the body read completing their frame, not model token generation",
-    request: { models, callsPerModel, scheduling: "sequential-alternating", requestBodyFile, workload: { id: workload.id, expectedOutput: workload.expectedOutput, inputCharacters: workload.prompt?.length, recordCount: workload.recordCount, targetRecord: workload.targetRecord, sourcePath: workload.sourcePath, sourceSha256: workload.sourceSha256 }, serviceTier: SERVICE_TIER, reasoningEffort: requestBody ? requestBody.reasoning_effort ?? null : REASONING_EFFORT, maxOutputTokens: requestBody?.max_output_tokens ?? MAX_OUTPUT_TOKENS, timeoutMs },
+    request: { models, callsPerModel, scheduling: "sequential-alternating", requestBodyFile, workload: { id: workload.id, expectedOutput: workload.expectedOutput, inputCharacters: workload.prompt?.length, recordCount: workload.recordCount, targetRecord: workload.targetRecord, sourcePath: workload.sourcePath, sourceSha256: workload.sourceSha256 }, serviceTier: SERVICE_TIER, reasoningEffort: requestBody ? requestBody.reasoning?.effort ?? null : REASONING_EFFORT, maxOutputTokens: requestBody?.max_output_tokens ?? MAX_OUTPUT_TOKENS, timeoutMs },
     pricing: { tier: "realtime", ...DOUBLEWORD_PRICING_PROVENANCE },
     records,
     summary,
